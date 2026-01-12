@@ -1,11 +1,11 @@
-Present:
-Pengyu Chen
-Jenil Prajapati
-Brian Li
-Animesh Sachan
+Present:  
+Pengyu Chen  
+Jenil Prajapati  
+Brian Li  
+Animesh Sachan  
 
-Absent:
-Matthew Li
+Absent:  
+Matthew Li  
 
 What we did:
 - Picked an idea each person liked from the ideas list and took a vote on which one to choose for our project idea.
