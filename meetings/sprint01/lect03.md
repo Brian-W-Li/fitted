@@ -1,11 +1,12 @@
-Present:  
-Pengyu Chen  
-Jenil Prajapati  
-Brian Li  
-Animesh Sachan  
+Project: Fitted
 
-Absent:  
-Matthew Li  
+Meeting Time: lect03
+
+Type of meeting: daily scrum
+
+Team: 
+
+Scribed Discussion: Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li [] 
 
 What we did:
 - Picked an idea each person liked from the ideas list and took a vote on which one to choose for our project idea.
