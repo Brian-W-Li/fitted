@@ -5,7 +5,7 @@ Uses the Expo "Tabs" template
 
 ## Tech Stack
 * **Framework:** React Native
-* **Tooling:** Expo Router
+* **Tooling:** Expo Go
 
 ## How to Run This App
 
@@ -16,7 +16,7 @@ Uses the Expo "Tabs" template
 ### Installation
 1. Navigate to the project directory:
    ```bash
-   cd my-hello-world
+   cd matthew-hello-world
    ```
 
 ## Get started
