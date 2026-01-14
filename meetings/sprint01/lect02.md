@@ -1,12 +1,12 @@
-Project: Fitted
+**Project:** Fitted
 
-Meeting Time: lect03
+**Meeting Time:** lect02
 
-Type of meeting: daily scrum
+**Type of meeting:** daily scrum
 
-Team: 
+**Team:** Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li [] 
 
-Scribed Discussion: Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li [] 
+**Scribed Discussion:**
 
 What we did:
 - Picked an idea each person liked from the ideas list and took a vote on which one to choose for our project idea.
