@@ -19,7 +19,6 @@ export default function HomeScreen() {
       {/* 1. Changed "Welcome!" to "Hello World!" */}
       <ThemedView style={styles.titleContainer}>
         <ThemedText type="title">Hello World!</ThemedText>
-        <HelloWave />
       </ThemedView>
 
       {/* 2. Added your name and assignment info here */}
