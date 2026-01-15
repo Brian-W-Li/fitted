@@ -1,18 +1,15 @@
-Project: Fitted
+**Project:** Fitted
 
-Meeting Time: lect03
+**Meeting Time:** lect03
 
-Type of meeting: daily scrum
+**Type of meeting:** daily scrum
 
-Team: 
+**Team:** Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li []  
 
-Scribed Discussion: Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li [] 
+**Scribed Discussion:**
 
 What we did:
-- Picked an idea each person liked from the ideas list and took a vote on which one to choose for our project idea.
-- Worked on team norms
-- Discussed how our pipeline will look like but need to document/detail it our further
-- Decided on frameworks - backend, frontend, database, auth, and deploying
+- Continued to work on lab01 and finished up work on lect02 and lect03 lecture notes
 
 What we need to do:
 - Need to work on our Hello World app from lab01

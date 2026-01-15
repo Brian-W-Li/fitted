@@ -1,0 +1,5 @@
+- If one of us will be absent, communicate in advance
+- Make sure PRs and commits have at least some description of changes
+- Keep code readable and understandable by others
+- PRs should have at least one review/comment before being merged
+- Communicate any blockers early and try to get help (avoids getting stuck on something for long)
