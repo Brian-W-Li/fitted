@@ -34,10 +34,21 @@ They want personalized guidance that uses their existing wardrobe and reduces th
 
 ## High-Level User Stories
 
-- As a user, I want help deciding what to wear so I don’t feel stressed or uncertain.
-- As a user, I want outfit suggestions based on my own clothes so they feel relevant.
-- As a user, I want confidence that my outfit fits the situation I’m dressing for.
-- As a user, I want to feel like I’m making better use of my wardrobe.
+### Supporting Outfit Decisions
+- As a user, I want support when deciding what to wear so that I feel confident and prepared for my situation.
+- As a user, I want outfit guidance that takes my personal taste into account so that the suggestions feel relevant to me.
+
+### Representing My Wardrobe
+- As a user, I want the system to understand what clothes I own so that any guidance I receive is grounded in reality.
+- As a user, I want my wardrobe representation to stay accurate over time so that it continues to reflect what I actually wear.
+
+### Learning My Preferences
+- As a user, I want the system to learn from my past decisions so that its guidance improves over time.
+- As a user, I want to influence future recommendations through my choices so that the system aligns with my evolving taste.
+
+### Reflecting and Revisiting Past Decisions
+- As a user, I want to reflect on past outfit suggestions so that I can reuse or reconsider them later.
+- As a user, I want a sense of continuity across decisions so that my previous interactions are not lost.
 
 ---
 
