@@ -34,3 +34,29 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Database (MongoDB)
+
+This project uses MongoDB via Mongoose for user accounts, wardrobe items, and outfit interactions.
+
+1) Install deps: `pnpm install` (adds `mongoose`).
+2) Configure `.env.local` with `MONGODB_URI=<your connection string>`.
+3) Use `initDatabase()` from `@/lib/db` inside API routes/server actions to connect and register indexes.
+
+### Schemas (current lean version)
+- `User` (`models/User.ts`)
+  - `authProvider` + `authId`: links to auth (e.g., Firebase UID) and is unique.
+  - `email`, `displayName`, `photoURL`: basic profile.
+  - `metadata` (Map): optional extras; leave empty unless you need custom fields.
+  - Indexes: unique on auth identity and email.
+- `WardrobeItem` (`models/WardrobeItem.ts`)
+  - `user`: required owner ref; ensures every item belongs to exactly one user.
+  - Core descriptors only: `name`, `category`, `subCategory`, `colors`, `seasons`, `occasions`, `formality`, `brand`, `fit`, `size`, `imageUrl`, `tags`, `notes`, `isFavorite`, `lastWornAt`, `metadata`.
+  - Indexes: by `user` plus `category`, `tags`, `isFavorite`, `updatedAt` for common filters.
+- `OutfitInteraction` (`models/OutfitInteraction.ts`)
+  - Records what happens when a user sees or uses an outfit, so the system can show history and learn from feedback.
+  - `user`: owner ref.
+  - `items`: wardrobe item ids in the outfit.
+  - `action`: simple feedback events (`generated`, `accepted`, `rejected`, `saved`, `worn`, `rated`).
+  - Optional `rating`, `feedback`, `context`, `metadata` for lightweight notes.
+  - Indexes: by `user`+`createdAt` (timeline) and `user`+`items` (item-level feedback).

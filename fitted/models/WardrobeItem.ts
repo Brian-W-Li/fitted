@@ -1,0 +1,35 @@
+import { Schema, model, models, type InferSchemaType } from "mongoose";
+
+const WardrobeItemSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    name: { type: String, required: true, trim: true },
+    category: { type: String, required: true, index: true },
+    subCategory: { type: String },
+    colors: { type: [String], default: [] },
+    seasons: { type: [String], default: [] },
+    occasions: { type: [String], default: [] },
+    formality: { type: String },
+    brand: { type: String },
+    fit: { type: String },
+    size: { type: String },
+    imageUrl: { type: String },
+    notes: { type: String },
+    tags: { type: [String], default: [] },
+    isFavorite: { type: Boolean, default: false },
+    lastWornAt: { type: Date },
+    metadata: { type: Map, of: Schema.Types.Mixed, default: {} },
+  },
+  { timestamps: true },
+);
+
+WardrobeItemSchema.index({ user: 1, category: 1 });
+WardrobeItemSchema.index({ user: 1, tags: 1 });
+WardrobeItemSchema.index({ user: 1, isFavorite: 1 });
+WardrobeItemSchema.index({ user: 1, updatedAt: -1 });
+
+export type WardrobeItemDocument = InferSchemaType<typeof WardrobeItemSchema>;
+
+const WardrobeItem =
+  models.WardrobeItem || model("WardrobeItem", WardrobeItemSchema);
+export default WardrobeItem;
