@@ -12,13 +12,15 @@ and measurable.
 * a measurement: By completing tickets and making sure they are done by the deadline. 
 
 ## Start, Stop, Continue
-
+#### Start
 - Can do more planning on exactly what our website will look like
 - Start reading the descriptions of the lab before we arrive to class so we don't waste time. (A few bullet points
 of the requirements)
-Stop:
+
+#### Stop
 - Stop approving your own tickets, and get at least one approval from a teammate before merging into main. 
-Continue: 
+
+#### Continue
 - Continue talking regularly in the groupchat, updating each other.
 
 
