@@ -43,6 +43,10 @@ This project uses MongoDB via Mongoose for user accounts, wardrobe items, and ou
 2) Configure `.env.local` with `MONGODB_URI=<your connection string>`.
 3) Use `initDatabase()` from `@/lib/db` inside API routes/server actions to connect and register indexes.
 
+## Auth
+Authentication is handled via Firebase Auth (Google sign-in).
+Each developer must create a `.env.local` with Firebase config values.
+
 ### Schemas (current lean version)
 - `User` (`models/User.ts`)
   - `authProvider` + `authId`: links to auth (e.g., Firebase UID) and is unique.
