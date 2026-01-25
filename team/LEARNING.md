@@ -8,6 +8,8 @@
 - Computer Vision
 - Deployment basics (frontend + backend separation)
 
+- Note: the learning plan needs updating to follow lect04's requirements
+
 ## Helpful Links
 - Next.js fundamentals (https://nextjs.org/docs)
 - MongoDB basics (https://www.mongodb.com/docs/manual/introduction/)
