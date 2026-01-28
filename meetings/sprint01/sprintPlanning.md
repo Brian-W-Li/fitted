@@ -7,7 +7,7 @@
 **Team:** Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li [X]  
 
 **Sprint Goal**
-- Working toward the MVP
+- Getting started with the UI and authorization
 
 **BackLog items to be committed**
 - Get signup and signin pages working
