@@ -9,13 +9,6 @@
 **Sprint Goal**
 - Working toward the MVP
 
-**Attendees**
-- Brian Li
-- Pengyu
-- Jenil
-- Animesh
-- Matthew
-
 **BackLog items to be committed**
 - Working accounts and decent looking UI
 - Recommendation system skeleton online
