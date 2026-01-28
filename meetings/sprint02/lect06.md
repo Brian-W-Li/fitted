@@ -1,23 +1,23 @@
-Project: Fitted
+**Project:** Fitted
 
-Meeting Time: lect06
+**Meeting Time:** lect06
 
-Type of meeting: daily scrum
+**Type of meeting:** daily scrum
 
-Team: Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li [X]
+**Team:** Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li [X]  
 
-Scribed Discussion:
+**Scribed Discussion:**
 
-What we did since last meeting
-Brian: got mongodb setup on his laptop and looked at the schema
-Animesh: researched CV for the final app and started work on MVP
-Jenil: researched training data for ML pipeline
-Pengyu: connected to the database and worked on nav bar ticket
-Matthew: implemented removing user account
-What we are working on next
-Brian: Work on creating an accounts page
-Pengyu: Finish up with the nav bar
-Animesh: Finish up with wardrobe for MVP
-Jenil: Work on finishing baseline suggestions for MVP
-Blockers / concerns
-None
+## What we did since last meeting
+- Brian: Created the account page
+- Animesh: Tested the PRs and gave suggestions also working on the wardrobe page
+- Jenil: ML research -- found links to resources (githubs, reseach papers, scholarly articles) that can help better the recommendation system model.
+- Pengyu: Finished navigation bar
+- Matthew: Ensured the database schema has every wardrobe item linked to exactly one user account.
+## What we are working on next
+- Brian: I am going to try to make the UI look better + work on home page to accounts connection
+- Pengyu: Revise UI
+- Animesh: Finishing up with the wardrobe page
+- Jenil: Implementing the model using the resources to generate output.
+## Blockers / concerns
+- None
