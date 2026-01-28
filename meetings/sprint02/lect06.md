@@ -19,5 +19,6 @@
 - Pengyu: Revise UI
 - Animesh: Finishing up with the wardrobe page
 - Jenil: Implementing the model using the resources to generate output.
+- Matthew: Create more issues under the user stories
 ## Blockers / concerns
 - None
