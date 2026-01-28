@@ -1,10 +1,10 @@
 **Project:** Fitted
 
-**Meeting Time:** lect04
+**Meeting Time:** lect05
 
 **Type of meeting:** daily scrum
 
-**Team:** Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li []  
+**Team:** Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li [X]  
 
 **Scribed Discussion:**
 
