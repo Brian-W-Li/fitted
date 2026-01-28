@@ -1,6 +1,6 @@
 **Project:** Fitted
 
-**Meeting Time:** lect04
+**Meeting Time:** lect05
 
 **Type of meeting:** daily scrum
 
