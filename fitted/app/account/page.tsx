@@ -20,6 +20,7 @@ export default function AccountPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [ageInput, setAgeInput] = useState("");
@@ -30,6 +31,7 @@ export default function AccountPage() {
       try {
         setLoading(true);
         setError(null);
+        setMessage(null);
         setUser(null);
 
         if (!fbUser) {
@@ -52,6 +54,7 @@ export default function AccountPage() {
         }
 
         setUser(data.user);
+        //console.log("account user from api:", data.user);
         setAgeInput(data.user.age == null ? "" : String(data.user.age));
         setGenderInput(data.user.gender ?? "");
       } finally {
@@ -66,6 +69,7 @@ export default function AccountPage() {
     if (!firebaseUid) return;
     setSaving(true);
     setError(null);
+    setMessage(null);
 
     try {
       const res = await fetch("/api/account", {
@@ -87,6 +91,9 @@ export default function AccountPage() {
       setUser(data.user);
       setAgeInput(data.user.age == null ? "" : String(data.user.age));
       setGenderInput(data.user.gender ?? "");
+      setMessage("Saved!");
+      setTimeout(() => setMessage(null), 2000);
+
     } finally {
       setSaving(false);
     }
@@ -104,13 +111,23 @@ export default function AccountPage() {
           <p><b>Email:</b> {user.email}</p>
           <p><b>Display name:</b> {user.displayName ?? "(not set)"}</p>
 
-          {user.photoURL && (
+          {user.photoURL ? (
             <img
               src={user.photoURL}
               alt="profile"
-              style={{ width: 80, height: 80, borderRadius: 9999 }}
+              width = {80}
+              height = {80}
+              referrerPolicy="no-referrer"
+              style={{ borderRadius: 9999, objectFit: "cover", display: "block" }}
+              onLoad={() => console.log("pfp loaded")}
+              onError={(e) => {
+                console.log("pfp failed to load", user.photoURL);
+                e.currentTarget.style.display = "none";
+              }}
             />
-          )}
+          ) : (
+                <p style={{ marginTop: 8, opacity: 0.7 }}>(No profile photo)</p>
+           )}
 
           <div style={{ marginTop: 16 }}>
             <div>
@@ -146,6 +163,7 @@ export default function AccountPage() {
             >
               {saving ? "Saving..." : "Save"}
             </button>
+            {message && <p style={{ marginTop: 12 }}>{message}</p>}
           </div>
         </>
       )}
