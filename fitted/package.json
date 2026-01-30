@@ -10,11 +10,12 @@
   },
   "dependencies": {
     "firebase": "^12.8.0",
+    "firebase-admin": "^13.6.0",
     "mongodb": "^7.0.0",
     "mongoose": "^8.22.0",
-    "next": "^16.1.4",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "next": "^16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
