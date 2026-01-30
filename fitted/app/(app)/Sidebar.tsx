@@ -7,7 +7,7 @@ const navItems = [
   { href: "/", label: "Home" },
   { href: "/wardrobe", label: "Wardrobe" },
   { href: "/history", label: "History" },
-  { href: "/settings", label: "Settings" },
+  { href: "/account", label: "Account" },
 ];
 
 export default function Sidebar() {
