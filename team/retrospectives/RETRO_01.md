@@ -46,5 +46,25 @@ and measurable.
 #### Matthew
 - Start: Start breaking larger tasks into smaller, well-defined action items with deadlines.
 - Stop: Stop waiting until the end of the sprint to surface blockers or concerns.
-- Continue: Continue communicating progress and updates regularly in the team group chat. 
+- Continue: Continue communicating progress and updates regularly in the team group chat.
+
+#### Animesh
+- Start: Start communicating better so I dont miss out on small requirements.
+- Stop: Stop trying to take on too many tasks at once.
+- Continue: Continue the current pacing in order to finish MVP.
+
+#### Jenil
+- Start: Helping people out until your core ticket is near deadline.
+- Stop: Missing deadlines of homeworks.
+- Continue: Finishing up the tickets you're assigned on time and communicating properly with the team.
+
+#### Jenil
+- Start: Communicating better with the team before I make any big changes to the code.
+- Stop: Merging my own pull requests.
+- Continue: Finishing my work at a reasonable pace.
+
+#### Pengyu
+- Start: Start learning finish small task first.
+- Stop: Need to learn many skills.
+- Continue: Revise and build UI.
 

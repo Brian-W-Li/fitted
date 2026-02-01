@@ -2,7 +2,7 @@
 
 **Meeting Time:** lab02 3 pm
 
-**Type of meeting:** sprint planning
+**Type of meeting:** daily scrum
 
 **Team:** Pengyu Chen [x] Jenil Prajapati [x] Brian Li [x] Animesh Sachan [x] Matthew Li []  
 
@@ -20,3 +20,5 @@ What we need to do:
 
 Blockers:
 - Distribute of roles for apps is necessary
+
+

@@ -7,8 +7,13 @@
 - Integrating ML services into a web app
 - Computer Vision
 - Deployment basics (frontend + backend separation)
+-----------------------------------
+- Brian: I am unfamilar with mongoDB and want to brush up on it this week.
+- Animesh: I want to learn Computer Vision during the next week.
+- Matthew: I want to learn how to integrate mongoDB more.
+- Jenil: I want to brush up on ML in general and how to use it for our app.
+- Pengyu: I want to self learn javascript during thd next week.
 
-- Note: the learning plan needs updating to follow lect04's requirements
 
 ## Helpful Links
 - Next.js fundamentals (https://nextjs.org/docs)
