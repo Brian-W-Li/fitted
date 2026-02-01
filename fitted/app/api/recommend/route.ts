@@ -51,8 +51,16 @@ export async function POST(request: NextRequest) {
 
     const { WardrobeItem } = await initDatabase();
 
-    // Fetch user's wardrobe
-    const items = await WardrobeItem.find({ user: userId }).lean().exec();
+    // Fetch user's wardrobe (cast to array: Mongoose Query.lean() can be inferred as single doc)
+    type WardrobeItemLean = {
+      _id: { toString(): string };
+      name: string;
+      category: string;
+      colors?: string[];
+      formality?: string;
+      occasions?: string[];
+    };
+    const items = (await WardrobeItem.find({ user: userId }).lean().exec()) as unknown as WardrobeItemLean[];
 
     if (items.length < 2) {
       return NextResponse.json(
@@ -62,7 +70,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Format items for OpenAI
-    const wardrobeDescription = items.map((item: any) => ({
+    const wardrobeDescription = items.map((item) => ({
       id: item._id.toString(),
       name: item.name,
       category: item.category,
@@ -110,18 +118,18 @@ Respond ONLY with valid JSON in this exact format:
     }
 
     // Map item IDs back to full item data
-    const itemMap = new Map(items.map((item: any) => [item._id.toString(), item]));
-    
-    const outfitsWithDetails = recommendations.outfits.map((outfit: any) => ({
+    const itemMap = new Map(items.map((item) => [item._id.toString(), item]));
+
+    const outfitsWithDetails = recommendations.outfits.map((outfit: { items: string[]; reason: string }) => ({
       items: outfit.items
         .map((id: string) => {
           const item = itemMap.get(id);
           if (!item) return null;
           return {
-            id: (item as any)._id.toString(),
-            name: (item as any).name,
-            category: (item as any).category,
-            colors: (item as any).colors || [],
+            id: item._id.toString(),
+            name: item.name,
+            category: item.category,
+            colors: item.colors ?? [],
           };
         })
         .filter(Boolean),
