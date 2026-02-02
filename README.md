@@ -20,3 +20,52 @@ They can also then choose to favorite outfits so our recommendation model learns
 
 Next.js, Node.js/Python, Vercel, MongoDB (NoSQL DB), Firebase
 
+
+# Installation
+
+## Prerequisites
+
+- Node.js
+- pnpm or npm
+- Git
+- Firebase
+- MongoDB
+- OpenAI
+
+## Dependencies
+
+- next, react, react-dom — App and UI
+- firebase, firebase-admin — Auth (client + server token verification)
+- mongoose, mongodb — MongoDB and models (User, WardrobeItem, OutfitInteraction)
+- openai — Outfit recommendations
+- tailwindcss — Styling
+- typescript, eslint — Types and linting
+
+
+## Installation Steps
+
+`git clone <repo-url>`  
+`cd pj12-outfit-recommender/fitted`  
+`pnpm install`  
+create a .env.local and add the API keys for Firebase Auth, MongoDB, Firebase Service Account, and OpenAI  
+`pnpm dev`  
+
+# Functionality
+
+- Sign in — /signin or /signup (Firebase, e.g. Google); user synced to MongoDB.
+- Wardrobe — Add/edit/delete items (name, category, colors, fit, size, formality, etc.).
+- Home — Pick occasion, get outfit suggestions (OpenAI); accept/reject stored as interactions.
+- History — Past outfit interactions (In Progress feature).
+- Account — Profile and optional age/gender.
+
+# Contributing
+
+Fork it!
+
+Create your feature branch: `git checkout -b my-new-feature`
+
+Commit your changes: `git commit -am 'Add some feature'`
+
+Push to the branch: `git push origin my-new-feature`
+
+Submit a pull request :D
