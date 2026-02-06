@@ -191,9 +191,9 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
       setImageError("Only JPEG, PNG, or WEBP images are allowed.");
       return;
     }
-    const maxBytes = 3 * 1024 * 1024;
+    const maxBytes = 5 * 1024 * 1024;
     if (file.size > maxBytes) {
-      setImageError("Max image size is 2MB.");
+      setImageError("Max image size is 5MB.");
       return;
     }
     setImageFile(file);
