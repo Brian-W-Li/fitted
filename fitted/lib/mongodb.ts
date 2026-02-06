@@ -4,13 +4,18 @@ import mongoose from "mongoose";
  * Re-use the existing Mongoose connection across hot reloads
  * to avoid creating multiple connections in dev/serverless.
  */
-let cached = (global as unknown as { mongoose?: { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null } }).mongoose;
+type MongoCache = {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
+};
 
-if (!cached) {
-  cached = (global as unknown as { mongoose?: { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null } }).mongoose = {
-    conn: null,
-    promise: null,
-  };
+const globalForMongo = globalThis as unknown as { mongoose?: MongoCache };
+const cached: MongoCache = globalForMongo.mongoose ?? {
+  conn: null,
+  promise: null,
+};
+if (!globalForMongo.mongoose) {
+  globalForMongo.mongoose = cached;
 }
 
 export async function connectMongo(): Promise<typeof mongoose> {

@@ -55,21 +55,23 @@ export async function GET(request: NextRequest) {
     const { userId } = userResult;
     const { WardrobeItem } = await initDatabase();
 
-    const items = await WardrobeItem.find({ user: userId })
+    type WardrobeItemLean = {
+      _id: { toString(): string };
+      name: string;
+      category: string;
+      colors?: string[];
+      fit?: string;
+      size?: string;
+      formality?: string;
+      seasons?: string[];
+      occasions?: string[];
+      notes?: string;
+    };
+
+    const items = (await WardrobeItem.find({ user: userId })
       .sort({ updatedAt: -1 })
-      .lean<{
-        _id: string;
-        name: string;
-        category: string;
-        colors?: string[];
-        fit?: string;
-        size?: string;
-        formality?: string;
-        seasons?: string[];
-        occasions?: string[];
-        notes?: string;
-      }>()
-      .exec();
+      .lean()
+      .exec()) as unknown as WardrobeItemLean[];
 
     return NextResponse.json({
       items: items.map((item) => ({
