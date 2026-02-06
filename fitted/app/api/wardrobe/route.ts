@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
       seasons?: string[];
       occasions?: string[];
       notes?: string;
+      imagePath?: string;
     };
 
     const items = (await WardrobeItem.find({ user: userId })
@@ -85,6 +86,7 @@ export async function GET(request: NextRequest) {
         seasons: item.seasons ?? [],
         occasions: item.occasions ?? [],
         notes: item.notes ?? "",
+        imagePath: item.imagePath ?? undefined,
       })),
     });
   } catch (error) {
