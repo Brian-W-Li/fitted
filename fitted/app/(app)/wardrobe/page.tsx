@@ -16,6 +16,7 @@ type WardrobeItem = {
   seasons: string[];
   occasions: string[];
   notes?: string;
+  imagePath?: string;
 };
 
 const FORMALITY_OPTIONS = [
@@ -35,6 +36,19 @@ const OCCASION_OPTIONS = [
   "Workout",
 ];
 
+function imageUrlFromPath(imagePath?: string) {
+  if (!imagePath) return null;
+
+  // your backend returns "mongo:<imageId>"
+  if (imagePath.startsWith("mongo:")) {
+    const imageId = imagePath.slice("mongo:".length);
+    return `/api/images/${imageId}`;
+  }
+
+  // if later you support other storage types, handle them here
+  return null;
+}
+
 function WardrobeCard({
   item,
   onEdit,
@@ -44,72 +58,95 @@ function WardrobeCard({
   onEdit: (item: WardrobeItem) => void;
   onDelete: (item: WardrobeItem) => void;
 }) {
+  const imgSrc = imageUrlFromPath(item.imagePath);
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-2 flex items-baseline justify-between gap-2">
-        <div>
-          <h3 className="text-base font-semibold text-slate-900">
-            {item.name}
-          </h3>
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            {item.category}
-          </span>
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      {/* Image */}
+      {imgSrc ? (
+        <div className="relative h-44 w-full bg-slate-50">
+          <img
+            src={imgSrc}
+            alt={item.name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
         </div>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onEdit(item)}
-            className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            onClick={() => onDelete(item)}
-            className="rounded-full border border-red-200 px-2 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50"
-          >
-            Delete
-          </button>
+      ) : (
+        <div className="flex h-44 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
+          No photo
         </div>
-      </div>
-      <p className="text-xs text-slate-500">
-        {item.fit && `${item.fit} fit`}
-        {item.size && ` • Size ${item.size}`}
-        {item.formality && ` • ${item.formality}`}
-      </p>
-      {item.colors.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {item.colors.map((c) => (
-            <span
-              key={c}
-              className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700"
-            >
-              {c}
+      )}
+
+      {/* Content */}
+      <div className="p-4">
+        <div className="mb-2 flex items-baseline justify-between gap-2">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              {item.category}
             </span>
-          ))}
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onEdit(item)}
+              className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(item)}
+              className="rounded-full border border-red-200 px-2 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50"
+            >
+              Delete
+            </button>
+          </div>
         </div>
-      )}
-      {(item.seasons.length > 0 || item.occasions.length > 0) && (
-        <div className="mt-2 space-y-1">
-          {item.seasons.length > 0 && (
-            <p className="text-[11px] text-slate-500">
-              <span className="font-semibold text-slate-600">Seasons:</span>{" "}
-              {item.seasons.join(", ")}
-            </p>
-          )}
-          {item.occasions.length > 0 && (
-            <p className="text-[11px] text-slate-500">
-              <span className="font-semibold text-slate-600">Occasions:</span>{" "}
-              {item.occasions.join(", ")}
-            </p>
-          )}
-        </div>
-      )}
-      {item.notes && (
-        <p className="mt-2 line-clamp-2 text-[11px] italic text-slate-500">
-          {item.notes}
+
+        <p className="text-xs text-slate-500">
+          {item.fit && `${item.fit} fit`}
+          {item.size && ` • Size ${item.size}`}
+          {item.formality && ` • ${item.formality}`}
         </p>
-      )}
+
+        {item.colors.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {item.colors.map((c) => (
+              <span
+                key={c}
+                className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {(item.seasons.length > 0 || item.occasions.length > 0) && (
+          <div className="mt-2 space-y-1">
+            {item.seasons.length > 0 && (
+              <p className="text-[11px] text-slate-500">
+                <span className="font-semibold text-slate-600">Seasons:</span>{" "}
+                {item.seasons.join(", ")}
+              </p>
+            )}
+            {item.occasions.length > 0 && (
+              <p className="text-[11px] text-slate-500">
+                <span className="font-semibold text-slate-600">Occasions:</span>{" "}
+                {item.occasions.join(", ")}
+              </p>
+            )}
+          </div>
+        )}
+
+        {item.notes && (
+          <p className="mt-2 line-clamp-2 text-[11px] italic text-slate-500">
+            {item.notes}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -118,7 +155,7 @@ type WardrobeFormValues = Omit<WardrobeItem, "id">;
 
 type AddItemModalProps = {
   onClose: () => void;
-  onSave: (item: WardrobeFormValues) => void;
+  onSave: (item: WardrobeFormValues, imageFile: File | null) =>Promise<void> | void;
   initialItem?: WardrobeFormValues;
   title?: string;
 };
@@ -139,6 +176,28 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
     initialItem?.occasions ?? [],
   );
   const [notes, setNotes] = useState(initialItem?.notes ?? "");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  function onPickImage(file: File | null) {
+    setImageError(null);
+    if (!file) {
+      setImageFile(null);
+      return;
+    }
+    // Basic client-side checks (server will enforce too)
+    const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowed.has(file.type)) {
+      setImageError("Only JPEG, PNG, or WEBP images are allowed.");
+      return;
+    }
+    const maxBytes = 5 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setImageError("Max image size is 5MB.");
+      return;
+    }
+    setImageFile(file);
+  }
 
   function toggleInArray(value: string, current: string[], setter: (v: string[]) => void) {
     if (current.includes(value)) {
@@ -148,7 +207,7 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !category.trim()) return;
 
@@ -157,22 +216,26 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
       .map((c) => c.trim())
       .filter(Boolean);
 
-    onSave({
-      name: name.trim(),
-      category: category.trim(),
-      colors,
-      fit: fit.trim(),
-      size: size.trim(),
-      formality: formality.trim(),
-      seasons,
-      occasions,
-      notes: notes.trim() || undefined,
-    });
+    await onSave(
+      {
+        name: name.trim(),
+        category: category.trim(),
+        colors,
+        fit: fit.trim(),
+        size: size.trim(),
+        formality: formality.trim(),
+        seasons,
+        occasions,
+        notes: notes.trim() || undefined,
+      },
+      imageFile
+    );
 
     onClose();
   }
 
   return (
+    
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
       <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
@@ -227,6 +290,24 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
               placeholder="e.g. blue, black"
             />
           </div>
+
+          <div>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            Photo (optional)
+          </label>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
+          />
+          {imageError && <p className="mt-1 text-xs text-red-600">{imageError}</p>}
+          {imageFile && (
+            <p className="mt-1 text-xs text-slate-500">
+              Selected: {imageFile.name} ({Math.round(imageFile.size / 1024)} KB)
+            </p>
+          )}
+        </div>
 
           <div className="grid gap-3 md:grid-cols-3">
             <div>
@@ -356,6 +437,30 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
   );
 }
 
+async function uploadWardrobeItemImage(params: {
+  firebaseUser: FirebaseUser;
+  wardrobeItemId: string;
+  file: File;
+}) {
+  const token = await params.firebaseUser.getIdToken();
+
+  const fd = new FormData();
+  fd.append("file", params.file);
+
+  const res = await fetch(`/api/wardrobe/${params.wardrobeItemId}/image`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // DO NOT set Content-Type for FormData
+    },
+    body: fd,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? "Failed to upload image");
+  return data; // { ok: true, imagePath: "mongo:..." }
+}
+
 export default function WardrobePage() {
   const [items, setItems] = useState<WardrobeItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -397,7 +502,11 @@ export default function WardrobePage() {
           setError(data.error ?? "Failed to load wardrobe.");
           return;
         }
-        setItems(data.items ?? []);
+        const normalized = (data.items ?? []).map((it: any) => ({
+          ...it,
+          id: it.id ?? it._id,
+        }));
+        setItems(normalized);
       } catch (e) {
         console.error("Error loading wardrobe:", e);
         setError("Failed to load wardrobe.");
@@ -432,10 +541,12 @@ export default function WardrobePage() {
     }
   }
 
-  async function handleAddItem(newItem: Omit<WardrobeItem, "id">) {
+  async function handleAddItem(
+    newItem: Omit<WardrobeItem, "id">,
+  ): Promise<WardrobeItem | null> {
     if (!firebaseUser) {
       setError("You are not signed in. Please sign in again.");
-      return;
+      return null;
     }
 
     try {
@@ -449,17 +560,27 @@ export default function WardrobePage() {
         },
         body: JSON.stringify(newItem),
       });
+      
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Failed to save item.");
-        return;
+        return null;
       }
 
-      const saved: WardrobeItem = data.item;
+      const raw = data.item;
+      const saved: WardrobeItem = { ...raw, id: raw.id ?? raw._id };
+
+      if (!saved.id) {
+        setError("Item saved but server did not return an id.");
+        return null;
+      }
+
       setItems((prev) => [saved, ...prev]);
+      return saved;
     } catch (e) {
       console.error("Error saving wardrobe item:", e);
       setError("Failed to save item.");
+      return null;
     }
   }
 
@@ -516,43 +637,89 @@ export default function WardrobePage() {
       {isModalOpen && (
         <AddItemModal
           onClose={() => setIsModalOpen(false)}
-          onSave={async (data) => {
+          onSave={async (data, imageFile) => {
             if (editingItem) {
               // Edit existing item
               if (!firebaseUser) {
                 setError("You are not signed in. Please sign in again.");
                 return;
               }
-              try {
-                setError(null);
-                const token = await firebaseUser.getIdToken();
-                const res = await fetch(`/api/wardrobe/${editingItem.id}`, {
-                  method: "PATCH",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify(data),
-                });
-                const respData = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                  setError(respData.error ?? "Failed to update item.");
-                  return;
-                }
-                const updated: WardrobeItem = respData.item;
-                setItems((prev) =>
-                  prev.map((it) => (it.id === updated.id ? updated : it)),
-                );
-              } catch (e) {
-                console.error("Error updating wardrobe item:", e);
-                setError("Failed to update item.");
-              } finally {
-                setEditingItem(null);
+            try {
+              setError(null);
+
+              const token = await firebaseUser.getIdToken();
+              const res = await fetch(`/api/wardrobe/${editingItem.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(data),
+              });
+
+              const respData = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                setError(respData.error ?? "Failed to update item.");
+                return;
               }
-            } else {
-              // Create new
-              await handleAddItem(data);
+
+              // 🔑 NORMALIZE ID (THIS IS THE FIX)
+              const raw = respData.item;
+              let updated: WardrobeItem = {
+                ...raw,
+                id: raw.id ?? raw._id,
+              };
+
+              if (!updated.id) {
+                setError("Update succeeded but server did not return an id.");
+                return;
+              }
+
+              // 🖼️ upload image AFTER item exists
+              if (imageFile && firebaseUser) {
+                try {
+                  const up = await uploadWardrobeItemImage({
+                    firebaseUser,
+                    wardrobeItemId: updated.id,
+                    file: imageFile,
+                  });
+                  updated = { ...updated, imagePath: up.imagePath };
+                } catch (e) {
+                  console.error(e);
+                  setError(
+                    e instanceof Error ? e.message : "Failed to upload image."
+                  );
+                }
+              }
+
+              // 🔄 update UI state
+              setItems((prev) =>
+                prev.map((it) => (it.id === updated.id ? updated : it))
+              );
+            } catch (e) {
+              console.error("Error updating wardrobe item:", e);
+              setError("Failed to update item.");
+            } finally {
+              setEditingItem(null);
             }
+            } else {
+              const saved = await handleAddItem(data);
+              if (saved && imageFile && firebaseUser) {
+                try {
+                  const up = await uploadWardrobeItemImage({
+                    firebaseUser,
+                    wardrobeItemId: saved.id,
+                    file: imageFile,
+                  });
+                  setItems((prev) => prev.map((it) => it.id === saved.id ? 
+                    { ...it, imagePath: up.imagePath } : it));
+                  
+                } catch (e) {
+                  console.error(e);
+                  setError(e instanceof Error ? e.message : "Failed to upload image.");
+                }
+              }
+            } 
           }}
           initialItem={
             editingItem

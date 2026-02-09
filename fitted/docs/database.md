@@ -18,7 +18,7 @@ Indexes:
 
 ### WardrobeItem (`models/WardrobeItem.ts`)
 - Scope: required `user` reference so every item belongs to one user.
-- Description: `name`, `category`, `subCategory`, `colors`, `seasons`, `occasions`, `formality`, `brand`, `fit`, `size`, `imageUrl`, `tags`, `notes`, `isFavorite`, `lastWornAt`, `metadata`.
+- Description: `name`, `category`, `subCategory`, `colors`, `seasons`, `occasions`, `formality`, `brand`, `fit`, `size`, `imageUrl`, `imagePath`, `tags`, `notes`, `isFavorite`, `lastWornAt`, `metadata`.
 
 Indexes:
 - `{ user: 1, category: 1 }` — common browse/filter by category within a user.

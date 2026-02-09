@@ -3,6 +3,7 @@ import { connectMongo } from "@/lib/mongodb";
 import OutfitInteraction from "@/models/OutfitInteraction";
 import User from "@/models/User";
 import WardrobeItem from "@/models/WardrobeItem";
+import WardrobeImage from "@/models/WardrobeImage";
 
 /**
  * Connects to MongoDB and ensures indexes are registered.
@@ -14,9 +15,10 @@ export async function initDatabase() {
     User.init(),
     WardrobeItem.init(),
     OutfitInteraction.init(),
+    WardrobeImage.init(),
   ]);
 
-  return { User, WardrobeItem, OutfitInteraction };
+  return { User, WardrobeItem, OutfitInteraction, WardrobeImage};
 }
 
 export type DatabaseModels = Awaited<ReturnType<typeof initDatabase>>;

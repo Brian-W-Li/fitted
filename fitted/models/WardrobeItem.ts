@@ -14,6 +14,10 @@ const WardrobeItemSchema = new Schema(
     fit: { type: String },
     size: { type: String },
     imageUrl: { type: String },
+
+    //New: points to WadrobeImage doc in mongodb where the image is
+    imagePath: {type: String },
+
     notes: { type: String },
     tags: { type: [String], default: [] },
     isFavorite: { type: Boolean, default: false },
