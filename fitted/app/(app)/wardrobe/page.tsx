@@ -8,6 +8,7 @@ import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 type WardrobeItem = {
   id: string;
   name: string;
+  clothingType?: "top" | "bottom";
   category: string;
   colors: string[];
   fit: string;
@@ -38,15 +39,17 @@ const OCCASION_OPTIONS = [
 
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
-
-  // your backend returns "mongo:<imageId>"
   if (imagePath.startsWith("mongo:")) {
     const imageId = imagePath.slice("mongo:".length);
     return `/api/images/${imageId}`;
   }
-
-  // if later you support other storage types, handle them here
   return null;
+}
+
+function inferClothingType(category: string): "top" | "bottom" {
+  const cat = category.toLowerCase();
+  const bottomKeywords = ["jean", "jeans", "pants", "pant", "short", "shorts", "skirt", "trouser", "chino", "jogger", "legging", "sweatpant"];
+  return bottomKeywords.some(k => cat.includes(k)) ? "bottom" : "top";
 }
 
 function WardrobeCard({
@@ -82,7 +85,16 @@ function WardrobeCard({
       <div className="p-4">
         <div className="mb-2 flex items-baseline justify-between gap-2">
           <div>
-            <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                (item.clothingType || inferClothingType(item.category)) === "top"
+                  ? "bg-blue-100 text-blue-700"
+                  : "bg-amber-100 text-amber-700"
+              }`}>
+                {item.clothingType || inferClothingType(item.category)}
+              </span>
+            </div>
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
               {item.category}
             </span>
@@ -162,6 +174,9 @@ type AddItemModalProps = {
 
 function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps) {
   const [name, setName] = useState(initialItem?.name ?? "");
+  const [clothingType, setClothingType] = useState<"top" | "bottom">(
+    initialItem?.clothingType || (initialItem?.category ? inferClothingType(initialItem.category) : "top")
+  );
   const [category, setCategory] = useState(initialItem?.category ?? "");
   const [colorsInput, setColorsInput] = useState(
     initialItem?.colors?.join(", ") ?? "",
@@ -219,6 +234,7 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
     await onSave(
       {
         name: name.trim(),
+        clothingType,
         category: category.trim(),
         colors,
         fit: fit.trim(),
@@ -252,6 +268,44 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-2">
+              Clothing Type *
+            </label>
+            <div className="flex gap-4">
+              <label className={`flex-1 cursor-pointer rounded-lg py-3 px-4 text-sm font-medium text-center transition-all ${
+                clothingType === "top"
+                  ? "bg-slate-900 text-white shadow-md"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}>
+                <input
+                  type="radio"
+                  name="clothingType"
+                  value="top"
+                  checked={clothingType === "top"}
+                  onChange={() => setClothingType("top")}
+                  className="sr-only"
+                />
+                👕 Upper Wear (Top)
+              </label>
+              <label className={`flex-1 cursor-pointer rounded-lg py-3 px-4 text-sm font-medium text-center transition-all ${
+                clothingType === "bottom"
+                  ? "bg-slate-900 text-white shadow-md"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}>
+                <input
+                  type="radio"
+                  name="clothingType"
+                  value="bottom"
+                  checked={clothingType === "bottom"}
+                  onChange={() => setClothingType("bottom")}
+                  className="sr-only"
+                />
+                👖 Lower Wear (Bottom)
+              </label>
+            </div>
+          </div>
+
           <div className="grid gap-3 md:grid-cols-2">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
