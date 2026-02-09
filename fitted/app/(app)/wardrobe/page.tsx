@@ -293,8 +293,23 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
 
           <div>
           <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-            Photo (optional)
+            Photo {initialItem?.imagePath ? "(current image saved)" : "(optional)"}
           </label>
+          {/* Show existing image if editing */}
+          {initialItem?.imagePath && !imageFile && (
+            <div className="mt-2 mb-2 flex items-center gap-3">
+              <div className="h-16 w-16 overflow-hidden rounded-lg bg-slate-100">
+                <img
+                  src={imageUrlFromPath(initialItem.imagePath) || ""}
+                  alt="Current"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <p className="text-xs text-slate-500">
+                Current image will be kept unless you upload a new one.
+              </p>
+            </div>
+          )}
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp"
@@ -304,7 +319,7 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
           {imageError && <p className="mt-1 text-xs text-red-600">{imageError}</p>}
           {imageFile && (
             <p className="mt-1 text-xs text-slate-500">
-              Selected: {imageFile.name} ({Math.round(imageFile.size / 1024)} KB)
+              New image selected: {imageFile.name} ({Math.round(imageFile.size / 1024)} KB)
             </p>
           )}
         </div>
@@ -733,6 +748,7 @@ export default function WardrobePage() {
                   seasons: editingItem.seasons,
                   occasions: editingItem.occasions,
                   notes: editingItem.notes,
+                  imagePath: editingItem.imagePath,
                 }
               : undefined
           }

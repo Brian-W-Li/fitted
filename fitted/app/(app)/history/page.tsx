@@ -9,7 +9,18 @@ interface OutfitItem {
   name: string;
   category: string;
   colors: string[];
-  imageUrl?: string;
+  imagePath?: string;
+}
+
+// Helper to convert imagePath to actual image URL
+function imageUrlFromPath(imagePath?: string) {
+  if (!imagePath) return null;
+  // Backend stores images as "mongo:<imageId>"
+  if (imagePath.startsWith("mongo:")) {
+    const imageId = imagePath.slice("mongo:".length);
+    return `/api/images/${imageId}`;
+  }
+  return null;
 }
 
 interface Interaction {
@@ -22,6 +33,14 @@ interface Interaction {
 
 type TabType = "liked" | "disliked";
 
+const OCCASIONS = [
+  { value: "all", label: "All Occasions" },
+  { value: "casual", label: "Casual" },
+  { value: "business", label: "Business" },
+  { value: "formal", label: "Formal" },
+  { value: "date night", label: "Date Night" },
+];
+
 export default function HistoryPage() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("liked");
@@ -30,6 +49,7 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [occasionFilter, setOccasionFilter] = useState("all");
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -167,15 +187,47 @@ export default function HistoryPage() {
     }
   };
 
-  const currentOutfits = activeTab === "liked" ? likedOutfits : dislikedOutfits;
+  const baseOutfits = activeTab === "liked" ? likedOutfits : dislikedOutfits;
+  const currentOutfits = occasionFilter === "all"
+    ? baseOutfits
+    : baseOutfits.filter((outfit) => outfit.occasion.toLowerCase() === occasionFilter.toLowerCase());
+
+  // Get counts for filter badges
+  const filteredLikedCount = occasionFilter === "all"
+    ? likedOutfits.length
+    : likedOutfits.filter((o) => o.occasion.toLowerCase() === occasionFilter.toLowerCase()).length;
+  const filteredDislikedCount = occasionFilter === "all"
+    ? dislikedOutfits.length
+    : dislikedOutfits.filter((o) => o.occasion.toLowerCase() === occasionFilter.toLowerCase()).length;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">History</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Review your past outfit recommendations and feedback.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 className="text-3xl font-semibold tracking-tight">History</h1>
+      <p className="mt-2 text-sm text-slate-600">
+            Review your past outfit recommendations and feedback.
+          </p>
+        </div>
+
+        {/* Occasion Filter */}
+        <div className="flex items-center gap-2">
+          <label htmlFor="occasion-filter" className="text-sm font-medium text-slate-600">
+            Filter by:
+          </label>
+          <select
+            id="occasion-filter"
+            value={occasionFilter}
+            onChange={(e) => setOccasionFilter(e.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500"
+          >
+            {OCCASIONS.map((occasion) => (
+              <option key={occasion.value} value={occasion.value}>
+                {occasion.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -191,9 +243,9 @@ export default function HistoryPage() {
           <span className="flex items-center gap-2">
             <span>👍</span>
             Liked
-            {likedOutfits.length > 0 && (
+            {filteredLikedCount > 0 && (
               <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                {likedOutfits.length}
+                {filteredLikedCount}
               </span>
             )}
           </span>
@@ -212,9 +264,9 @@ export default function HistoryPage() {
           <span className="flex items-center gap-2">
             <span>👎</span>
             Disliked
-            {dislikedOutfits.length > 0 && (
+            {filteredDislikedCount > 0 && (
               <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                {dislikedOutfits.length}
+                {filteredDislikedCount}
               </span>
             )}
           </span>
@@ -248,13 +300,29 @@ export default function HistoryPage() {
             {activeTab === "liked" ? "👍" : "👎"}
           </div>
           <p className="text-slate-600">
-            {activeTab === "liked"
-              ? "You haven't liked any outfits yet."
-              : "You haven't disliked any outfits yet."}
+            {occasionFilter !== "all" ? (
+              <>No {activeTab} outfits found for <span className="font-medium capitalize">{occasionFilter}</span>.</>
+            ) : activeTab === "liked" ? (
+              "You haven't liked any outfits yet."
+            ) : (
+              "You haven't disliked any outfits yet."
+            )}
           </p>
           <p className="mt-1 text-sm text-slate-500">
-            Get recommendations on the Home page and provide feedback to see them here.
+            {occasionFilter !== "all" ? (
+              "Try selecting a different occasion or clear the filter."
+            ) : (
+              "Get recommendations on the Home page and provide feedback to see them here."
+            )}
           </p>
+          {occasionFilter !== "all" && (
+            <button
+              onClick={() => setOccasionFilter("all")}
+              className="mt-3 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-300"
+            >
+              Clear Filter
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -340,42 +408,65 @@ export default function HistoryPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {outfit.items.map((item) => (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {outfit.items.map((item) => {
+                  const imgSrc = imageUrlFromPath(item.imagePath);
+                  return (
                   <div
                     key={item.id}
-                    className="rounded-lg border border-slate-100 bg-white p-3"
+                    className="flex gap-3 rounded-lg border border-slate-100 bg-white p-3"
                   >
-                    {item.imageUrl && (
-                      <div className="mb-2 aspect-square overflow-hidden rounded-md bg-slate-100">
+                    {/* Image */}
+                    <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                      {imgSrc ? (
                         <img
-                          src={item.imageUrl}
+                          src={imgSrc}
                           alt={item.name}
                           className="h-full w-full object-cover"
                         />
-                      </div>
-                    )}
-                    <p className="font-medium text-slate-900 truncate">{item.name}</p>
-                    <p className="text-sm text-slate-500">{item.category}</p>
-                    {item.colors.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {item.colors.slice(0, 3).map((color, i) => (
-                          <span
-                            key={i}
-                            className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-700"
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-slate-400">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="24"
+                            height="24"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           >
-                            {color}
-                          </span>
-                        ))}
-                        {item.colors.length > 3 && (
-                          <span className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-500">
-                            +{item.colors.length - 3}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                            <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.47a1 1 0 00.99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.47a2 2 0 00-1.34-2.23z" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    {/* Details */}
+                    <div className="flex flex-col justify-center min-w-0">
+                      <p className="font-medium text-slate-900 truncate">{item.name}</p>
+                      <p className="text-sm text-slate-500 capitalize">{item.category}</p>
+                      {item.colors.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {item.colors.slice(0, 3).map((color, i) => (
+                            <span
+                              key={i}
+                              className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-700"
+                            >
+                              {color}
+                            </span>
+                          ))}
+                          {item.colors.length > 3 && (
+                            <span className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-500">
+                              +{item.colors.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}

@@ -98,6 +98,7 @@ export async function PATCH(
         seasons: doc.seasons ?? [],
         occasions: doc.occasions ?? [],
         notes: doc.notes ?? "",
+        imagePath: doc.imagePath ?? undefined,
       },
     });
   } catch (error) {

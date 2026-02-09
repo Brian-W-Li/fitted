@@ -46,8 +46,15 @@ export async function GET(request: NextRequest) {
 
     const { OutfitInteraction } = await initDatabase();
 
-    // Build query
-    const query: Record<string, unknown> = { user: userId };
+    // Calculate date one month ago
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+    // Build query - only show interactions from the past month
+    const query: Record<string, unknown> = {
+      user: userId,
+      createdAt: { $gte: oneMonthAgo },
+    };
     if (action && ["accepted", "rejected"].includes(action)) {
       query.action = action;
     } else {
@@ -59,7 +66,7 @@ export async function GET(request: NextRequest) {
     const interactions = await OutfitInteraction.find(query)
       .populate({
         path: "items",
-        select: "name category colors imageUrl",
+        select: "name category colors imagePath",
       })
       .sort({ createdAt: -1 })
       .limit(50)
@@ -67,26 +74,16 @@ export async function GET(request: NextRequest) {
       .exec();
 
     // Format the response
-    const formattedInteractions = interactions.map((interaction: {
-      _id: { toString: () => string };
-      items: Array<{
-        _id: { toString: () => string };
-        name: string;
-        category: string;
-        colors: string[];
-        imageUrl?: string;
-      }>;
-      action: string;
-      context?: { occasion?: string };
-      createdAt: Date;
-    }) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const formattedInteractions = interactions.map((interaction: any) => ({
       id: interaction._id.toString(),
-      items: interaction.items.map((item) => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      items: interaction.items.map((item: any) => ({
         id: item._id.toString(),
         name: item.name,
         category: item.category,
         colors: item.colors || [],
-        imageUrl: item.imageUrl,
+        imagePath: item.imagePath,
       })),
       action: interaction.action,
       occasion: interaction.context?.occasion || "casual",
