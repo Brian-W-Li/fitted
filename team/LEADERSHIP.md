@@ -11,3 +11,5 @@
 | Wed 01/28 | Animesh       | Pushed everyone to be on task to finish mvp |
 | Fri 01/30 | Matthew       | Coordinated the weedend meeting to film the video |
 | Mon 02/02 | Jenil         | Pushed everyone to review other peoples mvps |
+| Wed 02/04 | Pengyu        | Encouraged everyone to share what they were working on |
+| Mon 02/09 | Brian         | Made sure everyone is reviewing other people's pr's    |
