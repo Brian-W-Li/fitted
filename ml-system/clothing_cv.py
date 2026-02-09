@@ -148,7 +148,7 @@ _CACHE: dict[str, Any] = {}
 
 def _classify_zero_shot(pil_image: Image.Image, candidate_labels: list[str], pipe: Any) -> tuple[str, float]:
     """Return best label and its confidence (0-1). Pipeline returns list of {score, label} sorted by score."""
-    out = pipe(images=pil_image, candidate_labels=candidate_labels)
+    out = pipe(image=pil_image, candidate_labels=candidate_labels)
     if not out:
         return candidate_labels[0], 0.0
     best = out[0]
