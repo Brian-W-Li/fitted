@@ -1,5 +1,5 @@
 ## Testing Libraries Evaluated
-- Frontend: Jest + React Testing Library (chosen)
+- Frontend: Jest + React Testing Library
 - Backend (Node): Jest
 - Backend (Python): pytest
 
