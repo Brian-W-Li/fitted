@@ -4,6 +4,7 @@ const WardrobeItemSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     name: { type: String, required: true, trim: true },
+    clothingType: { type: String, enum: ["top", "bottom"], default: "top", index: true },
     category: { type: String, required: true, index: true },
     subCategory: { type: String },
     colors: { type: [String], default: [] },
@@ -14,10 +15,6 @@ const WardrobeItemSchema = new Schema(
     fit: { type: String },
     size: { type: String },
     imageUrl: { type: String },
-
-    //New: points to WadrobeImage doc in mongodb where the image is
-    imagePath: {type: String },
-
     notes: { type: String },
     tags: { type: [String], default: [] },
     isFavorite: { type: Boolean, default: false },

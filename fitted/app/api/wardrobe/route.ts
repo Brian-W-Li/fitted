@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
     type WardrobeItemLean = {
       _id: { toString(): string };
       name: string;
+      clothingType?: "top" | "bottom";
       category: string;
       colors?: string[];
       fit?: string;
@@ -66,7 +67,6 @@ export async function GET(request: NextRequest) {
       seasons?: string[];
       occasions?: string[];
       notes?: string;
-      imagePath?: string;
     };
 
     const items = (await WardrobeItem.find({ user: userId })
@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
       items: items.map((item) => ({
         id: item._id.toString(),
         name: item.name,
+        clothingType: item.clothingType,
         category: item.category,
         colors: item.colors ?? [],
         fit: item.fit ?? "",
@@ -86,7 +87,6 @@ export async function GET(request: NextRequest) {
         seasons: item.seasons ?? [],
         occasions: item.occasions ?? [],
         notes: item.notes ?? "",
-        imagePath: item.imagePath ?? undefined,
       })),
     });
   } catch (error) {
@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       name,
+      clothingType = "top",
       category,
       colors = [],
       fit = "",
@@ -130,10 +131,11 @@ export async function POST(request: NextRequest) {
     }
 
     const { WardrobeItem } = await initDatabase();
-
+    const clothingTypeToSave = clothingType === "bottom" ? "bottom" : "top";
     const itemDoc = await WardrobeItem.create({
       user: userId,
       name: String(name).trim(),
+      clothingType: clothingTypeToSave,
       category: String(category).trim(),
       colors: Array.isArray(colors) ? colors : [],
       fit: String(fit || "").trim() || undefined,
@@ -149,6 +151,7 @@ export async function POST(request: NextRequest) {
         item: {
           id: itemDoc._id.toString(),
           name: itemDoc.name,
+          clothingType: itemDoc.clothingType ?? "top",
           category: itemDoc.category,
           colors: itemDoc.colors ?? [],
           fit: itemDoc.fit ?? "",

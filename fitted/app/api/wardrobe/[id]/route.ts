@@ -46,12 +46,12 @@ export async function PATCH(
     const { userId } = userResult;
     const { id: itemId } = await params;
     const body = await request.json();
-
     const { WardrobeItem } = await initDatabase();
 
     const update: Record<string, unknown> = {};
     const fields = [
       "name",
+      "clothingType",
       "category",
       "colors",
       "fit",
@@ -66,6 +66,9 @@ export async function PATCH(
       if (field in body) {
         if (field === "colors" || field === "seasons" || field === "occasions") {
           update[field] = Array.isArray(body[field]) ? body[field] : [];
+        } else if (field === "clothingType") {
+          const v = body[field];
+          update[field] = v === "bottom" ? "bottom" : "top";
         } else {
           const v = body[field];
           update[field] = typeof v === "string" ? v.trim() : v;
@@ -75,7 +78,7 @@ export async function PATCH(
 
     const doc = await WardrobeItem.findOneAndUpdate(
       { _id: itemId, user: userId },
-      update,
+      { $set: update },
       { new: true },
     ).exec();
 
@@ -90,6 +93,7 @@ export async function PATCH(
       item: {
         id: doc._id.toString(),
         name: doc.name,
+        clothingType: doc.clothingType ?? "top",
         category: doc.category,
         colors: doc.colors ?? [],
         fit: doc.fit ?? "",
