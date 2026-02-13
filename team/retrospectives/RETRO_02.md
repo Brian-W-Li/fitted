@@ -6,31 +6,28 @@
 
 ## Action item
 
-* a goal: Be done with our MVP by next Friday, Jan. 30th by midnight
-* a change/experiment: Divide bigger goals into smaller tasks with specific deadlines, this way it's more manageable
+* a goal: Have the vision integrated by the next MVP and the ML 
+* a change/experiment: Start writing documentation and clear testing for ML so that everyone can work on it together
 and measurable. 
-* a measurement: By completing tickets and making sure they are done by the deadline. 
+* a measurement: Amount of documentation and whether people are able to understand the code.
 
 ## Start, Stop, Continue
 #### Start
-- Can do more planning on exactly what our website will look like
-- Start reading the descriptions of the lab before we arrive to class so we don't waste time. (A few bullet points
-of the requirements)
+- Writing comprehensive documentation and do clear testing
 
 #### Stop
-- Stop approving your own tickets, and get at least one approval from a teammate before merging into main. 
+- Stop changing the UI too much since its secondary now 
 
 #### Continue
-- Continue talking regularly in the groupchat, updating each other.
-
+- Continue helping each other out and being a good team.
 
 ## Retro Assessment
 
-Retro process used: We used a Start, Stop, Continue retrospective format. Each team member took turns sharing one thing the team should start doing, stop doing, and continue doing. This ensured everyone had a chance to contribute and kept the discussion structured.
+Retro process used: We used the goal, change/experiment, and measurement template. Each member tok turns sharing things the team should work towards, the changes to go towards this goal, and how to measure this change. The consensus of the group was that since we need to focus on the ML and vision, we need everyone on the team to be onboard. 
 
-Assessment of how it went: The retro went well overall. Everyone participated, and the turn-taking helped prevent interruptions while allowing honest feedback. We were able to identify a few concrete areas for improvement as well as recognize what has been working well.
+Assessment of how it went: The retro went well. It felt like everyone had a similar idea of what the team is aiming toward. We were also able to identify concrete steps for improvement such as documentation and testing.
 
-Advice for the next retro lead: I would recommend clearly explaining the retro format at the beginning and keeping the discussion focused on actionable points.
+Advice for the next retro lead: I would recommend prompting everyone to speak more since it felt like once everyone had one idea in mind in mind.
 
 
   ## Experiment/Change
