@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
     type WardrobeItemLean = {
       _id: { toString(): string };
       name: string;
+      clothingType?: "top" | "bottom";
       category: string;
       subCategory?: string;
       pattern?: string;
@@ -80,6 +81,7 @@ export async function GET(request: NextRequest) {
       items: items.map((item) => ({
         id: item._id.toString(),
         name: item.name,
+        clothingType: item.clothingType,
         category: item.category,
         subCategory: item.subCategory ?? "",
         pattern: item.pattern ?? "",
@@ -116,6 +118,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       name,
+      clothingType = "top",
       category,
       subCategory = "",
       pattern = "",
@@ -136,10 +139,11 @@ export async function POST(request: NextRequest) {
     }
 
     const { WardrobeItem } = await initDatabase();
-
+    const clothingTypeToSave = clothingType === "bottom" ? "bottom" : "top";
     const itemDoc = await WardrobeItem.create({
       user: userId,
       name: String(name).trim(),
+      clothingType: clothingTypeToSave,
       category: String(category).trim(),
       subCategory: String(subCategory || "").trim() || undefined,
       pattern: String(pattern || "").trim() || undefined,
@@ -157,6 +161,7 @@ export async function POST(request: NextRequest) {
         item: {
           id: itemDoc._id.toString(),
           name: itemDoc.name,
+          clothingType: itemDoc.clothingType ?? "top",
           category: itemDoc.category,
           subCategory: itemDoc.subCategory ?? "",
           pattern: itemDoc.pattern ?? "",
