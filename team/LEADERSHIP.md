@@ -13,3 +13,4 @@
 | Mon 02/02 | Jenil         | Pushed everyone to review other peoples mvps |
 | Wed 02/04 | Pengyu        | Encouraged everyone to share what they were working on |
 | Mon 02/09 | Brian         | Made sure everyone is reviewing other people's pr's    |
+| Wed 02/11 | Matthew       | Made sure everyone was coordinated on what to test |

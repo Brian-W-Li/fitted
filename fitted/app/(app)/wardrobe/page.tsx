@@ -10,6 +10,7 @@ import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 type WardrobeItem = {
   id: string;
   name: string;
+  clothingType?: "top" | "bottom";
   category: string;
   subCategory?: string;
   pattern?: string;
@@ -63,15 +64,17 @@ const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
 
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
-
-  // your backend returns "mongo:<imageId>"
   if (imagePath.startsWith("mongo:")) {
     const imageId = imagePath.slice("mongo:".length);
     return `/api/images/${imageId}`;
   }
-
-  // if later you support other storage types, handle them here
   return null;
+}
+
+function inferClothingType(category: string): "top" | "bottom" {
+  const cat = category.toLowerCase();
+  const bottomKeywords = ["jean", "jeans", "pants", "pant", "short", "shorts", "skirt", "trouser", "chino", "jogger", "legging", "sweatpant"];
+  return bottomKeywords.some(k => cat.includes(k)) ? "bottom" : "top";
 }
 
 function WardrobeCard({
@@ -107,7 +110,16 @@ function WardrobeCard({
       <div className="p-4">
         <div className="mb-2 flex items-baseline justify-between gap-2">
           <div>
-            <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                (item.clothingType || inferClothingType(item.category)) === "top"
+                  ? "bg-blue-100 text-blue-700"
+                  : "bg-amber-100 text-amber-700"
+              }`}>
+                {item.clothingType || inferClothingType(item.category)}
+              </span>
+            </div>
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
               {item.subCategory ? `${item.subCategory} · ${item.category}` : item.category}
             </span>
@@ -975,6 +987,7 @@ export default function WardrobePage() {
                   seasons: editingItem.seasons ?? [],
                   occasions: editingItem.occasions ?? [],
                   notes: editingItem.notes,
+                  imagePath: editingItem.imagePath,
                 }
               : addStep === "form"
                 ? addInferred ?? undefined

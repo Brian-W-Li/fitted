@@ -4,6 +4,7 @@ const WardrobeItemSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     name: { type: String, required: true, trim: true },
+    clothingType: { type: String, enum: ["top", "bottom"], default: "top", index: true },
     category: { type: String, required: true, index: true },
     subCategory: { type: String },
     pattern: { type: String },
