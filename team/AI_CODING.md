@@ -24,3 +24,18 @@ ChatGPT was helpful to an extent. It was able to identify the broken area really
 
 Ensuring correctness and understanding:
 It is important to review ChatGPT's responses and don't blindly trust it. You must read through their suggestions and ask questions until you understand. All AI-generated code must be modified and carefully reviewed to fit the project.
+
+
+
+### Pengyu
+AI tools used: ChatGPT
+
+Outcomes:
+I used AI mainly for UI work, including sign-in, app layout/navigation, and wardrobe pages. I also added three item categories (Top, Bottom, Shoes) and synced related frontend/backend updates.
+
+Usefulness:
+Cursor helped me write and adjust UI code faster. ChatGPT helped with debugging auth/routing issues and checking data flow.
+
+Ensuring correctness and understanding:
+I tested features after changes instead of trusting AI directly. I reviewed and modified AI suggestions to match our project structure.
+
