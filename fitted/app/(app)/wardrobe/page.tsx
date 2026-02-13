@@ -3,12 +3,16 @@
 
 import { useEffect, useState } from "react";
 import { auth } from "@/lib/firebaseClient";
+import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
+import { validateWardrobeForm } from "@/lib/wardrobeValidation";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 
 type WardrobeItem = {
   id: string;
   name: string;
   category: string;
+  subCategory?: string;
+  pattern?: string;
   colors: string[];
   fit: string;
   size: string;
@@ -19,22 +23,43 @@ type WardrobeItem = {
   imagePath?: string;
 };
 
+// Values must match CV output (cv-service/cv.py) for pre-fill; display is Title Case in the UI.
+const CATEGORY_OPTIONS = [
+  { value: "top", label: "Top" },
+  { value: "bottom", label: "Bottom" },
+  { value: "footwear", label: "Footwear" },
+] as const;
+const TYPE_OPTIONS = [
+  { value: "t-shirt", label: "T-Shirt" },
+  { value: "shirt", label: "Shirt" },
+  { value: "sweater", label: "Sweater" },
+  { value: "hoodie", label: "Hoodie" },
+  { value: "jacket", label: "Jacket" },
+  { value: "jeans", label: "Jeans" },
+  { value: "pants", label: "Pants" },
+  { value: "shorts", label: "Shorts" },
+  { value: "skirt", label: "Skirt" },
+  { value: "sneakers", label: "Sneakers" },
+  { value: "boots", label: "Boots" },
+  { value: "sandals", label: "Sandals" },
+  { value: "dress shoes", label: "Dress Shoes" },
+] as const;
+const PATTERN_OPTIONS = [
+  { value: "solid", label: "Solid" },
+  { value: "striped", label: "Striped" },
+  { value: "plaid", label: "Plaid" },
+  { value: "floral", label: "Floral" },
+  { value: "graphic", label: "Graphic" },
+] as const;
 const FORMALITY_OPTIONS = [
   "Casual",
   "Smart Casual",
   "Business Casual",
   "Formal",
 ];
-
 const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
-
-const OCCASION_OPTIONS = [
-  "Everyday",
-  "Work",
-  "Going Out",
-  "Formal Event",
-  "Workout",
-];
+const OCCASION_OPTIONS = ["Everyday", "Work", "Formal Event", "Workout"];
+const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
 
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
@@ -84,7 +109,7 @@ function WardrobeCard({
           <div>
             <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              {item.category}
+              {item.subCategory ? `${item.subCategory} · ${item.category}` : item.category}
             </span>
           </div>
           <div className="ml-auto flex items-center gap-1">
@@ -105,45 +130,40 @@ function WardrobeCard({
           </div>
         </div>
 
-        <p className="text-xs text-slate-500">
-          {item.fit && `${item.fit} fit`}
-          {item.size && ` • Size ${item.size}`}
-          {item.formality && ` • ${item.formality}`}
-        </p>
+        {(item.formality || item.fit || item.seasons?.length || item.occasions?.length) && (
+          <p className="text-xs text-slate-500">
+            {[item.formality, item.fit, item.seasons?.join(", "), item.occasions?.join(", ")]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        )}
 
         {item.colors.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {item.colors.map((c) => (
-              <span
-                key={c}
-                className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700"
-              >
-                {c}
-              </span>
-            ))}
+          <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+            {item.colors.map((c) => {
+              const isHex = /^#[0-9A-Fa-f]{6}$/.test(c);
+              return (
+                <span
+                  key={c}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 pl-1 pr-2 py-0.5 text-[11px] font-medium text-slate-700"
+                >
+                  {isHex && (
+                    <span
+                      className="h-4 w-4 rounded-full border border-slate-300 shrink-0"
+                      style={{ backgroundColor: c }}
+                      title={c}
+                    />
+                  )}
+                  {c}
+                </span>
+              );
+            })}
           </div>
         )}
 
-        {(item.seasons.length > 0 || item.occasions.length > 0) && (
-          <div className="mt-2 space-y-1">
-            {item.seasons.length > 0 && (
-              <p className="text-[11px] text-slate-500">
-                <span className="font-semibold text-slate-600">Seasons:</span>{" "}
-                {item.seasons.join(", ")}
-              </p>
-            )}
-            {item.occasions.length > 0 && (
-              <p className="text-[11px] text-slate-500">
-                <span className="font-semibold text-slate-600">Occasions:</span>{" "}
-                {item.occasions.join(", ")}
-              </p>
-            )}
-          </div>
-        )}
-
-        {item.notes && (
-          <p className="mt-2 line-clamp-2 text-[11px] italic text-slate-500">
-            {item.notes}
+        {item.pattern && (
+          <p className="mt-1 text-[11px] text-slate-500">
+            <span className="font-semibold text-slate-600">Pattern:</span> {item.pattern}
           </p>
         )}
       </div>
@@ -155,29 +175,70 @@ type WardrobeFormValues = Omit<WardrobeItem, "id">;
 
 type AddItemModalProps = {
   onClose: () => void;
-  onSave: (item: WardrobeFormValues, imageFile: File | null) =>Promise<void> | void;
+  onSave: (item: WardrobeFormValues, imageFile: File | null) => Promise<void> | void;
   initialItem?: WardrobeFormValues;
   title?: string;
+  /** Add flow: step 1 is upload-only, step 2 is form. When null, single form (edit or add without CV). */
+  addStep?: "upload" | "form";
+  pendingAddFile?: File | null;
+  onAnalyze?: (file: File) => Promise<void>;
+  isAnalyzing?: boolean;
+  /** When editing, show current image and make file input optional so we don't overwrite. */
+  existingImagePath?: string | null;
 };
 
-function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps) {
+function AddItemModal({
+  onClose,
+  onSave,
+  initialItem,
+  title,
+  addStep,
+  pendingAddFile,
+  onAnalyze,
+  isAnalyzing,
+  existingImagePath,
+}: AddItemModalProps) {
   const [name, setName] = useState(initialItem?.name ?? "");
-  const [category, setCategory] = useState(initialItem?.category ?? "");
-  const [colorsInput, setColorsInput] = useState(
-    initialItem?.colors?.join(", ") ?? "",
-  );
-  const [fit, setFit] = useState(initialItem?.fit ?? "");
-  const [size, setSize] = useState(initialItem?.size ?? "");
+  const [category, setCategory] = useState(initialItem?.category ?? "top");
+  const [subCategory, setSubCategory] = useState(initialItem?.subCategory ?? "");
+  const [colors, setColors] = useState<string[]>(initialItem?.colors ?? []);
+  const [colorsInput, setColorsInput] = useState("");
+  const [pattern, setPattern] = useState(initialItem?.pattern ?? "");
   const [formality, setFormality] = useState(initialItem?.formality ?? "");
-  const [seasons, setSeasons] = useState<string[]>(
-    initialItem?.seasons ?? [],
-  );
-  const [occasions, setOccasions] = useState<string[]>(
-    initialItem?.occasions ?? [],
-  );
-  const [notes, setNotes] = useState(initialItem?.notes ?? "");
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [seasons, setSeasons] = useState<string[]>(initialItem?.seasons ?? []);
+  const [occasions, setOccasions] = useState<string[]>(initialItem?.occasions ?? []);
+  const [fit, setFit] = useState(initialItem?.fit ?? "");
+  const [imageFile, setImageFile] = useState<File | null>(pendingAddFile ?? null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const isUploadStep = addStep === "upload";
+  const isEdit = !!existingImagePath || (!!initialItem && !addStep);
+  const showForm = !isUploadStep;
+
+  function toggleInArray(value: string, current: string[], setter: (v: string[]) => void) {
+    if (current.includes(value)) setter(current.filter((v) => v !== value));
+    else setter([...current, value]);
+  }
+
+  // When parent passes initialItem (e.g. after CV infer), sync into form state
+  useEffect(() => {
+    if (!initialItem || isUploadStep) return;
+    setName(initialItem.name ?? "");
+    setCategory(initialItem.category ?? "top");
+    setSubCategory(initialItem.subCategory ?? "");
+    setColors(initialItem.colors ?? []);
+    setPattern(initialItem.pattern ?? "");
+    setFormality(initialItem.formality ?? "");
+    setSeasons(initialItem.seasons ?? []);
+    setOccasions(initialItem.occasions ?? []);
+    setFit(initialItem.fit ?? "");
+  }, [initialItem, isUploadStep]);
+
+  useEffect(() => {
+    if (pendingAddFile != null) setImageFile(pendingAddFile);
+  }, [pendingAddFile]);
 
   function onPickImage(file: File | null) {
     setImageError(null);
@@ -199,237 +260,405 @@ function AddItemModal({ onClose, onSave, initialItem, title }: AddItemModalProps
     setImageFile(file);
   }
 
-  function toggleInArray(value: string, current: string[], setter: (v: string[]) => void) {
-    if (current.includes(value)) {
-      setter(current.filter((v) => v !== value));
-    } else {
-      setter([...current, value]);
+  function addColor(hex: string) {
+    const h = hex.trim();
+    if (!h) return;
+    const normalized = /^#[0-9A-Fa-f]{6}$/.test(h) ? h : /^[0-9A-Fa-f]{6}$/.test(h) ? `#${h}` : null;
+    if (normalized && !colors.includes(normalized)) {
+      setColors((prev: string[]) => [...prev, normalized]);
+      setColorsInput("");
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !category.trim()) return;
+    setFormError(null);
+    const validation = validateWardrobeForm({ name, category, subCategory, colors });
+    if (!validation.valid) {
+      setFormError(validation.error);
+      return;
+    }
 
-    const colors = colorsInput
-      .split(",")
-      .map((c) => c.trim())
-      .filter(Boolean);
+    const colorsToSave = colors;
+    const fileToUpload = isEdit ? null : (addStep === "form" ? pendingAddFile ?? imageFile : imageFile);
 
-    await onSave(
-      {
-        name: name.trim(),
-        category: category.trim(),
-        colors,
-        fit: fit.trim(),
-        size: size.trim(),
-        formality: formality.trim(),
-        seasons,
-        occasions,
-        notes: notes.trim() || undefined,
-      },
-      imageFile
-    );
-
-    onClose();
+    setSaving(true);
+    try {
+      await onSave(
+        {
+          name: name.trim(),
+          category,
+          subCategory: subCategory || undefined,
+          pattern: pattern.trim() || undefined,
+          colors: colorsToSave,
+          fit: fit.trim(),
+          size: "",
+          formality: formality.trim(),
+          seasons,
+          occasions,
+          notes: "",
+        },
+        fileToUpload
+      );
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   }
 
-  return (
-    
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">
-            {title ?? "Add clothing item"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-sm text-slate-500 hover:text-slate-700"
-          >
-            ✕
-          </button>
-        </div>
+  // Step 1: Add flow — upload photo only
+  const [dragOver, setDragOver] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!imageFile) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Name *
-              </label>
-              <input
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Blue denim jacket"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Type / Category *
-              </label>
-              <input
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Jacket, T‑shirt, Jeans"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Colors (comma separated)
-            </label>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-              value={colorsInput}
-              onChange={(e) => setColorsInput(e.target.value)}
-              placeholder="e.g. blue, black"
-            />
-          </div>
-
-          <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-            Photo (optional)
-          </label>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
-          />
-          {imageError && <p className="mt-1 text-xs text-red-600">{imageError}</p>}
-          {imageFile && (
-            <p className="mt-1 text-xs text-slate-500">
-              Selected: {imageFile.name} ({Math.round(imageFile.size / 1024)} KB)
-            </p>
-          )}
-        </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Fit
-              </label>
-              <input
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                value={fit}
-                onChange={(e) => setFit(e.target.value)}
-                placeholder="e.g. Slim, Relaxed"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Size
-              </label>
-              <input
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                value={size}
-                onChange={(e) => setSize(e.target.value)}
-                placeholder="e.g. M, 32x30"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Formality
-              </label>
-              <select
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                value={formality}
-                onChange={(e) => setFormality(e.target.value)}
-              >
-                <option value="">Select…</option>
-                {FORMALITY_OPTIONS.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Seasons
-              </p>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {SEASON_OPTIONS.map((s) => {
-                  const active = seasons.includes(s);
-                  return (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => toggleInArray(s, seasons, setSeasons)}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                        active
-                          ? "bg-slate-900 text-white"
-                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Occasions
-              </p>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {OCCASION_OPTIONS.map((o) => {
-                  const active = occasions.includes(o);
-                  return (
-                    <button
-                      key={o}
-                      type="button"
-                      onClick={() => toggleInArray(o, occasions, setOccasions)}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                        active
-                          ? "bg-slate-900 text-white"
-                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      }`}
-                    >
-                      {o}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Notes
-            </label>
-            <textarea
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any extra details you care about (e.g. good for cold days, goes well with black jeans)…"
-            />
-          </div>
-
-          <div className="mt-2 flex justify-end gap-2">
+  if (isUploadStep) {
+    return (
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">Add clothing item</h2>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              aria-label="Close"
             >
+              <span className="text-lg leading-none">×</span>
+            </button>
+          </div>
+          <p className="mb-4 text-sm text-slate-600">Upload a photo and we&apos;ll suggest category, colors, and more. You can edit before saving.</p>
+          <div
+            className={`relative rounded-xl border-2 border-dashed transition-colors ${
+              dragOver ? "border-slate-400 bg-slate-50" : "border-slate-200 bg-slate-50/50"
+            } ${isAnalyzing ? "pointer-events-none opacity-80" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f && /^image\/(jpeg|png|webp)$/i.test(f.type)) onPickImage(f);
+              else setImageError("Please use a JPEG, PNG, or WEBP image.");
+            }}
+          >
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="absolute inset-0 w-full h-full cursor-pointer opacity-0"
+              onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
+              disabled={!!isAnalyzing}
+            />
+            {previewUrl ? (
+              <div className="flex flex-col items-center justify-center p-6">
+                <img src={previewUrl} alt="Preview" className="max-h-48 w-auto rounded-lg object-contain shadow-inner bg-white" />
+                <p className="mt-2 text-xs text-slate-500">{imageFile?.name}</p>
+                <p className="text-xs text-slate-400">Tap to choose a different photo</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+                <span className="text-3xl text-slate-300 mb-2">📷</span>
+                <p className="text-sm font-medium text-slate-600">Drop a photo here or click to browse</p>
+                <p className="text-xs text-slate-400 mt-0.5">JPEG, PNG or WEBP · max 5MB</p>
+              </div>
+            )}
+          </div>
+          {imageError && <p className="mt-2 text-xs text-red-600">{imageError}</p>}
+          <div className="mt-6 flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">
               Cancel
             </button>
             <button
-              type="submit"
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              type="button"
+              disabled={!imageFile || isAnalyzing}
+              onClick={() => imageFile && onAnalyze?.(imageFile)}
+              className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
-              Save item
+              {isAnalyzing ? (
+                <>
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Analyzing…
+                </>
+              ) : (
+                "Analyze photo"
+              )}
             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-start justify-between gap-4 p-5 pb-4 border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            {addStep === "form" && pendingAddFile && (() => {
+              const url = previewUrl ?? "";
+              return url ? (
+                <img src={url} alt="" className="h-12 w-12 rounded-lg object-cover border border-slate-200 shrink-0" />
+              ) : null;
+            })()}
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-slate-900 truncate">
+                {title ?? "Add clothing item"}
+              </h2>
+              {addStep === "form" && pendingAddFile && (
+                <p className="text-xs text-slate-500 mt-0.5">Review and edit, then save</p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors shrink-0"
+            aria-label="Close"
+          >
+            <span className="text-lg leading-none">×</span>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1 overflow-hidden">
+          <div className="p-5 overflow-y-auto space-y-5">
+            {/* Basics */}
+            <section className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Basics</h3>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Name *</label>
+                <input
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300 transition-shadow"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Blue denim jacket"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Category *</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    required
+                  >
+                    {CATEGORY_OPTIONS.map((c) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Type *</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                    value={subCategory}
+                    onChange={(e) => setSubCategory(e.target.value)}
+                    required
+                  >
+                    <option value="">Select…</option>
+                    {TYPE_OPTIONS.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            {/* Colors */}
+            <section className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Colors *</h3>
+              {colors.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {colors.map((hex: string) => (
+                    <span
+                      key={hex}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 pl-1 pr-2 py-1 bg-white shadow-sm"
+                    >
+                      <span
+                        className="h-5 w-5 rounded-full border border-slate-200 shrink-0"
+                        style={{ backgroundColor: hex }}
+                        title={hex}
+                      />
+                      <span className="text-xs text-slate-700 font-mono">{hex}</span>
+                      <button
+                        type="button"
+                        onClick={() => setColors((prev: string[]) => prev.filter((c: string) => c !== hex))}
+                        disabled={colors.length <= 1}
+                        className="text-slate-400 hover:text-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400"
+                        aria-label="Remove color"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {formError && formError.includes("color") && (
+                <p className="text-xs text-red-600">{formError}</p>
+              )}
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                  value={colorsInput}
+                  onChange={(e) => setColorsInput(e.target.value)}
+                  placeholder="Add hex (e.g. #382828)"
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addColor(colorsInput))}
+                />
+                <button
+                  type="button"
+                  onClick={() => addColor(colorsInput)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Add
+                </button>
+              </div>
+            </section>
+
+            {/* Style */}
+            <section className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Style</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Pattern</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                    value={pattern}
+                    onChange={(e) => setPattern(e.target.value)}
+                  >
+                    <option value="">Select…</option>
+                    {PATTERN_OPTIONS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Formality</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                    value={formality}
+                    onChange={(e) => setFormality(e.target.value)}
+                  >
+                    <option value="">Select…</option>
+                    {FORMALITY_OPTIONS.map((f) => (
+                      <option key={f} value={f}>{f}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Fit</label>
+                <select
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                  value={fit}
+                  onChange={(e) => setFit(e.target.value)}
+                >
+                  <option value="">Select…</option>
+                  {FIT_OPTIONS.map((f) => (
+                    <option key={f} value={f}>{f}</option>
+                  ))}
+                </select>
+              </div>
+            </section>
+
+            {/* When & where */}
+            <section className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">When & where</h3>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">Seasons</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {SEASON_OPTIONS.map((s) => {
+                    const active = seasons.includes(s);
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => toggleInArray(s, seasons, setSeasons)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                          active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">Occasions</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {OCCASION_OPTIONS.map((o) => {
+                    const active = occasions.includes(o);
+                    return (
+                      <button
+                        key={o}
+                        type="button"
+                        onClick={() => toggleInArray(o, occasions, setOccasions)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                          active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {o}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            {!isEdit && (
+              <section className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Photo</h3>
+                {addStep === "form" && pendingAddFile && (
+                  <p className="text-sm text-slate-600">Photo will be saved with this item.</p>
+                )}
+                {(!addStep || addStep !== "form" || !pendingAddFile) && (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+                      onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
+                    />
+                    {imageError && <p className="mt-1 text-xs text-red-600">{imageError}</p>}
+                  </div>
+                )}
+              </section>
+            )}
+          </div>
+
+          <div className="p-5 pt-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl shrink-0">
+            {formError && (
+              <p className="text-sm text-red-600 mb-3">{formError}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving}
+                className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {saving && (
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                )}
+                {saving ? "Saving…" : "Save item"}
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -468,6 +697,11 @@ export default function WardrobePage() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Add flow: step 1 = upload only, step 2 = form with CV-inferred attributes
+  const [addStep, setAddStep] = useState<"upload" | "form" | null>(null);
+  const [addInferred, setAddInferred] = useState<WardrobeFormValues | null>(null);
+  const [addPendingFile, setAddPendingFile] = useState<File | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Watch Firebase auth state
   useEffect(() => {
@@ -597,6 +831,9 @@ export default function WardrobePage() {
           type="button"
           onClick={() => {
             setEditingItem(null);
+            setAddStep("upload");
+            setAddInferred(null);
+            setAddPendingFile(null);
             setIsModalOpen(true);
           }}
           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
@@ -626,6 +863,9 @@ export default function WardrobePage() {
               item={item}
               onEdit={(it) => {
                 setEditingItem(it);
+                setAddStep(null);
+                setAddInferred(null);
+                setAddPendingFile(null);
                 setIsModalOpen(true);
               }}
               onDelete={handleDeleteItem}
@@ -636,72 +876,69 @@ export default function WardrobePage() {
 
       {isModalOpen && (
         <AddItemModal
-          onClose={() => setIsModalOpen(false)}
+          onClose={() => {
+            setIsModalOpen(false);
+            setAddStep(null);
+            setAddInferred(null);
+            setAddPendingFile(null);
+            setEditingItem(null);
+          }}
           onSave={async (data, imageFile) => {
             if (editingItem) {
-              // Edit existing item
               if (!firebaseUser) {
                 setError("You are not signed in. Please sign in again.");
                 return;
               }
-            try {
-              setError(null);
-
-              const token = await firebaseUser.getIdToken();
-              const res = await fetch(`/api/wardrobe/${editingItem.id}`, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify(data),
-              });
-
-              const respData = await res.json().catch(() => ({}));
-              if (!res.ok) {
-                setError(respData.error ?? "Failed to update item.");
-                return;
-              }
-
-              // 🔑 NORMALIZE ID (THIS IS THE FIX)
-              const raw = respData.item;
-              let updated: WardrobeItem = {
-                ...raw,
-                id: raw.id ?? raw._id,
-              };
-
-              if (!updated.id) {
-                setError("Update succeeded but server did not return an id.");
-                return;
-              }
-
-              // 🖼️ upload image AFTER item exists
-              if (imageFile && firebaseUser) {
-                try {
-                  const up = await uploadWardrobeItemImage({
-                    firebaseUser,
-                    wardrobeItemId: updated.id,
-                    file: imageFile,
-                  });
-                  updated = { ...updated, imagePath: up.imagePath };
-                } catch (e) {
-                  console.error(e);
-                  setError(
-                    e instanceof Error ? e.message : "Failed to upload image."
-                  );
+              try {
+                setError(null);
+                const token = await firebaseUser.getIdToken();
+                const res = await fetch(`/api/wardrobe/${editingItem.id}`, {
+                  method: "PATCH",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify(data),
+                });
+                const respData = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  setError(respData.error ?? "Failed to update item.");
+                  return;
                 }
+                const raw = respData.item;
+                let updated: WardrobeItem = {
+                  ...raw,
+                  id: raw.id ?? raw._id,
+                };
+                if (!updated.id) {
+                  setError("Update succeeded but server did not return an id.");
+                  return;
+                }
+                // Preserve existing image if user did not upload a new one
+                if (!imageFile) {
+                  updated = { ...updated, imagePath: editingItem.imagePath ?? updated.imagePath };
+                } else if (firebaseUser) {
+                  try {
+                    const up = await uploadWardrobeItemImage({
+                      firebaseUser,
+                      wardrobeItemId: updated.id,
+                      file: imageFile,
+                    });
+                    updated = { ...updated, imagePath: up.imagePath };
+                  } catch (e) {
+                    console.error(e);
+                    setError(e instanceof Error ? e.message : "Failed to upload image.");
+                  }
+                }
+                setItems((prev) =>
+                  prev.map((it) => (it.id === updated.id ? updated : it))
+                );
+              } catch (e) {
+                console.error("Error updating wardrobe item:", e);
+                setError("Failed to update item.");
+              } finally {
+                setEditingItem(null);
               }
-
-              // 🔄 update UI state
-              setItems((prev) =>
-                prev.map((it) => (it.id === updated.id ? updated : it))
-              );
-            } catch (e) {
-              console.error("Error updating wardrobe item:", e);
-              setError("Failed to update item.");
-            } finally {
-              setEditingItem(null);
-            }
             } else {
               const saved = await handleAddItem(data);
               if (saved && imageFile && firebaseUser) {
@@ -711,32 +948,65 @@ export default function WardrobePage() {
                     wardrobeItemId: saved.id,
                     file: imageFile,
                   });
-                  setItems((prev) => prev.map((it) => it.id === saved.id ? 
-                    { ...it, imagePath: up.imagePath } : it));
-                  
+                  setItems((prev) =>
+                    prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
+                  );
                 } catch (e) {
                   console.error(e);
                   setError(e instanceof Error ? e.message : "Failed to upload image.");
                 }
               }
-            } 
+              setAddStep(null);
+              setAddInferred(null);
+              setAddPendingFile(null);
+            }
           }}
           initialItem={
             editingItem
               ? {
                   name: editingItem.name,
                   category: editingItem.category,
+                  subCategory: editingItem.subCategory,
+                  pattern: editingItem.pattern,
                   colors: editingItem.colors,
-                  fit: editingItem.fit,
+                  fit: editingItem.fit ?? "",
                   size: editingItem.size,
                   formality: editingItem.formality,
-                  seasons: editingItem.seasons,
-                  occasions: editingItem.occasions,
+                  seasons: editingItem.seasons ?? [],
+                  occasions: editingItem.occasions ?? [],
                   notes: editingItem.notes,
                 }
-              : undefined
+              : addStep === "form"
+                ? addInferred ?? undefined
+                : undefined
           }
-          title={editingItem ? "Edit clothing item" : "Add clothing item"}
+          title={editingItem ? "Edit clothing item" : addStep === "form" ? "Confirm & save item" : "Add clothing item"}
+          addStep={editingItem ? undefined : addStep ?? undefined}
+          pendingAddFile={addPendingFile}
+          onAnalyze={async (file: File) => {
+            setIsAnalyzing(true);
+            setError(null);
+            try {
+              const fd = new FormData();
+              fd.append("file", file);
+              const res = await fetch("/api/cv/infer", { method: "POST", body: fd });
+              const json = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                setError(json.error ?? "Failed to analyze photo.");
+                return;
+              }
+              setAddInferred(cvResponseToFormValues(json as CVInferResponse));
+              setAddPendingFile(file);
+              setAddStep("form");
+            } catch (e) {
+              console.error(e);
+              setError(e instanceof Error ? e.message : "Failed to analyze photo.");
+            } finally {
+              setIsAnalyzing(false);
+            }
+          }}
+          isAnalyzing={isAnalyzing}
+          existingImagePath={editingItem?.imagePath}
         />
       )}
     </div>

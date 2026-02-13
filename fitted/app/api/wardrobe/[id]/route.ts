@@ -53,6 +53,8 @@ export async function PATCH(
     const fields = [
       "name",
       "category",
+      "subCategory",
+      "pattern",
       "colors",
       "fit",
       "size",
@@ -91,6 +93,8 @@ export async function PATCH(
         id: doc._id.toString(),
         name: doc.name,
         category: doc.category,
+        subCategory: doc.subCategory ?? "",
+        pattern: doc.pattern ?? "",
         colors: doc.colors ?? [],
         fit: doc.fit ?? "",
         size: doc.size ?? "",

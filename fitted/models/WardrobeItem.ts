@@ -6,6 +6,7 @@ const WardrobeItemSchema = new Schema(
     name: { type: String, required: true, trim: true },
     category: { type: String, required: true, index: true },
     subCategory: { type: String },
+    pattern: { type: String },
     colors: { type: [String], default: [] },
     seasons: { type: [String], default: [] },
     occasions: { type: [String], default: [] },

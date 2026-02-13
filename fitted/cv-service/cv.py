@@ -282,7 +282,7 @@ def infer_attributes_json(image_input: str | Path | Image.Image) -> str:
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
-        print("Usage: python clothing_cv.py <path_to_image>", file=sys.stderr)
+        print("Usage: python cv.py <path_to_image>", file=sys.stderr)
         sys.exit(1)
     path = sys.argv[1]
     print(infer_attributes_json(path))

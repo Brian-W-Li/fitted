@@ -59,6 +59,8 @@ export async function GET(request: NextRequest) {
       _id: { toString(): string };
       name: string;
       category: string;
+      subCategory?: string;
+      pattern?: string;
       colors?: string[];
       fit?: string;
       size?: string;
@@ -79,6 +81,8 @@ export async function GET(request: NextRequest) {
         id: item._id.toString(),
         name: item.name,
         category: item.category,
+        subCategory: item.subCategory ?? "",
+        pattern: item.pattern ?? "",
         colors: item.colors ?? [],
         fit: item.fit ?? "",
         size: item.size ?? "",
@@ -113,6 +117,8 @@ export async function POST(request: NextRequest) {
     const {
       name,
       category,
+      subCategory = "",
+      pattern = "",
       colors = [],
       fit = "",
       size = "",
@@ -135,6 +141,8 @@ export async function POST(request: NextRequest) {
       user: userId,
       name: String(name).trim(),
       category: String(category).trim(),
+      subCategory: String(subCategory || "").trim() || undefined,
+      pattern: String(pattern || "").trim() || undefined,
       colors: Array.isArray(colors) ? colors : [],
       fit: String(fit || "").trim() || undefined,
       size: String(size || "").trim() || undefined,
@@ -150,6 +158,8 @@ export async function POST(request: NextRequest) {
           id: itemDoc._id.toString(),
           name: itemDoc.name,
           category: itemDoc.category,
+          subCategory: itemDoc.subCategory ?? "",
+          pattern: itemDoc.pattern ?? "",
           colors: itemDoc.colors ?? [],
           fit: itemDoc.fit ?? "",
           size: itemDoc.size ?? "",
