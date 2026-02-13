@@ -41,27 +41,27 @@ and measurable.
 ## Individual Start, Stop, Continue Reflections
 
 #### Matthew
-- Start: Start breaking larger tasks into smaller, well-defined action items with deadlines.
-- Stop: Stop waiting until the end of the sprint to surface blockers or concerns.
-- Continue: Continue communicating progress and updates regularly in the team group chat.
+- Start: Shifting focus to ML codebase and understanding as much as I can
+- Stop: Trying to make the UI look prettier
+- Continue: Communicating in our group chat throughout the week
 
 #### Animesh
-- Start: Start communicating better so I dont miss out on small requirements.
-- Stop: Stop trying to take on too many tasks at once.
-- Continue: Continue the current pacing in order to finish MVP.
+- Start: 
+- Stop: 
+- Continue: 
 
 #### Jenil
-- Start: Helping people out until your core ticket is near deadline.
-- Stop: Missing deadlines of homeworks.
-- Continue: Finishing up the tickets you're assigned on time and communicating properly with the team.
+- Start: 
+- Stop: 
+- Continue: 
 
-#### Jenil
-- Start: Communicating better with the team before I make any big changes to the code.
-- Stop: Merging my own pull requests.
-- Continue: Finishing my work at a reasonable pace.
+#### Brian
+- Start: Working to understand the ML codebase
+- Stop: Suggesting UI changes
+- Continue: Supporting the team in any way possible
 
 #### Pengyu
-- Start: Start learning finish small task first.
-- Stop: Need to learn many skills.
-- Continue: Revise and build UI.
+- Start: Working to create a bottom to show clothes are available or not
+- Stop: suggest changes in UI
+- Continue: Studying and supporting the team
 
