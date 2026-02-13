@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
 import { validateWardrobeForm } from "@/lib/wardrobeValidation";
@@ -702,6 +702,7 @@ export default function WardrobePage() {
   const [addInferred, setAddInferred] = useState<WardrobeFormValues | null>(null);
   const [addPendingFile, setAddPendingFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const cvAbortRef = useRef<AbortController | null>(null);
 
   // Watch Firebase auth state
   useEffect(() => {
@@ -834,6 +835,9 @@ export default function WardrobePage() {
             setAddStep("upload");
             setAddInferred(null);
             setAddPendingFile(null);
+            setIsAnalyzing(false);
+            cvAbortRef.current?.abort();
+            cvAbortRef.current = null;
             setIsModalOpen(true);
           }}
           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
@@ -984,13 +988,22 @@ export default function WardrobePage() {
           addStep={editingItem ? undefined : addStep ?? undefined}
           pendingAddFile={addPendingFile}
           onAnalyze={async (file: File) => {
+            cvAbortRef.current?.abort();
+            const controller = new AbortController();
+            cvAbortRef.current = controller;
             setIsAnalyzing(true);
             setError(null);
             try {
               const fd = new FormData();
               fd.append("file", file);
-              const res = await fetch("/api/cv/infer", { method: "POST", body: fd });
+              const res = await fetch("/api/cv/infer", {
+                method: "POST",
+                body: fd,
+                signal: controller.signal,
+              });
+              if (controller.signal.aborted) return;
               const json = await res.json().catch(() => ({}));
+              if (controller.signal.aborted) return;
               if (!res.ok) {
                 setError(json.error ?? "Failed to analyze photo.");
                 return;
@@ -999,9 +1012,13 @@ export default function WardrobePage() {
               setAddPendingFile(file);
               setAddStep("form");
             } catch (e) {
+              if ((e as Error)?.name === "AbortError") return;
               console.error(e);
               setError(e instanceof Error ? e.message : "Failed to analyze photo.");
             } finally {
+              if (!controller.signal.aborted) {
+                cvAbortRef.current = null;
+              }
               setIsAnalyzing(false);
             }
           }}
