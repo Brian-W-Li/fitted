@@ -39,3 +39,14 @@ Cursor helped me write and adjust UI code faster. ChatGPT helped with debugging 
 Ensuring correctness and understanding:
 I tested features after changes instead of trusting AI directly. I reviewed and modified AI suggestions to match our project structure.
 
+### Animesh
+AI tools used: ChatGPT, Cursor
+
+Outcomes:
+I used ChatGPT to come up with test descriptions without it having access to the code so it comes up with impartial test cases (including edge cases) and then used Crusor to write up those test files using Jest.
+
+Usefulness:
+Having ChatGPT describe the tests gave me more edge cases to test out which made for a more thorough testing environment.
+
+Ensuring correctness and understanding:
+Using multiple agents with different contexts can help your code be more impartial and less prone to halucinate which will help you make sure you cover all bases and your code is correct.
