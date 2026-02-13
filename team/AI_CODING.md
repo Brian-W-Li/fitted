@@ -31,7 +31,7 @@ It is important to review ChatGPT's responses and don't blindly trust it. You mu
 AI tools used: ChatGPT
 
 Outcomes:
-I used AI mainly for UI work, including sign-in, app layout/navigation, and wardrobe pages. I also added three item categories (Top, Bottom, Shoes) and synced related frontend/backend updates.
+I used AI mainly for UI work, including sign-in, app layout/navigation, and wardrobe pages. 
 
 Usefulness:
 Cursor helped me write and adjust UI code faster. ChatGPT helped with debugging auth/routing issues and checking data flow.
