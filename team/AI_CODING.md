@@ -50,3 +50,12 @@ Having ChatGPT describe the tests gave me more edge cases to test out which made
 
 Ensuring correctness and understanding:
 Using multiple agents with different contexts can help your code be more impartial and less prone to halucinate which will help you make sure you cover all bases and your code is correct.
+
+### Jenil
+AI tools used: ChatGPT, Cursor
+
+Outcomes:
+I used ChatGPT to come up with solidifying research that I had done for ML systems and building onto the foundations and ideations.
+
+Usefulness:
+ChatGPT was useful in helping me translate conceptual ML ideas into a structured implementation plan. It helped clarify how embedding layers, compatibility modeling, and synthetic dataset generation could connect into a working system.
