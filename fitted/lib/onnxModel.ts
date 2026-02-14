@@ -4,10 +4,6 @@ import { resolve } from "path";
 
 const EXPECTED_DIM = 160;
 
-/**
- * ONNX model wrapper for outfit compatibility scoring.
- * Model: 160-dim pair features (e.g. top_embedding concat bottom_embedding) → compatibility score 0–1.
- */
 export class ONNXModel {
   private session: ort.InferenceSession | null = null;
   private modelPath: string;
@@ -48,9 +44,6 @@ export class ONNXModel {
     }
   }
 
-  /**
-   * Run inference: 160-dim pair feature vector → compatibility score in [0, 1].
-   */
   async predict(pairFeatures: number[]): Promise<number> {
     if (pairFeatures.length !== EXPECTED_DIM) {
       throw new Error(
@@ -85,10 +78,6 @@ export class ONNXModel {
     return Math.max(0, Math.min(1, score));
   }
 
-  /**
-   * Predict compatibility for multiple pairs in one batch (optional optimization).
-   * Each row of pairFeatures is 160 dims; returns array of scores.
-   */
   async predictBatch(pairFeaturesBatch: number[][]): Promise<number[]> {
     const batchSize = pairFeaturesBatch.length;
     for (const row of pairFeaturesBatch) {

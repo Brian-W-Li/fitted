@@ -1,8 +1,3 @@
-/**
- * Unit tests for the ML recommendation engine (Lab06).
- * Covers OutfitRecommendationEngine, toMLItem, and recommendation behavior.
- */
-
 import {
   OutfitRecommendationEngine,
   toMLItem,

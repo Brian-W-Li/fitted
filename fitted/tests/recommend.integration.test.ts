@@ -1,8 +1,3 @@
-/**
- * Integration test for the ML recommendation flow (Lab06).
- * Uses a mock PairScorer to verify the full recommend path: engine + batch scoring.
- */
-
 import {
   OutfitRecommendationEngine,
   type WardrobeItemML,
@@ -10,19 +5,6 @@ import {
 } from "@/lib/recommendationEngine";
 
 const PAIR_FEATURE_DIM = 160;
-
-function makeMockPairScorer(scoresByKey: Record<string, number>): PairScorer {
-  return {
-    async predictBatch(features: number[][]): Promise<number[]> {
-      if (features.some((row) => row.length !== PAIR_FEATURE_DIM)) {
-        throw new Error(
-          `Expected ${PAIR_FEATURE_DIM}-dim pair features per row`
-        );
-      }
-      return features.map((_, i) => scoresByKey[`pair_${i}`] ?? 0.5);
-    },
-  };
-}
 
 describe("Recommendation flow integration (engine + PairScorer)", () => {
   const tops: WardrobeItemML[] = [

@@ -1,15 +1,9 @@
-/**
- * Unit tests for the ONNX model wrapper (Lab06).
- * Tests input validation and behavior without loading the real model file.
- */
-
 import { ONNXModel } from "@/lib/onnxModel";
 
 describe("ONNXModel", () => {
   it("resolves model path when constructor given no path", () => {
     const model = new ONNXModel();
     expect(model).toBeDefined();
-    // init() may fail in test env (no .onnx file or wrong cwd); we only check construction
   });
 
   it("predict rejects invalid feature length before init", async () => {
