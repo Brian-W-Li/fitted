@@ -60,6 +60,8 @@ export async function GET(request: NextRequest) {
       name: string;
       clothingType?: "top" | "bottom";
       category: string;
+      subCategory?: string;
+      pattern?: string;
       colors?: string[];
       fit?: string;
       size?: string;
@@ -81,6 +83,8 @@ export async function GET(request: NextRequest) {
         name: item.name,
         clothingType: item.clothingType,
         category: item.category,
+        subCategory: item.subCategory ?? "",
+        pattern: item.pattern ?? "",
         colors: item.colors ?? [],
         fit: item.fit ?? "",
         size: item.size ?? "",
@@ -116,6 +120,8 @@ export async function POST(request: NextRequest) {
       name,
       clothingType = "top",
       category,
+      subCategory = "",
+      pattern = "",
       colors = [],
       fit = "",
       size = "",
@@ -139,6 +145,8 @@ export async function POST(request: NextRequest) {
       name: String(name).trim(),
       clothingType: clothingTypeToSave,
       category: String(category).trim(),
+      subCategory: String(subCategory || "").trim() || undefined,
+      pattern: String(pattern || "").trim() || undefined,
       colors: Array.isArray(colors) ? colors : [],
       fit: String(fit || "").trim() || undefined,
       size: String(size || "").trim() || undefined,
@@ -155,6 +163,8 @@ export async function POST(request: NextRequest) {
           name: itemDoc.name,
           clothingType: itemDoc.clothingType ?? "top",
           category: itemDoc.category,
+          subCategory: itemDoc.subCategory ?? "",
+          pattern: itemDoc.pattern ?? "",
           colors: itemDoc.colors ?? [],
           fit: itemDoc.fit ?? "",
           size: itemDoc.size ?? "",
