@@ -1,4 +1,4 @@
-# Date of Retrospective: 01/23/25
+# Date of Retrospective: 01/23/26
 
 * Led by: Matthew Li
 * Present: matthew, jenil, animesh, pengyu, brian
@@ -58,7 +58,7 @@ and measurable.
 - Stop: Missing deadlines of homeworks.
 - Continue: Finishing up the tickets you're assigned on time and communicating properly with the team.
 
-#### Jenil
+#### Brian
 - Start: Communicating better with the team before I make any big changes to the code.
 - Stop: Merging my own pull requests.
 - Continue: Finishing my work at a reasonable pace.

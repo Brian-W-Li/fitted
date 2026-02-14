@@ -1,0 +1,7 @@
+{
+  "name": "pj12-outfit-recommender",
+  "private": true,
+  "scripts": {
+    "test": "npm test --prefix fitted"
+  }
+}
