@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import { OutfitRecommendationEngine, toMLItem, type WardrobeItemML } from "@/lib/recommendationEngine";
+import {
+  OutfitRecommendationEngine,
+  toMLItem,
+  type WardrobeItemML,
+} from "@/lib/recommendationEngine";
+import { ONNXModel } from "@/lib/onnxModel";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -39,7 +44,13 @@ async function getUserIdFromRequest(request: NextRequest) {
 async function getMLRecommendations(
   userId: string,
   occasion: string
-): Promise<{ outfits: Array<{ items: Array<{ id: string; name: string; category: string; colors: string[] }>; reason: string; score: number }> }> {
+): Promise<{
+  outfits: Array<{
+    items: Array<{ id: string; name: string; category: string; colors: string[] }>;
+    reason: string;
+    score: number;
+  }>;
+}> {
   const { WardrobeItem, OutfitInteraction } = await initDatabase();
 
   type WardrobeDoc = {
@@ -53,41 +64,65 @@ async function getMLRecommendations(
     occasions?: string[];
     metadata?: Map<string, unknown>;
   };
-  const items = await WardrobeItem.find({ user: userId }).lean().exec() as unknown as WardrobeDoc[];
+  const items = (await WardrobeItem.find({ user: userId })
+    .lean()
+    .exec()) as unknown as WardrobeDoc[];
 
   if (items.length < 2) {
-    throw new Error("Add at least 2 items to your wardrobe to get recommendations");
+    throw new Error(
+      "Add at least 2 items to your wardrobe to get recommendations"
+    );
   }
-
 
   type InteractionDoc = {
     items: unknown[];
     action: string;
   };
-  const feedbackDocs = await OutfitInteraction.find({
+  const feedbackDocs = (await OutfitInteraction.find({
     user: userId,
     action: { $in: ["accepted", "rejected"] },
-  }).lean().exec() as unknown as InteractionDoc[];
+  })
+    .sort({ createdAt: -1 })
+    .limit(100)
+    .lean()
+    .exec()) as unknown as InteractionDoc[];
 
   const feedbackHistory = feedbackDocs.map((doc) => ({
     itemIds: doc.items.map((id: unknown) => String(id)),
     action: doc.action as "accepted" | "rejected",
   }));
 
-  // Convert to ML format
   const mlItems: WardrobeItemML[] = items.map((item) => toMLItem(item));
 
-  // Create engine and get recommendations
-  const engine = new OutfitRecommendationEngine(mlItems, feedbackHistory);
-  const recommendations = engine.recommend({
-    occasion,
-    maxResults: 5,
-    minScore: 40,
-  });
+  let pairScorer: { predictBatch(features: number[][]): Promise<number[]> } | null =
+    null;
+  let onnx: ONNXModel | null = null;
+  try {
+    onnx = new ONNXModel();
+    await onnx.init();
+    pairScorer = onnx;
+  } catch (e) {
+    const hint = e instanceof Error && e.message.includes("external data")
+      ? " " + e.message
+      : "";
+    console.warn("ONNX model not loaded, using rule-based + neural scoring." + hint);
+  }
 
-  // Format response
+  const engine = new OutfitRecommendationEngine(mlItems, feedbackHistory, pairScorer ?? undefined);
+
+  let recommendations;
+  try {
+    recommendations = await engine.recommend({
+      occasion,
+      maxResults: 5,
+      minScore: 40,
+    });
+  } finally {
+    onnx?.dispose();
+  }
+
   return {
-    outfits: recommendations.map(rec => ({
+    outfits: recommendations.map((rec) => ({
       items: [
         {
           id: rec.top.id,
@@ -108,11 +143,16 @@ async function getMLRecommendations(
   };
 }
 
-// OpenAI-based recommendation (optional - requires API key)
 async function getAIRecommendations(
   userId: string,
-  occasion: string
-): Promise<{ outfits: Array<{ items: Array<{ id: string; name: string; category: string; colors: string[] }>; reason: string }> }> {
+  occasion: string,
+  colorStyle?: string
+): Promise<{
+  outfits: Array<{
+    items: Array<{ id: string; name: string; category: string; colors: string[] }>;
+    reason: string;
+  }>;
+}> {
   const { WardrobeItem } = await initDatabase();
 
   type WardrobeItemLean = {
@@ -124,10 +164,14 @@ async function getAIRecommendations(
     occasions?: string[];
   };
 
-  const items = (await WardrobeItem.find({ user: userId }).lean().exec()) as unknown as WardrobeItemLean[];
+  const items = (await WardrobeItem.find({ user: userId })
+    .lean()
+    .exec()) as unknown as WardrobeItemLean[];
 
   if (items.length < 2) {
-    throw new Error("Add at least 2 items to your wardrobe to get recommendations");
+    throw new Error(
+      "Add at least 2 items to your wardrobe to get recommendations"
+    );
   }
 
   const wardrobeDescription = items.map((item) => ({
@@ -139,7 +183,11 @@ async function getAIRecommendations(
     occasions: item.occasions || [],
   }));
 
-  const prompt = `You are a fashion stylist. Given this wardrobe, suggest 3 outfit combinations for a ${occasion} occasion.
+  const colorHint = colorStyle
+    ? ` Preferred color style: ${colorStyle}.`
+    : "";
+
+  const prompt = `You are a fashion stylist. Given this wardrobe, suggest 3 outfit combinations for a ${occasion} occasion.${colorHint}
 
 WARDROBE:
 ${JSON.stringify(wardrobeDescription, null, 2)}
@@ -168,7 +216,7 @@ Respond ONLY with valid JSON in this exact format:
 
   const responseText = completion.choices[0]?.message?.content || "{}";
 
-  let recommendations;
+  let recommendations: { outfits: { items: string[]; reason: string }[] };
   try {
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     recommendations = jsonMatch ? JSON.parse(jsonMatch[0]) : { outfits: [] };
@@ -179,21 +227,23 @@ Respond ONLY with valid JSON in this exact format:
   const itemMap = new Map(items.map((item) => [item._id.toString(), item]));
 
   return {
-    outfits: recommendations.outfits.map((outfit: { items: string[]; reason: string }) => ({
-      items: outfit.items
-        .map((id: string) => {
-          const item = itemMap.get(id);
-          if (!item) return null;
-          return {
-            id: item._id.toString(),
-            name: item.name,
-            category: item.category,
-            colors: item.colors ?? [],
-          };
-        })
-        .filter(Boolean),
-      reason: outfit.reason,
-    })),
+    outfits: recommendations.outfits.map(
+      (outfit: { items: string[]; reason: string }) => ({
+        items: outfit.items
+          .map((id: string) => {
+            const item = itemMap.get(id);
+            if (!item) return null;
+            return {
+              id: item._id.toString(),
+              name: item.name,
+              category: item.category,
+              colors: item.colors ?? [],
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x != null),
+        reason: outfit.reason,
+      })
+    ),
   };
 }
 
@@ -209,15 +259,20 @@ export async function POST(request: NextRequest) {
 
     const { userId } = userResult;
     const body = await request.json();
-    const { occasion = "casual", useAI = false } = body;
+    const { occasion = "casual", useAI = false, colorStyle } = body;
+
+    if (useAI && !process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: "OpenAI API key is required for AI recommendations." },
+        { status: 503 }
+      );
+    }
 
     let result;
 
     if (useAI && process.env.OPENAI_API_KEY) {
-      // Use OpenAI for recommendations
-      result = await getAIRecommendations(userId, occasion);
+      result = await getAIRecommendations(userId, occasion, colorStyle);
     } else {
-      // Use ML engine (default - no API cost)
       result = await getMLRecommendations(userId, occasion);
     }
 
@@ -228,10 +283,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error generating recommendations:", error);
-    const message = error instanceof Error ? error.message : "Failed to generate recommendations";
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : "Failed to generate recommendations";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -25,6 +25,11 @@ export interface OutfitRecommendation {
   reasons: string[];
 }
 
+/** Optional: inject ONNX (or other) model for pair compatibility. Input: 160-dim pair features → score 0–1. */
+export type PairScorer = {
+  predictBatch(features: number[][]): Promise<number[]>;
+};
+
 interface UserFeedback {
   itemIds: string[];
   action: "accepted" | "rejected";
@@ -548,6 +553,8 @@ class CategoryTaxonomy {
   }
 }
 
+const PAIR_FEATURE_DIM = 160;
+
 export class OutfitRecommendationEngine {
   private items: WardrobeItemML[];
   private embeddingLayer: EmbeddingLayer;
@@ -558,8 +565,14 @@ export class OutfitRecommendationEngine {
   private colorAnalyzer: ColorHarmonyAnalyzer;
   private userId = "default_user";
   private itemEmbeddings = new Map<string, number[]>();
+  private pairScorer: PairScorer | null = null;
+  private pairScoreMap = new Map<string, number>();
 
-  constructor(items: WardrobeItemML[], feedbackHistory: UserFeedback[] = []) {
+  constructor(
+    items: WardrobeItemML[],
+    feedbackHistory: UserFeedback[] = [],
+    pairScorer?: PairScorer | null
+  ) {
     this.items = items;
     this.embeddingLayer = new EmbeddingLayer();
     this.neuralNetwork = new NeuralNetwork(this.embeddingLayer.getDimension() * 2);
@@ -567,7 +580,8 @@ export class OutfitRecommendationEngine {
     this.contextMatcher = new ContextMatcher();
     this.categoryTaxonomy = new CategoryTaxonomy();
     this.colorAnalyzer = new ColorHarmonyAnalyzer();
-    
+    this.pairScorer = pairScorer ?? null;
+
     this.precomputeEmbeddings();
     this.trainFromFeedback(feedbackHistory);
   }
@@ -616,9 +630,10 @@ export class OutfitRecommendationEngine {
     
     const topEmb = this.itemEmbeddings.get(top.id) || this.embeddingLayer.getItemEmbedding(top);
     const bottomEmb = this.itemEmbeddings.get(bottom.id) || this.embeddingLayer.getItemEmbedding(bottom);
-    
-    const pairInput = [...topEmb, ...bottomEmb];
-    const neuralScore = this.neuralNetwork.predict(pairInput);
+
+    const pairKey = `${top.id}_${bottom.id}`;
+    const neuralScore =
+      this.pairScoreMap.get(pairKey) ?? this.neuralNetwork.predict([...topEmb, ...bottomEmb]);
     
     const collabScore = this.matrixFactorization.getPairScore(this.userId, top.id, bottom.id);
     
@@ -640,18 +655,45 @@ export class OutfitRecommendationEngine {
     return { score: Math.min(100, Math.max(0, finalScore)), reasons };
   }
 
-  recommend(options: { occasion?: string; maxResults?: number; minScore?: number } = {}): OutfitRecommendation[] {
+  async recommend(
+    options: { occasion?: string; maxResults?: number; minScore?: number } = {}
+  ): Promise<OutfitRecommendation[]> {
     const { occasion = "casual", maxResults = 5, minScore = 35 } = options;
-    
-    const tops = this.items.filter(item => this.categoryTaxonomy.classify(item) === "top");
-    const bottoms = this.items.filter(item => this.categoryTaxonomy.classify(item) === "bottom");
-    
+
+    const tops = this.items.filter((item) => this.categoryTaxonomy.classify(item) === "top");
+    const bottoms = this.items.filter((item) => this.categoryTaxonomy.classify(item) === "bottom");
+
     if (tops.length === 0 || bottoms.length === 0) {
       return [];
     }
-    
+
+    this.pairScoreMap.clear();
+    if (this.pairScorer) {
+      const features: number[][] = [];
+      const keys: string[] = [];
+      for (const top of tops) {
+        for (const bottom of bottoms) {
+          const topEmb = this.itemEmbeddings.get(top.id) ?? this.embeddingLayer.getItemEmbedding(top);
+          const bottomEmb = this.itemEmbeddings.get(bottom.id) ?? this.embeddingLayer.getItemEmbedding(bottom);
+          const pair = [...topEmb, ...bottomEmb];
+          if (pair.length === PAIR_FEATURE_DIM) {
+            features.push(pair);
+            keys.push(`${top.id}_${bottom.id}`);
+          }
+        }
+      }
+      if (features.length > 0) {
+        try {
+          const scores = await this.pairScorer.predictBatch(features);
+          scores.forEach((s, i) => this.pairScoreMap.set(keys[i], s));
+        } catch (e) {
+          console.warn("PairScorer (e.g. ONNX) failed, using fallback:", e);
+        }
+      }
+    }
+
     const candidates: OutfitRecommendation[] = [];
-    
+
     for (const top of tops) {
       for (const bottom of bottoms) {
         const { score, reasons } = this.scoreOutfit(top, bottom, occasion);

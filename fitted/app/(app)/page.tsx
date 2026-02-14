@@ -175,8 +175,9 @@ export default function Home() {
               <option value="casual">Casual</option>
               <option value="business">Business</option>
               <option value="formal">Formal</option>
-              <option value="date night">Date Night</option>
               <option value="athletic">Athletic</option>
+              <option value="date night">Date Night</option>
+              <option value="going out">Going Out</option>
             </select>
           </div>
 
