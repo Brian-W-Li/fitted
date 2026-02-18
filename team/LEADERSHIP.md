@@ -15,3 +15,4 @@
 | Mon 02/09 | Brian         | Made sure everyone is reviewing other people's pr's    |
 | Wed 02/11 | Matthew       | Made sure everyone was coordinated on what to test |
 | Fri 02/13 | Brian | Led the retrospective |
+| Wed 02/18 | Animesh | Made sure everyone finished the past retrospective |
