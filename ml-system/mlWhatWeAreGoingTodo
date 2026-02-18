@@ -18,6 +18,9 @@ struct Item:
   season 
   OCCASION
 
-Outfit: pair of 2 items
+recommendation (base ml): finding out how it can suggest without needing user's input. push newer items more.
+recommendation (user learned ml): scoring each item based on the user feedback on the outfits liked/disliked,
+and segregating it based off of the occasion.
+
 
 
