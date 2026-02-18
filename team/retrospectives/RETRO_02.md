@@ -6,14 +6,13 @@
 
 ## Action item
 
-* a goal: Have the vision integrated by the next MVP and the ML 
-* a change/experiment: Start writing documentation and clear testing for ML so that everyone can work on it together
-and measurable. 
-* a measurement: Amount of documentation and whether people are able to understand the code.
+* a goal: Have the vision integrated by the next MVP and the ML flushed out. 
+* a change/experiment: Start writing documentation and clear testing for ML so that everyone can work on it together.
+* a measurement: The amount of documentation and whether people are able to understand the code.
 
 ## Start, Stop, Continue
 #### Start
-- Writing comprehensive documentation and do clear testing
+- Writing comprehensive documentation and other design documentation and do clear testing
 
 #### Stop
 - Stop changing the UI too much since its secondary now 
@@ -25,7 +24,7 @@ and measurable.
 
 Retro process used: We used the goal, change/experiment, and measurement template. Each member tok turns sharing things the team should work towards, the changes to go towards this goal, and how to measure this change. The consensus of the group was that since we need to focus on the ML and vision, we need everyone on the team to be onboard. 
 
-Assessment of how it went: The retro went well. It felt like everyone had a similar idea of what the team is aiming toward. We were also able to identify concrete steps for improvement such as documentation and testing.
+Assessment of how it went: The retro went well. It felt like everyone had a similar idea of what the team is aiming toward. We were also able to identify concrete steps for improvement, such as documentation and testing.
 
 Advice for the next retro lead: I would recommend prompting everyone to speak more since it felt like once everyone had one idea in mind in mind.
 
@@ -46,18 +45,18 @@ and measurable.
 - Continue: Communicating in our group chat throughout the week
 
 #### Animesh
-- Start: 
-- Stop: 
-- Continue: 
+- Start: Helping the team out with the ML research
+- Stop: Procrastinating progress as we get closer to the final product
+- Continue: Supporting the team with any blockers and making new tickets for new features
 
 #### Jenil
-- Start: 
-- Stop: 
-- Continue: 
+- Start: Getting a new model for recommendation pushed & merged onto the repo for testing out the outfits, basically testing new things out based on the research.
+- Stop: Procrastinating on ML stuff and get insights from the team before proceeding alone.
+- Continue: ML result gains, the recommendation improves more and more, so continuing the results upwards and positively.
 
 #### Brian
 - Start: Working to understand the ML codebase
-- Stop: Suggesting UI changes
+- Stop: Suggesting too many UI changes
 - Continue: Supporting the team in any way possible
 
 #### Pengyu
