@@ -16,3 +16,4 @@
 | Wed 02/11 | Matthew       | Made sure everyone was coordinated on what to test |
 | Fri 02/13 | Brian | Led the retrospective |
 | Wed 02/18 | Animesh | Made sure everyone finished the past retrospective |
+| Fri 02/20 | Pengyu | Led everyone in adding new things to the kanban |
