@@ -1,9 +1,41 @@
+/** CV metadata JSON from vision pipeline: color (hex), category top/bottom, type, pattern, style. */
 export interface CVMetadata {
   color_primary: { value: string; confidence: number };
   category: { value: "top" | "bottom"; confidence: number };
   type: { value: string; confidence: number };
   pattern: { value: string; confidence: number };
   style: { value: string; confidence: number };
+}
+
+/** Map CV hex color to palette name for embedding/harmony (no CV → unchanged behavior). */
+function hexToColorName(hex: string): string {
+  const h = hex.replace(/^#/, "").trim().toLowerCase();
+  if (!/^[0-9a-f]{6}$/.test(h)) return hex;
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let s = 0, hue = 0;
+  if (max !== min) {
+    s = l > 0.5 ? (max - min) / (2 - max - min) : (max - min) / (max + min);
+    if (max === r) hue = ((g - b) / (max - min)) % 6;
+    else if (max === g) hue = (b - r) / (max - min) + 2;
+    else hue = (r - g) / (max - min) + 4;
+    hue *= 60;
+    if (hue < 0) hue += 360;
+  }
+  if (s < 0.15 || l > 0.92) return "white";
+  if (l < 0.15) return "black";
+  if (s < 0.2) return l < 0.35 ? "charcoal" : l < 0.6 ? "gray" : "light gray";
+  const hueMap: [number, number, string][] = [
+    [0, 30, "red"], [30, 60, "orange"], [60, 90, "yellow"], [90, 170, "green"],
+    [170, 260, "blue"], [260, 320, "purple"], [320, 360, "pink"],
+  ];
+  for (const [lo, hi, name] of hueMap) {
+    if (hue >= lo && hue < hi) return name;
+  }
+  return "gray";
 }
 
 export interface WardrobeItemML {
@@ -106,7 +138,14 @@ class ColorHarmonyAnalyzer {
     return [0, 0, 50];
   }
 
+  private fashionNeutrals = new Set([
+    "black", "white", "gray", "grey", "navy", "charcoal", "cream", "ivory",
+    "beige", "khaki", "tan", "brown", "light gray", "dark gray",
+  ]);
+
   private isNeutral(color: string): boolean {
+    const normalized = color.toLowerCase().trim();
+    if (this.fashionNeutrals.has(normalized)) return true;
     const [, saturation, lightness] = this.getHSL(color);
     return saturation < 20 || lightness > 85 || lightness < 15;
   }
@@ -123,20 +162,23 @@ class ColorHarmonyAnalyzer {
         const neutral2 = this.isNeutral(c2);
         
         if (neutral1 && neutral2) {
-          totalScore += 0.85;
+          totalScore += 0.92;
         } else if (neutral1 || neutral2) {
-          totalScore += 0.9;
+          totalScore += 0.95;
         } else {
-          const [h1] = this.getHSL(c1);
-          const [h2] = this.getHSL(c2);
+          const [h1, s1] = this.getHSL(c1);
+          const [h2, s2] = this.getHSL(c2);
           const hueDiff = Math.abs(h1 - h2);
           const normalizedDiff = Math.min(hueDiff, 360 - hueDiff);
-          
-          if (normalizedDiff < 30) totalScore += 0.85;
-          else if (normalizedDiff >= 150 && normalizedDiff <= 210) totalScore += 0.9;
-          else if (normalizedDiff >= 90 && normalizedDiff <= 150) totalScore += 0.75;
-          else if (normalizedDiff >= 60 && normalizedDiff <= 90) totalScore += 0.8;
-          else totalScore += 0.5;
+          const avgSat = (s1 + s2) / 2;
+          const satPenalty = avgSat > 60 ? 0.92 : 1.0;
+
+          if (normalizedDiff < 15) totalScore += 0.88 * satPenalty;
+          else if (normalizedDiff < 30) totalScore += 0.82 * satPenalty;
+          else if (normalizedDiff >= 150) totalScore += 0.78 * satPenalty;
+          else if (normalizedDiff >= 60 && normalizedDiff < 90) totalScore += 0.6 * satPenalty;
+          else if (normalizedDiff >= 90 && normalizedDiff < 150) totalScore += 0.55 * satPenalty;
+          else totalScore += 0.35 * satPenalty;
         }
         comparisons++;
       }
@@ -241,20 +283,16 @@ class EmbeddingLayer {
     return new Array(this.embeddingDim).fill(0);
   }
 
+  /** 80-dim per item. Uses fused fields (colors, formality, category) which may come from CV when present; no CV = unchanged. */
   getItemEmbedding(item: WardrobeItemML): number[] {
     const colorEmbs = (item.colors || []).map(c => this.getEmbedding(c, this.colorEmbeddings));
     const avgColorEmb = this.averageEmbeddings(colorEmbs);
-    
     const styleEmb = this.getEmbedding(item.formality || "casual", this.styleEmbeddings);
-    
     const occasionEmbs = (item.occasions || []).map(o => this.getEmbedding(o, this.occasionEmbeddings));
     const avgOccasionEmb = this.averageEmbeddings(occasionEmbs);
-    
     const seasonEmbs = (item.seasons || []).map(s => this.getEmbedding(s, this.seasonEmbeddings));
     const avgSeasonEmb = this.averageEmbeddings(seasonEmbs);
-    
     const categoryEmb = this.getEmbedding(item.category || "", this.categoryEmbeddings);
-    
     return [...avgColorEmb, ...styleEmb, ...avgOccasionEmb, ...avgSeasonEmb, ...categoryEmb];
   }
 
@@ -449,79 +487,111 @@ class MatrixFactorization {
 }
 
 class ContextMatcher {
-  private occasionWhitelist: Record<string, string[]> = {
-    athletic: ["tank", "athletic", "sports", "workout", "gym", "running", "jogger", "sweatpant", "legging", "shorts", "t-shirt", "tee", "hoodie"],
-    formal: ["blazer", "dress shirt", "dress pants", "slacks", "suit", "formal", "button"],
-    business: ["blazer", "dress shirt", "polo", "chino", "slacks", "dress pants", "button", "formal"],
-    casual: ["t-shirt", "tee", "jeans", "shorts", "hoodie", "sweater", "polo", "chino", "khaki"],
-    "going out": ["dress", "blazer", "button", "jeans", "chino", "blouse", "nice"],
+  private occasionAliases: Record<string, string[]> = {
+    athletic: ["athletic", "workout", "gym", "sports", "exercise"],
+    formal: ["formal", "black tie", "gala"],
+    business: ["business", "work", "office", "professional"],
+    casual: ["casual", "everyday", "relaxed"],
+    "date night": ["date night", "date", "romantic"],
+    "going out": ["going out", "party", "nightlife", "clubbing"],
   };
 
-  private occasionBlacklist: Record<string, string[]> = {
-    athletic: ["dress pants", "slacks", "blazer", "polo", "chino", "jeans", "formal", "button", "dress shirt", "khaki"],
-    formal: ["shorts", "hoodie", "sweatpants", "joggers", "tank", "athletic", "t-shirt", "tee", "jeans"],
-    business: ["shorts", "hoodie", "sweatpants", "joggers", "tank", "athletic", "ripped"],
-    casual: ["blazer", "suit", "formal"],
-    "going out": ["sweatpants", "joggers", "athletic", "gym", "workout"],
+  private categoryFormality: [string, number][] = [
+    ["tank top", 1], ["sports bra", 1], ["sweatpant", 1], ["sweat pant", 1],
+    ["jogger", 1], ["legging", 1], ["athletic short", 1], ["running short", 1],
+    ["dress shirt", 4], ["button-down", 4], ["button down", 4],
+    ["dress pants", 4], ["dress pant", 4],
+    ["tank", 1], ["compression", 1],
+    ["t-shirt", 2], ["tee", 2], ["hoodie", 2], ["sweatshirt", 2],
+    ["jeans", 2], ["jean", 2], ["shorts", 2], ["denim", 2],
+    ["polo", 3], ["sweater", 3], ["cardigan", 3], ["pullover", 3],
+    ["chino", 3], ["khaki", 3], ["jacket", 3], ["blouse", 3],
+    ["slacks", 4], ["trouser", 4],
+    ["blazer", 5], ["suit", 5], ["tuxedo", 5],
+  ];
+
+  private formalityLevels: Record<string, number> = {
+    "very casual": 1, "casual": 2, "relaxed": 2, "smart casual": 3,
+    "business casual": 3, "business": 4, "formal": 5, "semi-formal": 4,
   };
 
-  private strictOccasions = new Set(["athletic", "formal"]);
+  private occasionFormalityRange: Record<string, [number, number]> = {
+    athletic: [1, 2],
+    casual: [1, 3],
+    "going out": [2, 5],
+    "date night": [3, 5],
+    business: [3, 5],
+    formal: [4, 5],
+  };
+
+  private getItemFormalityLevel(item: WardrobeItemML): number {
+    const text = `${(item.category || "").toLowerCase()} ${(item.name || "").toLowerCase()}`;
+    for (const [keyword, level] of this.categoryFormality) {
+      if (text.includes(keyword)) return level;
+    }
+    const f = (item.formality || "").toLowerCase();
+    return this.formalityLevels[f] || 2;
+  }
 
   matchOccasion(item: WardrobeItemML, targetOccasion: string): number {
-    const itemOccasions = item.occasions || [];
-    const itemCategory = item.category?.toLowerCase() || "";
-    const itemName = item.name?.toLowerCase() || "";
-    const itemFormality = item.formality?.toLowerCase() || "";
-    const combined = `${itemCategory} ${itemName} ${itemFormality}`;
     const targetNorm = targetOccasion.toLowerCase();
+    const itemOccasions = (item.occasions || []).map(o => o.toLowerCase());
+    const aliases = this.occasionAliases[targetNorm] || [targetNorm];
 
-    const blacklist = this.occasionBlacklist[targetNorm] || [];
-    for (const blocked of blacklist) {
-      if (combined.includes(blocked)) return 0;
+    const hasExplicitTag = itemOccasions.some(occ =>
+      aliases.some(alias => occ === alias)
+    );
+
+    const itemFormality = this.getItemFormalityLevel(item);
+    const [minF, maxF] = this.occasionFormalityRange[targetNorm] || [1, 5];
+
+    let formalityFit: number;
+    if (itemFormality >= minF && itemFormality <= maxF) {
+      formalityFit = 1.0;
+    } else {
+      const distance = itemFormality < minF ? minF - itemFormality : itemFormality - maxF;
+      formalityFit = distance === 1 ? 0.3 : 0;
     }
 
-    for (const occ of itemOccasions) {
-      if (occ.toLowerCase() === targetNorm || occ.toLowerCase().includes(targetNorm)) {
-        return 1.0;
-      }
-    }
-
-    const whitelist = this.occasionWhitelist[targetNorm] || [];
-    let whitelistMatch = false;
-    for (const allowed of whitelist) {
-      if (combined.includes(allowed)) {
-        whitelistMatch = true;
-        break;
-      }
-    }
-
-    if (this.strictOccasions.has(targetNorm)) {
-      return whitelistMatch ? 0.8 : 0;
-    }
-
-    if (whitelistMatch) return 0.8;
-
-    return 0.3;
+    if (hasExplicitTag && formalityFit >= 1.0) return 1.0;
+    if (hasExplicitTag) return 0.4;
+    if (formalityFit >= 1.0) return 0.8;
+    if (formalityFit > 0) return 0.15;
+    return 0;
   }
 
   matchSeason(item: WardrobeItemML): number {
     const seasons = item.seasons || [];
     if (seasons.length === 0) return 0.8;
-    
+
     const month = new Date().getMonth();
-    const currentSeason = month >= 2 && month <= 4 ? "Spring" :
-                         month >= 5 && month <= 7 ? "Summer" :
-                         month >= 8 && month <= 10 ? "Fall" : "Winter";
-    
-    for (const season of seasons) {
-      const s = season.toLowerCase();
-      if (s === "all" || s === "all seasons" || s === currentSeason.toLowerCase()) {
-        return 1.0;
-      }
+    const currentSeason = month >= 2 && month <= 4 ? "spring" :
+                         month >= 5 && month <= 7 ? "summer" :
+                         month >= 8 && month <= 10 ? "fall" : "winter";
+
+    const normalizedSeasons = seasons.map(s => s.toLowerCase());
+    if (normalizedSeasons.some(s => s === "all" || s === "all seasons" || s === currentSeason)) {
+      return 1.0;
     }
-    
+
+    const opposites: Record<string, string> = {
+      spring: "fall", summer: "winter", fall: "spring", winter: "summer",
+    };
+    const opposite = opposites[currentSeason];
+    if (opposite && normalizedSeasons.length <= 2 && normalizedSeasons.every(s => s === opposite)) {
+      return 0.2;
+    }
+
     if (seasons.length >= 3) return 0.85;
-    return 0.7;
+    return 0.6;
+  }
+
+  getItemFormality(item: WardrobeItemML): number {
+    return this.getItemFormalityLevel(item);
+  }
+
+  getFormalityRange(occasion: string): [number, number] {
+    return this.occasionFormalityRange[occasion.toLowerCase()] || [1, 5];
   }
 }
 
@@ -539,22 +609,29 @@ class CategoryTaxonomy {
   ]);
 
   classify(item: WardrobeItemML): "top" | "bottom" {
+    const category = (item.category || "").toLowerCase();
+    const name = (item.name || "").toLowerCase();
+    const text = `${category} ${name}`;
+
+    for (const keyword of this.lowerKeywords) {
+      if (text.includes(keyword)) return "bottom";
+    }
+    for (const keyword of this.upperKeywords) {
+      if (text.includes(keyword)) return "top";
+    }
+
     if (item.clothingType) return item.clothingType;
     if (item.cvMetadata?.category?.value) return item.cvMetadata.category.value;
-    
-    const category = (item.category || "").toLowerCase();
-    for (const keyword of this.upperKeywords) {
-      if (category.includes(keyword)) return "top";
-    }
-    for (const keyword of this.lowerKeywords) {
-      if (category.includes(keyword)) return "bottom";
-    }
     return "top";
   }
 }
 
 const PAIR_FEATURE_DIM = 160;
 
+/** Flow: CV JSON → fused item (toMLItem) → 80-dim → 160-dim pair → scoring.
+ *  Rules (occasion 40% + color 30%) dominate. ONNX (synthetic data) is only a gentle
+ *  reranker (~5 pt adjustment) on already-good candidates; disable or replace once a
+ *  model trained on real user data is available. */
 export class OutfitRecommendationEngine {
   private items: WardrobeItemML[];
   private embeddingLayer: EmbeddingLayer;
@@ -566,7 +643,6 @@ export class OutfitRecommendationEngine {
   private userId = "default_user";
   private itemEmbeddings = new Map<string, number[]>();
   private pairScorer: PairScorer | null = null;
-  private pairScoreMap = new Map<string, number>();
 
   constructor(
     items: WardrobeItemML[],
@@ -614,44 +690,36 @@ export class OutfitRecommendationEngine {
     }
   }
 
+  /** Weights: occasion 40% + color 30% + in-memory NN 10% + collaborative 15% + season 5%.
+   *  ONNX (trained on synthetic data) is NOT used here; it is applied as a gentle reranker after scoring. */
   private scoreOutfit(top: WardrobeItemML, bottom: WardrobeItemML, occasion: string): { score: number; reasons: string[] } {
     const reasons: string[] = [];
-    
     const topOccasionScore = this.contextMatcher.matchOccasion(top, occasion);
     const bottomOccasionScore = this.contextMatcher.matchOccasion(bottom, occasion);
     if (topOccasionScore === 0 || bottomOccasionScore === 0) {
       return { score: 0, reasons: ["Items not suitable for this occasion"] };
     }
     const occasionScore = (topOccasionScore + bottomOccasionScore) / 2;
-    
     const colorScore = this.colorAnalyzer.scoreColorHarmony(top.colors || [], bottom.colors || []);
     const colorReason = this.colorAnalyzer.getColorReason(top.colors || [], bottom.colors || []);
     if (colorReason) reasons.push(colorReason);
-    
     const topEmb = this.itemEmbeddings.get(top.id) || this.embeddingLayer.getItemEmbedding(top);
     const bottomEmb = this.itemEmbeddings.get(bottom.id) || this.embeddingLayer.getItemEmbedding(bottom);
-
-    const pairKey = `${top.id}_${bottom.id}`;
-    const neuralScore =
-      this.pairScoreMap.get(pairKey) ?? this.neuralNetwork.predict([...topEmb, ...bottomEmb]);
-    
+    const neuralScore = this.neuralNetwork.predict([...topEmb, ...bottomEmb]);
     const collabScore = this.matrixFactorization.getPairScore(this.userId, top.id, bottom.id);
-    
     const seasonScore = (this.contextMatcher.matchSeason(top) + this.contextMatcher.matchSeason(bottom)) / 2;
-    
     const finalScore = (
-      occasionScore * 35 +
-      colorScore * 25 +
-      neuralScore * 15 +
+      occasionScore * 40 +
+      colorScore * 30 +
+      neuralScore * 10 +
       collabScore * 15 +
-      seasonScore * 10
+      seasonScore * 5
     );
-    
     if (neuralScore > 0.7) reasons.push("AI predicts high compatibility");
     if (collabScore > 0.6) reasons.push("Based on your preferences");
     if (occasionScore > 0.8) reasons.push(`Perfect for ${occasion}`);
     if (seasonScore > 0.8) reasons.push("Great for current season");
-    
+
     return { score: Math.min(100, Math.max(0, finalScore)), reasons };
   }
 
@@ -660,70 +728,123 @@ export class OutfitRecommendationEngine {
   ): Promise<OutfitRecommendation[]> {
     const { occasion = "casual", maxResults = 5, minScore = 35 } = options;
 
-    const tops = this.items.filter((item) => this.categoryTaxonomy.classify(item) === "top");
-    const bottoms = this.items.filter((item) => this.categoryTaxonomy.classify(item) === "bottom");
+    const allTops = this.items.filter((item) => this.categoryTaxonomy.classify(item) === "top");
+    const allBottoms = this.items.filter((item) => this.categoryTaxonomy.classify(item) === "bottom");
+
+    if (allTops.length === 0 || allBottoms.length === 0) {
+      return [];
+    }
+
+    // --- Hard pre-filters: reject items clearly wrong for the occasion or season ---
+    const [minF, maxF] = this.contextMatcher.getFormalityRange(occasion);
+    const currentSeason = this.getCurrentSeason();
+    const tops = allTops.filter(t => this.passesHardFilters(t, minF, maxF, currentSeason));
+    const bottoms = allBottoms.filter(b => this.passesHardFilters(b, minF, maxF, currentSeason));
 
     if (tops.length === 0 || bottoms.length === 0) {
       return [];
     }
 
-    this.pairScoreMap.clear();
-    if (this.pairScorer) {
-      const features: number[][] = [];
-      const keys: string[] = [];
-      for (const top of tops) {
-        for (const bottom of bottoms) {
-          const topEmb = this.itemEmbeddings.get(top.id) ?? this.embeddingLayer.getItemEmbedding(top);
-          const bottomEmb = this.itemEmbeddings.get(bottom.id) ?? this.embeddingLayer.getItemEmbedding(bottom);
-          const pair = [...topEmb, ...bottomEmb];
-          if (pair.length === PAIR_FEATURE_DIM) {
-            features.push(pair);
-            keys.push(`${top.id}_${bottom.id}`);
-          }
-        }
-      }
-      if (features.length > 0) {
-        try {
-          const scores = await this.pairScorer.predictBatch(features);
-          scores.forEach((s, i) => this.pairScoreMap.set(keys[i], s));
-        } catch (e) {
-          console.warn("PairScorer (e.g. ONNX) failed, using fallback:", e);
-        }
-      }
-    }
-
+    // --- Score all pairs using rules + in-memory NN (no ONNX in this stage) ---
     const candidates: OutfitRecommendation[] = [];
 
     for (const top of tops) {
       for (const bottom of bottoms) {
+        if (this.isDuplicateType(top, bottom)) continue;
         const { score, reasons } = this.scoreOutfit(top, bottom, occasion);
         if (score >= minScore) {
           candidates.push({ top, bottom, score: Math.round(score), reasons });
         }
       }
     }
-    
+
     candidates.sort((a, b) => b.score - a.score);
-    
+
+    // --- Optional ONNX reranker on the top candidates ---
+    // NOTE: outfit_model.onnx was trained on synthetic data and is intentionally
+    // used only as a gentle reranker (~5 pt max adjustment) until a model trained
+    // on real user data is available. It cannot push a bad outfit to the top.
+    const RERANKER_POOL_SIZE = 30;
+    const ONNX_RERANK_WEIGHT = 5;
+    const rerankerPool = candidates.slice(0, RERANKER_POOL_SIZE);
+
+    if (this.pairScorer && rerankerPool.length > 0) {
+      const features: number[][] = [];
+      for (const c of rerankerPool) {
+        const tEmb = this.itemEmbeddings.get(c.top.id) ?? this.embeddingLayer.getItemEmbedding(c.top);
+        const bEmb = this.itemEmbeddings.get(c.bottom.id) ?? this.embeddingLayer.getItemEmbedding(c.bottom);
+        const pair = [...tEmb, ...bEmb];
+        features.push(pair.length === PAIR_FEATURE_DIM ? pair : new Array(PAIR_FEATURE_DIM).fill(0));
+      }
+      try {
+        const onnxScores = await this.pairScorer.predictBatch(features);
+        for (let i = 0; i < rerankerPool.length; i++) {
+          rerankerPool[i].score = Math.min(100, Math.max(0,
+            Math.round(rerankerPool[i].score + (onnxScores[i] - 0.5) * ONNX_RERANK_WEIGHT)
+          ));
+        }
+        rerankerPool.sort((a, b) => b.score - a.score);
+      } catch {
+        // ONNX failed; keep rule-based scores unchanged
+      }
+    }
+
+    // --- Diversity: limit how often the same item appears ---
+    const finalPool = (this.pairScorer && rerankerPool.length > 0) ? rerankerPool : candidates;
     const results: OutfitRecommendation[] = [];
     const topUsageCount = new Map<string, number>();
     const bottomUsageCount = new Map<string, number>();
     const maxItemUsage = Math.max(2, Math.ceil(maxResults / 3));
-    
-    for (const candidate of candidates) {
+
+    for (const candidate of finalPool) {
       if (results.length >= maxResults) break;
-      
+
       const topCount = topUsageCount.get(candidate.top.id) || 0;
       const bottomCount = bottomUsageCount.get(candidate.bottom.id) || 0;
-      
+
       if (topCount < maxItemUsage && bottomCount < maxItemUsage) {
         results.push(candidate);
         topUsageCount.set(candidate.top.id, topCount + 1);
         bottomUsageCount.set(candidate.bottom.id, bottomCount + 1);
       }
     }
-    
+
     return results;
+  }
+
+  private getCurrentSeason(): string {
+    const month = new Date().getMonth();
+    if (month >= 2 && month <= 4) return "spring";
+    if (month >= 5 && month <= 7) return "summer";
+    if (month >= 8 && month <= 10) return "fall";
+    return "winter";
+  }
+
+  /** Hard filter: reject items whose formality is ≥2 levels outside the occasion range,
+   *  or items exclusively tagged for the opposite season. */
+  private passesHardFilters(
+    item: WardrobeItemML, minF: number, maxF: number, currentSeason: string
+  ): boolean {
+    const formality = this.contextMatcher.getItemFormality(item);
+    if (formality < minF - 1 || formality > maxF + 1) return false;
+
+    const seasons = (item.seasons || []).map(s => s.toLowerCase());
+    if (seasons.length > 0 && !seasons.some(s => s === "all" || s === "all seasons")) {
+      const opposites: Record<string, string> = {
+        spring: "fall", summer: "winter", fall: "spring", winter: "summer",
+      };
+      const opposite = opposites[currentSeason];
+      if (opposite && seasons.length <= 2 && seasons.every(s => s === opposite)) return false;
+    }
+    return true;
+  }
+
+  /** Sanity filter: prevent pairing two items of the same core clothing type. */
+  private isDuplicateType(top: WardrobeItemML, bottom: WardrobeItemML): boolean {
+    const topText = `${top.category || ""} ${top.name || ""}`.toLowerCase();
+    const bottomText = `${bottom.category || ""} ${bottom.name || ""}`.toLowerCase();
+    const dupeKeywords = ["hoodie", "sweatpant", "jogger", "legging", "tank", "blazer"];
+    return dupeKeywords.some(kw => topText.includes(kw) && bottomText.includes(kw));
   }
 
   addFeedback(topId: string, bottomId: string, liked: boolean): void {
@@ -743,6 +864,7 @@ export class OutfitRecommendationEngine {
   }
 }
 
+/** Fuse CV metadata into item fields when present: CV color → colors[0], category → clothingType, style → formality, type → category. No CV = same as today. */
 export function toMLItem(dbItem: {
   _id: unknown;
   name: string;
@@ -752,16 +874,28 @@ export function toMLItem(dbItem: {
   formality?: string;
   seasons?: string[];
   occasions?: string[];
-  metadata?: Map<string, unknown>;
+  metadata?: Map<string, unknown> | Record<string, unknown>;
 }): WardrobeItemML {
-  const cvMetadata = dbItem.metadata?.get?.("cv") as CVMetadata | undefined;
+  const raw = dbItem.metadata;
+  const cvMetadata = (raw && typeof (raw as Map<string, unknown>).get === "function"
+    ? (raw as Map<string, unknown>).get("cv")
+    : (raw as Record<string, unknown>)?.["cv"]) as CVMetadata | undefined;
+  const colors =
+    dbItem.colors?.length
+      ? dbItem.colors
+      : cvMetadata?.color_primary?.value
+        ? [hexToColorName(cvMetadata.color_primary.value)]
+        : undefined;
+  const clothingType = dbItem.clothingType ?? cvMetadata?.category?.value;
+  const formality = dbItem.formality ?? cvMetadata?.style?.value;
+  const category = dbItem.category ?? cvMetadata?.type?.value;
   return {
     id: String(dbItem._id),
     name: dbItem.name,
-    clothingType: dbItem.clothingType,
-    category: dbItem.category,
-    colors: dbItem.colors,
-    formality: dbItem.formality,
+    clothingType,
+    category,
+    colors,
+    formality,
     seasons: dbItem.seasons,
     occasions: dbItem.occasions,
     cvMetadata,
