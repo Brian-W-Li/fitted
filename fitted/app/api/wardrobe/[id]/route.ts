@@ -63,12 +63,15 @@ export async function PATCH(
       "occasions",
       "notes",
       "imagePath",
+      "isAvailable",
     ] as const;
 
     for (const field of fields) {
       if (field in body) {
         if (field === "colors" || field === "seasons" || field === "occasions") {
           update[field] = Array.isArray(body[field]) ? body[field] : [];
+        } else if (field === "isAvailable") {
+          update[field] = Boolean(body[field]);
         } else if (field === "clothingType") {
           const v = body[field];
           update[field] = v === "bottom" ? "bottom" : "top";
@@ -107,6 +110,7 @@ export async function PATCH(
         seasons: doc.seasons ?? [],
         occasions: doc.occasions ?? [],
         notes: doc.notes ?? "",
+        isAvailable: doc.isAvailable ?? true,
         imagePath: doc.imagePath ?? undefined,
       },
     });
@@ -158,4 +162,3 @@ export async function DELETE(
     );
   }
 }
-

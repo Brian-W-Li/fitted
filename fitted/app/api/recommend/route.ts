@@ -63,14 +63,18 @@ async function getMLRecommendations(
     seasons?: string[];
     occasions?: string[];
     metadata?: Map<string, unknown>;
+    isAvailable?: boolean;
   };
-  const items = (await WardrobeItem.find({ user: userId })
+  const items = (await WardrobeItem.find({
+    user: userId,
+    isAvailable: { $ne: false },
+  })
     .lean()
     .exec()) as unknown as WardrobeDoc[];
 
   if (items.length < 2) {
     throw new Error(
-      "Add at least 2 items to your wardrobe to get recommendations"
+      "Add at least 2 available items to get recommendations"
     );
   }
 
@@ -162,15 +166,19 @@ async function getAIRecommendations(
     colors?: string[];
     formality?: string;
     occasions?: string[];
+    isAvailable?: boolean;
   };
 
-  const items = (await WardrobeItem.find({ user: userId })
+  const items = (await WardrobeItem.find({
+    user: userId,
+    isAvailable: { $ne: false },
+  })
     .lean()
     .exec()) as unknown as WardrobeItemLean[];
 
   if (items.length < 2) {
     throw new Error(
-      "Add at least 2 items to your wardrobe to get recommendations"
+      "Add at least 2 available items to get recommendations"
     );
   }
 

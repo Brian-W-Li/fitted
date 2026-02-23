@@ -14,6 +14,7 @@ type WardrobeItem = {
   category: string;
   subCategory?: string;
   pattern?: string;
+  isAvailable?: boolean;
   colors: string[];
   fit: string;
   size: string;
@@ -81,12 +82,15 @@ function WardrobeCard({
   item,
   onEdit,
   onDelete,
+  onToggleAvailability,
 }: {
   item: WardrobeItem;
   onEdit: (item: WardrobeItem) => void;
   onDelete: (item: WardrobeItem) => void;
+  onToggleAvailability: (item: WardrobeItem) => void;
 }) {
   const imgSrc = imageUrlFromPath(item.imagePath);
+  const isAvailable = item.isAvailable ?? true;
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -111,7 +115,9 @@ function WardrobeCard({
         <div className="mb-2 flex items-baseline justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
+              <h3 className={`text-base font-semibold ${isAvailable ? "text-slate-900" : "text-slate-500"}`}>
+                {item.name}
+              </h3>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
                 (item.clothingType || inferClothingType(item.category)) === "top"
                   ? "bg-blue-100 text-blue-700"
@@ -140,6 +146,20 @@ function WardrobeCard({
               Delete
             </button>
           </div>
+        </div>
+
+        <div className="mb-2">
+          <button
+            type="button"
+            onClick={() => onToggleAvailability(item)}
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+              isAvailable
+                ? "border-amber-300 text-amber-700 hover:bg-amber-50"
+                : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            }`}
+          >
+            {isAvailable ? "Mark Unavailable" : "Mark Available"}
+          </button>
         </div>
 
         {(item.formality || item.fit || item.seasons?.length || item.occasions?.length) && (
@@ -220,6 +240,7 @@ function AddItemModal({
   const [seasons, setSeasons] = useState<string[]>(initialItem?.seasons ?? []);
   const [occasions, setOccasions] = useState<string[]>(initialItem?.occasions ?? []);
   const [fit, setFit] = useState(initialItem?.fit ?? "");
+  const isAvailable = initialItem?.isAvailable ?? true;
   const [imageFile, setImageFile] = useState<File | null>(pendingAddFile ?? null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -309,6 +330,7 @@ function AddItemModal({
           seasons,
           occasions,
           notes: "",
+          isAvailable,
         },
         fileToUpload
       );
@@ -788,6 +810,33 @@ export default function WardrobePage() {
     }
   }
 
+  async function handleToggleAvailability(item: WardrobeItem) {
+    if (!firebaseUser) return;
+    try {
+      setError(null);
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch(`/api/wardrobe/${item.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isAvailable: !(item.isAvailable ?? true) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to update availability.");
+        return;
+      }
+      const raw = data.item;
+      const updated: WardrobeItem = { ...raw, id: raw.id ?? raw._id };
+      setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
+    } catch (e) {
+      console.error("Error updating availability:", e);
+      setError("Failed to update availability.");
+    }
+  }
+
   async function handleAddItem(
     newItem: Omit<WardrobeItem, "id">,
   ): Promise<WardrobeItem | null> {
@@ -885,6 +934,7 @@ export default function WardrobePage() {
                 setIsModalOpen(true);
               }}
               onDelete={handleDeleteItem}
+              onToggleAvailability={handleToggleAvailability}
             />
           ))}
         </div>
@@ -991,6 +1041,7 @@ export default function WardrobePage() {
                   seasons: editingItem.seasons ?? [],
                   occasions: editingItem.occasions ?? [],
                   notes: editingItem.notes,
+                  isAvailable: editingItem.isAvailable,
                   imagePath: editingItem.imagePath,
                 }
               : addStep === "form"
