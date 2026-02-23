@@ -18,7 +18,7 @@ Indexes:
 
 ### WardrobeItem (`models/WardrobeItem.ts`)
 - Scope: required `user` reference so every item belongs to one user.
-- Description: `name`, `category`, `subCategory`, `colors`, `seasons`, `occasions`, `formality`, `brand`, `fit`, `size`, `imageUrl`, `tags`, `notes`, `isFavorite`, `lastWornAt`, `metadata`.
+- Description: `name`, `category`, `subCategory`, `colors`, `seasons`, `occasions`, `formality`, `brand`, `fit`, `size`, `imageUrl`, `imagePath`, `tags`, `notes`, `isFavorite`, `lastWornAt`, `metadata`.
 
 Indexes:
 - `{ user: 1, category: 1 }` — common browse/filter by category within a user.
@@ -37,6 +37,16 @@ Indexes:
 
 ## User association guarantee
 Wardrobe items and outfit interactions require a `user` reference. Queries should always be scoped with `user` to ensure data isolation per account.
+
+## Access control helpers (`lib/db.ts`)
+Use these helpers instead of raw queries to ensure users only access their own data:
+
+- `getUserWardrobeItems(userId)` – get all items for a user
+- `getUserWardrobeItem(userId, itemId)` – get one item only if owned by user
+- `getUserOutfitInteractions(userId)` – get all interactions for a user
+
+## Cascade delete
+When a user is deleted via `User.deleteOne()` or `User.findOneAndDelete()`, Mongoose middleware automatically removes all their wardrobe items and outfit interactions. Use `deleteUserWithData(userId)` from `lib/db.ts` for a clean helper.
 
 ## Extensibility
 `metadata` fields in each collection allow adding new attributes later (e.g., ML outputs, stats) without breaking existing data. Add indexes as new query patterns emerge.

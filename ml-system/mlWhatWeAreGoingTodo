@@ -1,0 +1,26 @@
+ML: from json info on colors, top/bottom, season, type (t-shirt jeans etc), occasion, likes/dislikes
+Generate: list of recommended outfits
+
+Idea: each occasion has its own score
+(rule based scoring) once a user likes an outfit + something or - something
+
+you can tag each clothing item with occasion
+
+adding on ml model from kaggle's datasets (code part) and research papers online (scholarly papers)
+
+use name of clothing item (user given) as unique id for item in ml
+
+struct Item:
+  itemID (something related to name given by user)
+  category (top/bottom)
+  type(a bunch of types tshirt shirt sweater hoodie)
+  color(hexcode)
+  season 
+  OCCASION
+
+recommendation (base ml): finding out how it can suggest without needing user's input. push newer items more.
+recommendation (user learned ml): scoring each item based on the user feedback on the outfits liked/disliked,
+and segregating it based off of the occasion.
+
+
+

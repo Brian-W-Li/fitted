@@ -1,0 +1,9 @@
+# Core (outfit_recommender.py)
+# No extra deps for rule-based recommender
+
+# CV / clothing attribute inference (clothing_cv.py)
+numpy>=1.20
+Pillow>=9.0
+torch>=2.0
+transformers>=4.30
+rembg[cpu]>=2.0
