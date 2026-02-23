@@ -17,3 +17,4 @@
 | Fri 02/13 | Brian | Led the retrospective |
 | Wed 02/18 | Animesh | Made sure everyone finished the past retrospective |
 | Fri 02/20 | Pengyu | Led everyone in adding new things to the kanban |
+| Mon 02/23 | Brian | Made sure everyone was working on separate things that don't conflict |
