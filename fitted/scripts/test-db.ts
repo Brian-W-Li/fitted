@@ -66,7 +66,11 @@ async function main() {
   console.log("🔍 Testing getUserWardrobeItems...");
   const userItems = await getUserWardrobeItems(testUser._id);
   console.log(`  Found ${userItems.length} items for user ${testUser._id}`);
-  userItems.forEach((i: any) => console.log(`    - ${i.name} (${i.category})`));
+  userItems.forEach((i: { name?: unknown; category?: unknown }) => {
+    const name = typeof i.name === "string" ? i.name : "<unknown>";
+    const category = typeof i.category === "string" ? i.category : "<unknown>";
+    console.log(`    - ${name} (${category})`);
+  });
   console.log();
 
   console.log("🔍 Testing getUserWardrobeItem (single item)...");
