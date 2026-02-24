@@ -92,16 +92,16 @@ function WardrobeCard({
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       {/* Image */}
       {imgSrc ? (
-        <div className="relative h-44 w-full bg-slate-50">
+        <div className="relative h-64 w-full bg-slate-50 flex items-center justify-center p-2">
           <img
             src={imgSrc}
             alt={item.name}
-            className="h-full w-full object-cover"
+            className="max-h-full max-w-full object-contain"
             loading="lazy"
           />
         </div>
       ) : (
-        <div className="flex h-44 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
+        <div className="flex h-64 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
           No photo
         </div>
       )}
@@ -872,7 +872,7 @@ export default function WardrobePage() {
           you wear often (jeans, t‑shirts, jackets, shoes).
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {items.map((item) => (
             <WardrobeCard
               key={item.id}
