@@ -36,9 +36,9 @@ type TabType = "liked" | "disliked";
 const OCCASIONS = [
   { value: "all", label: "All Occasions" },
   { value: "casual", label: "Casual" },
-  { value: "business", label: "Business" },
   { value: "formal", label: "Formal" },
-  { value: "date night", label: "Date Night" },
+  { value: "athletic", label: "Athletic" },
+  { value: "streetwear", label: "Streetwear" },
 ];
 
 export default function HistoryPage() {

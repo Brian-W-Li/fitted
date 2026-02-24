@@ -231,8 +231,8 @@ class EmbeddingLayer {
     const styles = ["casual", "formal", "business", "athletic", "streetwear", "bohemian",
       "preppy", "minimalist", "vintage", "smart casual", "business casual"];
     
-    const occasions = ["everyday", "work", "formal", "casual", "athletic", "going out",
-      "date night", "wedding", "interview", "weekend", "vacation", "party"];
+    const occasions = ["everyday", "work", "formal", "casual", "athletic", "streetwear",
+      "business", "wedding", "interview", "weekend", "vacation", "party"];
     
     const seasons = ["spring", "summer", "fall", "winter", "all"];
     
@@ -489,11 +489,9 @@ class MatrixFactorization {
 class ContextMatcher {
   private occasionAliases: Record<string, string[]> = {
     athletic: ["athletic", "workout", "gym", "sports", "exercise"],
-    formal: ["formal", "black tie", "gala"],
-    business: ["business", "work", "office", "professional"],
+    formal: ["formal", "business", "work", "office", "professional", "black tie", "gala", "date night", "date", "romantic", "semi-formal", "interview", "wedding"],
     casual: ["casual", "everyday", "relaxed"],
-    "date night": ["date night", "date", "romantic"],
-    "going out": ["going out", "party", "nightlife", "clubbing"],
+    streetwear: ["streetwear", "street", "going out", "party", "nightlife", "clubbing", "urban", "hype"],
   };
 
   private categoryFormality: [string, number][] = [
@@ -518,10 +516,8 @@ class ContextMatcher {
   private occasionFormalityRange: Record<string, [number, number]> = {
     athletic: [1, 2],
     casual: [1, 3],
-    "going out": [2, 5],
-    "date night": [3, 5],
-    business: [3, 5],
-    formal: [4, 5],
+    streetwear: [1, 4],
+    formal: [3, 5],
   };
 
   private getItemFormalityLevel(item: WardrobeItemML): number {
