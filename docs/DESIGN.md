@@ -1,6 +1,8 @@
 ## Design Document
 
+[Google Design Document](https://docs.google.com/document/d/1XsFUzTNdZgI-yt-XzN2jiorWx_H1wOgkCrTTxoEFjFY/edit?usp=sharing)
 
+#### High-Level System Architecture
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                              FITTED SYSTEM ARCHITECTURE                         │
