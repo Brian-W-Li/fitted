@@ -44,7 +44,7 @@ export default function SignupPage() {
         localStorage.setItem("userId", data.userId);
       }
 
-      router.push("/");
+      router.push("/dashboard");
     } catch (e) {
       console.error("Signup error:", e);
       const errorMessage = e instanceof Error ? e.message : "Sign-up failed. Please try again.";

@@ -44,7 +44,7 @@ export default function SigninPage() {
         localStorage.setItem("userId", data.userId);
       }
 
-      router.push("/");
+      router.push("/dashboard");
     } catch (e) {
       console.error(e);
       setError("Sign-in failed. Please try again.");
