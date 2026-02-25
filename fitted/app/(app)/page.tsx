@@ -182,11 +182,9 @@ export default function Home() {
               className="px-4 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
               <option value="casual">Casual</option>
-              <option value="business">Business</option>
               <option value="formal">Formal</option>
               <option value="athletic">Athletic</option>
-              <option value="date night">Date Night</option>
-              <option value="going out">Going Out</option>
+              <option value="streetwear">Streetwear</option>
             </select>
           </div>
 
