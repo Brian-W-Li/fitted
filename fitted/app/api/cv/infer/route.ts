@@ -3,7 +3,11 @@ import { writeFile, unlink } from "fs/promises";
 import { spawn } from "child_process";
 import path from "path";
 import os from "os";
+import { existsSync } from "fs";
 
+const DEFAULT_CV_PYTHON = path.join(process.cwd(), "cv-service", ".venv", "bin", "python");
+const CV_PYTHON =
+  process.env.CV_PYTHON || (existsSync(DEFAULT_CV_PYTHON) ? DEFAULT_CV_PYTHON : "python3");
 const CV_SERVICE_URL = process.env.CV_SERVICE_URL;
 
 /**
@@ -56,7 +60,7 @@ export async function POST(request: NextRequest) {
 
     const scriptPath = path.join(process.cwd(), "cv-service", "cv.py");
     const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
-      const proc = spawn("python3", [scriptPath, tempPath], {
+      const proc = spawn(CV_PYTHON, [scriptPath, tempPath], {
         cwd: process.cwd(),
         env: { ...process.env, PYTHONUNBUFFERED: "1" },
       });
