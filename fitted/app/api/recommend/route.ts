@@ -63,18 +63,15 @@ async function getMLRecommendations(
     seasons?: string[];
     occasions?: string[];
     metadata?: Map<string, unknown>;
-    isAvailable?: boolean;
+    imagePath?: string;
   };
-  const items = (await WardrobeItem.find({
-    user: userId,
-    isAvailable: { $ne: false },
-  })
+  const items = (await WardrobeItem.find({ user: userId })
     .lean()
     .exec()) as unknown as WardrobeDoc[];
 
   if (items.length < 2) {
     throw new Error(
-      "Add at least 2 available items to get recommendations"
+      "Add at least 2 items to your wardrobe to get recommendations"
     );
   }
 
@@ -97,6 +94,10 @@ async function getMLRecommendations(
   }));
 
   const mlItems: WardrobeItemML[] = items.map((item) => toMLItem(item));
+
+  const imageMap = new Map(
+    items.map((item) => [String(item._id), item.imagePath])
+  );
 
   let pairScorer: { predictBatch(features: number[][]): Promise<number[]> } | null =
     null;
@@ -133,12 +134,14 @@ async function getMLRecommendations(
           name: rec.top.name,
           category: rec.top.category || "top",
           colors: rec.top.colors || [],
+          imagePath: imageMap.get(rec.top.id),
         },
         {
           id: rec.bottom.id,
           name: rec.bottom.name,
           category: rec.bottom.category || "bottom",
           colors: rec.bottom.colors || [],
+          imagePath: imageMap.get(rec.bottom.id),
         },
       ],
       reason: rec.reasons.join(". "),
@@ -166,19 +169,16 @@ async function getAIRecommendations(
     colors?: string[];
     formality?: string;
     occasions?: string[];
-    isAvailable?: boolean;
+    imagePath?: string;
   };
 
-  const items = (await WardrobeItem.find({
-    user: userId,
-    isAvailable: { $ne: false },
-  })
+  const items = (await WardrobeItem.find({ user: userId })
     .lean()
     .exec()) as unknown as WardrobeItemLean[];
 
   if (items.length < 2) {
     throw new Error(
-      "Add at least 2 available items to get recommendations"
+      "Add at least 2 items to your wardrobe to get recommendations"
     );
   }
 
@@ -246,6 +246,7 @@ Respond ONLY with valid JSON in this exact format:
               name: item.name,
               category: item.category,
               colors: item.colors ?? [],
+              imagePath: item.imagePath,
             };
           })
           .filter((x): x is NonNullable<typeof x> => x != null),

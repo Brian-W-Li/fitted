@@ -10,6 +10,15 @@ interface OutfitItem {
   name: string;
   category: string;
   colors: string[];
+  imagePath?: string;
+}
+
+function imageUrlFromPath(imagePath?: string) {
+  if (!imagePath) return null;
+  if (imagePath.startsWith("mongo:")) {
+    return `/api/images/${imagePath.slice("mongo:".length)}`;
+  }
+  return null;
 }
 
 interface Outfit {
@@ -173,11 +182,9 @@ export default function Home() {
               className="px-4 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
               <option value="casual">Casual</option>
-              <option value="business">Business</option>
               <option value="formal">Formal</option>
               <option value="athletic">Athletic</option>
-              <option value="date night">Date Night</option>
-              <option value="going out">Going Out</option>
+              <option value="streetwear">Streetwear</option>
             </select>
           </div>
 
@@ -263,27 +270,46 @@ export default function Home() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mb-3">
-                  {outfit.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-3 bg-white rounded-lg border border-slate-100"
-                    >
-                      <p className="font-medium text-slate-900">{item.name}</p>
-                      <p className="text-sm text-slate-500">{item.category}</p>
-                      {item.colors.length > 0 && (
-                        <div className="mt-1 flex gap-1 flex-wrap">
-                          {item.colors.map((color, i) => (
-                            <span
-                              key={i}
-                              className="px-2 py-0.5 bg-slate-200 text-slate-700 text-xs rounded"
-                            >
-                              {color}
-                            </span>
-                          ))}
+                  {outfit.items.map((item) => {
+                    const imgSrc = imageUrlFromPath(item.imagePath);
+                    return (
+                      <div
+                        key={item.id}
+                        className="bg-white rounded-lg border border-slate-100 overflow-hidden"
+                      >
+                        {imgSrc ? (
+                          <div className="h-56 w-full bg-slate-50 flex items-center justify-center p-2">
+                            <img
+                              src={imgSrc}
+                              alt={item.name}
+                              className="max-h-full max-w-full object-contain"
+                              loading="lazy"
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-56 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
+                            No photo
+                          </div>
+                        )}
+                        <div className="p-3">
+                          <p className="font-medium text-slate-900">{item.name}</p>
+                          <p className="text-sm text-slate-500">{item.category}</p>
+                          {item.colors.length > 0 && (
+                            <div className="mt-1 flex gap-1 flex-wrap">
+                              {item.colors.map((color, i) => (
+                                <span
+                                  key={i}
+                                  className="px-2 py-0.5 bg-slate-200 text-slate-700 text-xs rounded"
+                                >
+                                  {color}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <p className="text-sm text-slate-600 italic">

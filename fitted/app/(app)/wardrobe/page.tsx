@@ -72,11 +72,6 @@ function imageUrlFromPath(imagePath?: string) {
   return null;
 }
 
-function inferClothingType(category: string): "top" | "bottom" {
-  const cat = category.toLowerCase();
-  const bottomKeywords = ["jean", "jeans", "pants", "pant", "short", "shorts", "skirt", "trouser", "chino", "jogger", "legging", "sweatpant"];
-  return bottomKeywords.some(k => cat.includes(k)) ? "bottom" : "top";
-}
 
 function WardrobeCard({
   item,
@@ -96,16 +91,16 @@ function WardrobeCard({
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       {/* Image */}
       {imgSrc ? (
-        <div className="relative h-44 w-full bg-slate-50">
+        <div className="relative h-64 w-full bg-slate-50 flex items-center justify-center p-2">
           <img
             src={imgSrc}
             alt={item.name}
-            className="h-full w-full object-cover"
+            className="max-h-full max-w-full object-contain"
             loading="lazy"
           />
         </div>
       ) : (
-        <div className="flex h-44 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
+        <div className="flex h-64 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
           No photo
         </div>
       )}
@@ -119,11 +114,11 @@ function WardrobeCard({
                 {item.name}
               </h3>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                (item.clothingType || inferClothingType(item.category)) === "top"
+                (item.category ?? "unknown") === "top"
                   ? "bg-blue-100 text-blue-700"
                   : "bg-amber-100 text-amber-700"
               }`}>
-                {item.clothingType || inferClothingType(item.category)}
+                {item.category ?? "unknown"}
               </span>
             </div>
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -730,6 +725,7 @@ export default function WardrobePage() {
   const [editingItem, setEditingItem] = useState<WardrobeItem | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Add flow: step 1 = upload only, step 2 = form with CV-inferred attributes
   const [addStep, setAddStep] = useState<"upload" | "form" | null>(null);
@@ -771,9 +767,11 @@ export default function WardrobePage() {
           setError(data.error ?? "Failed to load wardrobe.");
           return;
         }
-        const normalized = (data.items ?? []).map((it: any) => ({
+        type WardrobeItemApi = WardrobeItem & { _id?: string; id?: string };
+
+        const normalized = (data.items ?? []).map((it: WardrobeItemApi) => ({
           ...it,
-          id: it.id ?? it._id,
+          id: it.id ?? it._id ?? it.id, // id should exist after this
         }));
         setItems(normalized);
       } catch (e) {
@@ -837,6 +835,42 @@ export default function WardrobePage() {
     }
   }
 
+  async function handleClearWardrobe() {
+    if (!firebaseUser) return;
+
+    const confirmed = window.confirm(
+      "Delete ALL wardrobe items? This cannot be undone."
+    );
+    if (!confirmed) return;
+
+    try {
+      setError(null);
+      setLoading(true);
+
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/wardrobe/clear", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to delete all items.");
+        return;
+      }
+
+      // Keep UI consistent with DB: clear local state after successful API delete
+      setItems([]);
+    } catch (e) {
+      console.error("Error clearing wardrobe:", e);
+      setError("Failed to delete all items.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleAddItem(
     newItem: Omit<WardrobeItem, "id">,
   ): Promise<WardrobeItem | null> {
@@ -880,6 +914,31 @@ export default function WardrobePage() {
     }
   }
 
+  async function handleClearAll() {
+    if (!firebaseUser) return;
+    if (!confirm("Delete ALL wardrobe items? This cannot be undone.")) return;
+    try {
+      setError(null);
+      setClearing(true);
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/wardrobe/clear", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to clear wardrobe.");
+        return;
+      }
+      setItems([]);
+    } catch (e) {
+      console.error("Error clearing wardrobe:", e);
+      setError("Failed to clear wardrobe.");
+    } finally {
+      setClearing(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -889,23 +948,34 @@ export default function WardrobePage() {
             Add pieces from your closet so we can start building outfits.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setEditingItem(null);
-            setAddStep("upload");
-            setAddInferred(null);
-            setAddPendingFile(null);
-            setIsAnalyzing(false);
-            cvAbortRef.current?.abort();
-            cvAbortRef.current = null;
-            setIsModalOpen(true);
-          }}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-        >
-          + Add item
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleClearAll}
+            disabled={!firebaseUser || loading || clearing || items.length === 0}
+            className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {clearing ? "Deleting…" : "Delete all"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingItem(null);
+              setAddStep("upload");
+              setAddInferred(null);
+              setAddPendingFile(null);
+              setIsAnalyzing(false);
+              cvAbortRef.current?.abort();
+              cvAbortRef.current = null;
+              setIsModalOpen(true);
+            }}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            + Add item
+          </button>
+        </div>
       </div>
+      
 
       {error && (
         <p className="mb-3 text-sm text-red-600">
@@ -921,7 +991,7 @@ export default function WardrobePage() {
           you wear often (jeans, t‑shirts, jackets, shoes).
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {items.map((item) => (
             <WardrobeCard
               key={item.id}
