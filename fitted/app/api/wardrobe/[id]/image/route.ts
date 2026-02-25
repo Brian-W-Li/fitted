@@ -72,11 +72,12 @@ export async function POST(
     }
 
     // 2) If it already has an image, delete the old WardrobeImage doc
-    const oldPath = (existingItem as any).imagePath as string | undefined;
-    if (oldPath?.startsWith("mongo:")) {
-    const oldImageId = oldPath.slice("mongo:".length);
-    await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
-    }
+    const oldPath = (existingItem as { imagePath?: unknown } | null)?.imagePath;
+    const oldPathStr = typeof oldPath === "string" ? oldPath : undefined;
+    if (oldPathStr?.startsWith("mongo:")) {
+      const oldImageId = oldPathStr.slice("mongo:".length);
+      await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
+  }
 
     // 3) Store new image
     const { imagePath } = await uploadWardrobeImage({
