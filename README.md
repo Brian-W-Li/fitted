@@ -26,7 +26,7 @@ Next.js, Node.js/Python, Vercel, MongoDB (NoSQL DB), Firebase
 ## Prerequisites
 
 - Node.js
-- pnpm or npm
+- npm
 - Git
 - Firebase
 - MongoDB
@@ -53,9 +53,9 @@ Or run it locally:
 
 `git clone <repo-url>`  
 `cd pj12-outfit-recommender/fitted`  
-`pnpm install`  or `npm install`
+`npm install`
 create a .env.local and add the API keys
-`pnpm dev` 
+`npm run dev` 
 Open in your browser at https://localhost:3000
 
 # Functionality
