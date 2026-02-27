@@ -11,7 +11,7 @@
 ## What we did since last meeting
 - Debugging and simplifying codebase and removing redundant code
 ## What we are working on next
-- Work on features that use ML
+- Repivot to new features and diversity
 ## Blockers / concerns
 - Making sure everyone has things to do
 

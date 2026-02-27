@@ -1,6 +1,6 @@
 # What the ML Does (Current Behavior)
 
-This describes the **ML recommendation path** used when the user requests outfit recommendations **without** "Use AI (GPT-4)". The API builds an engine from the user's wardrobe and optional ONNX model, then returns scored top+bottom outfit pairs.
+This describes the **ML recommendation path** used when the user requests outfit recommendations **without** "Use AI (GPT-4)". The API builds an engine from the user's wardrobe, then returns scored top+bottom outfit pairs.
 
 ---
 
@@ -10,12 +10,10 @@ This describes the **ML recommendation path** used when the user requests outfit
 2. **Data** — Backend loads the user's wardrobe items and their past like/dislike feedback from the DB.
 3. **Engine** — `OutfitRecommendationEngine` is created with:
    - wardrobe items (as `WardrobeItemML`),
-   - feedback history (accepted/rejected outfit pairs),
-   - optional **PairScorer** (e.g. ONNX model) for gentle reranking only.
+   - feedback history (accepted/rejected outfit pairs).
 4. **Hard filters** — Items that are clearly wrong for the occasion (formality too far off) or season (opposite-season-only) are removed before scoring.
 5. **Scoring** — Remaining top x bottom pairs are scored; rules (occasion + color) dominate.
-6. **Reranking** — If ONNX is loaded, the top 30 candidates get a gentle adjustment (~5 pts max).
-7. **Response** — Top-scoring outfits (up to 5) are returned with score and reasons, with diversity enforcement.
+6. **Response** — Top-scoring outfits (up to 5) are returned with score and reasons, with diversity enforcement.
 
 ---
 
@@ -68,17 +66,7 @@ For every (top, bottom) pair that passes hard filters, a **single score** in 0-1
 
 ---
 
-## 5. Optional ONNX model (gentle reranker only)
-
-- The **ONNX model** (`outfit_model.onnx`) is currently trained on **synthetic data** and is intentionally de-emphasized.
-- It is **NOT** used in primary scoring. Instead, after all pairs are scored by rules + in-memory NN, the **top 30 candidates** are passed to ONNX for a gentle reranking (max ~5 point adjustment).
-- This means ONNX can only slightly reorder already-good outfits; it cannot push a bad outfit to the top.
-- If the model is **missing or fails**, recommendations work exactly the same (just without the rerank step).
-- Once a model trained on **real user data** is available, the ONNX weight can be increased.
-
----
-
-## 6. Learning from feedback
+## 5. Learning from feedback
 
 - When the user **likes** or **dislikes** an outfit, that pair is stored (e.g. in `OutfitInteraction`).
 - On the **next** recommendation request:
@@ -88,7 +76,7 @@ For every (top, bottom) pair that passes hard filters, a **single score** in 0-1
 
 ---
 
-## 7. What the API returns
+## 6. What the API returns
 
 - List of **outfits**, each with:
   - **items**: [top, bottom] with id, name, category, colors.
@@ -103,6 +91,5 @@ For every (top, bottom) pair that passes hard filters, a **single score** in 0-1
 - **Inputs**: Wardrobe items (with category, colors, formality, occasions, seasons), occasion filter, and optional like/dislike history.
 - **Hard filters**: Formality-based occasion filter + opposite-season filter remove obviously wrong items before scoring.
 - **Core scoring**: occasion (40%) + color (30%) + in-memory NN (10%) + collaborative (15%) + season (5%). Rules dominate.
-- **ONNX**: Gentle reranker only (~5 pt max) on top 30 candidates. Trained on synthetic data, intentionally weak until real-data model is available.
 - **Learning**: In-memory NN and matrix factorization are updated from user feedback.
 - **Output**: Ranked outfit recommendations (top + bottom) with score and reasons.

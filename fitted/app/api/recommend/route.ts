@@ -6,7 +6,6 @@ import {
   toMLItem,
   type WardrobeItemML,
 } from "@/lib/recommendationEngine";
-import { ONNXModel } from "@/lib/onnxModel";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -46,7 +45,7 @@ async function getMLRecommendations(
   occasion: string
 ): Promise<{
   outfits: Array<{
-    items: Array<{ id: string; name: string; category: string; colors: string[] }>;
+    items: Array<{ id: string; name: string; category: string; colors: string[]; imagePath?: string }>;
     reason: string;
     score: number;
   }>;
@@ -99,32 +98,13 @@ async function getMLRecommendations(
     items.map((item) => [String(item._id), item.imagePath])
   );
 
-  let pairScorer: { predictBatch(features: number[][]): Promise<number[]> } | null =
-    null;
-  let onnx: ONNXModel | null = null;
-  try {
-    onnx = new ONNXModel();
-    await onnx.init();
-    pairScorer = onnx;
-  } catch (e) {
-    const hint = e instanceof Error && e.message.includes("external data")
-      ? " " + e.message
-      : "";
-    console.warn("ONNX model not loaded, using rule-based + neural scoring." + hint);
-  }
+  const engine = new OutfitRecommendationEngine(mlItems, feedbackHistory);
 
-  const engine = new OutfitRecommendationEngine(mlItems, feedbackHistory, pairScorer ?? undefined);
-
-  let recommendations;
-  try {
-    recommendations = await engine.recommend({
-      occasion,
-      maxResults: 5,
-      minScore: 40,
-    });
-  } finally {
-    onnx?.dispose();
-  }
+  const recommendations = engine.recommend({
+    occasion,
+    maxResults: 5,
+    minScore: 40,
+  });
 
   return {
     outfits: recommendations.map((rec) => ({
@@ -156,7 +136,7 @@ async function getAIRecommendations(
   colorStyle?: string
 ): Promise<{
   outfits: Array<{
-    items: Array<{ id: string; name: string; category: string; colors: string[] }>;
+    items: Array<{ id: string; name: string; category: string; colors: string[]; imagePath?: string }>;
     reason: string;
   }>;
 }> {

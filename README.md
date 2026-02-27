@@ -44,11 +44,19 @@ Next.js, Node.js/Python, Vercel, MongoDB (NoSQL DB), Firebase
 
 ## Installation Steps
 
+# Live App and local deployment
+
+You can access the deployed app here:
+https://fitted-sepia.vercel.app/
+
+Or run it locally:
+
 `git clone <repo-url>`  
 `cd pj12-outfit-recommender/fitted`  
-`pnpm install`  
-create a .env.local and add the API keys for Firebase Auth, MongoDB, Firebase Service Account, and OpenAI  
-`pnpm dev`  
+`pnpm install`  or `npm install`
+create a .env.local and add the API keys
+`pnpm dev` 
+Open in your browser at https://localhost:3000
 
 # Functionality
 
@@ -69,3 +77,4 @@ Commit your changes: `git commit -am 'Add some feature'`
 Push to the branch: `git push origin my-new-feature`
 
 Submit a pull request :D
+
