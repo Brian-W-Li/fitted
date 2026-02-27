@@ -19,3 +19,4 @@
 | Fri 02/20 | Pengyu | Led everyone in adding new things to the kanban |
 | Mon 02/23 | Brian | Made sure everyone was working on separate things that don't conflict |
 | Wed 02/25 | Jenil | Made sure everything works on main branch |
+| Fri 02/27 | Animesh | Coordinated everyone in refactoring and identifying new ideas |
