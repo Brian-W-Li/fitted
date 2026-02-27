@@ -6,6 +6,23 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
 
+function normalizeAuthError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = /auth\/[a-z-]+/.exec(message)?.[0];
+
+  if (code === "auth/unauthorized-domain") {
+    return "This domain is not authorized in Firebase Auth, use localhost or add this domain in Firebase Console";
+  }
+  if (code === "auth/popup-blocked") {
+    return "Popup was blocked by browser, please allow popups and try again";
+  }
+  if (code === "auth/popup-closed-by-user") {
+    return "Sign-in popup was closed before completing login";
+  }
+
+  return message || "Sign-in failed";
+}
+
 export default function SigninPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +51,12 @@ export default function SigninPage() {
       });
 
       if (!syncResponse.ok) {
-        throw new Error("Failed to sync user to database");
+        const errorData = await syncResponse.json().catch(() => ({}));
+        const detail =
+          typeof errorData?.error === "string"
+            ? errorData.error
+            : "Failed to sync user to database";
+        throw new Error(detail);
       }
 
       const data = await syncResponse.json();
@@ -46,8 +68,8 @@ export default function SigninPage() {
 
       router.push("/dashboard");
     } catch (e) {
-      console.error(e);
-      setError("Sign-in failed. Please try again.");
+      console.error("Signin error:", e);
+      setError(normalizeAuthError(e));
     } finally {
       setLoading(false);
     }
