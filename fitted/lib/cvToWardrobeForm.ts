@@ -9,6 +9,8 @@ export type CVInferResponse = {
   colors?: Array<{ value?: string }>;
   color_primary?: { value?: string };
   pattern?: { value?: string };
+  // Optional: "base", "mid", "outer" for layering; sent as a top-level field from CV.
+  layer_role?: string;
 };
 
 export type WardrobeFormValues = {
@@ -19,6 +21,8 @@ export type WardrobeFormValues = {
   colors: string[];
   fit: string;
   size: string;
+   // Optional layering role we store on the wardrobe item
+  layerRole?: string;
   seasons: string[];
   occasions: string[];
   notes: string;
@@ -31,6 +35,7 @@ export function cvResponseToFormValues(cv: CVInferResponse): WardrobeFormValues 
   const colorStrs = (cv.colors ?? []).map((c) => c.value ?? "").filter(Boolean);
   const colors = colorStrs.length ? colorStrs : (cv.color_primary?.value ? [cv.color_primary.value] : []);
   const pattern = cv.pattern?.value ?? "";
+  const layerRole = typeof cv.layer_role === "string" ? cv.layer_role : "";
   return {
     name,
     category,
@@ -39,6 +44,7 @@ export function cvResponseToFormValues(cv: CVInferResponse): WardrobeFormValues 
     colors,
     fit: "",
     size: "",
+    layerRole: layerRole || undefined,
     seasons: [],
     occasions: [],
     notes: "",

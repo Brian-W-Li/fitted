@@ -56,6 +56,7 @@ export async function PATCH(
       "subCategory",
       "pattern",
       "colors",
+      "layerRole",
       "fit",
       "size",
       "seasons",
@@ -103,6 +104,7 @@ export async function PATCH(
         subCategory: doc.subCategory ?? "",
         pattern: doc.pattern ?? "",
         colors: doc.colors ?? [],
+        layerRole: doc.layerRole ?? "",
         fit: doc.fit ?? "",
         size: doc.size ?? "",
         seasons: doc.seasons ?? [],
@@ -137,7 +139,7 @@ export async function DELETE(
     const { userId } = userResult;
     const { id: itemId } = await params;
 
-    const { WardrobeItem } = await initDatabase();
+    const { WardrobeItem, WardrobeImage } = await initDatabase();
 
     const doc = await WardrobeItem.findOneAndDelete({
       _id: itemId,

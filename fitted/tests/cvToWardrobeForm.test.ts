@@ -11,6 +11,7 @@ describe("cvResponseToFormValues", () => {
         { value: "#986848" },
       ],
       pattern: { value: "plaid" },
+      layer_role: "base",
     };
     const result = cvResponseToFormValues(cv);
     expect(result.name).toBe("T shirt");
@@ -18,6 +19,7 @@ describe("cvResponseToFormValues", () => {
     expect(result.subCategory).toBe("t-shirt");
     expect(result.colors).toEqual(["#382828", "#986848"]);
     expect(result.pattern).toBe("plaid");
+    expect(result.layerRole).toBe("base");
     expect(result.occasions).toEqual([]);
     expect(result.seasons).toEqual([]);
     expect(result.fit).toBe("");

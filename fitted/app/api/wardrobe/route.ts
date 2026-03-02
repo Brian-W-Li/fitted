@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
       subCategory?: string;
       pattern?: string;
       colors?: string[];
+      layerRole?: string;
       fit?: string;
       size?: string;
       seasons?: string[];
@@ -86,6 +87,7 @@ export async function GET(request: NextRequest) {
         subCategory: item.subCategory ?? "",
         pattern: item.pattern ?? "",
         colors: item.colors ?? [],
+        layerRole: item.layerRole ?? "",
         fit: item.fit ?? "",
         size: item.size ?? "",
         seasons: item.seasons ?? [],
@@ -129,6 +131,7 @@ export async function POST(request: NextRequest) {
       occasions = [],
       notes = "",
       isAvailable = true,
+      layerRole = "",
     } = body;
 
     if (!name || !category) {
@@ -148,6 +151,7 @@ export async function POST(request: NextRequest) {
       subCategory: String(subCategory || "").trim() || undefined,
       pattern: String(pattern || "").trim() || undefined,
       colors: Array.isArray(colors) ? colors : [],
+      layerRole: String(layerRole || "").trim() || undefined,
       fit: String(fit || "").trim() || undefined,
       size: String(size || "").trim() || undefined,
       seasons: Array.isArray(seasons) ? seasons : [],
@@ -166,6 +170,7 @@ export async function POST(request: NextRequest) {
           subCategory: itemDoc.subCategory ?? "",
           pattern: itemDoc.pattern ?? "",
           colors: itemDoc.colors ?? [],
+          layerRole: itemDoc.layerRole ?? "",
           fit: itemDoc.fit ?? "",
           size: itemDoc.size ?? "",
           seasons: itemDoc.seasons ?? [],

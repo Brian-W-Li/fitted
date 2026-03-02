@@ -11,6 +11,8 @@ const WardrobeItemSchema = new Schema(
     colors: { type: [String], default: [] },
     seasons: { type: [String], default: [] },
     occasions: { type: [String], default: [] },
+    // Optional layering role for tops/outerwear ("base", "mid", "outer"); may also be set for one-piece dresses.
+    layerRole: { type: String },
     brand: { type: String },
     fit: { type: String },
     size: { type: String },

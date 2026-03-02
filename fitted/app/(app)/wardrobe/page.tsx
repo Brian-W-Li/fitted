@@ -15,6 +15,7 @@ type WardrobeItem = {
   subCategory?: string;
   pattern?: string;
   isAvailable?: boolean;
+  layerRole?: string;
   colors: string[];
   fit: string;
   size: string;
@@ -28,6 +29,7 @@ type WardrobeItem = {
 const CATEGORY_OPTIONS = [
   { value: "top", label: "Top" },
   { value: "bottom", label: "Bottom" },
+  { value: "one piece", label: "One piece" },
   { value: "footwear", label: "Footwear" },
 ] as const;
 const TYPE_OPTIONS = [
@@ -40,6 +42,7 @@ const TYPE_OPTIONS = [
   { value: "pants", label: "Pants" },
   { value: "shorts", label: "Shorts" },
   { value: "skirt", label: "Skirt" },
+  { value: "dress", label: "Dress" },
   { value: "sneakers", label: "Sneakers" },
   { value: "boots", label: "Boots" },
   { value: "sandals", label: "Sandals" },
@@ -53,7 +56,6 @@ const PATTERN_OPTIONS = [
   { value: "graphic", label: "Graphic" },
 ] as const;
 const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
-const OCCASION_OPTIONS = ["Everyday", "Work", "Formal Event", "Workout"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
 
 function imageUrlFromPath(imagePath?: string) {
@@ -210,8 +212,10 @@ function AddItemModal({
   const [colors, setColors] = useState<string[]>(initialItem?.colors ?? []);
   const [colorsInput, setColorsInput] = useState("");
   const [pattern, setPattern] = useState(initialItem?.pattern ?? "");
+  const [layerRole, setLayerRole] = useState(initialItem?.layerRole ?? "");
   const [seasons, setSeasons] = useState<string[]>(initialItem?.seasons ?? []);
   const [occasions, setOccasions] = useState<string[]>(initialItem?.occasions ?? []);
+  const [occasionsInput, setOccasionsInput] = useState("");
   const [fit, setFit] = useState(initialItem?.fit ?? "");
   const isAvailable = initialItem?.isAvailable ?? true;
   const [imageFile, setImageFile] = useState<File | null>(pendingAddFile ?? null);
@@ -236,6 +240,7 @@ function AddItemModal({
     setSubCategory(initialItem.subCategory ?? "");
     setColors(initialItem.colors ?? []);
     setPattern(initialItem.pattern ?? "");
+    setLayerRole(initialItem.layerRole ?? "");
     setSeasons(initialItem.seasons ?? []);
     setOccasions(initialItem.occasions ?? []);
     setFit(initialItem.fit ?? "");
@@ -275,6 +280,17 @@ function AddItemModal({
     }
   }
 
+  function addOccasionTag(value: string) {
+    const raw = value.trim();
+    if (!raw) return;
+    // Normalize simple separators like commas or multiple spaces
+    const normalized = raw.replace(/\s+/g, " ");
+    if (!occasions.includes(normalized)) {
+      setOccasions((prev: string[]) => [...prev, normalized]);
+      setOccasionsInput("");
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -296,6 +312,7 @@ function AddItemModal({
           subCategory: subCategory || undefined,
           pattern: pattern.trim() || undefined,
           colors: colorsToSave,
+          layerRole: layerRole || undefined,
           fit: fit.trim(),
           size: "",
           seasons,
@@ -545,6 +562,19 @@ function AddItemModal({
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Layer role</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                    value={layerRole}
+                    onChange={(e) => setLayerRole(e.target.value)}
+                  >
+                    <option value="">None / Not applicable</option>
+                    <option value="base">Base layer (e.g. tee, shirt)</option>
+                    <option value="mid">Mid layer (e.g. sweater)</option>
+                    <option value="outer">Outer layer (e.g. jacket, coat)</option>
+                  </select>
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Fit</label>
@@ -585,23 +615,49 @@ function AddItemModal({
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1.5">Occasions</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {OCCASION_OPTIONS.map((o) => {
-                    const active = occasions.includes(o);
-                    return (
-                      <button
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">Occasions / contexts</label>
+                {occasions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                    {occasions.map((o) => (
+                      <span
                         key={o}
-                        type="button"
-                        onClick={() => toggleInArray(o, occasions, setOccasions)}
-                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                          active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        }`}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
                       >
-                        {o}
-                      </button>
-                    );
-                  })}
+                        <span>{o}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOccasions((prev: string[]) => prev.filter((val: string) => val !== o))
+                          }
+                          className="text-slate-400 hover:text-red-600 transition-colors"
+                          aria-label={`Remove occasion ${o}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                    value={occasionsInput}
+                    onChange={(e) => setOccasionsInput(e.target.value)}
+                    placeholder='Add occasion tag (e.g. "date night", "business casual")'
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addOccasionTag(occasionsInput);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addOccasionTag(occasionsInput)}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    Add
+                  </button>
                 </div>
               </div>
             </section>
@@ -1092,6 +1148,7 @@ export default function WardrobePage() {
                   subCategory: editingItem.subCategory,
                   pattern: editingItem.pattern,
                   colors: editingItem.colors,
+                  layerRole: editingItem.layerRole,
                   fit: editingItem.fit ?? "",
                   size: editingItem.size,
                   seasons: editingItem.seasons ?? [],
