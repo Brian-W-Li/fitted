@@ -24,7 +24,6 @@ function imageUrlFromPath(imagePath?: string) {
 interface Outfit {
   items: OutfitItem[];
   reason: string;
-  score?: number;
   feedback?: "liked" | "disliked";
 }
 
@@ -33,13 +32,11 @@ export default function Home() {
   const [signingOut, setSigningOut] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   
-  // Recommendation state
   const [occasion, setOccasion] = useState("casual");
+  const [eventContext, setEventContext] = useState("");
   const [outfits, setOutfits] = useState<Outfit[]>([]);
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState("");
-  const [useAI, setUseAI] = useState(false);
-  const [method, setMethod] = useState<"ml" | "ai">("ml");
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -78,7 +75,10 @@ export default function Home() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ occasion, useAI }),
+        body: JSON.stringify({ 
+          occasion, 
+          eventContext: eventContext.trim() || undefined 
+        }),
       });
 
       const data = await res.json();
@@ -89,7 +89,6 @@ export default function Home() {
       }
 
       setOutfits(data.outfits || []);
-      setMethod(data.method || "ml");
     } catch {
       setRecError("Something went wrong. Please try again.");
     } finally {
@@ -118,7 +117,6 @@ export default function Home() {
         }),
       });
 
-      // Update UI to show feedback
       setOutfits(prev => prev.map((o, i) => 
         i === outfitIndex 
           ? { ...o, feedback: action === "accepted" ? "liked" : "disliked" }
@@ -129,19 +127,13 @@ export default function Home() {
     }
   };
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return "text-green-600 bg-green-100";
-    if (score >= 60) return "text-yellow-600 bg-yellow-100";
-    return "text-orange-600 bg-orange-100";
-  };
-
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Home</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Get ML-powered outfit recommendations from your wardrobe.
+            Get AI-powered outfit recommendations from your wardrobe.
           </p>
         </div>
         <button
@@ -155,58 +147,52 @@ export default function Home() {
 
       {/* Recommendations Section */}
       <div className="rounded-xl border border-slate-200 bg-white p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Our ML model uses color theory, style matching, and learns from your feedback.
-            </p>
-          </div>
-          {outfits.length > 0 && (
-            <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-              method === "ml" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
-            }`}>
-              {method === "ml" ? "ML Engine" : "AI Powered"}
-            </span>
-          )}
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Powered by GPT-4 — describe your event for personalized outfit suggestions.
+          </p>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-4 items-end">
+        <div className="mt-5 space-y-4">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">
+                Occasion
+              </label>
+              <select
+                value={occasion}
+                onChange={(e) => setOccasion(e.target.value)}
+                className="px-4 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-500"
+              >
+                <option value="casual">Casual</option>
+                <option value="formal">Formal</option>
+                <option value="athletic">Athletic</option>
+                <option value="streetwear">Streetwear</option>
+              </select>
+            </div>
+
+            <button
+              onClick={getRecommendations}
+              disabled={recLoading}
+              className="px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors"
+            >
+              {recLoading ? "Generating..." : "Get Recommendations"}
+            </button>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">
-              Occasion
+              Event Context <span className="font-normal text-slate-400">(optional)</span>
             </label>
-            <select
-              value={occasion}
-              onChange={(e) => setOccasion(e.target.value)}
-              className="px-4 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-500"
-            >
-              <option value="casual">Casual</option>
-              <option value="formal">Formal</option>
-              <option value="athletic">Athletic</option>
-              <option value="streetwear">Streetwear</option>
-            </select>
+            <textarea
+              value={eventContext}
+              onChange={(e) => setEventContext(e.target.value)}
+              placeholder="Describe your event for better recommendations... e.g., 'Coffee date at a cozy cafe', 'Job interview at a tech startup', 'Beach party with friends'"
+              rows={2}
+              className="w-full px-4 py-3 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-500 resize-none text-sm"
+            />
           </div>
-
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useAI}
-                onChange={(e) => setUseAI(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300"
-              />
-              <span className="text-sm text-slate-600">Use AI (GPT-4)</span>
-            </label>
-          </div>
-
-          <button
-            onClick={getRecommendations}
-            disabled={recLoading}
-            className="px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors"
-          >
-            {recLoading ? "Generating..." : "Get Recommendations"}
-          </button>
         </div>
 
         {recError && (
@@ -229,18 +215,10 @@ export default function Home() {
                 }`}
               >
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full">
-                      Outfit {index + 1}
-                    </span>
-                    {outfit.score !== undefined && (
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getScoreColor(outfit.score)}`}>
-                        {outfit.score}/100
-                      </span>
-                    )}
-                  </div>
+                  <span className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full">
+                    Outfit {index + 1}
+                  </span>
                   
-                  {/* Like/Dislike buttons */}
                   {!outfit.feedback && (
                     <div className="flex gap-2">
                       <button
@@ -323,10 +301,10 @@ export default function Home() {
         {!recLoading && outfits.length === 0 && !recError && (
           <div className="mt-6 p-6 bg-slate-50 rounded-lg text-center">
             <p className="text-slate-600">
-              Click &quot;Get Recommendations&quot; to see outfit suggestions.
+              Select an occasion and click &quot;Get Recommendations&quot; to see outfit suggestions.
             </p>
             <p className="mt-2 text-sm text-slate-500">
-              The more you like/dislike, the smarter the recommendations become!
+              Add event details for more personalized recommendations!
             </p>
           </div>
         )}
@@ -334,27 +312,27 @@ export default function Home() {
 
       {/* How it works */}
       <div className="rounded-xl border border-slate-200 bg-white p-6">
-        <h3 className="font-semibold text-slate-900">How the ML Engine Works</h3>
+        <h3 className="font-semibold text-slate-900">How It Works</h3>
         <div className="mt-4 grid md:grid-cols-3 gap-4">
           <div className="p-4 bg-blue-50 rounded-lg">
-            <div className="text-2xl mb-2">🎨</div>
-            <p className="font-medium text-slate-900">Color Theory</p>
+            <div className="text-2xl mb-2">🎯</div>
+            <p className="font-medium text-slate-900">Occasion Filtering</p>
             <p className="text-sm text-slate-600 mt-1">
-              Analyzes color harmony using complementary, analogous, and neutral color matching.
+              AI first filters your wardrobe for items appropriate to your selected occasion.
             </p>
           </div>
           <div className="p-4 bg-purple-50 rounded-lg">
-            <div className="text-2xl mb-2">👔</div>
-            <p className="font-medium text-slate-900">Style Matching</p>
+            <div className="text-2xl mb-2">✨</div>
+            <p className="font-medium text-slate-900">Smart Pairing</p>
             <p className="text-sm text-slate-600 mt-1">
-              Ensures formality levels match - casual with casual, formal with formal.
+              GPT-4 analyzes colors, styles, and your event context to create perfect pairings.
             </p>
           </div>
           <div className="p-4 bg-green-50 rounded-lg">
-            <div className="text-2xl mb-2">🧠</div>
-            <p className="font-medium text-slate-900">Learns from You</p>
+            <div className="text-2xl mb-2">💬</div>
+            <p className="font-medium text-slate-900">Context Aware</p>
             <p className="text-sm text-slate-600 mt-1">
-              Your likes and dislikes improve future recommendations over time.
+              Describe your event and get recommendations tailored to the specific situation.
             </p>
           </div>
         </div>

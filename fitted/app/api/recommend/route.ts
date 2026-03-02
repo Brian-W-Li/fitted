@@ -1,16 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import {
-  OutfitRecommendationEngine,
-  toMLItem,
-  type WardrobeItemML,
-} from "@/lib/recommendationEngine";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+const UPPER_KEYWORDS = [
+  "shirt", "t-shirt", "tee", "top", "blouse", "sweater", "hoodie",
+  "jacket", "blazer", "cardigan", "vest", "tank", "polo", "sweatshirt",
+  "coat", "pullover", "henley", "tunic", "crop"
+];
+
+const LOWER_KEYWORDS = [
+  "jeans", "pants", "shorts", "skirt", "trouser", "chino", "sweatpants",
+  "leggings", "joggers", "khaki", "slacks", "cargo", "culottes", "capri"
+];
+
+function classifyClothingType(category: string, name: string): "top" | "bottom" | "unknown" {
+  const combined = `${category} ${name}`.toLowerCase();
+  
+  for (const keyword of UPPER_KEYWORDS) {
+    if (combined.includes(keyword)) return "top";
+  }
+  for (const keyword of LOWER_KEYWORDS) {
+    if (combined.includes(keyword)) return "bottom";
+  }
+  return "unknown";
+}
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -40,107 +58,17 @@ async function getUserIdFromRequest(request: NextRequest) {
   }
 }
 
-async function getMLRecommendations(
+async function getRecommendations(
   userId: string,
-  occasion: string
+  occasion: string,
+  eventContext?: string
 ): Promise<{
   outfits: Array<{
     items: Array<{ id: string; name: string; category: string; colors: string[]; imagePath?: string }>;
     reason: string;
-    score: number;
   }>;
 }> {
   const { WardrobeItem, OutfitInteraction } = await initDatabase();
-
-  type WardrobeDoc = {
-    _id: unknown;
-    name: string;
-    clothingType?: "top" | "bottom";
-    category?: string;
-    colors?: string[];
-    formality?: string;
-    seasons?: string[];
-    occasions?: string[];
-    metadata?: Map<string, unknown>;
-    imagePath?: string;
-  };
-  const items = (await WardrobeItem.find({ user: userId })
-    .lean()
-    .exec()) as unknown as WardrobeDoc[];
-
-  if (items.length < 2) {
-    throw new Error(
-      "Add at least 2 items to your wardrobe to get recommendations"
-    );
-  }
-
-  type InteractionDoc = {
-    items: unknown[];
-    action: string;
-  };
-  const feedbackDocs = (await OutfitInteraction.find({
-    user: userId,
-    action: { $in: ["accepted", "rejected"] },
-  })
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean()
-    .exec()) as unknown as InteractionDoc[];
-
-  const feedbackHistory = feedbackDocs.map((doc) => ({
-    itemIds: doc.items.map((id: unknown) => String(id)),
-    action: doc.action as "accepted" | "rejected",
-  }));
-
-  const mlItems: WardrobeItemML[] = items.map((item) => toMLItem(item));
-
-  const imageMap = new Map(
-    items.map((item) => [String(item._id), item.imagePath])
-  );
-
-  const engine = new OutfitRecommendationEngine(mlItems, feedbackHistory);
-
-  const recommendations = engine.recommend({
-    occasion,
-    maxResults: 5,
-    minScore: 40,
-  });
-
-  return {
-    outfits: recommendations.map((rec) => ({
-      items: [
-        {
-          id: rec.top.id,
-          name: rec.top.name,
-          category: rec.top.category || "top",
-          colors: rec.top.colors || [],
-          imagePath: imageMap.get(rec.top.id),
-        },
-        {
-          id: rec.bottom.id,
-          name: rec.bottom.name,
-          category: rec.bottom.category || "bottom",
-          colors: rec.bottom.colors || [],
-          imagePath: imageMap.get(rec.bottom.id),
-        },
-      ],
-      reason: rec.reasons.join(". "),
-      score: rec.score,
-    })),
-  };
-}
-
-async function getAIRecommendations(
-  userId: string,
-  occasion: string,
-  colorStyle?: string
-): Promise<{
-  outfits: Array<{
-    items: Array<{ id: string; name: string; category: string; colors: string[]; imagePath?: string }>;
-    reason: string;
-  }>;
-}> {
-  const { WardrobeItem } = await initDatabase();
 
   type WardrobeItemLean = {
     _id: { toString(): string };
@@ -156,45 +84,137 @@ async function getAIRecommendations(
     .lean()
     .exec()) as unknown as WardrobeItemLean[];
 
+  type InteractionDoc = {
+    items: Array<{
+      _id: { toString(): string };
+      name: string;
+      category: string;
+      colors?: string[];
+    }>;
+    action: string;
+    context?: { occasion?: string };
+  };
+
+  const interactions = (await OutfitInteraction.find({
+    user: userId,
+    action: { $in: ["accepted", "rejected"] },
+  })
+    .populate({
+      path: "items",
+      select: "name category colors",
+    })
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .lean()
+    .exec()) as unknown as InteractionDoc[];
+
   if (items.length < 2) {
     throw new Error(
       "Add at least 2 items to your wardrobe to get recommendations"
     );
   }
 
-  const wardrobeDescription = items.map((item) => ({
+  const tops: typeof items = [];
+  const bottoms: typeof items = [];
+
+  for (const item of items) {
+    const type = classifyClothingType(item.category, item.name);
+    if (type === "top") {
+      tops.push(item);
+    } else if (type === "bottom") {
+      bottoms.push(item);
+    }
+  }
+
+  if (tops.length === 0) {
+    throw new Error("No tops found in your wardrobe. Add some shirts, sweaters, or jackets.");
+  }
+  if (bottoms.length === 0) {
+    throw new Error("No bottoms found in your wardrobe. Add some pants, jeans, or shorts.");
+  }
+
+
+  const likedOutfits = interactions
+    .filter((i) => i.action === "accepted" && i.items.length >= 2)
+    .map((i) => ({
+      top: i.items.find((item) => classifyClothingType(item.category, item.name) === "top"),
+      bottom: i.items.find((item) => classifyClothingType(item.category, item.name) === "bottom"),
+      occasion: i.context?.occasion || "unknown",
+    }))
+    .filter((o) => o.top && o.bottom)
+    .slice(0, 10);
+
+  const dislikedOutfits = interactions
+    .filter((i) => i.action === "rejected" && i.items.length >= 2)
+    .map((i) => ({
+      top: i.items.find((item) => classifyClothingType(item.category, item.name) === "top"),
+      bottom: i.items.find((item) => classifyClothingType(item.category, item.name) === "bottom"),
+      occasion: i.context?.occasion || "unknown",
+    }))
+    .filter((o) => o.top && o.bottom)
+    .slice(0, 10);
+
+  let feedbackSection = "";
+  
+  if (likedOutfits.length > 0 || dislikedOutfits.length > 0) {
+    feedbackSection = "\n\nUSER'S PAST FEEDBACK (learn from their preferences):";
+    
+    if (likedOutfits.length > 0) {
+      feedbackSection += "\n\nLIKED OUTFITS (the user enjoyed these combinations - suggest SIMILAR styles):";
+      likedOutfits.forEach((outfit, i) => {
+        feedbackSection += `\n${i + 1}. "${outfit.top?.name}" + "${outfit.bottom?.name}" (${outfit.occasion})`;
+      });
+    }
+    
+    if (dislikedOutfits.length > 0) {
+      feedbackSection += "\n\nDISLIKED OUTFITS (the user did NOT like these - AVOID similar combinations):";
+      dislikedOutfits.forEach((outfit, i) => {
+        feedbackSection += `\n${i + 1}. "${outfit.top?.name}" + "${outfit.bottom?.name}" (${outfit.occasion})`;
+      });
+    }
+  }
+
+  const maxPossibleOutfits = tops.length * bottoms.length;
+  const numOutfitsToGenerate = Math.min(5, maxPossibleOutfits);
+
+  const topsForPrompt = tops.map((item) => ({
     id: item._id.toString(),
     name: item.name,
     category: item.category,
     colors: item.colors || [],
     formality: item.formality || "casual",
-    occasions: item.occasions || [],
   }));
 
-  const colorHint = colorStyle
-    ? ` Preferred color style: ${colorStyle}.`
-    : "";
+  const bottomsForPrompt = bottoms.map((item) => ({
+    id: item._id.toString(),
+    name: item.name,
+    category: item.category,
+    colors: item.colors || [],
+    formality: item.formality || "casual",
+  }));
 
-  const prompt = `You are a fashion stylist. Given this wardrobe, suggest 3 outfit combinations for a ${occasion} occasion.${colorHint}
+  const hasFeedback = likedOutfits.length > 0 || dislikedOutfits.length > 0;
 
-WARDROBE:
-${JSON.stringify(wardrobeDescription, null, 2)}
+  const prompt = `You are a fashion stylist. Pick ${numOutfitsToGenerate} outfit${numOutfitsToGenerate === 1 ? '' : 's'} from this wardrobe.
 
-Rules:
-- Each outfit must have exactly 2 items: one upper wear (t-shirt, shirt, sweater, jacket, hoodie, top, blouse) and one lower wear (jeans, pants, shorts, skirt, trousers)
-- Colors should complement each other (neutrals go with everything, avoid clashing colors)
-- Match the formality to the occasion
-- Only use items from the wardrobe provided
+TOPS: ${JSON.stringify(topsForPrompt)}
 
-Respond ONLY with valid JSON in this exact format:
-{
-  "outfits": [
-    {
-      "items": ["item_id_1", "item_id_2"],
-      "reason": "Brief explanation why these items work together"
-    }
-  ]
-}`;
+BOTTOMS: ${JSON.stringify(bottomsForPrompt)}
+
+Occasion: ${occasion}${eventContext ? `\nContext: "${eventContext}"` : ''}
+${feedbackSection}
+
+Requirements:
+- Each outfit = 1 top + 1 bottom (use IDs from above)
+- No duplicate outfits
+- ${eventContext ? 'Context is priority #1 - pick weather-appropriate clothes (jackets for cold, light clothes for hot)' : 'Match the occasion (casual=relaxed, formal=dressy, athletic=sporty, streetwear=trendy)'}
+- Match formality levels (casual top + casual bottom, formal top + formal bottom)
+- Colors should complement each other${hasFeedback ? '\n- IMPORTANT: Learn from the user\'s liked/disliked outfits above - suggest similar styles to liked, avoid styles like disliked' : ''}
+- Order by best match first
+- Brief reason for each
+
+JSON only:
+{"outfits":[{"topId":"id","bottomId":"id","reason":"why"}]}`;
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -204,7 +224,7 @@ Respond ONLY with valid JSON in this exact format:
 
   const responseText = completion.choices[0]?.message?.content || "{}";
 
-  let recommendations: { outfits: { items: string[]; reason: string }[] };
+  let recommendations: { outfits: { topId: string; bottomId: string; reason: string }[] };
   try {
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     recommendations = jsonMatch ? JSON.parse(jsonMatch[0]) : { outfits: [] };
@@ -212,28 +232,47 @@ Respond ONLY with valid JSON in this exact format:
     recommendations = { outfits: [] };
   }
 
-  const itemMap = new Map(items.map((item) => [item._id.toString(), item]));
+  const topMap = new Map(tops.map((item) => [item._id.toString(), item]));
+  const bottomMap = new Map(bottoms.map((item) => [item._id.toString(), item]));
 
-  return {
-    outfits: recommendations.outfits.map(
-      (outfit: { items: string[]; reason: string }) => ({
-        items: outfit.items
-          .map((id: string) => {
-            const item = itemMap.get(id);
-            if (!item) return null;
-            return {
-              id: item._id.toString(),
-              name: item.name,
-              category: item.category,
-              colors: item.colors ?? [],
-              imagePath: item.imagePath,
-            };
-          })
-          .filter((x): x is NonNullable<typeof x> => x != null),
+  const seenCombinations = new Set<string>();
+  
+  const validOutfits = recommendations.outfits
+    .map((outfit) => {
+      const top = topMap.get(outfit.topId);
+      const bottom = bottomMap.get(outfit.bottomId);
+      
+      if (!top || !bottom) return null;
+      
+      const comboKey = `${outfit.topId}:${outfit.bottomId}`;
+      if (seenCombinations.has(comboKey)) {
+        return null;
+      }
+      seenCombinations.add(comboKey);
+      
+      return {
+        items: [
+          {
+            id: top._id.toString(),
+            name: top.name,
+            category: top.category,
+            colors: top.colors ?? [],
+            imagePath: top.imagePath,
+          },
+          {
+            id: bottom._id.toString(),
+            name: bottom.name,
+            category: bottom.category,
+            colors: bottom.colors ?? [],
+            imagePath: bottom.imagePath,
+          },
+        ],
         reason: outfit.reason,
-      })
-    ),
-  };
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null);
+
+  return { outfits: validOutfits };
 }
 
 export async function POST(request: NextRequest) {
@@ -248,26 +287,19 @@ export async function POST(request: NextRequest) {
 
     const { userId } = userResult;
     const body = await request.json();
-    const { occasion = "casual", useAI = false, colorStyle } = body;
+    const { occasion = "casual", eventContext } = body;
 
-    if (useAI && !process.env.OPENAI_API_KEY) {
+    if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
-        { error: "OpenAI API key is required for AI recommendations." },
+        { error: "OpenAI API key is required for recommendations." },
         { status: 503 }
       );
     }
 
-    let result;
-
-    if (useAI && process.env.OPENAI_API_KEY) {
-      result = await getAIRecommendations(userId, occasion, colorStyle);
-    } else {
-      result = await getMLRecommendations(userId, occasion);
-    }
+    const result = await getRecommendations(userId, occasion, eventContext);
 
     return NextResponse.json({
       occasion,
-      method: useAI ? "ai" : "ml",
       ...result,
     });
   } catch (error) {
