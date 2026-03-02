@@ -82,8 +82,22 @@ function WardrobeCard({
   const imgSrc = imageUrlFromPath(item.imagePath);
   const isAvailable = item.isAvailable ?? true;
 
+  const categoryLabel = (item.category ?? "top").toLowerCase();
+  const categoryBadgeClass =
+    categoryLabel === "top"
+      ? "bg-blue-100 text-blue-700"
+      : categoryLabel === "bottom"
+        ? "bg-amber-100 text-amber-700"
+        : categoryLabel === "one piece"
+          ? "bg-violet-100 text-violet-700"
+          : "bg-slate-100 text-slate-700";
+
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div
+      className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-opacity ${
+        isAvailable ? "" : "opacity-60 grayscale"
+      }`}
+    >
       {/* Image */}
       {imgSrc ? (
         <div className="relative h-64 w-full bg-slate-50 flex items-center justify-center p-2">
@@ -95,47 +109,75 @@ function WardrobeCard({
           />
         </div>
       ) : (
-        <div className="flex h-64 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
+        <div className="relative flex h-64 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
           No photo
         </div>
       )}
 
+      {/* Top left: category tag */}
+      <span
+        className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase shadow-sm ${categoryBadgeClass}`}
+      >
+        {item.category ?? "top"}
+      </span>
+
+      {/* Top right: round icon buttons */}
+      <div className="absolute right-2 top-2 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onToggleAvailability(item)}
+          className={`flex h-8 w-8 items-center justify-center rounded-full border bg-white/90 shadow-sm ${
+            isAvailable
+              ? "border-slate-200 text-slate-600 hover:bg-slate-100"
+              : "border-amber-200 text-amber-600 hover:bg-amber-50"
+          }`}
+          title={isAvailable ? "Exclude from recommendations" : "Include in recommendations"}
+          aria-label={isAvailable ? "Mark unavailable" : "Mark available"}
+        >
+          {isAvailable ? (
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" /><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" /><line x1="2" y1="2" x2="22" y2="22" />
+            </svg>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => onEdit(item)}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-600 shadow-sm hover:bg-slate-100"
+          title="Edit"
+          aria-label="Edit"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete(item)}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-white/90 text-red-600 shadow-sm hover:bg-red-50"
+          title="Delete"
+          aria-label="Delete"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            <line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+          </svg>
+        </button>
+      </div>
+
       {/* Content */}
       <div className="p-4">
-        <div className="mb-2 flex items-baseline justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className={`text-base font-semibold ${isAvailable ? "text-slate-900" : "text-slate-500"}`}>
-                {item.name}
-              </h3>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                (item.category ?? "unknown") === "top"
-                  ? "bg-blue-100 text-blue-700"
-                  : "bg-amber-100 text-amber-700"
-              }`}>
-                {item.category ?? "unknown"}
-              </span>
-            </div>
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              {item.subCategory ? `${item.subCategory} · ${item.category}` : item.category}
-            </span>
-          </div>
-          <div className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onEdit(item)}
-              className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => onDelete(item)}
-              className="rounded-full border border-red-200 px-2 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50"
-            >
-              Delete
-            </button>
-          </div>
+        <div className="mb-2">
+          <h3 className={`text-base font-semibold ${isAvailable ? "text-slate-900" : "text-slate-500"}`}>
+            {item.name}
+          </h3>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            {item.subCategory ? `${item.subCategory} · ${item.category}` : item.category}
+          </span>
         </div>
 
         {(item.fit || item.seasons?.length || item.occasions?.length) && (
