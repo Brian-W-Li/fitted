@@ -1,10 +1,9 @@
-/** CV metadata JSON from vision pipeline: color (hex), category top/bottom, type, pattern, style. */
+/** CV metadata JSON from vision pipeline: color (hex), category top/bottom, type, pattern. Style no longer returned by CV. */
 export interface CVMetadata {
   color_primary: { value: string; confidence: number };
   category: { value: "top" | "bottom"; confidence: number };
   type: { value: string; confidence: number };
   pattern: { value: string; confidence: number };
-  style: { value: string; confidence: number };
 }
 
 /** Map CV hex color to palette name for embedding/harmony (no CV → unchanged behavior). */
@@ -44,7 +43,6 @@ export interface WardrobeItemML {
   clothingType?: "top" | "bottom";
   category?: string;
   colors?: string[];
-  formality?: string;
   seasons?: string[];
   occasions?: string[];
   cvMetadata?: CVMetadata;
@@ -278,11 +276,11 @@ class EmbeddingLayer {
     return new Array(this.embeddingDim).fill(0);
   }
 
-  /** 80-dim per item. Uses fused fields (colors, formality, category) which may come from CV when present; no CV = unchanged. */
+  /** 80-dim per item. Uses fused fields (colors, category, occasions, seasons). */
   getItemEmbedding(item: WardrobeItemML): number[] {
     const colorEmbs = (item.colors || []).map(c => this.getEmbedding(c, this.colorEmbeddings));
     const avgColorEmb = this.averageEmbeddings(colorEmbs);
-    const styleEmb = this.getEmbedding(item.formality || "casual", this.styleEmbeddings);
+    const styleEmb = this.getEmbedding("casual", this.styleEmbeddings);
     const occasionEmbs = (item.occasions || []).map(o => this.getEmbedding(o, this.occasionEmbeddings));
     const avgOccasionEmb = this.averageEmbeddings(occasionEmbs);
     const seasonEmbs = (item.seasons || []).map(s => this.getEmbedding(s, this.seasonEmbeddings));
@@ -503,11 +501,6 @@ class ContextMatcher {
     ["blazer", 5], ["suit", 5], ["tuxedo", 5],
   ];
 
-  private formalityLevels: Record<string, number> = {
-    "very casual": 1, "casual": 2, "relaxed": 2, "smart casual": 3,
-    "business casual": 3, "business": 4, "formal": 5, "semi-formal": 4,
-  };
-
   private occasionFormalityRange: Record<string, [number, number]> = {
     athletic: [1, 2],
     casual: [1, 3],
@@ -520,8 +513,7 @@ class ContextMatcher {
     for (const [keyword, level] of this.categoryFormality) {
       if (text.includes(keyword)) return level;
     }
-    const f = (item.formality || "").toLowerCase();
-    return this.formalityLevels[f] || 2;
+    return 2;
   }
 
   matchOccasion(item: WardrobeItemML, targetOccasion: string): number {
@@ -775,7 +767,7 @@ export class OutfitRecommendationEngine {
     return "winter";
   }
 
-  /** Hard filter: reject items whose formality is ≥2 levels outside the occasion range,
+  /** Hard filter: reject items whose derived level is ≥2 levels outside the occasion range,
    *  or items exclusively tagged for the opposite season. */
   private passesHardFilters(
     item: WardrobeItemML, minF: number, maxF: number, currentSeason: string
@@ -819,14 +811,13 @@ export class OutfitRecommendationEngine {
   }
 }
 
-/** Fuse CV metadata into item fields when present: CV color → colors[0], category → clothingType, style → formality, type → category. No CV = same as today. */
+/** Fuse CV metadata into item fields when present: CV color → colors[0], category → clothingType, type → category. */
 export function toMLItem(dbItem: {
   _id: unknown;
   name: string;
   clothingType?: "top" | "bottom";
   category?: string;
   colors?: string[];
-  formality?: string;
   seasons?: string[];
   occasions?: string[];
   metadata?: Map<string, unknown> | Record<string, unknown>;
@@ -842,7 +833,6 @@ export function toMLItem(dbItem: {
         ? [hexToColorName(cvMetadata.color_primary.value)]
         : undefined;
   const clothingType = dbItem.clothingType ?? cvMetadata?.category?.value;
-  const formality = dbItem.formality ?? cvMetadata?.style?.value;
   const category = dbItem.category ?? cvMetadata?.type?.value;
   return {
     id: String(dbItem._id),
@@ -850,7 +840,6 @@ export function toMLItem(dbItem: {
     clothingType,
     category,
     colors,
-    formality,
     seasons: dbItem.seasons,
     occasions: dbItem.occasions,
     cvMetadata,

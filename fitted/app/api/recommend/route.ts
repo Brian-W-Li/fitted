@@ -58,7 +58,6 @@ async function getMLRecommendations(
     clothingType?: "top" | "bottom";
     category?: string;
     colors?: string[];
-    formality?: string;
     seasons?: string[];
     occasions?: string[];
     metadata?: Map<string, unknown>;
@@ -147,7 +146,6 @@ async function getAIRecommendations(
     name: string;
     category: string;
     colors?: string[];
-    formality?: string;
     occasions?: string[];
     imagePath?: string;
   };
@@ -167,7 +165,6 @@ async function getAIRecommendations(
     name: item.name,
     category: item.category,
     colors: item.colors || [],
-    formality: item.formality || "casual",
     occasions: item.occasions || [],
   }));
 
@@ -183,7 +180,7 @@ ${JSON.stringify(wardrobeDescription, null, 2)}
 Rules:
 - Each outfit must have exactly 2 items: one upper wear (t-shirt, shirt, sweater, jacket, hoodie, top, blouse) and one lower wear (jeans, pants, shorts, skirt, trousers)
 - Colors should complement each other (neutrals go with everything, avoid clashing colors)
-- Match the formality to the occasion
+- Match the occasion (e.g. work, casual, formal) to the items
 - Only use items from the wardrobe provided
 
 Respond ONLY with valid JSON in this exact format:

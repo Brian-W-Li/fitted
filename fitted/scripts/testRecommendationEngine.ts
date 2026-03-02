@@ -8,21 +8,21 @@ import { OutfitRecommendationEngine, WardrobeItemML, toMLItem } from '../lib/rec
 // Sample wardrobe items for testing (using "All" seasons to focus on occasion testing)
 const testWardrobe: WardrobeItemML[] = [
   // TOPS
-  { id: "1", name: "Gray Hoodie", clothingType: "top", category: "hoodie", colors: ["gray"], formality: "casual", occasions: ["Casual", "Athletic"], seasons: ["All"] },
-  { id: "2", name: "White T-Shirt", clothingType: "top", category: "t-shirt", colors: ["white"], formality: "casual", occasions: ["Casual", "Athletic"], seasons: ["All"] },
-  { id: "3", name: "Navy Polo", clothingType: "top", category: "polo", colors: ["navy"], formality: "business casual", occasions: ["Business", "Casual"], seasons: ["All"] },
-  { id: "4", name: "Black Dress Shirt", clothingType: "top", category: "dress shirt", colors: ["black"], formality: "formal", occasions: ["Formal", "Business"], seasons: ["All"] },
-  { id: "5", name: "Red Tank Top", clothingType: "top", category: "tank", colors: ["red"], formality: "casual", occasions: ["Athletic", "Casual"], seasons: ["All"] },
-  { id: "6", name: "Blue Sweater", clothingType: "top", category: "sweater", colors: ["blue"], formality: "casual", occasions: ["Casual", "Date Night"], seasons: ["All"] },
-  { id: "7", name: "Gray Blazer", clothingType: "top", category: "blazer", colors: ["gray"], formality: "formal", occasions: ["Formal", "Business"], seasons: ["All"] },
+  { id: "1", name: "Gray Hoodie", clothingType: "top", category: "hoodie", colors: ["gray"], occasions: ["Casual", "Athletic"], seasons: ["All"] },
+  { id: "2", name: "White T-Shirt", clothingType: "top", category: "t-shirt", colors: ["white"], occasions: ["Casual", "Athletic"], seasons: ["All"] },
+  { id: "3", name: "Navy Polo", clothingType: "top", category: "polo", colors: ["navy"], occasions: ["Business", "Casual"], seasons: ["All"] },
+  { id: "4", name: "Black Dress Shirt", clothingType: "top", category: "dress shirt", colors: ["black"], occasions: ["Formal", "Business"], seasons: ["All"] },
+  { id: "5", name: "Red Tank Top", clothingType: "top", category: "tank", colors: ["red"], occasions: ["Athletic", "Casual"], seasons: ["All"] },
+  { id: "6", name: "Blue Sweater", clothingType: "top", category: "sweater", colors: ["blue"], occasions: ["Casual", "Date Night"], seasons: ["All"] },
+  { id: "7", name: "Gray Blazer", clothingType: "top", category: "blazer", colors: ["gray"], occasions: ["Formal", "Business"], seasons: ["All"] },
   
   // BOTTOMS
-  { id: "10", name: "Khaki Shorts", clothingType: "bottom", category: "shorts", colors: ["khaki", "beige"], formality: "casual", occasions: ["Casual"], seasons: ["All"] },
-  { id: "11", name: "Blue Jeans", clothingType: "bottom", category: "jeans", colors: ["blue"], formality: "casual", occasions: ["Casual", "Going Out"], seasons: ["All"] },
-  { id: "12", name: "Black Dress Pants", clothingType: "bottom", category: "dress pants", colors: ["black"], formality: "formal", occasions: ["Formal", "Business"], seasons: ["All"] },
-  { id: "13", name: "Gray Sweatpants", clothingType: "bottom", category: "sweatpants", colors: ["gray"], formality: "casual", occasions: ["Athletic", "Casual"], seasons: ["All"] },
-  { id: "14", name: "Navy Chinos", clothingType: "bottom", category: "chinos", colors: ["navy"], formality: "business casual", occasions: ["Business", "Casual"], seasons: ["All"] },
-  { id: "15", name: "Black Running Shorts", clothingType: "bottom", category: "athletic shorts", colors: ["black"], formality: "casual", occasions: ["Athletic"], seasons: ["All"] },
+  { id: "10", name: "Khaki Shorts", clothingType: "bottom", category: "shorts", colors: ["khaki", "beige"], occasions: ["Casual"], seasons: ["All"] },
+  { id: "11", name: "Blue Jeans", clothingType: "bottom", category: "jeans", colors: ["blue"], occasions: ["Casual", "Going Out"], seasons: ["All"] },
+  { id: "12", name: "Black Dress Pants", clothingType: "bottom", category: "dress pants", colors: ["black"], occasions: ["Formal", "Business"], seasons: ["All"] },
+  { id: "13", name: "Gray Sweatpants", clothingType: "bottom", category: "sweatpants", colors: ["gray"], occasions: ["Athletic", "Casual"], seasons: ["All"] },
+  { id: "14", name: "Navy Chinos", clothingType: "bottom", category: "chinos", colors: ["navy"], occasions: ["Business", "Casual"], seasons: ["All"] },
+  { id: "15", name: "Black Running Shorts", clothingType: "bottom", category: "athletic shorts", colors: ["black"], occasions: ["Athletic"], seasons: ["All"] },
 ];
 
 // Expected good combinations (ground truth)
@@ -168,13 +168,13 @@ async function testDirectPair() {
   // Test 1: White T-Shirt + Blue Jeans (Casual)
   const tshirt: WardrobeItemML = { 
     id: "100", name: "White T-Shirt", clothingType: "top", 
-    category: "t-shirt", colors: ["white"], formality: "casual",
+    category: "t-shirt", colors: ["white"],
     occasions: ["Casual", "Athletic"], seasons: ["All"]
   };
   
   const jeans: WardrobeItemML = { 
     id: "101", name: "Blue Jeans", clothingType: "bottom", 
-    category: "jeans", colors: ["blue"], formality: "casual",
+    category: "jeans", colors: ["blue"],
     occasions: ["Casual", "Going Out"], seasons: ["All"]
   };
   
@@ -185,13 +185,13 @@ async function testDirectPair() {
   // Test 2: T-Shirt + Running Shorts (Athletic)
   const tank: WardrobeItemML = { 
     id: "200", name: "Red Tank Top", clothingType: "top", 
-    category: "tank", colors: ["red"], formality: "casual",
+    category: "tank", colors: ["red"],
     occasions: ["Athletic"], seasons: ["All"]
   };
   
   const runShorts: WardrobeItemML = { 
     id: "201", name: "Black Running Shorts", clothingType: "bottom", 
-    category: "athletic shorts", colors: ["black"], formality: "casual",
+    category: "athletic shorts", colors: ["black"],
     occasions: ["Athletic"], seasons: ["All"]
   };
   
@@ -203,13 +203,13 @@ async function testDirectPair() {
   // Test 3: Navy Polo + Navy Chinos (Business)
   const polo: WardrobeItemML = { 
     id: "300", name: "Navy Polo", clothingType: "top", 
-    category: "polo", colors: ["navy"], formality: "business casual",
+    category: "polo", colors: ["navy"],
     occasions: ["Business", "Casual"], seasons: ["All"]
   };
   
   const chinos: WardrobeItemML = { 
     id: "301", name: "Navy Chinos", clothingType: "bottom", 
-    category: "chinos", colors: ["navy"], formality: "business casual",
+    category: "chinos", colors: ["navy"],
     occasions: ["Business", "Casual"], seasons: ["All"]
   };
   

@@ -17,7 +17,6 @@ type WardrobeItem = {
   colors: string[];
   fit: string;
   size: string;
-  formality: string;
   seasons: string[];
   occasions: string[];
   notes?: string;
@@ -52,12 +51,6 @@ const PATTERN_OPTIONS = [
   { value: "floral", label: "Floral" },
   { value: "graphic", label: "Graphic" },
 ] as const;
-const FORMALITY_OPTIONS = [
-  "Casual",
-  "Smart Casual",
-  "Business Casual",
-  "Formal",
-];
 const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
 const OCCASION_OPTIONS = ["Everyday", "Work", "Formal Event", "Workout"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
@@ -137,9 +130,9 @@ function WardrobeCard({
           </div>
         </div>
 
-        {(item.formality || item.fit || item.seasons?.length || item.occasions?.length) && (
+        {(item.fit || item.seasons?.length || item.occasions?.length) && (
           <p className="text-xs text-slate-500">
-            {[item.formality, item.fit, item.seasons?.join(", "), item.occasions?.join(", ")]
+            {[item.fit, item.seasons?.join(", "), item.occasions?.join(", ")]
               .filter(Boolean)
               .join(" · ")}
           </p>
@@ -211,7 +204,6 @@ function AddItemModal({
   const [colors, setColors] = useState<string[]>(initialItem?.colors ?? []);
   const [colorsInput, setColorsInput] = useState("");
   const [pattern, setPattern] = useState(initialItem?.pattern ?? "");
-  const [formality, setFormality] = useState(initialItem?.formality ?? "");
   const [seasons, setSeasons] = useState<string[]>(initialItem?.seasons ?? []);
   const [occasions, setOccasions] = useState<string[]>(initialItem?.occasions ?? []);
   const [fit, setFit] = useState(initialItem?.fit ?? "");
@@ -237,7 +229,6 @@ function AddItemModal({
     setSubCategory(initialItem.subCategory ?? "");
     setColors(initialItem.colors ?? []);
     setPattern(initialItem.pattern ?? "");
-    setFormality(initialItem.formality ?? "");
     setSeasons(initialItem.seasons ?? []);
     setOccasions(initialItem.occasions ?? []);
     setFit(initialItem.fit ?? "");
@@ -300,7 +291,6 @@ function AddItemModal({
           colors: colorsToSave,
           fit: fit.trim(),
           size: "",
-          formality: formality.trim(),
           seasons,
           occasions,
           notes: "",
@@ -547,19 +537,6 @@ function AddItemModal({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Formality</label>
-                  <select
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                    value={formality}
-                    onChange={(e) => setFormality(e.target.value)}
-                  >
-                    <option value="">Select…</option>
-                    {FORMALITY_OPTIONS.map((f) => (
-                      <option key={f} value={f}>{f}</option>
-                    ))}
-                  </select>
-                </div>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Fit</label>
@@ -708,6 +685,7 @@ export default function WardrobePage() {
   // Add flow: step 1 = upload only, step 2 = form with CV-inferred attributes
   const [addStep, setAddStep] = useState<"upload" | "form" | null>(null);
   const [addInferred, setAddInferred] = useState<WardrobeFormValues | null>(null);
+  const [addInferredCroppedImage, setAddInferredCroppedImage] = useState<string | null>(null);
   const [addPendingFile, setAddPendingFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const cvAbortRef = useRef<AbortController | null>(null);
@@ -967,6 +945,7 @@ export default function WardrobePage() {
             setAddStep(null);
             setAddInferred(null);
             setAddPendingFile(null);
+            setAddInferredCroppedImage(null);
             setEditingItem(null);
           }}
           onSave={async (data, imageFile) => {
@@ -1027,16 +1006,37 @@ export default function WardrobePage() {
               }
             } else {
               const saved = await handleAddItem(data);
-              if (saved && imageFile && firebaseUser) {
+              if (saved && firebaseUser) {
                 try {
-                  const up = await uploadWardrobeItemImage({
-                    firebaseUser,
-                    wardrobeItemId: saved.id,
-                    file: imageFile,
-                  });
-                  setItems((prev) =>
-                    prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
-                  );
+                  if (addInferredCroppedImage) {
+                    // Use CV-cropped, background-removed image returned by the CV service
+                    const base64 = addInferredCroppedImage;
+                    const binary = atob(base64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                      bytes[i] = binary.charCodeAt(i);
+                    }
+                    const blob = new Blob([bytes], { type: "image/png" });
+                    const cvFile = new File([blob], "cv-cropped.png", { type: "image/png" });
+                    const up = await uploadWardrobeItemImage({
+                      firebaseUser,
+                      wardrobeItemId: saved.id,
+                      file: cvFile,
+                    });
+                    setItems((prev) =>
+                      prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
+                    );
+                  } else if (imageFile) {
+                    // Fallback: use the original uploaded image if CV did not return a cropped version
+                    const up = await uploadWardrobeItemImage({
+                      firebaseUser,
+                      wardrobeItemId: saved.id,
+                      file: imageFile,
+                    });
+                    setItems((prev) =>
+                      prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
+                    );
+                  }
                 } catch (e) {
                   console.error(e);
                   setError(e instanceof Error ? e.message : "Failed to upload image.");
@@ -1045,6 +1045,7 @@ export default function WardrobePage() {
               setAddStep(null);
               setAddInferred(null);
               setAddPendingFile(null);
+              setAddInferredCroppedImage(null);
             }
           }}
           initialItem={
@@ -1057,7 +1058,6 @@ export default function WardrobePage() {
                   colors: editingItem.colors,
                   fit: editingItem.fit ?? "",
                   size: editingItem.size,
-                  formality: editingItem.formality,
                   seasons: editingItem.seasons ?? [],
                   occasions: editingItem.occasions ?? [],
                   notes: editingItem.notes,
@@ -1091,7 +1091,10 @@ export default function WardrobePage() {
                 setError(json.error ?? "Failed to analyze photo.");
                 return;
               }
-              setAddInferred(cvResponseToFormValues(json as CVInferResponse));
+              const full = json as CVInferResponse & { cropped_image_base64?: string | null };
+              setAddInferred(cvResponseToFormValues(full));
+              const cropped = typeof (full as any).cropped_image_base64 === "string" ? (full as any).cropped_image_base64 : null;
+              setAddInferredCroppedImage(cropped);
               setAddPendingFile(file);
               setAddStep("form");
             } catch (e) {

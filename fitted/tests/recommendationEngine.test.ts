@@ -12,7 +12,6 @@ describe("toMLItem", () => {
       name: "Blue T-Shirt",
       category: "t-shirt",
       colors: ["blue"],
-      formality: "casual",
       seasons: ["Summer"],
       occasions: ["Casual"],
     };
@@ -21,7 +20,6 @@ describe("toMLItem", () => {
     expect(ml.name).toBe("Blue T-Shirt");
     expect(ml.category).toBe("t-shirt");
     expect(ml.colors).toEqual(["blue"]);
-    expect(ml.formality).toBe("casual");
     expect(ml.seasons).toEqual(["Summer"]);
     expect(ml.occasions).toEqual(["Casual"]);
   });
@@ -47,7 +45,6 @@ describe("OutfitRecommendationEngine", () => {
     clothingType: "top",
     category: "t-shirt",
     colors: ["white"],
-    formality: "casual",
     occasions: ["Casual", "Athletic"],
     seasons: ["All"],
   };
@@ -58,7 +55,6 @@ describe("OutfitRecommendationEngine", () => {
     clothingType: "bottom",
     category: "jeans",
     colors: ["blue"],
-    formality: "casual",
     occasions: ["Casual", "Going Out"],
     seasons: ["All"],
   };

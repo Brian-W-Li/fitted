@@ -55,7 +55,7 @@ Each developer must create a `.env.local` with Firebase config values.
   - Indexes: unique on auth identity and email.
 - `WardrobeItem` (`models/WardrobeItem.ts`)
   - `user`: required owner ref; ensures every item belongs to exactly one user.
-  - Core descriptors only: `name`, `category`, `subCategory`, `colors`, `seasons`, `occasions`, `formality`, `brand`, `fit`, `size`, `imageUrl`, `tags`, `notes`, `isFavorite`, `lastWornAt`, `metadata`.
+  - Core descriptors only: `name`, `category`, `subCategory`, `colors`, `seasons`, `occasions`, `brand`, `fit`, `size`, `imageUrl`, `tags`, `notes`, `isFavorite`, `lastWornAt`, `metadata`.
   - Indexes: by `user` plus `category`, `tags`, `isFavorite`, `updatedAt` for common filters.
 - `OutfitInteraction` (`models/OutfitInteraction.ts`)
   - Records what happens when a user sees or uses an outfit, so the system can show history and learn from feedback.

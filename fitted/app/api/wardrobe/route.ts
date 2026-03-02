@@ -7,7 +7,7 @@ import { adminAuth } from "@/lib/firebaseAdmin";
  *   → returns all wardrobe items for the authenticated user
  *
  * POST /api/wardrobe
- *   body: { name, category, colors?, fit?, size?, formality?, seasons?, occasions?, notes? }
+ *   body: { name, category, colors?, fit?, size?, seasons?, occasions?, notes? }
  *   → creates a wardrobe item tied to the authenticated user
  *
  * The user is derived from the Firebase ID token in the Authorization header:
@@ -65,7 +65,6 @@ export async function GET(request: NextRequest) {
       colors?: string[];
       fit?: string;
       size?: string;
-      formality?: string;
       seasons?: string[];
       occasions?: string[];
       notes?: string;
@@ -88,7 +87,6 @@ export async function GET(request: NextRequest) {
         colors: item.colors ?? [],
         fit: item.fit ?? "",
         size: item.size ?? "",
-        formality: item.formality ?? "",
         seasons: item.seasons ?? [],
         occasions: item.occasions ?? [],
         notes: item.notes ?? "",
@@ -125,7 +123,6 @@ export async function POST(request: NextRequest) {
       colors = [],
       fit = "",
       size = "",
-      formality = "",
       seasons = [],
       occasions = [],
       notes = "",
@@ -150,7 +147,6 @@ export async function POST(request: NextRequest) {
       colors: Array.isArray(colors) ? colors : [],
       fit: String(fit || "").trim() || undefined,
       size: String(size || "").trim() || undefined,
-      formality: String(formality || "").trim() || undefined,
       seasons: Array.isArray(seasons) ? seasons : [],
       occasions: Array.isArray(occasions) ? occasions : [],
       notes: String(notes || "").trim() || undefined,
@@ -168,7 +164,6 @@ export async function POST(request: NextRequest) {
           colors: itemDoc.colors ?? [],
           fit: itemDoc.fit ?? "",
           size: itemDoc.size ?? "",
-          formality: itemDoc.formality ?? "",
           seasons: itemDoc.seasons ?? [],
           occasions: itemDoc.occasions ?? [],
           notes: itemDoc.notes ?? "",

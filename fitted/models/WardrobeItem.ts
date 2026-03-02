@@ -11,7 +11,6 @@ const WardrobeItemSchema = new Schema(
     colors: { type: [String], default: [] },
     seasons: { type: [String], default: [] },
     occasions: { type: [String], default: [] },
-    formality: { type: String },
     brand: { type: String },
     fit: { type: String },
     size: { type: String },

@@ -61,7 +61,7 @@ Open in your browser at https://localhost:3000
 # Functionality
 
 - Sign in — /signin or /signup (Firebase, e.g. Google); user synced to MongoDB.
-- Wardrobe — Add/edit/delete items (name, category, colors, fit, size, formality, etc.).
+- Wardrobe — Add/edit/delete items (name, category, colors, fit, size, etc.).
 - Home — Pick occasion, get outfit suggestions (OpenAI); accept/reject stored as interactions.
 - History — Past outfit interactions (In Progress feature).
 - Account — Profile and optional age/gender.

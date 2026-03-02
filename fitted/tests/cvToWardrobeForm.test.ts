@@ -11,7 +11,6 @@ describe("cvResponseToFormValues", () => {
         { value: "#986848" },
       ],
       pattern: { value: "plaid" },
-      style: { value: "casual" },
     };
     const result = cvResponseToFormValues(cv);
     expect(result.name).toBe("T shirt");
@@ -19,8 +18,7 @@ describe("cvResponseToFormValues", () => {
     expect(result.subCategory).toBe("t-shirt");
     expect(result.colors).toEqual(["#382828", "#986848"]);
     expect(result.pattern).toBe("plaid");
-    expect(result.formality).toBe("Casual");
-    expect(result.occasions).toEqual(["Everyday"]);
+    expect(result.occasions).toEqual([]);
     expect(result.seasons).toEqual([]);
     expect(result.fit).toBe("");
     expect(result.notes).toBe("");
@@ -48,19 +46,6 @@ describe("cvResponseToFormValues", () => {
     expect(result.colors).toEqual(["#111", "#222"]);
   });
 
-  it("maps style to formality", () => {
-    expect(cvResponseToFormValues({ style: { value: "formal" } }).formality).toBe("Formal");
-    expect(cvResponseToFormValues({ style: { value: "business" } }).formality).toBe("Business Casual");
-    expect(cvResponseToFormValues({ style: { value: "athletic" } }).formality).toBe("Casual");
-  });
-
-  it("maps style to occasion", () => {
-    expect(cvResponseToFormValues({ style: { value: "casual" } }).occasions).toEqual(["Everyday"]);
-    expect(cvResponseToFormValues({ style: { value: "formal" } }).occasions).toEqual(["Formal Event"]);
-    expect(cvResponseToFormValues({ style: { value: "athletic" } }).occasions).toEqual(["Workout"]);
-    expect(cvResponseToFormValues({ style: { value: "business" } }).occasions).toEqual(["Work"]);
-  });
-
   it("formats name from type (capitalized, hyphens to spaces)", () => {
     const cv: CVInferResponse = { type: { value: "dress-shirt" } };
     const result = cvResponseToFormValues(cv);
@@ -72,10 +57,4 @@ describe("cvResponseToFormValues", () => {
     expect(result.name).toBe("");
   });
 
-  it("treats style value as case-insensitive (CV may send Casual or casual)", () => {
-    expect(cvResponseToFormValues({ style: { value: "Casual" } }).formality).toBe("Casual");
-    expect(cvResponseToFormValues({ style: { value: "Casual" } }).occasions).toEqual(["Everyday"]);
-    expect(cvResponseToFormValues({ style: { value: "FORMAL" } }).formality).toBe("Formal");
-    expect(cvResponseToFormValues({ style: { value: "FORMAL" } }).occasions).toEqual(["Formal Event"]);
-  });
 });

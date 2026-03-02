@@ -347,7 +347,7 @@ export default function Home() {
             <div className="text-2xl mb-2">👔</div>
             <p className="font-medium text-slate-900">Style Matching</p>
             <p className="text-sm text-slate-600 mt-1">
-              Ensures formality levels match - casual with casual, formal with formal.
+              Pairs items that suit the occasion (e.g. casual with casual, work-appropriate with work).
             </p>
           </div>
           <div className="p-4 bg-green-50 rounded-lg">
