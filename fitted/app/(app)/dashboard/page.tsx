@@ -24,7 +24,7 @@ function imageUrlFromPath(imagePath?: string) {
 interface Outfit {
   items: OutfitItem[];
   reason: string;
-  score?: number;
+  score?: number; // confidence score from LLM (0-100)
   feedback?: "liked" | "disliked";
 }
 
@@ -34,12 +34,11 @@ export default function Home() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   
   // Recommendation state
-  const [occasion, setOccasion] = useState("casual");
+  const [eventDescription, setEventDescription] = useState("");
   const [outfits, setOutfits] = useState<Outfit[]>([]);
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState("");
-  const [useAI, setUseAI] = useState(false);
-  const [method, setMethod] = useState<"ml" | "ai">("ml");
+  const [recMessage, setRecMessage] = useState("");
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -65,9 +64,15 @@ export default function Home() {
       setRecError("Please sign in to get recommendations");
       return;
     }
+
+    if (!eventDescription.trim()) {
+      setRecError("Describe the event or context to get recommendations.");
+      return;
+    }
     
     setRecLoading(true);
     setRecError("");
+    setRecMessage("");
     setOutfits([]);
 
     try {
@@ -78,7 +83,7 @@ export default function Home() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ occasion, useAI }),
+        body: JSON.stringify({ eventDescription }),
       });
 
       const data = await res.json();
@@ -89,7 +94,12 @@ export default function Home() {
       }
 
       setOutfits(data.outfits || []);
-      setMethod(data.method || "ml");
+      if (!data.outfits?.length && data.message) {
+        setRecMessage(data.message);
+      } else if (data.message) {
+        // Optional: show a softer informational message even when outfits exist
+        setRecMessage(data.message);
+      }
     } catch {
       setRecError("Something went wrong. Please try again.");
     } finally {
@@ -114,7 +124,8 @@ export default function Home() {
         body: JSON.stringify({
           itemIds,
           action,
-          occasion,
+          // Keep sending a label for now; using the free-text description
+          occasion: eventDescription,
         }),
       });
 
@@ -141,7 +152,7 @@ export default function Home() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Home</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Get ML-powered outfit recommendations from your wardrobe.
+            Get AI-powered outfit recommendations from your wardrobe.
           </p>
         </div>
         <button
@@ -159,51 +170,34 @@ export default function Home() {
           <div>
             <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Our ML model uses color theory, style matching, and learns from your feedback.
+              Our AI stylist uses your wardrobe, event description, and color/style cues to suggest outfits.
             </p>
           </div>
-          {outfits.length > 0 && (
-            <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-              method === "ml" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
-            }`}>
-              {method === "ml" ? "ML Engine" : "AI Powered"}
-            </span>
-          )}
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-4 items-end">
-          <div>
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="w-full">
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">
-              Occasion
+              Event description
             </label>
-            <select
-              value={occasion}
-              onChange={(e) => setOccasion(e.target.value)}
-              className="px-4 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-500"
-            >
-              <option value="casual">Casual</option>
-              <option value="formal">Formal</option>
-              <option value="athletic">Athletic</option>
-              <option value="streetwear">Streetwear</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useAI}
-                onChange={(e) => setUseAI(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300"
-              />
-              <span className="text-sm text-slate-600">Use AI (GPT-4)</span>
-            </label>
+            <textarea
+              value={eventDescription}
+              onChange={(e) => setEventDescription(e.target.value)}
+              rows={3}
+              maxLength={280}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 placeholder:text-slate-400"
+              placeholder="e.g. Outdoor brunch with friends in mild weather, want something smart casual but comfortable."
+            />
+            <div className="mt-1 flex justify-between text-[11px] text-slate-500">
+              <span>Tell the AI what the event is, vibe, and any constraints.</span>
+              <span>{eventDescription.length}/280</span>
+            </div>
           </div>
 
           <button
             onClick={getRecommendations}
             disabled={recLoading}
-            className="px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors"
+            className="self-start px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors"
           >
             {recLoading ? "Generating..." : "Get Recommendations"}
           </button>
@@ -212,6 +206,12 @@ export default function Home() {
         {recError && (
           <div className="mt-4 p-4 bg-red-50 text-red-700 rounded-lg text-sm">
             {recError}
+          </div>
+        )}
+
+        {!recError && recMessage && (
+          <div className="mt-4 p-4 bg-slate-50 text-slate-700 rounded-lg text-sm border border-slate-200">
+            {recMessage}
           </div>
         )}
 
