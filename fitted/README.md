@@ -6,12 +6,6 @@ First, run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
@@ -39,7 +33,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 This project uses MongoDB via Mongoose for user accounts, wardrobe items, and outfit interactions.
 
-1) Install deps: `pnpm install` or `npm install` (adds `mongoose`).
+1) Install deps: `npm install` (adds `mongoose`).
 2) Configure `.env.local` with `MONGODB_URI=<your connection string>`.
 3) Use `initDatabase()` from `@/lib/db` inside API routes/server actions to connect and register indexes.
 

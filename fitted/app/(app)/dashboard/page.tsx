@@ -53,7 +53,7 @@ export default function Home() {
       setSigningOut(true);
       await signOut(auth);
       localStorage.removeItem("userId");
-      router.push("/signin");
+      router.push("/");
     } catch (error) {
       console.error("Error signing out:", error);
       setSigningOut(false);

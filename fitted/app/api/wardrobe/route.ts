@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
       seasons?: string[];
       occasions?: string[];
       notes?: string;
+      isAvailable?: boolean;
       imagePath?: string;
     };
 
@@ -90,6 +91,7 @@ export async function GET(request: NextRequest) {
         seasons: item.seasons ?? [],
         occasions: item.occasions ?? [],
         notes: item.notes ?? "",
+        isAvailable: item.isAvailable ?? true,
         imagePath: item.imagePath ?? undefined,
       })),
     });
@@ -126,6 +128,7 @@ export async function POST(request: NextRequest) {
       seasons = [],
       occasions = [],
       notes = "",
+      isAvailable = true,
     } = body;
 
     if (!name || !category) {
@@ -150,6 +153,7 @@ export async function POST(request: NextRequest) {
       seasons: Array.isArray(seasons) ? seasons : [],
       occasions: Array.isArray(occasions) ? occasions : [],
       notes: String(notes || "").trim() || undefined,
+      isAvailable: Boolean(isAvailable),
     });
 
     return NextResponse.json(
@@ -167,6 +171,7 @@ export async function POST(request: NextRequest) {
           seasons: itemDoc.seasons ?? [],
           occasions: itemDoc.occasions ?? [],
           notes: itemDoc.notes ?? "",
+          isAvailable: itemDoc.isAvailable ?? true,
         },
       },
       { status: 201 },
@@ -179,5 +184,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
 

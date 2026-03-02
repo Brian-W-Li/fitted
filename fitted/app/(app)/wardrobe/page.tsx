@@ -14,6 +14,7 @@ type WardrobeItem = {
   category: string;
   subCategory?: string;
   pattern?: string;
+  isAvailable?: boolean;
   colors: string[];
   fit: string;
   size: string;
@@ -69,12 +70,15 @@ function WardrobeCard({
   item,
   onEdit,
   onDelete,
+  onToggleAvailability,
 }: {
   item: WardrobeItem;
   onEdit: (item: WardrobeItem) => void;
   onDelete: (item: WardrobeItem) => void;
+  onToggleAvailability: (item: WardrobeItem) => void;
 }) {
   const imgSrc = imageUrlFromPath(item.imagePath);
+  const isAvailable = item.isAvailable ?? true;
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -99,7 +103,9 @@ function WardrobeCard({
         <div className="mb-2 flex items-baseline justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
+              <h3 className={`text-base font-semibold ${isAvailable ? "text-slate-900" : "text-slate-500"}`}>
+                {item.name}
+              </h3>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
                 (item.category ?? "unknown") === "top"
                   ? "bg-blue-100 text-blue-700"
@@ -207,6 +213,7 @@ function AddItemModal({
   const [seasons, setSeasons] = useState<string[]>(initialItem?.seasons ?? []);
   const [occasions, setOccasions] = useState<string[]>(initialItem?.occasions ?? []);
   const [fit, setFit] = useState(initialItem?.fit ?? "");
+  const isAvailable = initialItem?.isAvailable ?? true;
   const [imageFile, setImageFile] = useState<File | null>(pendingAddFile ?? null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -294,6 +301,7 @@ function AddItemModal({
           seasons,
           occasions,
           notes: "",
+          isAvailable,
         },
         fileToUpload
       );
@@ -764,41 +772,68 @@ export default function WardrobePage() {
     }
   }
 
-  async function handleClearWardrobe() {
-  if (!firebaseUser) return;
-
-  const confirmed = window.confirm(
-    "Delete ALL wardrobe items? This cannot be undone."
-  );
-  if (!confirmed) return;
-
-  try {
-    setError(null);
-    setLoading(true);
-
-    const token = await firebaseUser.getIdToken();
-    const res = await fetch("/api/wardrobe/clear", {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data.error ?? "Failed to delete all items.");
-      return;
+  async function handleToggleAvailability(item: WardrobeItem) {
+    if (!firebaseUser) return;
+    try {
+      setError(null);
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch(`/api/wardrobe/${item.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isAvailable: !(item.isAvailable ?? true) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to update availability.");
+        return;
+      }
+      const raw = data.item;
+      const updated: WardrobeItem = { ...raw, id: raw.id ?? raw._id };
+      setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
+    } catch (e) {
+      console.error("Error updating availability:", e);
+      setError("Failed to update availability.");
     }
-
-    // Keep UI consistent with DB: clear local state after successful API delete
-    setItems([]);
-  } catch (e) {
-    console.error("Error clearing wardrobe:", e);
-    setError("Failed to delete all items.");
-  } finally {
-    setLoading(false);
   }
-}
+
+  async function handleClearWardrobe() {
+    if (!firebaseUser) return;
+
+    const confirmed = window.confirm(
+      "Delete ALL wardrobe items? This cannot be undone."
+    );
+    if (!confirmed) return;
+
+    try {
+      setError(null);
+      setLoading(true);
+
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/wardrobe/clear", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to delete all items.");
+        return;
+      }
+
+      // Keep UI consistent with DB: clear local state after successful API delete
+      setItems([]);
+    } catch (e) {
+      console.error("Error clearing wardrobe:", e);
+      setError("Failed to delete all items.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleAddItem(
     newItem: Omit<WardrobeItem, "id">,
@@ -933,6 +968,7 @@ export default function WardrobePage() {
                 setIsModalOpen(true);
               }}
               onDelete={handleDeleteItem}
+              onToggleAvailability={handleToggleAvailability}
             />
           ))}
         </div>
@@ -1061,6 +1097,7 @@ export default function WardrobePage() {
                   seasons: editingItem.seasons ?? [],
                   occasions: editingItem.occasions ?? [],
                   notes: editingItem.notes,
+                  isAvailable: editingItem.isAvailable,
                   imagePath: editingItem.imagePath,
                 }
               : addStep === "form"
