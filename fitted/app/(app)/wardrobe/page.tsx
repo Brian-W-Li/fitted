@@ -180,13 +180,13 @@ function WardrobeCard({
           </span>
         </div>
 
-        {(item.fit || item.seasons?.length || item.occasions?.length) && (
-          <p className="text-xs text-slate-500">
-            {[item.fit, item.seasons?.join(", "), item.occasions?.join(", ")]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        )}
+        {(() => {
+          const validFit = item.fit && FIT_OPTIONS.includes(item.fit) ? item.fit : null;
+          const parts = [validFit, item.seasons?.join(", "), item.occasions?.join(", ")].filter(Boolean);
+          return parts.length > 0 ? (
+            <p className="text-xs text-slate-500">{parts.join(" · ")}</p>
+          ) : null;
+        })()}
 
         {item.colors.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5 items-center">
@@ -351,10 +351,10 @@ function AddItemModal({
         {
           name: name.trim(),
           category,
-          subCategory: subCategory || undefined,
-          pattern: pattern.trim() || undefined,
+          subCategory: subCategory,
+          pattern: pattern.trim(),
           colors: colorsToSave,
-          layerRole: layerRole || undefined,
+          layerRole: layerRole,
           fit: fit.trim(),
           size: "",
           seasons,
