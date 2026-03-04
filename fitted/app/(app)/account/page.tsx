@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebaseClient";
 
@@ -9,6 +9,7 @@ type AccountUser = {
   email: string;
   displayName: string | null;
   photoURL: string | null;
+  hasCustomPhoto?: boolean;
   age: number | null;
   gender: string | null;
   createdAt: string | null;
@@ -25,6 +26,8 @@ export default function AccountPage() {
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [ageInput, setAgeInput] = useState("");
   const [genderInput, setGenderInput] = useState("");
+  const [photoDraft, setPhotoDraft] = useState<string | null | undefined>(undefined);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
@@ -56,6 +59,7 @@ export default function AccountPage() {
         setUser(data.user);
         setAgeInput(data.user.age == null ? "" : String(data.user.age));
         setGenderInput(data.user.gender ?? "");
+        setPhotoDraft(undefined);
       } finally {
         setLoading(false);
       }
@@ -78,6 +82,7 @@ export default function AccountPage() {
           firebaseUid,
           age: ageInput,
           gender: genderInput,
+          photoDataUrl: photoDraft,
         }),
       });
 
@@ -90,11 +95,36 @@ export default function AccountPage() {
       setUser(data.user);
       setAgeInput(data.user.age == null ? "" : String(data.user.age));
       setGenderInput(data.user.gender ?? "");
+      setPhotoDraft(undefined);
       setMessage("Saved");
       setTimeout(() => setMessage(null), 2000);
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handlePhotoSelected(file: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please choose an image file");
+      return;
+    }
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? ""));
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.readAsDataURL(file);
+      });
+      setError(null);
+      setPhotoDraft(dataUrl);
+    } catch {
+      setError("Failed to read image");
+    }
+  }
+
+  function openPhotoPicker() {
+    photoInputRef.current?.click();
   }
 
   return (
@@ -127,24 +157,45 @@ export default function AccountPage() {
                 <p className="mt-1 text-sm text-slate-600">{user.email}</p>
               </div>
 
-              {user.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt="Profile"
-                  width={84}
-                  height={84}
-                  referrerPolicy="no-referrer"
-                  className="h-[84px] w-[84px] rounded-full border border-slate-200 object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              ) : (
-                <div className="inline-flex h-[84px] w-[84px] items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-2xl font-medium text-slate-500">
-                  {user.email.charAt(0).toUpperCase()}
+              <button
+                type="button"
+                onClick={openPhotoPicker}
+                className="group relative block h-[84px] w-[84px] overflow-hidden rounded-full border border-slate-200"
+              >
+                {(photoDraft ?? user.photoURL) ? (
+                  <img
+                    src={photoDraft ?? user.photoURL ?? ""}
+                    alt="Profile"
+                    width={84}
+                    height={84}
+                    referrerPolicy="no-referrer"
+                    className="h-[84px] w-[84px] object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <div className="inline-flex h-[84px] w-[84px] items-center justify-center bg-slate-100 text-2xl font-medium text-slate-500">
+                    {user.email.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/45 text-xs font-medium text-white opacity-0 transition group-hover:opacity-100">
+                  Change photo
                 </div>
-              )}
+              </button>
             </div>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              className="hidden"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                void handlePhotoSelected(file);
+                e.currentTarget.value = "";
+              }}
+            />
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

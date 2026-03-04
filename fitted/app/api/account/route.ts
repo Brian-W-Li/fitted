@@ -18,6 +18,9 @@ const ALLOWED_GENDERS = new Set([
   "prefer_not_to_say",
 ]);
 
+const MAX_PHOTO_DATA_URL_LENGTH = 3_000_000;
+const PHOTO_DATA_URL_RE = /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/i;
+
 /** Safely read from metadata (Mongoose may give Map or plain object). */
 function getMeta(metadata: unknown, key: string): unknown {
   if (metadata == null) return undefined;
@@ -55,12 +58,19 @@ export async function POST(request: NextRequest) {
     }
 
     const meta = user.metadata;
+    const customPhotoURL = getMeta(meta, "customPhotoURL");
+    const profilePhotoURL =
+      typeof customPhotoURL === "string" && customPhotoURL.length > 0
+        ? customPhotoURL
+        : user.photoURL ?? null;
+
     return NextResponse.json({
       user: {
         id: user._id.toString(),
         email: user.email,
         displayName: user.displayName ?? null,
-        photoURL: user.photoURL ?? null,
+        photoURL: profilePhotoURL,
+        hasCustomPhoto: typeof customPhotoURL === "string" && customPhotoURL.length > 0,
         age: getMeta(meta, "age") ?? null,
         gender: getMeta(meta, "gender") ?? null,
         createdAt: user.createdAt ?? null,
@@ -75,7 +85,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { firebaseUid, age, gender } = await request.json();
+    const { firebaseUid, age, gender, photoDataUrl } = await request.json();
     if (!firebaseUid) {
       return NextResponse.json({ error: "firebaseUid is required" }, { status: 400 });
     }
@@ -89,6 +99,19 @@ export async function PATCH(request: NextRequest) {
       genderParsed = gender;
     } else {
       return NextResponse.json({ error: "Invalid gender value" }, { status: 400 });
+    }
+
+    const photoDataUrlProvided = photoDataUrl !== undefined;
+    if (photoDataUrlProvided && photoDataUrl !== null && photoDataUrl !== "") {
+      if (typeof photoDataUrl !== "string") {
+        return NextResponse.json({ error: "Invalid photo format" }, { status: 400 });
+      }
+      if (photoDataUrl.length > MAX_PHOTO_DATA_URL_LENGTH) {
+        return NextResponse.json({ error: "Photo is too large" }, { status: 400 });
+      }
+      if (!PHOTO_DATA_URL_RE.test(photoDataUrl)) {
+        return NextResponse.json({ error: "Only PNG, JPG, JPEG, or WEBP images are allowed" }, { status: 400 });
+      }
     }
 
     const { User } = await initDatabase();
@@ -109,16 +132,30 @@ export async function PATCH(request: NextRequest) {
     else user.metadata.set("age", ageParsed);
     if (genderParsed === null) user.metadata.delete("gender");
     else user.metadata.set("gender", genderParsed);
+    if (photoDataUrlProvided) {
+      if (photoDataUrl === null || photoDataUrl === "") {
+        user.metadata.delete("customPhotoURL");
+      } else {
+        user.metadata.set("customPhotoURL", photoDataUrl);
+      }
+    }
 
     await user.save();
 
     const metaAfter = user.metadata as unknown;
+    const customPhotoURL = getMeta(metaAfter, "customPhotoURL");
+    const profilePhotoURL =
+      typeof customPhotoURL === "string" && customPhotoURL.length > 0
+        ? customPhotoURL
+        : user.photoURL ?? null;
+
     return NextResponse.json({
       user: {
         id: user._id.toString(),
         email: user.email,
         displayName: user.displayName ?? null,
-        photoURL: user.photoURL ?? null,
+        photoURL: profilePhotoURL,
+        hasCustomPhoto: typeof customPhotoURL === "string" && customPhotoURL.length > 0,
         age: getMeta(metaAfter, "age") ?? null,
         gender: getMeta(metaAfter, "gender") ?? null,
         createdAt: user.createdAt ?? null,
