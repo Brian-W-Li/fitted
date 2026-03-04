@@ -21,3 +21,4 @@
 | Wed 02/25 | Jenil | Made sure everything works on main branch |
 | Fri 02/27 | Animesh | Coordinated everyone in refactoring and identifying new ideas |
 | Mon 03/02 | Pengyu | Schedule the final week before code freeze |
+| Wed 03/04 | Brian | Made sure everyone did standup even though we are busy |
