@@ -54,7 +54,6 @@ export default function AccountPage() {
         }
 
         setUser(data.user);
-        //console.log("account user from api:", data.user);
         setAgeInput(data.user.age == null ? "" : String(data.user.age));
         setGenderInput(data.user.gender ?? "");
       } finally {
@@ -91,82 +90,108 @@ export default function AccountPage() {
       setUser(data.user);
       setAgeInput(data.user.age == null ? "" : String(data.user.age));
       setGenderInput(data.user.gender ?? "");
-      setMessage("Saved!");
+      setMessage("Saved");
       setTimeout(() => setMessage(null), 2000);
-
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 520 }}>
-      <h1>Account</h1>
+    <section className="mx-auto w-full max-w-3xl">
+      <header className="mb-6">
+        <h1 className="text-4xl font-semibold tracking-tight text-slate-900">Account</h1>
+        <p className="mt-2 text-slate-600">
+          Manage your profile details used in outfit recommendations
+        </p>
+      </header>
 
-      {loading && <p>Loading...</p>}
-      {!loading && error && <p>{error}</p>}
+      {loading && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-slate-600">Loading account details...</p>
+        </div>
+      )}
+
+      {!loading && error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+      )}
 
       {!loading && user && (
-        <>
-          <p><b>Email:</b> {user.email}</p>
-          <p><b>Display name:</b> {user.displayName ?? "(not set)"}</p>
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900">
+                  {user.displayName ?? "No display name"}
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">{user.email}</p>
+              </div>
 
-          {user.photoURL ? (
-            <img
-              src={user.photoURL}
-              alt="profile"
-              width = {80}
-              height = {80}
-              referrerPolicy="no-referrer"
-              style={{ borderRadius: 9999, objectFit: "cover", display: "block" }}
-              onLoad={() => console.log("pfp loaded")}
-              onError={(e) => {
-                console.log("pfp failed to load", user.photoURL);
-                e.currentTarget.style.display = "none";
-              }}
-            />
-          ) : (
-                <p style={{ marginTop: 8, opacity: 0.7 }}>(No profile photo)</p>
-           )}
-
-          <div style={{ marginTop: 16 }}>
-            <div>
-              <label>Age</label><br />
-              <input
-                type = "number"
-                value={ageInput}
-                onChange={(e) => setAgeInput(e.target.value)}
-                style={{ padding: 8, width: 200 }}
-              />
+              {user.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt="Profile"
+                  width={84}
+                  height={84}
+                  referrerPolicy="no-referrer"
+                  className="h-[84px] w-[84px] rounded-full border border-slate-200 object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              ) : (
+                <div className="inline-flex h-[84px] w-[84px] items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-2xl font-medium text-slate-500">
+                  {user.email.charAt(0).toUpperCase()}
+                </div>
+              )}
             </div>
-
-            <div style={{ marginTop: 12 }}>
-              <label>Gender</label><br />
-              <select
-                value={genderInput}
-                onChange={(e) => setGenderInput(e.target.value)}
-                style={{ padding: 8, width: 220 }}
-              >
-                <option value="">(select)</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-                <option value="nonbinary">Non-binary</option>
-                <option value="other">Other</option>
-                <option value="prefer_not_to_say">Prefer not to say</option>
-              </select>
-            </div>
-
-            <button
-              onClick={saveProfile}
-              disabled={saving}
-              style={{ marginTop: 16, padding: "8px 12px" }}
-            >
-              {saving ? "Saving..." : "Save"}
-            </button>
-            {message && <p style={{ marginTop: 12 }}>{message}</p>}
           </div>
-        </>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-lg font-medium text-slate-900">Profile settings</h3>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-slate-700">Age</span>
+                <input
+                  type="number"
+                  value={ageInput}
+                  onChange={(e) => setAgeInput(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                  placeholder="Enter age"
+                />
+              </label>
+
+              <label className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-slate-700">Gender</span>
+                <select
+                  value={genderInput}
+                  onChange={(e) => setGenderInput(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                >
+                  <option value="">Select</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="nonbinary">Non-binary</option>
+                  <option value="other">Other</option>
+                  <option value="prefer_not_to_say">Prefer not to say</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                onClick={saveProfile}
+                disabled={saving}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save changes"}
+              </button>
+              {message && <p className="text-sm text-emerald-700">{message}</p>}
+            </div>
+          </div>
+        </div>
       )}
-    </div>
+    </section>
   );
 }
