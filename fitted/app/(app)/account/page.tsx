@@ -12,6 +12,8 @@ type AccountUser = {
   hasCustomPhoto?: boolean;
   age: number | null;
   gender: string | null;
+  appRatingScore10?: number | null;
+  appFeedbackComment?: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -21,12 +23,16 @@ export default function AccountPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingFeedback, setSavingFeedback] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [ageInput, setAgeInput] = useState("");
   const [genderInput, setGenderInput] = useState("");
   const [photoDraft, setPhotoDraft] = useState<string | null | undefined>(undefined);
+  const [ratingScore10Input, setRatingScore10Input] = useState<number>(0);
+  const [feedbackCommentInput, setFeedbackCommentInput] = useState("");
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -35,6 +41,7 @@ export default function AccountPage() {
         setLoading(true);
         setError(null);
         setMessage(null);
+        setFeedbackMessage(null);
         setUser(null);
 
         if (!fbUser) {
@@ -59,6 +66,10 @@ export default function AccountPage() {
         setUser(data.user);
         setAgeInput(data.user.age == null ? "" : String(data.user.age));
         setGenderInput(data.user.gender ?? "");
+        setRatingScore10Input(
+          typeof data.user.appRatingScore10 === "number" ? data.user.appRatingScore10 : 0,
+        );
+        setFeedbackCommentInput(data.user.appFeedbackComment ?? "");
         setPhotoDraft(undefined);
       } finally {
         setLoading(false);
@@ -103,6 +114,41 @@ export default function AccountPage() {
     }
   }
 
+  async function saveFeedback() {
+    if (!firebaseUid) return;
+    setSavingFeedback(true);
+    setError(null);
+    setFeedbackMessage(null);
+
+    try {
+      const res = await fetch("/api/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firebaseUid,
+          appRatingScore10: ratingScore10Input,
+          appFeedbackComment: feedbackCommentInput,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to save feedback.");
+        return;
+      }
+
+      setUser(data.user);
+      setRatingScore10Input(
+        typeof data.user.appRatingScore10 === "number" ? data.user.appRatingScore10 : 0,
+      );
+      setFeedbackCommentInput(data.user.appFeedbackComment ?? "");
+      setFeedbackMessage("Feedback submitted");
+      setTimeout(() => setFeedbackMessage(null), 2000);
+    } finally {
+      setSavingFeedback(false);
+    }
+  }
+
   async function handlePhotoSelected(file: File | null) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -127,8 +173,32 @@ export default function AccountPage() {
     photoInputRef.current?.click();
   }
 
+  function setStarRating(stars: number) {
+    const clamped = Math.max(0, Math.min(5, stars));
+    const normalizedToHalf = Math.round(clamped * 2) / 2;
+    setRatingScore10Input(Math.round(normalizedToHalf * 2));
+  }
+
+  function currentRatingScore5() {
+    return ratingScore10Input / 2;
+  }
+
+  function starFillType(starIndex: number): "empty" | "half" | "full" {
+    const rating = currentRatingScore5();
+    if (rating >= starIndex) return "full";
+    if (rating >= starIndex - 0.5) return "half";
+    return "empty";
+  }
+
+  function starFillPercent(starIndex: number): number {
+    const fill = starFillType(starIndex);
+    if (fill === "full") return 100;
+    if (fill === "half") return 50;
+    return 0;
+  }
+
   return (
-    <section className="mx-auto w-full max-w-3xl">
+    <section className="mx-auto w-full max-w-5xl">
       <header className="mb-6">
         <h1 className="text-4xl font-semibold tracking-tight text-slate-900">Account</h1>
         <p className="mt-2 text-slate-600">
@@ -239,6 +309,78 @@ export default function AccountPage() {
                 {saving ? "Saving..." : "Save changes"}
               </button>
               {message && <p className="text-sm text-emerald-700">{message}</p>}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-lg font-medium text-slate-900">Rate the app</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Rate from 0-10 with half-star support ({ratingScore10Input}/10)
+            </p>
+
+            <div className="mt-4 flex items-center gap-2">
+              {[1, 2, 3, 4, 5].map((star) => {
+                const fillPercent = starFillPercent(star);
+                return (
+                  <div key={star} className="relative h-9 w-9">
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 h-9 w-9 fill-slate-300"
+                    >
+                      <path d="M12 2.25 14.92 8.16l6.52.95-4.72 4.6 1.11 6.5L12 17.14 6.17 20.2l1.11-6.5-4.72-4.6 6.52-.95L12 2.25Z" />
+                    </svg>
+                    <div
+                      className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden"
+                      style={{ width: `${fillPercent}%` }}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        className="h-9 w-9 fill-amber-400"
+                      >
+                        <path d="M12 2.25 14.92 8.16l6.52.95-4.72 4.6 1.11 6.5L12 17.14 6.17 20.2l1.11-6.5-4.72-4.6 6.52-.95L12 2.25Z" />
+                      </svg>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setStarRating(star - 0.5)}
+                      aria-label={`Set rating to ${star - 0.5} stars`}
+                      className="absolute inset-y-0 left-0 w-1/2"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setStarRating(star)}
+                      aria-label={`Set rating to ${star} stars`}
+                      className="absolute inset-y-0 right-0 w-1/2"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <label className="mt-4 block">
+              <span className="text-sm font-medium text-slate-700">Comments</span>
+              <textarea
+                value={feedbackCommentInput}
+                onChange={(e) => setFeedbackCommentInput(e.target.value)}
+                rows={4}
+                maxLength={2000}
+                placeholder="Tell us what worked well and what should be improved"
+                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              />
+            </label>
+
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={saveFeedback}
+                disabled={savingFeedback}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingFeedback ? "Submitting..." : "Submit feedback"}
+              </button>
+              {feedbackMessage && <p className="text-sm text-emerald-700">{feedbackMessage}</p>}
             </div>
           </div>
         </div>
