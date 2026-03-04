@@ -4,6 +4,7 @@ import { auth } from "@/lib/firebaseClient";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import RedirectIfAuthenticated from "@/app/(app)/RedirectIfAuthenticated";
 
 function normalizeAuthError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -74,6 +75,7 @@ export default function SignupPage() {
   }
 
   return (
+    <RedirectIfAuthenticated>
     <div className="flex min-h-screen items-center justify-center bg-white">
       <main className="w-full max-w-md px-6 py-8">
         <div className="text-center mb-8">
@@ -120,5 +122,6 @@ export default function SignupPage() {
         )}
       </main>
     </div>
+    </RedirectIfAuthenticated>
   );
 }
