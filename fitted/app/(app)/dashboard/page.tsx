@@ -43,6 +43,61 @@ interface PerItemFeedback {
 // Helpers
 // ============================================================================
 
+type EventTimeBucket = "now" | "later_today" | "tomorrow" | "custom";
+
+/**
+ * Converts the user's "When?" selection to a UTC ISO string for the backend.
+ * Returns undefined for "now" (backend uses current conditions).
+ */
+/**
+ * Returns the target event hour as a UTC ISO string.
+ * - "later_today" → 18:00 in user's local timezone (rolls to tomorrow 18:00 if already past 18:00)
+ * - "tomorrow"    → 12:00 local (noon)
+ * - "custom"      → whatever the datetime-local picker holds
+ * - "now"         → undefined (backend uses live current conditions)
+ */
+function getEventTimeISO(bucket: EventTimeBucket, customVal: string): string | undefined {
+  if (bucket === "now") return undefined;
+  if (bucket === "later_today") {
+    const d = new Date();
+    // Roll to tomorrow if it's already 18:00 or later
+    if (d.getHours() >= 18) d.setDate(d.getDate() + 1);
+    d.setHours(18, 0, 0, 0); // 6 PM in user's local timezone
+    return d.toISOString();  // toISOString() converts local → UTC
+  }
+  if (bucket === "tomorrow") {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(12, 0, 0, 0); // noon in user's local timezone
+    return d.toISOString();
+  }
+  // custom: datetime-local input → UTC ISO
+  if (customVal) {
+    const parsed = new Date(customVal);
+    return isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  }
+  return undefined;
+}
+
+/** Human-readable label sent to the backend for inclusion in the LLM prompt. */
+function getEventTimeLabel(bucket: EventTimeBucket, customVal: string): string | undefined {
+  if (bucket === "now") return undefined;
+  if (bucket === "later_today") {
+    const isPast6PM = new Date().getHours() >= 18;
+    return isPast6PM ? "Tomorrow at 6 PM" : "Today at 6 PM";
+  }
+  if (bucket === "tomorrow") return "Tomorrow at noon";
+  if (bucket === "custom" && customVal) {
+    const parsed = new Date(customVal);
+    if (isNaN(parsed.getTime())) return undefined;
+    return parsed.toLocaleString([], {
+      weekday: "short", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit",
+    });
+  }
+  return undefined;
+}
+
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
   if (imagePath.startsWith("mongo:")) {
@@ -336,6 +391,8 @@ export default function Home() {
   
   // Recommendation state
   const [eventDescription, setEventDescription] = useState("");
+  const [eventTimeBucket, setEventTimeBucket] = useState<EventTimeBucket>("now");
+  const [customEventDateTime, setCustomEventDateTime] = useState("");
   const [temperatureHint, setTemperatureHint] = useState<"hot" | "mild" | "cold" | "indoor" | "">("");
   const [outfits, setOutfits] = useState<Outfit[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentContext | undefined>();
@@ -346,6 +403,17 @@ export default function Home() {
   // Feedback modal state
   const [feedbackModalOutfit, setFeedbackModalOutfit] = useState<{ outfit: Outfit; index: number } | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
+
+  // Geolocation (best-effort — used for weather context)
+  const [geoCoords, setGeoCoords] = useState<{ lat: number; lon: number } | null>(null);
+
+  useEffect(() => {
+    if (!navigator?.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setGeoCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => {}, // denied or unavailable — proceed without weather
+    );
+  }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -425,6 +493,9 @@ export default function Home() {
         body: JSON.stringify({
           eventDescription,
           temperatureHint: temperatureHint || undefined,
+          eventTimeISO: getEventTimeISO(eventTimeBucket, customEventDateTime),
+          eventTimeLabel: getEventTimeLabel(eventTimeBucket, customEventDateTime),
+          ...(geoCoords ? { lat: geoCoords.lat, lon: geoCoords.lon } : {}),
         }),
       });
 
@@ -447,7 +518,7 @@ export default function Home() {
     } finally {
       setRecLoading(false);
     }
-  }, [firebaseUser, eventDescription, temperatureHint]);
+  }, [firebaseUser, eventDescription, temperatureHint, eventTimeBucket, customEventDateTime]);
 
   const handleLike = async (outfitIndex: number) => {
     if (!firebaseUser) return;
@@ -481,7 +552,7 @@ export default function Home() {
     setFeedbackModalOutfit({ outfit: outfits[outfitIndex], index: outfitIndex });
   };
 
-  const handleSaveFeedback = async (data: {
+  const handleSaveFeedback = async (_data: {
     perItemFeedback: PerItemFeedback[];
     overallNotes: string;
   }) => {
@@ -644,6 +715,45 @@ export default function Home() {
               <span>Tell the AI what the event is, vibe, and any constraints.</span>
               <span>{eventDescription.length}/280</span>
             </div>
+          </div>
+
+          <div className="w-full">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">
+              When is the event?
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              {([
+                { value: "now",        label: "Now" },
+                { value: "later_today", label: "Later today" },
+                { value: "tomorrow",   label: "Tomorrow" },
+                { value: "custom",     label: "Pick date/time" },
+              ] as { value: EventTimeBucket; label: string }[]).map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => setEventTimeBucket(value)}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    eventTimeBucket === value
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {eventTimeBucket === "custom" && (
+              <input
+                type="datetime-local"
+                value={customEventDateTime}
+                onChange={(e) => setCustomEventDateTime(e.target.value)}
+                min={new Date().toISOString().slice(0, 16)}
+                max={new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)}
+                className="mt-2 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 bg-white"
+              />
+            )}
+            <p className="mt-1 text-[11px] text-slate-500">
+              Used to fetch the weather forecast for the right time.
+            </p>
           </div>
 
           <div className="w-full">
