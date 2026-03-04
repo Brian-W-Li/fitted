@@ -411,7 +411,7 @@ export default function Home() {
 
     try {
       const token = await firebaseUser.getIdToken();
-      await fetch("/api/feedback", {
+      await fetch("/api/interactions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -419,9 +419,8 @@ export default function Home() {
         },
         body: JSON.stringify({
           itemIds: outfit.itemIds,
-          feedbackType: "like",
-          eventDescription,
-          environment,
+          action: "accepted",
+          occasion: eventDescription || "casual",
         }),
       });
 
@@ -447,7 +446,7 @@ export default function Home() {
 
     try {
       const token = await firebaseUser.getIdToken();
-      await fetch("/api/feedback", {
+      await fetch("/api/interactions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -455,11 +454,8 @@ export default function Home() {
         },
         body: JSON.stringify({
           itemIds: outfit.itemIds,
-          feedbackType: "dislike",
-          eventDescription,
-          environment,
-          perItemFeedback: data.perItemFeedback,
-          overallNotes: data.overallNotes,
+          action: "rejected",
+          occasion: eventDescription || "casual",
         }),
       });
 
@@ -486,7 +482,7 @@ export default function Home() {
       const token = await firebaseUser.getIdToken();
 
       // Save feedback first
-      await fetch("/api/feedback", {
+      await fetch("/api/interactions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -494,13 +490,8 @@ export default function Home() {
         },
         body: JSON.stringify({
           itemIds: outfit.itemIds,
-          feedbackType: "dislike",
-          eventDescription,
-          environment,
-          perItemFeedback: data.perItemFeedback,
-          overallNotes: data.overallNotes,
-          lockedItemIds: data.lockedItemIds,
-          regenerated: true,
+          action: "rejected",
+          occasion: eventDescription || "casual",
         }),
       });
 
