@@ -1,7 +1,9 @@
 import Link from "next/link";
+import RedirectIfAuthenticated from "@/app/(app)/RedirectIfAuthenticated";
 
 export default function LandingPage() {
   return (
+    <RedirectIfAuthenticated>
     <main className="relative min-h-screen overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-100 text-slate-900">
       <div className="pointer-events-none absolute -top-24 -left-24 h-72 w-72 rounded-full bg-slate-200/40 blur-3xl" />
       <div className="pointer-events-none absolute -right-20 top-32 h-64 w-64 rounded-full bg-slate-200/30 blur-3xl" />
@@ -58,5 +60,6 @@ export default function LandingPage() {
         </div>
       </section>
     </main>
+    </RedirectIfAuthenticated>
   );
 }
