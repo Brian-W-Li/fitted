@@ -12,6 +12,7 @@ const openai = new OpenAI({
 // ============================================================================
 
 type TemperatureHint = "hot" | "mild" | "cold" | "indoor";
+type ChangeTarget = "outer" | "top" | "bottom" | "any";
 
 interface EnvironmentContext {
   temperatureHint: TemperatureHint;
@@ -85,7 +86,7 @@ async function getUserIdFromRequest(request: NextRequest) {
 }
 
 // ============================================================================
-// SHORTLISTING LOGIC
+// SHORTLISTING LOGIC (reused from main route)
 // ============================================================================
 
 function extractOccasionBuckets(eventDescription: string): string[] {
@@ -130,11 +131,11 @@ function detectTemperatureHint(eventDescription: string): TemperatureHint {
     return "mild";
   }
   
-  return "mild"; // default
+  return "mild";
 }
 
 function calculateOccasionScore(itemOccasions: string[], eventBuckets: string[]): number {
-  if (!itemOccasions || itemOccasions.length === 0) return 0.5; // neutral
+  if (!itemOccasions || itemOccasions.length === 0) return 0.5;
   
   const itemOccLower = itemOccasions.map(o => o.toLowerCase());
   const matches = eventBuckets.filter(b => itemOccLower.some(o => o.includes(b) || b.includes(o)));
@@ -147,29 +148,22 @@ function calculateTemperatureScore(item: WardrobeItemLean, tempHint: Temperature
   const name = item.name.toLowerCase();
   const layerRole = item.layerRole?.toLowerCase();
   
-  // No penalty if no season info
   if (seasons.length === 0 || seasons.includes("all")) return 1.0;
   
   switch (tempHint) {
     case "cold":
-      // Prefer winter/fall items, slightly penalize summer-only
       if (seasons.some(s => ["winter", "fall", "autumn"].includes(s))) return 1.0;
-      if (seasons.every(s => s === "summer")) return 0.4; // penalize but don't exclude
+      if (seasons.every(s => s === "summer")) return 0.4;
       return 0.7;
-      
     case "hot":
-      // Prefer summer/spring items, penalize heavy winter gear
       if (seasons.some(s => ["summer", "spring"].includes(s))) return 1.0;
       if (layerRole === "outer" && ["parka", "puffer", "wool", "heavy", "winter coat"].some(w => name.includes(w))) {
-        return 0.2; // heavy penalty for heavy coats in hot weather
+        return 0.2;
       }
       if (seasons.every(s => s === "winter")) return 0.5;
       return 0.8;
-      
-    case "mild":
-    case "indoor":
     default:
-      return 1.0; // all items work for mild/indoor
+      return 1.0;
   }
 }
 
@@ -177,32 +171,33 @@ function shortlistForLLM(
   wardrobe: WardrobeItemLean[],
   eventDescription: string,
   env: EnvironmentContext,
-  maxItems: number = 80 // increased from 60
+  dislikedItemIds: string[],
+  maxItems: number = 80
 ): ShortlistedItem[] {
   const eventBuckets = extractOccasionBuckets(eventDescription);
+  const dislikedSet = new Set(dislikedItemIds);
   
-  // Step 1: Filter only by hard requirements (availability)
-  const available = wardrobe.filter(item => item.isAvailable !== false);
+  // Filter only by hard requirements
+  const available = wardrobe.filter(item => {
+    if (item.isAvailable === false) return false;
+    if (dislikedSet.has(item._id.toString())) return false;
+    return true;
+  });
   
-  // Step 2: Score items by multiple factors (soft filtering via scoring)
+  // Score items by multiple factors
   const scored = available.map(item => {
     const occasionScore = calculateOccasionScore(item.occasions || [], eventBuckets);
     const temperatureScore = calculateTemperatureScore(item, env.temperatureHint);
-    
-    // Combined score (weighted average)
     const combinedScore = (occasionScore * 0.6) + (temperatureScore * 0.4);
-    
     return { item, score: combinedScore };
   });
   
-  // Step 3: If under threshold, return all (sorted by score)
   if (scored.length <= maxItems) {
     return scored
       .sort((a, b) => b.score - a.score)
       .map(({ item }) => toShortlistedItem(item));
   }
   
-  // Step 4: Sample with quotas per category, prioritizing higher scores
   const byCategory: Record<string, typeof scored> = {
     top: [],
     bottom: [],
@@ -216,7 +211,6 @@ function shortlistForLLM(
     const layerRole = s.item.layerRole?.toLowerCase();
     const name = s.item.name.toLowerCase();
     
-    // Smarter categorization - check layerRole and name patterns too
     if (layerRole === "outer" || ["jacket", "coat", "blazer", "cardigan", "hoodie", "parka", "puffer"].some(w => name.includes(w))) {
       byCategory.outer.push(s);
     } else if (cat === "bottom" || cat === "bottoms" || ["pants", "jeans", "shorts", "skirt", "trousers"].some(w => cat.includes(w))) {
@@ -225,20 +219,16 @@ function shortlistForLLM(
       byCategory["one piece"].push(s);
     } else if (cat === "footwear" || ["shoes", "sneakers", "boots", "sandals", "loafers"].some(w => cat.includes(w) || name.includes(w))) {
       byCategory.footwear.push(s);
-    } else if (cat === "top" || cat === "tops" || ["shirt", "tee", "t-shirt", "blouse", "polo", "tank", "sweater"].some(w => cat.includes(w) || name.includes(w))) {
-      byCategory.top.push(s);
     } else {
-      // Default to top if unclear
       byCategory.top.push(s);
     }
   }
   
-  // Sort each category by score (descending)
   const result: ShortlistedItem[] = [];
   const quotas: Record<string, number> = {
-    top: 25,      // increased
-    bottom: 20,   // increased
-    outer: 15,    // increased
+    top: 25,
+    bottom: 20,
+    outer: 15,
     "one piece": 10,
     footwear: 10
   };
@@ -303,6 +293,10 @@ export async function POST(request: NextRequest) {
       eventDescription,
       temperatureHint: providedTempHint,
       weatherSummary,
+      lockedItemIds = [],
+      dislikedItemIds = [],
+      changeTarget = "any" as ChangeTarget,
+      feedbackNotes,
       maxOutfits = 5
     } = body;
 
@@ -339,8 +333,12 @@ export async function POST(request: NextRequest) {
     const temperatureHint: TemperatureHint = providedTempHint || detectTemperatureHint(eventDescription);
     const env: EnvironmentContext = { temperatureHint, weatherSummary };
 
-    // Shortlist items
-    const shortlisted = shortlistForLLM(docs, eventDescription, env);
+    // Shortlist items (excluding disliked)
+    const shortlisted = shortlistForLLM(docs, eventDescription, env, dislikedItemIds);
+
+    // Get locked items info
+    const lockedItems = shortlisted.filter(item => lockedItemIds.includes(item.id));
+    const lockedItemsJson = lockedItems.length > 0 ? JSON.stringify(lockedItems, null, 2) : null;
 
     if (shortlisted.length < 2) {
       return NextResponse.json({
@@ -403,15 +401,40 @@ COLOR & STYLE:
 ENVIRONMENT:
 - TEMPERATURE_HINT: "${temperatureHint}"${weatherSummary ? `\n- WEATHER_SUMMARY: "${weatherSummary}"` : ""}
 
-WARDROBE_ITEMS:
+`;
+
+    // Add regeneration-specific constraints
+    if (lockedItemsJson) {
+      userMessage += `LOCKED_ITEMS (MUST be included in every outfit):
+${lockedItemsJson}
+
+CHANGE_TARGET: "${changeTarget}"
+- You MUST include ALL locked items in every suggested outfit.
+- Primarily change ${changeTarget === "any" ? "the non-locked items" : `the ${changeTarget} items`}.
+
+`;
+    }
+
+    // Add feedback context if provided
+    if (feedbackNotes) {
+      userMessage += `USER_FEEDBACK (why previous outfits were disliked):
+${feedbackNotes}
+
+Consider this feedback when creating new suggestions.
+
+`;
+    }
+
+    userMessage += `WARDROBE_ITEMS:
 ${JSON.stringify(shortlisted, null, 2)}
 
 TASK:
-Create ${maxOutfits} outfit recommendations. For each outfit:
+Create ${maxOutfits} NEW outfit recommendations different from what the user disliked. For each outfit:
 1. Think about what formality and style the event requires.
 2. Consider the temperature - does it need layering?
 3. Select items that work together (colors, style, occasion).
-4. Provide a confidence score (0-100) and brief reason.
+4. ${lockedItemsJson ? "Ensure all locked items are included." : ""}
+5. Provide a confidence score (0-100) and brief reason.
 
 RESPONSE FORMAT (JSON only):
 {
@@ -432,7 +455,7 @@ RESPONSE FORMAT (JSON only):
         { role: "system", content: systemMessage },
         { role: "user", content: userMessage }
       ],
-      temperature: 0.5,
+      temperature: 0.6, // Slightly higher for more variety in regeneration
       response_format: { type: "json_object" },
     });
 
@@ -447,45 +470,33 @@ RESPONSE FORMAT (JSON only):
 
     // Validate and enrich outfit data
     const itemMap = new Map(shortlisted.map(item => [item.id, item]));
+    const lockedSet = new Set(lockedItemIds);
     
-    // Smart categorization helper - infers category from multiple signals
+    // Smart categorization helper
     function inferItemType(item: ShortlistedItem): "base_top" | "mid_layer" | "outer_layer" | "bottom" | "one_piece" | "footwear" | "unknown" {
       const cat = item.category.toLowerCase();
       const layerRole = item.layerRole?.toLowerCase();
       const name = item.name.toLowerCase();
       const subCat = item.subCategory?.toLowerCase() || "";
       
-      // Check for one-piece first
       if (cat === "one piece" || ["dress", "jumpsuit", "romper"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
         return "one_piece";
       }
-      
-      // Check for bottom
       if (cat === "bottom" || cat === "bottoms" || ["pants", "jeans", "shorts", "skirt", "trousers", "chinos", "leggings"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
         return "bottom";
       }
-      
-      // Check for footwear
       if (cat === "footwear" || ["shoes", "sneakers", "boots", "sandals", "loafers", "heels", "flats"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
         return "footwear";
       }
-      
-      // Check for outer layer (explicit layerRole or name patterns)
       if (layerRole === "outer" || ["jacket", "coat", "blazer", "parka", "puffer", "windbreaker", "trench", "overcoat"].some(w => name.includes(w) || subCat.includes(w))) {
         return "outer_layer";
       }
-      
-      // Check for mid layer
       if (layerRole === "mid" || ["cardigan", "sweater", "hoodie", "fleece", "vest"].some(w => name.includes(w) || subCat.includes(w))) {
-        // Could be mid or outer depending on context - be flexible
         return "mid_layer";
       }
-      
-      // Default: if it's categorized as "top" or looks like a top, it's a base top
       if (cat === "top" || cat === "tops" || ["shirt", "tee", "t-shirt", "blouse", "polo", "tank", "henley", "button-down", "oxford"].some(w => name.includes(w) || subCat.includes(w))) {
         return "base_top";
       }
-      
       return "unknown";
     }
     
@@ -494,18 +505,11 @@ RESPONSE FORMAT (JSON only):
       const items = itemIds.map(id => itemMap.get(id)).filter(Boolean);
       if (items.length === 0) return false;
       
-      let baseTops = 0;
-      let midLayers = 0;
-      let outerLayers = 0;
-      let bottoms = 0;
-      let onePieces = 0;
-      let footwear = 0;
-      let unknown = 0;
+      let baseTops = 0, midLayers = 0, outerLayers = 0, bottoms = 0, onePieces = 0, footwear = 0, unknown = 0;
       
       for (const item of items) {
         if (!item) continue;
         const itemType = inferItemType(item);
-        
         switch (itemType) {
           case "base_top": baseTops++; break;
           case "mid_layer": midLayers++; break;
@@ -553,6 +557,11 @@ RESPONSE FORMAT (JSON only):
       .filter(outfit => {
         // Ensure all item IDs exist
         if (!outfit.itemIds.every(id => itemMap.has(id))) return false;
+        // Ensure all locked items are included
+        if (lockedItemIds.length > 0) {
+          const outfitIdSet = new Set(outfit.itemIds);
+          if (!lockedItemIds.every((id: string) => outfitIdSet.has(id))) return false;
+        }
         // Ensure valid outfit structure
         return isValidOutfitStructure(outfit.itemIds);
       })
@@ -568,7 +577,8 @@ RESPONSE FORMAT (JSON only):
             subCategory: item.subCategory,
             layerRole: item.layerRole,
             colors: item.colors,
-            imagePath: fullItem?.imagePath
+            imagePath: fullItem?.imagePath,
+            isLocked: lockedSet.has(id)
           };
         })
       }));
@@ -577,11 +587,12 @@ RESPONSE FORMAT (JSON only):
       outfits: validOutfits,
       notEnoughItems: parsed.notEnoughItems || false,
       message: parsed.message || "",
-      environment: env
+      environment: env,
+      lockedItemIds
     });
   } catch (error) {
-    console.error("Error generating recommendations:", error);
-    const message = error instanceof Error ? error.message : "Failed to generate recommendations";
+    console.error("Error regenerating recommendations:", error);
+    const message = error instanceof Error ? error.message : "Failed to regenerate recommendations";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

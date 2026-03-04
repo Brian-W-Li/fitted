@@ -180,13 +180,17 @@ function WardrobeCard({
           </span>
         </div>
 
-        {(item.fit || item.seasons?.length || item.occasions?.length) && (
-          <p className="text-xs text-slate-500">
-            {[item.fit, item.seasons?.join(", "), item.occasions?.join(", ")]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        )}
+        {(() => {
+          const fitDisplay = item.fit?.trim() && item.fit !== "0" ? item.fit : null;
+          const seasonsDisplay = item.seasons?.length ? item.seasons.join(", ") : null;
+          const occasionsDisplay = item.occasions?.length ? item.occasions.join(", ") : null;
+          const parts = [fitDisplay, seasonsDisplay, occasionsDisplay].filter(Boolean);
+          return parts.length > 0 ? (
+            <p className="text-xs text-slate-500">
+              {parts.join(" · ")}
+            </p>
+          ) : null;
+        })()}
 
         {item.colors.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5 items-center">

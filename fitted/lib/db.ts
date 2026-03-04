@@ -4,6 +4,8 @@ import OutfitInteraction from "@/models/OutfitInteraction";
 import User from "@/models/User";
 import WardrobeItem from "@/models/WardrobeItem";
 import WardrobeImage from "@/models/WardrobeImage";
+import UserOutfitFeedback from "@/models/UserOutfitFeedback";
+import PreferenceSummary from "@/models/PreferenceSummary";
 
 /**
  * Connects to MongoDB and ensures indexes are registered.
@@ -16,9 +18,11 @@ export async function initDatabase() {
     WardrobeItem.init(),
     OutfitInteraction.init(),
     WardrobeImage.init(),
+    UserOutfitFeedback.init(),
+    PreferenceSummary.init(),
   ]);
 
-  return { User, WardrobeItem, OutfitInteraction, WardrobeImage};
+  return { User, WardrobeItem, OutfitInteraction, WardrobeImage, UserOutfitFeedback, PreferenceSummary };
 }
 
 export type DatabaseModels = Awaited<ReturnType<typeof initDatabase>>;
