@@ -46,7 +46,7 @@ export async function PATCH(
     const { userId } = userResult;
     const { id: itemId } = await params;
     const body = await request.json();
-    const { WardrobeItem } = await initDatabase();
+    const { WardrobeItem, WardrobeImage } = await initDatabase();
 
     const update: Record<string, unknown> = {};
     const fields = [
@@ -56,9 +56,9 @@ export async function PATCH(
       "subCategory",
       "pattern",
       "colors",
+      "layerRole",
       "fit",
       "size",
-      "formality",
       "seasons",
       "occasions",
       "notes",
@@ -104,9 +104,9 @@ export async function PATCH(
         subCategory: doc.subCategory ?? "",
         pattern: doc.pattern ?? "",
         colors: doc.colors ?? [],
+        layerRole: doc.layerRole ?? "",
         fit: doc.fit ?? "",
         size: doc.size ?? "",
-        formality: doc.formality ?? "",
         seasons: doc.seasons ?? [],
         occasions: doc.occasions ?? [],
         notes: doc.notes ?? "",
@@ -139,7 +139,7 @@ export async function DELETE(
     const { userId } = userResult;
     const { id: itemId } = await params;
 
-    const { WardrobeItem } = await initDatabase();
+    const { WardrobeItem, WardrobeImage } = await initDatabase();
 
     const doc = await WardrobeItem.findOneAndDelete({
       _id: itemId,
@@ -151,6 +151,19 @@ export async function DELETE(
         { error: "Item not found" },
         { status: 404 },
       );
+    }
+
+    // Best-effort cleanup of any linked WardrobeImage document
+    const imagePath = (doc as { imagePath?: unknown }).imagePath;
+    const imagePathStr = typeof imagePath === "string" ? imagePath : undefined;
+    if (imagePathStr?.startsWith("mongo:")) {
+      const imageId = imagePathStr.slice("mongo:".length);
+      try {
+        await WardrobeImage.deleteOne({ _id: imageId, user: userId }).exec();
+      } catch (e) {
+        // Log and continue; the main deletion has already succeeded
+        console.error("Failed to delete linked wardrobe image:", e);
+      }
     }
 
     return NextResponse.json({ ok: true });

@@ -9,7 +9,8 @@ export type CVInferResponse = {
   colors?: Array<{ value?: string }>;
   color_primary?: { value?: string };
   pattern?: { value?: string };
-  style?: { value?: string };
+  // Optional: "base", "mid", "outer" for layering; sent as a top-level field from CV.
+  layer_role?: string;
 };
 
 export type WardrobeFormValues = {
@@ -20,7 +21,8 @@ export type WardrobeFormValues = {
   colors: string[];
   fit: string;
   size: string;
-  formality: string;
+   // Optional layering role we store on the wardrobe item
+  layerRole?: string;
   seasons: string[];
   occasions: string[];
   notes: string;
@@ -32,22 +34,8 @@ export function cvResponseToFormValues(cv: CVInferResponse): WardrobeFormValues 
   const name = typeVal ? typeVal.charAt(0).toUpperCase() + typeVal.slice(1).replace(/-/g, " ") : "";
   const colorStrs = (cv.colors ?? []).map((c) => c.value ?? "").filter(Boolean);
   const colors = colorStrs.length ? colorStrs : (cv.color_primary?.value ? [cv.color_primary.value] : []);
-  const style = (cv.style?.value ?? "").toLowerCase();
-  const formalityMap: Record<string, string> = {
-    casual: "Casual",
-    formal: "Formal",
-    business: "Business Casual",
-    athletic: "Casual",
-  };
-  const formality = formalityMap[style] ?? "";
   const pattern = cv.pattern?.value ?? "";
-  const occasionFromStyle: Record<string, string> = {
-    casual: "Everyday",
-    formal: "Formal Event",
-    athletic: "Workout",
-    business: "Work",
-  };
-  const occasions = style && occasionFromStyle[style] ? [occasionFromStyle[style]] : [];
+  const layerRole = typeof cv.layer_role === "string" ? cv.layer_role : "";
   return {
     name,
     category,
@@ -56,9 +44,9 @@ export function cvResponseToFormValues(cv: CVInferResponse): WardrobeFormValues 
     colors,
     fit: "",
     size: "",
-    formality,
+    layerRole: layerRole || undefined,
     seasons: [],
-    occasions,
+    occasions: [],
     notes: "",
   };
 }

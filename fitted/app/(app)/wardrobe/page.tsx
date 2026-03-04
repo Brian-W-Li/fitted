@@ -15,10 +15,10 @@ type WardrobeItem = {
   subCategory?: string;
   pattern?: string;
   isAvailable?: boolean;
+  layerRole?: string;
   colors: string[];
   fit: string;
   size: string;
-  formality: string;
   seasons: string[];
   occasions: string[];
   notes?: string;
@@ -29,6 +29,7 @@ type WardrobeItem = {
 const CATEGORY_OPTIONS = [
   { value: "top", label: "Top" },
   { value: "bottom", label: "Bottom" },
+  { value: "one piece", label: "One piece" },
   { value: "footwear", label: "Footwear" },
 ] as const;
 const TYPE_OPTIONS = [
@@ -41,6 +42,7 @@ const TYPE_OPTIONS = [
   { value: "pants", label: "Pants" },
   { value: "shorts", label: "Shorts" },
   { value: "skirt", label: "Skirt" },
+  { value: "dress", label: "Dress" },
   { value: "sneakers", label: "Sneakers" },
   { value: "boots", label: "Boots" },
   { value: "sandals", label: "Sandals" },
@@ -53,14 +55,7 @@ const PATTERN_OPTIONS = [
   { value: "floral", label: "Floral" },
   { value: "graphic", label: "Graphic" },
 ] as const;
-const FORMALITY_OPTIONS = [
-  "Casual",
-  "Smart Casual",
-  "Business Casual",
-  "Formal",
-];
 const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
-const OCCASION_OPTIONS = ["Everyday", "Work", "Formal Event", "Workout"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
 
 function imageUrlFromPath(imagePath?: string) {
@@ -87,8 +82,22 @@ function WardrobeCard({
   const imgSrc = imageUrlFromPath(item.imagePath);
   const isAvailable = item.isAvailable ?? true;
 
+  const categoryLabel = (item.category ?? "top").toLowerCase();
+  const categoryBadgeClass =
+    categoryLabel === "top"
+      ? "bg-blue-100 text-blue-700"
+      : categoryLabel === "bottom"
+        ? "bg-amber-100 text-amber-700"
+        : categoryLabel === "one piece"
+          ? "bg-violet-100 text-violet-700"
+          : "bg-slate-100 text-slate-700";
+
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div
+      className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-opacity ${
+        isAvailable ? "" : "opacity-60 grayscale"
+      }`}
+    >
       {/* Image */}
       {imgSrc ? (
         <div className="relative h-64 w-full bg-slate-50 flex items-center justify-center p-2">
@@ -100,66 +109,80 @@ function WardrobeCard({
           />
         </div>
       ) : (
-        <div className="flex h-64 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
+        <div className="relative flex h-64 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
           No photo
         </div>
       )}
 
+      {/* Top left: category tag */}
+      <span
+        className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase shadow-sm ${categoryBadgeClass}`}
+      >
+        {item.category ?? "top"}
+      </span>
+
+      {/* Top right: round icon buttons */}
+      <div className="absolute right-2 top-2 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onToggleAvailability(item)}
+          className={`flex h-8 w-8 items-center justify-center rounded-full border bg-white/90 shadow-sm ${
+            isAvailable
+              ? "border-slate-200 text-slate-600 hover:bg-slate-100"
+              : "border-amber-200 text-amber-600 hover:bg-amber-50"
+          }`}
+          title={isAvailable ? "Exclude from recommendations" : "Include in recommendations"}
+          aria-label={isAvailable ? "Mark unavailable" : "Mark available"}
+        >
+          {isAvailable ? (
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" /><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" /><line x1="2" y1="2" x2="22" y2="22" />
+            </svg>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => onEdit(item)}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-600 shadow-sm hover:bg-slate-100"
+          title="Edit"
+          aria-label="Edit"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete(item)}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-white/90 text-red-600 shadow-sm hover:bg-red-50"
+          title="Delete"
+          aria-label="Delete"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            <line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+          </svg>
+        </button>
+      </div>
+
       {/* Content */}
       <div className="p-4">
-        <div className="mb-2 flex items-baseline justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className={`text-base font-semibold ${isAvailable ? "text-slate-900" : "text-slate-500"}`}>
-                {item.name}
-              </h3>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                (item.category ?? "unknown") === "top"
-                  ? "bg-blue-100 text-blue-700"
-                  : "bg-amber-100 text-amber-700"
-              }`}>
-                {item.category ?? "unknown"}
-              </span>
-            </div>
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              {item.subCategory ? `${item.subCategory} · ${item.category}` : item.category}
-            </span>
-          </div>
-          <div className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onEdit(item)}
-              className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => onDelete(item)}
-              className="rounded-full border border-red-200 px-2 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50"
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-
         <div className="mb-2">
-          <button
-            type="button"
-            onClick={() => onToggleAvailability(item)}
-            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
-              isAvailable
-                ? "border-amber-300 text-amber-700 hover:bg-amber-50"
-                : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-            }`}
-          >
-            {isAvailable ? "Mark Unavailable" : "Mark Available"}
-          </button>
+          <h3 className={`text-base font-semibold ${isAvailable ? "text-slate-900" : "text-slate-500"}`}>
+            {item.name}
+          </h3>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            {item.subCategory ? `${item.subCategory} · ${item.category}` : item.category}
+          </span>
         </div>
 
-        {(item.formality || item.fit || item.seasons?.length || item.occasions?.length) && (
+        {(item.fit || item.seasons?.length || item.occasions?.length) && (
           <p className="text-xs text-slate-500">
-            {[item.formality, item.fit, item.seasons?.join(", "), item.occasions?.join(", ")]
+            {[item.fit, item.seasons?.join(", "), item.occasions?.join(", ")]
               .filter(Boolean)
               .join(" · ")}
           </p>
@@ -231,9 +254,10 @@ function AddItemModal({
   const [colors, setColors] = useState<string[]>(initialItem?.colors ?? []);
   const [colorsInput, setColorsInput] = useState("");
   const [pattern, setPattern] = useState(initialItem?.pattern ?? "");
-  const [formality, setFormality] = useState(initialItem?.formality ?? "");
+  const [layerRole, setLayerRole] = useState(initialItem?.layerRole ?? "");
   const [seasons, setSeasons] = useState<string[]>(initialItem?.seasons ?? []);
   const [occasions, setOccasions] = useState<string[]>(initialItem?.occasions ?? []);
+  const [occasionsInput, setOccasionsInput] = useState("");
   const [fit, setFit] = useState(initialItem?.fit ?? "");
   const isAvailable = initialItem?.isAvailable ?? true;
   const [imageFile, setImageFile] = useState<File | null>(pendingAddFile ?? null);
@@ -258,7 +282,7 @@ function AddItemModal({
     setSubCategory(initialItem.subCategory ?? "");
     setColors(initialItem.colors ?? []);
     setPattern(initialItem.pattern ?? "");
-    setFormality(initialItem.formality ?? "");
+    setLayerRole(initialItem.layerRole ?? "");
     setSeasons(initialItem.seasons ?? []);
     setOccasions(initialItem.occasions ?? []);
     setFit(initialItem.fit ?? "");
@@ -298,6 +322,17 @@ function AddItemModal({
     }
   }
 
+  function addOccasionTag(value: string) {
+    const raw = value.trim();
+    if (!raw) return;
+    // Normalize simple separators like commas or multiple spaces
+    const normalized = raw.replace(/\s+/g, " ");
+    if (!occasions.includes(normalized)) {
+      setOccasions((prev: string[]) => [...prev, normalized]);
+      setOccasionsInput("");
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -319,9 +354,9 @@ function AddItemModal({
           subCategory: subCategory || undefined,
           pattern: pattern.trim() || undefined,
           colors: colorsToSave,
+          layerRole: layerRole || undefined,
           fit: fit.trim(),
           size: "",
-          formality: formality.trim(),
           seasons,
           occasions,
           notes: "",
@@ -570,16 +605,16 @@ function AddItemModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Formality</label>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Layer role</label>
                   <select
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                    value={formality}
-                    onChange={(e) => setFormality(e.target.value)}
+                    value={layerRole}
+                    onChange={(e) => setLayerRole(e.target.value)}
                   >
-                    <option value="">Select…</option>
-                    {FORMALITY_OPTIONS.map((f) => (
-                      <option key={f} value={f}>{f}</option>
-                    ))}
+                    <option value="">None / Not applicable</option>
+                    <option value="base">Base layer (e.g. tee, shirt)</option>
+                    <option value="mid">Mid layer (e.g. sweater)</option>
+                    <option value="outer">Outer layer (e.g. jacket, coat)</option>
                   </select>
                 </div>
               </div>
@@ -622,23 +657,49 @@ function AddItemModal({
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1.5">Occasions</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {OCCASION_OPTIONS.map((o) => {
-                    const active = occasions.includes(o);
-                    return (
-                      <button
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">Occasions / contexts</label>
+                {occasions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                    {occasions.map((o) => (
+                      <span
                         key={o}
-                        type="button"
-                        onClick={() => toggleInArray(o, occasions, setOccasions)}
-                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                          active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        }`}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
                       >
-                        {o}
-                      </button>
-                    );
-                  })}
+                        <span>{o}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOccasions((prev: string[]) => prev.filter((val: string) => val !== o))
+                          }
+                          className="text-slate-400 hover:text-red-600 transition-colors"
+                          aria-label={`Remove occasion ${o}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                    value={occasionsInput}
+                    onChange={(e) => setOccasionsInput(e.target.value)}
+                    placeholder='Add occasion tag (e.g. "date night", "business casual")'
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addOccasionTag(occasionsInput);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addOccasionTag(occasionsInput)}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    Add
+                  </button>
                 </div>
               </div>
             </section>
@@ -730,6 +791,7 @@ export default function WardrobePage() {
   // Add flow: step 1 = upload only, step 2 = form with CV-inferred attributes
   const [addStep, setAddStep] = useState<"upload" | "form" | null>(null);
   const [addInferred, setAddInferred] = useState<WardrobeFormValues | null>(null);
+  const [addInferredCroppedImage, setAddInferredCroppedImage] = useState<string | null>(null);
   const [addPendingFile, setAddPendingFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const cvAbortRef = useRef<AbortController | null>(null);
@@ -1017,6 +1079,7 @@ export default function WardrobePage() {
             setAddStep(null);
             setAddInferred(null);
             setAddPendingFile(null);
+            setAddInferredCroppedImage(null);
             setEditingItem(null);
           }}
           onSave={async (data, imageFile) => {
@@ -1077,16 +1140,37 @@ export default function WardrobePage() {
               }
             } else {
               const saved = await handleAddItem(data);
-              if (saved && imageFile && firebaseUser) {
+              if (saved && firebaseUser) {
                 try {
-                  const up = await uploadWardrobeItemImage({
-                    firebaseUser,
-                    wardrobeItemId: saved.id,
-                    file: imageFile,
-                  });
-                  setItems((prev) =>
-                    prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
-                  );
+                  if (addInferredCroppedImage) {
+                    // Use CV-cropped, background-removed image returned by the CV service
+                    const base64 = addInferredCroppedImage;
+                    const binary = atob(base64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                      bytes[i] = binary.charCodeAt(i);
+                    }
+                    const blob = new Blob([bytes], { type: "image/png" });
+                    const cvFile = new File([blob], "cv-cropped.png", { type: "image/png" });
+                    const up = await uploadWardrobeItemImage({
+                      firebaseUser,
+                      wardrobeItemId: saved.id,
+                      file: cvFile,
+                    });
+                    setItems((prev) =>
+                      prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
+                    );
+                  } else if (imageFile) {
+                    // Fallback: use the original uploaded image if CV did not return a cropped version
+                    const up = await uploadWardrobeItemImage({
+                      firebaseUser,
+                      wardrobeItemId: saved.id,
+                      file: imageFile,
+                    });
+                    setItems((prev) =>
+                      prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
+                    );
+                  }
                 } catch (e) {
                   console.error(e);
                   setError(e instanceof Error ? e.message : "Failed to upload image.");
@@ -1095,6 +1179,7 @@ export default function WardrobePage() {
               setAddStep(null);
               setAddInferred(null);
               setAddPendingFile(null);
+              setAddInferredCroppedImage(null);
             }
           }}
           initialItem={
@@ -1105,9 +1190,9 @@ export default function WardrobePage() {
                   subCategory: editingItem.subCategory,
                   pattern: editingItem.pattern,
                   colors: editingItem.colors,
+                  layerRole: editingItem.layerRole,
                   fit: editingItem.fit ?? "",
                   size: editingItem.size,
-                  formality: editingItem.formality,
                   seasons: editingItem.seasons ?? [],
                   occasions: editingItem.occasions ?? [],
                   notes: editingItem.notes,
@@ -1142,7 +1227,10 @@ export default function WardrobePage() {
                 setError(json.error ?? "Failed to analyze photo.");
                 return;
               }
-              setAddInferred(cvResponseToFormValues(json as CVInferResponse));
+              const full = json as CVInferResponse & { cropped_image_base64?: string | null };
+              setAddInferred(cvResponseToFormValues(full));
+              const cropped = typeof (full as any).cropped_image_base64 === "string" ? (full as any).cropped_image_base64 : null;
+              setAddInferredCroppedImage(cropped);
               setAddPendingFile(file);
               setAddStep("form");
             } catch (e) {
