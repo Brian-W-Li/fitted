@@ -7,10 +7,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ============================================================================
-// AUTH HELPER
-// ============================================================================
-
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -39,12 +35,7 @@ async function getUserIdFromRequest(request: NextRequest) {
   }
 }
 
-// ============================================================================
-// Types
-// ============================================================================
-
 interface FeedbackItem {
-  id: string;
   name: string;
   category: string;
   subCategory?: string;
@@ -53,19 +44,12 @@ interface FeedbackItem {
 }
 
 interface FeedbackRecord {
-  feedbackType: "like" | "dislike";
-  eventDescription?: string;
-  temperatureHint?: string;
+  action: "liked" | "disliked";
+  occasion?: string;
   items: FeedbackItem[];
-  dislikedItems?: string[];
-  overallNotes?: string;
-  itemNotes?: Record<string, string>;
 }
 
-// ============================================================================
 // POST - Generate/update preference summary
-// ============================================================================
-
 export async function POST(request: NextRequest) {
   try {
     const userResult = await getUserIdFromRequest(request);
@@ -85,38 +69,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { UserOutfitFeedback, WardrobeItem, PreferenceSummary } = await initDatabase();
+    const { OutfitInteraction, WardrobeItem, PreferenceSummary } = await initDatabase();
 
-    // Fetch recent feedback (last 50 records or last 90 days)
+    // Fetch recent interactions (last 50 records or last 90 days)
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-    const feedbacks = await UserOutfitFeedback.find({
+    const interactions = await OutfitInteraction.find({
       user: userId,
+      action: { $in: ["accepted", "rejected"] },
       createdAt: { $gte: ninetyDaysAgo },
     })
       .sort({ createdAt: -1 })
       .limit(50)
       .populate({
-        path: "itemIds",
+        path: "items",
         model: WardrobeItem,
         select: "name category subCategory colors layerRole",
       })
       .lean()
       .exec();
 
-    if (feedbacks.length < 3) {
+    if (interactions.length < 3) {
       return NextResponse.json({
         success: false,
         message: "Not enough feedback to generate preferences. Need at least 3 interactions.",
-        feedbackCount: feedbacks.length,
+        feedbackCount: interactions.length,
       });
     }
 
-    // Transform feedback into a format suitable for summarization
+    // Transform interactions into feedback records
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const feedbackRecords: FeedbackRecord[] = feedbacks.map((fb: any) => {
-      const items = (fb.itemIds || []).map((item: FeedbackItem) => ({
+    const feedbackRecords: FeedbackRecord[] = interactions.map((interaction: any) => {
+      const items: FeedbackItem[] = (interaction.items || []).map((item: FeedbackItem) => ({
         name: item.name,
         category: item.category,
         subCategory: item.subCategory,
@@ -124,54 +109,34 @@ export async function POST(request: NextRequest) {
         layerRole: item.layerRole,
       }));
 
-      const dislikedItems = (fb.perItemFeedback || [])
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((pif: any) => pif.disliked)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((pif: any) => {
-          const item = items.find((i: FeedbackItem) => i.id === pif.itemId?.toString());
-          return item?.name || pif.itemId?.toString();
-        });
-
-      const itemNotes: Record<string, string> = {};
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (fb.perItemFeedback || []).forEach((pif: any) => {
-        if (pif.notes) {
-          const item = items.find((i: FeedbackItem) => i.id === pif.itemId?.toString());
-          if (item) {
-            itemNotes[item.name] = pif.notes;
-          }
-        }
-      });
-
       return {
-        feedbackType: fb.feedbackType,
-        eventDescription: fb.eventDescription,
-        temperatureHint: fb.environment?.temperatureHint,
+        action: interaction.action === "accepted" ? "liked" : "disliked",
+        occasion: interaction.context?.occasion,
         items,
-        dislikedItems: dislikedItems.length > 0 ? dislikedItems : undefined,
-        overallNotes: fb.overallNotes,
-        itemNotes: Object.keys(itemNotes).length > 0 ? itemNotes : undefined,
       };
     });
 
+    // Count likes and dislikes
+    const likedCount = feedbackRecords.filter(r => r.action === "liked").length;
+    const dislikedCount = feedbackRecords.filter(r => r.action === "disliked").length;
+
     // Generate summary with GPT
-    const systemMessage = `You are summarizing a user's clothing preferences based on feedback they gave to an outfit recommendation app. 
-    
+    const systemMessage = `You are summarizing a user's clothing preferences based on feedback they gave to an outfit recommendation app.
+
 Your job is to identify clear patterns in what they like and dislike. Be specific about:
 - Colors they prefer/avoid
-- Styles and fits they like/dislike
-- Layering preferences
+- Styles and clothing types they like/dislike
+- Layering preferences (do they like jackets, sweaters, etc.?)
 - Formality preferences for different occasions
-- Temperature/weather preferences
+- Any other patterns you notice
 
-Avoid overfitting to single examples. Only mention patterns that appear multiple times.`;
+Avoid overfitting to single examples. Only mention patterns that appear multiple times or are clearly significant.`;
 
-    const userMessage = `Here are the user's recent outfit feedback records:
+    const userMessage = `Here are the user's recent outfit feedback records (${likedCount} liked, ${dislikedCount} disliked):
 
 ${JSON.stringify(feedbackRecords, null, 2)}
 
-Based on these ${feedbacks.length} feedback records, summarize the user's preferences in 3-5 bullet points. Each bullet should capture a meaningful pattern about their style preferences.
+Based on these ${interactions.length} feedback records, summarize the user's preferences in 3-5 bullet points. Each bullet should capture a meaningful pattern about their style preferences.
 
 Format your response as a simple list with each bullet on its own line starting with "- ".`;
 
@@ -199,8 +164,8 @@ Format your response as a simple list with each bullet on its own line starting 
       { user: userId },
       {
         text: summaryText,
-        feedbackCount: feedbacks.length,
-        lastFeedbackAt: feedbacks[0]?.createdAt,
+        feedbackCount: interactions.length,
+        lastFeedbackAt: interactions[0]?.createdAt,
       },
       { upsert: true, new: true }
     );
@@ -209,7 +174,7 @@ Format your response as a simple list with each bullet on its own line starting 
       success: true,
       summary: {
         text: summaryText,
-        feedbackCount: feedbacks.length,
+        feedbackCount: interactions.length,
         updatedAt: updated.updatedAt,
       },
     });
@@ -220,10 +185,7 @@ Format your response as a simple list with each bullet on its own line starting 
   }
 }
 
-// ============================================================================
-// GET - Get current preference summary
-// ============================================================================
-
+// GET - Get current preference summary and check if update needed
 export async function GET(request: NextRequest) {
   try {
     const userResult = await getUserIdFromRequest(request);
@@ -235,20 +197,24 @@ export async function GET(request: NextRequest) {
     }
 
     const { userId } = userResult;
-    const { PreferenceSummary, UserOutfitFeedback } = await initDatabase();
+    const { PreferenceSummary, OutfitInteraction } = await initDatabase();
 
     const summary = await PreferenceSummary.findOne({ user: userId }).lean().exec();
     
-    // Also get the count of new feedback since last update
+    // Count new interactions since last update
     let newFeedbackCount = 0;
     if (summary) {
-      newFeedbackCount = await UserOutfitFeedback.countDocuments({
+      newFeedbackCount = await OutfitInteraction.countDocuments({
         user: userId,
+        action: { $in: ["accepted", "rejected"] },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         createdAt: { $gt: (summary as any).updatedAt },
       });
     } else {
-      newFeedbackCount = await UserOutfitFeedback.countDocuments({ user: userId });
+      newFeedbackCount = await OutfitInteraction.countDocuments({
+        user: userId,
+        action: { $in: ["accepted", "rejected"] },
+      });
     }
 
     return NextResponse.json({

@@ -341,6 +341,38 @@ export default function Home() {
     return () => unsub();
   }, []);
 
+  // Check and update preference summary in background
+  useEffect(() => {
+    if (!firebaseUser) return;
+
+    const checkAndUpdatePreferences = async () => {
+      try {
+        const token = await firebaseUser.getIdToken();
+        
+        // Check if summary needs update
+        const checkRes = await fetch("/api/preferences/summarize", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (!checkRes.ok) return;
+        
+        const { needsUpdate, newFeedbackCount } = await checkRes.json();
+        
+        // If 5+ new interactions since last summary, update in background
+        if (needsUpdate && newFeedbackCount >= 5) {
+          fetch("/api/preferences/summarize", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(err => console.error("Background preference update failed:", err));
+        }
+      } catch (error) {
+        console.error("Error checking preferences:", error);
+      }
+    };
+
+    checkAndUpdatePreferences();
+  }, [firebaseUser]);
+
   async function handleLogout() {
     try {
       setSigningOut(true);
