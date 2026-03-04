@@ -361,3 +361,5 @@ We don’t need to let GPT re-summarize preferences on every call; we reuse the 
   - Feedback is logged structurally.
   - Periodically summarized into a short **preference paragraph** we prepend to the recommendation prompt, instead of sending raw history.
 
+  **The backend must validate LLM output and discard any outfits referencing items not in the shortlist or violating composition rules.**
+
