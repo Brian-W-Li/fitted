@@ -76,6 +76,7 @@ interface FeedbackModalProps {
     lockedItemIds: string[];
     changeTarget: "outer" | "top" | "bottom" | "any";
   }) => void;
+  isRegenerating?: boolean;
 }
 
 function FeedbackModal({
@@ -83,6 +84,7 @@ function FeedbackModal({
   onClose,
   onSaveFeedback,
   onSaveAndRegenerate,
+  isRegenerating = false,
 }: FeedbackModalProps) {
   const [perItemFeedback, setPerItemFeedback] = useState<Record<string, PerItemFeedback>>({});
   const [overallNotes, setOverallNotes] = useState("");
@@ -289,22 +291,32 @@ function FeedbackModal({
         <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+            disabled={isRegenerating}
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             onClick={handleSaveFeedback}
-            className="px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-800 transition-colors"
+            disabled={isRegenerating}
+            className="px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Save Feedback
           </button>
           {lockedItemIds.size > 0 && (
             <button
               onClick={handleSaveAndRegenerate}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={isRegenerating}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              Save & Regenerate
+              {isRegenerating ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Regenerating...
+                </>
+              ) : (
+                "Save & Regenerate"
+              )}
             </button>
           )}
         </div>
@@ -333,6 +345,7 @@ export default function Home() {
   
   // Feedback modal state
   const [feedbackModalOutfit, setFeedbackModalOutfit] = useState<{ outfit: Outfit; index: number } | null>(null);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -509,6 +522,7 @@ export default function Home() {
     if (!firebaseUser || !feedbackModalOutfit) return;
 
     const outfit = feedbackModalOutfit.outfit;
+    setIsRegenerating(true);
 
     try {
       const token = await firebaseUser.getIdToken();
@@ -543,10 +557,6 @@ export default function Home() {
           })
       ].filter(Boolean).join("\n");
 
-      // Regenerate outfits
-      setRecLoading(true);
-      setFeedbackModalOutfit(null);
-
       const res = await fetch("/api/recommend/regenerate", {
         method: "POST",
         headers: {
@@ -571,21 +581,20 @@ export default function Home() {
         return;
       }
 
-      // Replace the disliked outfit with new ones
-      setOutfits(prev => {
-        const updated = [...prev];
-        updated[feedbackModalOutfit.index] = { ...updated[feedbackModalOutfit.index], feedback: "disliked" };
-        return [...updated, ...(newData.outfits || [])];
-      });
+      // Replace all outfits with the new regenerated ones
+      setOutfits(newData.outfits || []);
 
       if (newData.message) {
         setRecMessage(newData.message);
       }
+
+      // Close modal on success
+      setFeedbackModalOutfit(null);
     } catch (error) {
       console.error("Error regenerating:", error);
       setRecError("Failed to regenerate. Please try again.");
     } finally {
-      setRecLoading(false);
+      setIsRegenerating(false);
     }
   };
 
@@ -850,9 +859,10 @@ export default function Home() {
           outfit={feedbackModalOutfit.outfit}
           eventDescription={eventDescription}
           environment={environment}
-          onClose={() => setFeedbackModalOutfit(null)}
+          onClose={() => !isRegenerating && setFeedbackModalOutfit(null)}
           onSaveFeedback={handleSaveFeedback}
           onSaveAndRegenerate={handleSaveAndRegenerate}
+          isRegenerating={isRegenerating}
         />
       )}
     </div>
