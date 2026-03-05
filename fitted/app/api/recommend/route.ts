@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
+import { getWeatherContext } from "@/lib/weather";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -302,7 +303,10 @@ export async function POST(request: NextRequest) {
     const {
       eventDescription,
       temperatureHint: providedTempHint,
-      weatherSummary,
+      eventTimeISO,
+      eventTimeLabel: rawEventTimeLabel,
+      lat,
+      lon,
       maxOutfits = 5
     } = body;
 
@@ -335,8 +339,26 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Discard the event-time label if the time is in the past — the backend
+    // already falls back to current conditions in that case, and a past label
+    // would confuse the LLM (e.g. "Wed, Mar 4, 10:00 AM" when it's 5 PM).
+    const eventTimeLabel =
+      typeof rawEventTimeLabel === "string" &&
+      (!eventTimeISO || new Date(eventTimeISO).getTime() > Date.now())
+        ? rawEventTimeLabel
+        : undefined;
+
     // Determine environment context
     const temperatureHint: TemperatureHint = providedTempHint || detectTemperatureHint(eventDescription);
+    const weatherResult = (typeof lat === "number" && typeof lon === "number")
+      ? await getWeatherContext({ lat, lon, eventTimeISO: typeof eventTimeISO === "string" ? eventTimeISO : undefined })
+      : null;
+    // Annotate so the LLM knows whether this is live or a forecast
+    const weatherSummary = weatherResult
+      ? weatherResult.isForecast
+        ? `${weatherResult.weatherSummary} (forecast for event time)`
+        : weatherResult.weatherSummary
+      : undefined;
     const env: EnvironmentContext = { temperatureHint, weatherSummary };
 
     // Shortlist items
@@ -385,6 +407,8 @@ LAYERING GUIDANCE:
 - "cold" temperature: Add outer layer (jackets, coats) on top of base. Mid layers optional.
 - "mild"/"indoor": Flexible - light outer optional based on style.
 - Outer layers have layerRole: "outer" - these go ON TOP of base tops, not replacing them.
+- If WEATHER_SUMMARY says "(forecast for event time)", it reflects what conditions will be
+  when the outfit is worn — use it as the primary signal for layering decisions.
 
 COLOR & STYLE:
 - Ensure colors complement each other (neutrals work with everything).
@@ -401,7 +425,7 @@ COLOR & STYLE:
     userMessage += `EVENT_DESCRIPTION: "${eventDescription}"
 
 ENVIRONMENT:
-- TEMPERATURE_HINT: "${temperatureHint}"${weatherSummary ? `\n- WEATHER_SUMMARY: "${weatherSummary}"` : ""}
+- TEMPERATURE_HINT: "${temperatureHint}"${eventTimeLabel ? `\n- EVENT_TIME: "${eventTimeLabel}"` : ""}${weatherSummary ? `\n- WEATHER_SUMMARY: "${weatherSummary}"` : ""}
 
 WARDROBE_ITEMS:
 ${JSON.stringify(shortlisted, null, 2)}
