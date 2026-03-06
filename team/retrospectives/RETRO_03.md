@@ -40,24 +40,24 @@ Advice for the next retro lead: Since this is the final retrospective for this c
 ## Individual Start, Stop, Continue Reflections
 
 #### Matthew
-- Start: [ ]
-- Stop: [ ]
-- Continue: [ ]
+- Start: 
+- Stop: 
+- Continue: 
 
 #### Animesh
-- Start: [Looking for edge cases so we dont have to redo the entire app in 1 week]
-- Stop: [Procrastinating work the closer I get to finishing]
-- Continue: [Being awesome]
+- Start: Looking for edge cases so we dont have to redo the entire app in 1 week
+- Stop: Procrastinating work the closer I get to finishing
+- Continue: Being awesome
 
 #### Jenil
-- Start: [working after giving up after the initial ML part didnt work, find out what key additions can be done onto the current project]
-- Stop: [being distracted by other applications online to implement what the team has for now, finishing the code till the code freeze is the priority]
-- Continue: [playing around with what teammates are doing to find errors]
+- Start: working after giving up after the initial ML part didnt work, find out what key additions can be done onto the current project
+- Stop: being distracted by other applications online to implement what the team has for now, finishing the code till the code freeze is the priority
+- Continue: playing around with what teammates are doing to find errors
 
 #### Brian
-- Start: [Focus more on documentation than pushing forward with more complex features ]
-- Stop: [Brainstorming features that are too complex ]
-- Continue: [Implement ideas that have already been floating around like visual outfit displays ]
+- Start: Focus more on documentation than pushing forward with more complex features
+- Stop: Brainstorming features that are too complex
+- Continue: Implement ideas that have already been floating around like visual outfit displays
 
 #### Pengyu
 - Start: Start completing final UI polish and prompt-related feedback fixes with clear acceptance tests.
