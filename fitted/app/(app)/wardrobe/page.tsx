@@ -57,6 +57,7 @@ const PATTERN_OPTIONS = [
 ] as const;
 const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
+const CV_GUIDE_DISMISS_FOREVER_KEY = "fitted-cv-guide-dismiss-forever-v1";
 
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
@@ -268,10 +269,17 @@ function AddItemModal({
   const [imageError, setImageError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [guideDismissedSession, setGuideDismissedSession] = useState(false);
+  const [guideDismissedForever, setGuideDismissedForever] = useState(false);
 
   const isUploadStep = addStep === "upload";
   const isEdit = !!existingImagePath || (!!initialItem && !addStep);
   const showForm = !isUploadStep;
+  const canShowGuideInThisModal = showForm && addStep === "form";
+  const showCvGuide =
+    canShowGuideInThisModal &&
+    !guideDismissedSession &&
+    !guideDismissedForever;
 
   function toggleInArray(value: string, current: string[], setter: (v: string[]) => void) {
     if (current.includes(value)) setter(current.filter((v) => v !== value));
@@ -295,6 +303,16 @@ function AddItemModal({
   useEffect(() => {
     if (pendingAddFile != null) setImageFile(pendingAddFile);
   }, [pendingAddFile]);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(CV_GUIDE_DISMISS_FOREVER_KEY) === "1") {
+        setGuideDismissedForever(true);
+      }
+    } catch {
+      // Ignore localStorage access errors.
+    }
+  }, []);
 
   function onPickImage(file: File | null) {
     setImageError(null);
@@ -334,6 +352,15 @@ function AddItemModal({
     if (!occasions.includes(normalized)) {
       setOccasions((prev: string[]) => [...prev, normalized]);
       setOccasionsInput("");
+    }
+  }
+
+  function dismissGuideForever() {
+    setGuideDismissedForever(true);
+    try {
+      window.localStorage.setItem(CV_GUIDE_DISMISS_FOREVER_KEY, "1");
+    } catch {
+      // Ignore localStorage write errors.
     }
   }
 
@@ -467,6 +494,42 @@ function AddItemModal({
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="relative flex w-full max-w-lg items-start justify-center">
+        {showCvGuide && (
+          <aside className="hidden lg:block absolute right-full mr-4 top-4 w-80 rounded-xl border border-slate-200/70 bg-sky-50/95 p-4 shadow-xl">
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <h4 className="text-sm font-semibold text-slate-900">Quick guide</h4>
+            </div>
+            <ul className="space-y-2 text-xs leading-5 text-slate-700">
+              <li>
+                <span className="font-semibold text-slate-900">CV may be wrong:</span> photo recognition is a draft, always verify category, type, and colors before saving
+              </li>
+              <li>
+                <span className="font-semibold text-slate-900">Check Layer role:</span> set base, mid, or outer so outfit matching handles stacking correctly
+              </li>
+              <li>
+                <span className="font-semibold text-slate-900">Use Occasions / contexts:</span> add how you usually wear this piece (e.g. gym, office, date night) to improve recommendations
+              </li>
+            </ul>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setGuideDismissedSession(true)}
+                className="rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={dismissGuideForever}
+                className="rounded-lg border border-slate-200 bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 transition-colors"
+              >
+                Dismiss forever
+              </button>
+            </div>
+          </aside>
+        )}
+
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-start justify-between gap-4 p-5 pb-4 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -481,7 +544,26 @@ function AddItemModal({
                 {title ?? "Add clothing item"}
               </h2>
               {addStep === "form" && pendingAddFile && (
-                <p className="text-xs text-slate-500 mt-0.5">Review and edit, then save</p>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <p className="text-xs text-slate-500">Review and edit, then save</p>
+                  {!showCvGuide && canShowGuideInThisModal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuideDismissedSession(false);
+                        setGuideDismissedForever(false);
+                        try {
+                          window.localStorage.removeItem(CV_GUIDE_DISMISS_FOREVER_KEY);
+                        } catch {
+                          // Ignore localStorage access errors.
+                        }
+                      }}
+                      className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                      Show guide
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -497,6 +579,40 @@ function AddItemModal({
 
         <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1 overflow-hidden">
           <div className="p-5 overflow-y-auto space-y-5">
+            {showCvGuide && (
+              <aside className="lg:hidden rounded-xl border border-slate-200/70 bg-sky-50/80 p-4">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-slate-900">Quick guide</h4>
+                </div>
+                <ul className="space-y-2 text-xs leading-5 text-slate-700">
+                  <li>
+                    <span className="font-semibold text-slate-900">CV may be wrong:</span> photo recognition is a draft, always verify category, type, and colors before saving
+                  </li>
+                  <li>
+                    <span className="font-semibold text-slate-900">Check Layer role:</span> set base, mid, or outer so outfit matching handles stacking correctly
+                  </li>
+                  <li>
+                    <span className="font-semibold text-slate-900">Use Occasions / contexts:</span> add how you usually wear this piece (e.g. gym, office, date night) to improve recommendations
+                  </li>
+                </ul>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGuideDismissedSession(true)}
+                    className="rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    type="button"
+                    onClick={dismissGuideForever}
+                    className="rounded-lg border border-slate-200 bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 transition-colors"
+                  >
+                    Dismiss forever
+                  </button>
+                </div>
+              </aside>
+            )}
             {/* Basics */}
             <section className="space-y-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Basics</h3>
@@ -755,6 +871,7 @@ function AddItemModal({
             </div>
           </div>
         </form>
+      </div>
       </div>
     </div>
   );
