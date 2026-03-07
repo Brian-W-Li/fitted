@@ -40,9 +40,9 @@ Advice for the next retro lead: Since this is the final retrospective for this c
 ## Individual Start, Stop, Continue Reflections
 
 #### Matthew
-- Start: 
-- Stop: 
-- Continue: 
+- Start: Testing the ML throughly and checking for edge cases
+- Stop: Trying to implement features that are too difficult or complex
+- Continue: Communicating with teammates consistently 
 
 #### Animesh
 - Start: Looking for edge cases so we dont have to redo the entire app in 1 week
