@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { runPersonalizationSummarize } from "@/lib/runPersonalizationSummary";
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -35,21 +31,7 @@ async function getUserIdFromRequest(request: NextRequest) {
   }
 }
 
-interface FeedbackItem {
-  name: string;
-  category: string;
-  subCategory?: string;
-  colors?: string[];
-  layerRole?: string;
-}
-
-interface FeedbackRecord {
-  action: "liked" | "disliked";
-  occasion?: string;
-  items: FeedbackItem[];
-}
-
-// POST - Generate/update preference summary
+// POST - Generate/update personalization summary from interactions' inferredWhy + current summary (Gemini)
 export async function POST(request: NextRequest) {
   try {
     const userResult = await getUserIdFromRequest(request);
@@ -62,120 +44,32 @@ export async function POST(request: NextRequest) {
 
     const { userId } = userResult;
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json(
-        { error: "OpenAI API key is required for preference summarization." },
+        { error: "GEMINI_API_KEY is required for preference summarization." },
         { status: 503 }
       );
     }
 
-    const { OutfitInteraction, WardrobeItem, PreferenceSummary } = await initDatabase();
+    const result = await runPersonalizationSummarize(userId);
 
-    // Fetch recent interactions (last 50 records or last 90 days)
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
-    const interactions = await OutfitInteraction.find({
-      user: userId,
-      action: { $in: ["accepted", "rejected"] },
-      createdAt: { $gte: ninetyDaysAgo },
-    })
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .populate({
-        path: "items",
-        model: WardrobeItem,
-        select: "name category subCategory colors layerRole",
-      })
-      .lean()
-      .exec();
-
-    if (interactions.length < 3) {
-      return NextResponse.json({
-        success: false,
-        message: "Not enough feedback to generate preferences. Need at least 3 interactions.",
-        feedbackCount: interactions.length,
-      });
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: result.message ?? "Failed to generate preference summary.",
+          feedbackCount: result.feedbackCount,
+        },
+        { status: 400 }
+      );
     }
-
-    // Transform interactions into feedback records
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const feedbackRecords: FeedbackRecord[] = interactions.map((interaction: any) => {
-      const items: FeedbackItem[] = (interaction.items || []).map((item: FeedbackItem) => ({
-        name: item.name,
-        category: item.category,
-        subCategory: item.subCategory,
-        colors: item.colors,
-        layerRole: item.layerRole,
-      }));
-
-      return {
-        action: interaction.action === "accepted" ? "liked" : "disliked",
-        occasion: interaction.context?.occasion,
-        items,
-      };
-    });
-
-    // Count likes and dislikes
-    const likedCount = feedbackRecords.filter(r => r.action === "liked").length;
-    const dislikedCount = feedbackRecords.filter(r => r.action === "disliked").length;
-
-    // Generate summary with GPT
-    const systemMessage = `You are summarizing a user's clothing preferences based on feedback they gave to an outfit recommendation app.
-
-Your job is to identify clear patterns in what they like and dislike. Be specific about:
-- Colors they prefer/avoid
-- Styles and clothing types they like/dislike
-- Layering preferences (do they like jackets, sweaters, etc.?)
-- Formality preferences for different occasions
-- Any other patterns you notice
-
-Avoid overfitting to single examples. Only mention patterns that appear multiple times or are clearly significant.`;
-
-    const userMessage = `Here are the user's recent outfit feedback records (${likedCount} liked, ${dislikedCount} disliked):
-
-${JSON.stringify(feedbackRecords, null, 2)}
-
-Based on these ${interactions.length} feedback records, summarize the user's preferences in 3-5 bullet points. Each bullet should capture a meaningful pattern about their style preferences.
-
-Format your response as a simple list with each bullet on its own line starting with "- ".`;
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemMessage },
-        { role: "user", content: userMessage }
-      ],
-      temperature: 0.3,
-      max_tokens: 500,
-    });
-
-    const summaryText = completion.choices[0]?.message?.content?.trim() || "";
-
-    if (!summaryText) {
-      return NextResponse.json({
-        success: false,
-        message: "Failed to generate preference summary.",
-      });
-    }
-
-    // Upsert the preference summary
-    const updated = await PreferenceSummary.findOneAndUpdate(
-      { user: userId },
-      {
-        text: summaryText,
-        feedbackCount: interactions.length,
-        lastFeedbackAt: interactions[0]?.createdAt,
-      },
-      { upsert: true, new: true }
-    );
 
     return NextResponse.json({
       success: true,
       summary: {
-        text: summaryText,
-        feedbackCount: interactions.length,
-        updatedAt: updated.updatedAt,
+        text: result.summaryText,
+        feedbackCount: result.feedbackCount,
+        updatedAt: result.updatedAt,
       },
     });
   } catch (error) {
@@ -232,6 +126,61 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching preference summary:", error);
     const message = error instanceof Error ? error.message : "Failed to fetch preferences";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// PATCH - Manually update preference summary text
+export async function PATCH(request: NextRequest) {
+  try {
+    const userResult = await getUserIdFromRequest(request);
+    if ("error" in userResult) {
+      return NextResponse.json(
+        { error: userResult.error },
+        { status: userResult.status }
+      );
+    }
+
+    const { userId } = userResult;
+    const { text } = await request.json();
+
+    if (typeof text !== "string") {
+      return NextResponse.json(
+        { error: "text is required and must be a string" },
+        { status: 400 }
+      );
+    }
+
+    const trimmed = text.trim().slice(0, 2000);
+    if (!trimmed) {
+      return NextResponse.json(
+        { error: "text cannot be empty" },
+        { status: 400 }
+      );
+    }
+
+    const { PreferenceSummary } = await initDatabase();
+    const updated = await PreferenceSummary.findOneAndUpdate(
+      { user: userId },
+      {
+        text: trimmed,
+      },
+      { upsert: true, new: true }
+    ).lean().exec();
+
+    return NextResponse.json({
+      summary: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        text: (updated as any).text,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        feedbackCount: (updated as any).feedbackCount ?? 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        updatedAt: (updated as any).updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating preference summary:", error);
+    const message = error instanceof Error ? error.message : "Failed to update preferences";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
