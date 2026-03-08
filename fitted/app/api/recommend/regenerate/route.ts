@@ -51,6 +51,7 @@ interface OutfitResult {
   itemIds: string[];
   confidence: number;
   reason: string;
+  mode?: "safe" | "exploratory";
 }
 
 // ============================================================================
@@ -394,6 +395,8 @@ COLOR & STYLE:
     // Add preference summary if available
     if (preferenceSummary) {
       userMessage += `USER_PREFERENCES:\n${preferenceSummary}\n\n`;
+      userMessage += `When regenerating outfits, interpret USER_PREFERENCES as follows:
+- Prefer outfits that respect these preferences, but you may still include some exploratory elements as long as they address the user's feedback.\n\n`;
     }
 
     userMessage += `EVENT_DESCRIPTION: "${eventDescription}"
@@ -442,7 +445,8 @@ RESPONSE FORMAT (JSON only):
     {
       "itemIds": ["id1", "id2"],
       "confidence": 85,
-      "reason": "Brief explanation of why this works"
+      "reason": "Brief explanation of why this works",
+      "mode": "safe" or "exploratory"
     }
   ],
   "notEnoughItems": false,

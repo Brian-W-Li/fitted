@@ -22,6 +22,8 @@ const OutfitInteractionSchema = new Schema(
     },
     rating: { type: Number, min: 1, max: 5 },
     feedback: { type: String },
+    /** One-off "why" for this event: inferred by Gemini (what went right or wrong). */
+    inferredWhy: { type: String },
     context: { type: ContextSchema, default: () => ({}) },
     metadata: { type: Map, of: Schema.Types.Mixed, default: {} },
   },

@@ -39,6 +39,40 @@ interface PerItemFeedback {
   notes?: string;
 }
 
+/** Persisted dashboard state so recommendations + likes/dislikes survive navigation. */
+interface DashboardPersistedState {
+  eventDescription: string;
+  eventTimeBucket: EventTimeBucket;
+  customEventDateTime: string;
+  outfits: Outfit[];
+  environment?: EnvironmentContext;
+  recMessage: string;
+}
+
+const DASHBOARD_STORAGE_KEY = "fitted_dashboard_state";
+
+function loadDashboardState(): DashboardPersistedState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(DASHBOARD_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DashboardPersistedState;
+    if (!parsed || !Array.isArray(parsed.outfits)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveDashboardState(state: DashboardPersistedState): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(DASHBOARD_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore quota or serialization errors
+  }
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -125,26 +159,15 @@ interface FeedbackModalProps {
     perItemFeedback: PerItemFeedback[];
     overallNotes: string;
   }) => void;
-  onSaveAndRegenerate: (data: {
-    perItemFeedback: PerItemFeedback[];
-    overallNotes: string;
-    lockedItemIds: string[];
-    changeTarget: "outer" | "top" | "bottom" | "any";
-  }) => void;
-  isRegenerating?: boolean;
 }
 
 function FeedbackModal({
   outfit,
   onClose,
   onSaveFeedback,
-  onSaveAndRegenerate,
-  isRegenerating = false,
 }: FeedbackModalProps) {
   const [perItemFeedback, setPerItemFeedback] = useState<Record<string, PerItemFeedback>>({});
   const [overallNotes, setOverallNotes] = useState("");
-  const [lockedItemIds, setLockedItemIds] = useState<Set<string>>(new Set());
-  const [changeTarget, setChangeTarget] = useState<"outer" | "top" | "bottom" | "any">("any");
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
 
   const toggleDisliked = (itemId: string) => {
@@ -156,18 +179,6 @@ function FeedbackModal({
         notes: prev[itemId]?.notes,
       }
     }));
-  };
-
-  const toggleLocked = (itemId: string) => {
-    setLockedItemIds(prev => {
-      const next = new Set(prev);
-      if (next.has(itemId)) {
-        next.delete(itemId);
-      } else {
-        next.add(itemId);
-      }
-      return next;
-    });
   };
 
   const setItemNotes = (itemId: string, notes: string) => {
@@ -198,16 +209,6 @@ function FeedbackModal({
     onSaveFeedback({ perItemFeedback: feedbackList, overallNotes });
   };
 
-  const handleSaveAndRegenerate = () => {
-    const feedbackList = Object.values(perItemFeedback).filter(f => f.disliked || f.notes);
-    onSaveAndRegenerate({
-      perItemFeedback: feedbackList,
-      overallNotes,
-      lockedItemIds: Array.from(lockedItemIds),
-      changeTarget,
-    });
-  };
-
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -224,7 +225,7 @@ function FeedbackModal({
             </button>
           </div>
           <p className="text-sm text-slate-600 mt-1">
-            Tell us what you didn&apos;t like. You can also lock items you want to keep.
+            Tell us what you didn&apos;t like. You can mark individual pieces or add notes.
           </p>
         </div>
 
@@ -232,16 +233,13 @@ function FeedbackModal({
           {outfit.items.map((item) => {
             const imgSrc = imageUrlFromPath(item.imagePath);
             const isDisliked = perItemFeedback[item.id]?.disliked;
-            const isLocked = lockedItemIds.has(item.id);
             const notesExpanded = expandedNotes.has(item.id);
 
             return (
               <div
                 key={item.id}
                 className={`p-4 rounded-lg border transition-colors ${
-                  isDisliked ? "border-red-200 bg-red-50" : 
-                  isLocked ? "border-green-200 bg-green-50" : 
-                  "border-slate-200 bg-slate-50"
+                  isDisliked ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"
                 }`}
               >
                 <div className="flex gap-4">
@@ -275,17 +273,6 @@ function FeedbackModal({
                           }`}
                         >
                           {isDisliked ? "Disliked" : "Dislike"}
-                        </button>
-                        <button
-                          onClick={() => toggleLocked(item.id)}
-                          className={`px-3 py-1 text-sm font-medium rounded-lg transition-colors ${
-                            isLocked
-                              ? "bg-green-200 text-green-800"
-                              : "bg-slate-200 text-slate-700 hover:bg-green-100"
-                          }`}
-                          title="Lock this piece for regeneration"
-                        >
-                          {isLocked ? "🔒 Locked" : "🔓 Lock"}
                         </button>
                         <button
                           onClick={() => toggleNotesExpanded(item.id)}
@@ -324,57 +311,219 @@ function FeedbackModal({
             />
           </div>
 
-          {lockedItemIds.size > 0 && (
-            <div className="pt-4 border-t border-slate-200">
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                What should change? (for regeneration)
-              </label>
-              <select
-                value={changeTarget}
-                onChange={(e) => setChangeTarget(e.target.value as typeof changeTarget)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
-              >
-                <option value="any">Change anything not locked</option>
-                <option value="top">Primarily change the top</option>
-                <option value="bottom">Primarily change the bottom</option>
-                <option value="outer">Primarily change the outer layer</option>
-              </select>
-            </div>
-          )}
         </div>
 
         <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
           <button
             onClick={onClose}
-            disabled={isRegenerating}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSaveFeedback}
-            disabled={isRegenerating}
-            className="px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-800 transition-colors"
           >
             Save Feedback
           </button>
-          {lockedItemIds.size > 0 && (
-            <button
-              onClick={handleSaveAndRegenerate}
-              disabled={isRegenerating}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isRegenerating ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Regenerating...
-                </>
-              ) : (
-                "Save & Regenerate"
-              )}
-            </button>
-          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Regenerate Modal (lock pieces, get new outfits)
+// ============================================================================
+
+type ChangeTarget = "outer" | "top" | "bottom" | "any";
+
+interface RegenerateModalProps {
+  outfit: Outfit;
+  eventDescription: string;
+  environment?: EnvironmentContext;
+  regeneratedOutfits: Outfit[] | null;
+  onClose: () => void;
+  onRegenerate: (lockedItemIds: string[], changeTarget: ChangeTarget) => Promise<void>;
+  onDone: () => void;
+  isRegenerating: boolean;
+}
+
+function RegenerateModal({
+  outfit,
+  onClose,
+  onRegenerate,
+  onDone,
+  regeneratedOutfits,
+  isRegenerating,
+}: RegenerateModalProps) {
+  const [lockedItemIds, setLockedItemIds] = useState<Set<string>>(new Set());
+  const [changeTarget, setChangeTarget] = useState<ChangeTarget>("any");
+
+  const toggleLocked = (itemId: string) => {
+    setLockedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const handleRegenerate = () => {
+    onRegenerate(Array.from(lockedItemIds), changeTarget);
+  };
+
+  const showResult = regeneratedOutfits && regeneratedOutfits.length > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-slate-200">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">
+              {showResult ? "Regenerated outfit" : "Regenerate from this outfit"}
+            </h2>
+            <button
+              onClick={onClose}
+              disabled={isRegenerating}
+              className="p-2 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <p className="text-sm text-slate-600 mt-1">
+            {showResult
+              ? "Here’s your new outfit. Click Done to use it on the main list, or close to keep the previous recommendations."
+              : "Lock the pieces you want to keep. We'll suggest new outfits that use them."}
+          </p>
+        </div>
+
+        {showResult ? (
+          <div className="p-6 space-y-4">
+            {regeneratedOutfits.map((regOutfit, idx) => (
+              <div key={idx} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                    {regeneratedOutfits.length > 1 ? `Outfit ${idx + 1}` : "New outfit"}
+                  </span>
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getScoreColor(regOutfit.confidence)}`}>
+                    {regOutfit.confidence}% confident
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {regOutfit.items.map((item) => {
+                    const imgSrc = imageUrlFromPath(item.imagePath);
+                    return (
+                      <div key={item.id} className="bg-white rounded-lg border border-slate-100 overflow-hidden">
+                        {imgSrc ? (
+                          <div className="h-28 bg-slate-50 flex items-center justify-center p-2">
+                            <img src={imgSrc} alt={item.name} className="max-h-full max-w-full object-contain" />
+                          </div>
+                        ) : (
+                          <div className="h-28 flex items-center justify-center bg-slate-50 text-xs text-slate-400">No photo</div>
+                        )}
+                        <div className="p-2">
+                          <p className="font-medium text-slate-900 text-sm truncate">{item.name}</p>
+                          <p className="text-xs text-slate-500">{item.category}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-sm text-slate-600 italic">{regOutfit.reason}</p>
+              </div>
+            ))}
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
+              >
+                Close
+              </button>
+              <button
+                onClick={onDone}
+                className="px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-700"
+              >
+                Done — use on main list
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="p-6 space-y-4">
+              {outfit.items.map((item) => {
+                const imgSrc = imageUrlFromPath(item.imagePath);
+                const isLocked = lockedItemIds.has(item.id);
+                return (
+                  <div
+                    key={item.id}
+                    className={`p-4 rounded-lg border transition-colors flex items-center gap-4 ${
+                      isLocked ? "border-green-200 bg-green-50" : "border-slate-200 bg-slate-50"
+                    }`}
+                  >
+                    {imgSrc ? (
+                      <img src={imgSrc} alt={item.name} className="w-16 h-16 object-cover rounded-lg" />
+                    ) : (
+                      <div className="w-16 h-16 bg-slate-200 rounded-lg flex items-center justify-center text-xs text-slate-500">No photo</div>
+                    )}
+                    <div className="flex-1">
+                      <p className="font-medium text-slate-900">{item.name}</p>
+                      <p className="text-sm text-slate-500">{item.category}{item.layerRole ? ` • ${item.layerRole}` : ""}</p>
+                    </div>
+                    <button
+                      onClick={() => toggleLocked(item.id)}
+                      className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                        isLocked ? "bg-green-200 text-green-800" : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      {isLocked ? "🔒 Locked" : "🔓 Lock"}
+                    </button>
+                  </div>
+                );
+              })}
+
+              <div className="pt-4 border-t border-slate-200">
+                <label className="block text-sm font-medium text-slate-700 mb-2">What should change?</label>
+                <select
+                  value={changeTarget}
+                  onChange={(e) => setChangeTarget(e.target.value as ChangeTarget)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+                >
+                  <option value="any">Change anything not locked</option>
+                  <option value="top">Primarily change the top</option>
+                  <option value="bottom">Primarily change the bottom</option>
+                  <option value="outer">Primarily change the outer layer</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
+              <button
+                onClick={onClose}
+                disabled={isRegenerating}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRegenerate}
+                disabled={isRegenerating}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {isRegenerating ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Regenerating...
+                  </>
+                ) : (
+                  "Regenerate"
+                )}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -393,25 +542,27 @@ export default function Home() {
   const [eventDescription, setEventDescription] = useState("");
   const [eventTimeBucket, setEventTimeBucket] = useState<EventTimeBucket>("now");
   const [customEventDateTime, setCustomEventDateTime] = useState("");
-  const [temperatureHint, setTemperatureHint] = useState<"hot" | "mild" | "cold" | "indoor" | "">("");
   const [outfits, setOutfits] = useState<Outfit[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentContext | undefined>();
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState("");
   const [recMessage, setRecMessage] = useState("");
   
-  // Feedback modal state
+  // Feedback modal state (dislike)
   const [feedbackModalOutfit, setFeedbackModalOutfit] = useState<{ outfit: Outfit; index: number } | null>(null);
+  // Regenerate modal state
+  const [regenerateModalOutfit, setRegenerateModalOutfit] = useState<{ outfit: Outfit; index: number } | null>(null);
+  const [regeneratedOutfitsInModal, setRegeneratedOutfitsInModal] = useState<Outfit[] | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
 
-  // Geolocation (best-effort — used for weather context)
+  // Geolocation (best-effort — used for weather in prompt when allowed; if denied, recommendations still work without weather)
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lon: number } | null>(null);
 
   useEffect(() => {
     if (!navigator?.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => setGeoCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => {}, // denied or unavailable — proceed without weather
+      () => {}, // denied or unavailable — send prompt without weather
     );
   }, []);
 
@@ -421,6 +572,32 @@ export default function Home() {
     });
     return () => unsub();
   }, []);
+
+  // Restore last recommendations + form when returning to dashboard
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const saved = loadDashboardState();
+    if (!saved) return;
+    setEventDescription(saved.eventDescription);
+    setEventTimeBucket(saved.eventTimeBucket);
+    setCustomEventDateTime(saved.customEventDateTime);
+    setOutfits(saved.outfits);
+    setEnvironment(saved.environment);
+    setRecMessage(saved.recMessage);
+  }, [firebaseUser]);
+
+  // Persist recommendations + form whenever we have outfits (so like/dislike and navigation preserve state)
+  useEffect(() => {
+    if (!firebaseUser || outfits.length === 0) return;
+    saveDashboardState({
+      eventDescription,
+      eventTimeBucket,
+      customEventDateTime,
+      outfits,
+      environment,
+      recMessage,
+    });
+  }, [firebaseUser, eventDescription, eventTimeBucket, customEventDateTime, outfits, environment, recMessage]);
 
   // Check and update preference summary in background
   useEffect(() => {
@@ -492,7 +669,6 @@ export default function Home() {
         },
         body: JSON.stringify({
           eventDescription,
-          temperatureHint: temperatureHint || undefined,
           eventTimeISO: getEventTimeISO(eventTimeBucket, customEventDateTime),
           eventTimeLabel: getEventTimeLabel(eventTimeBucket, customEventDateTime),
           ...(geoCoords ? { lat: geoCoords.lat, lon: geoCoords.lon } : {}),
@@ -518,7 +694,7 @@ export default function Home() {
     } finally {
       setRecLoading(false);
     }
-  }, [firebaseUser, eventDescription, temperatureHint, eventTimeBucket, customEventDateTime]);
+  }, [firebaseUser, eventDescription, eventTimeBucket, customEventDateTime]);
 
   const handleLike = async (outfitIndex: number) => {
     if (!firebaseUser) return;
@@ -552,13 +728,14 @@ export default function Home() {
     setFeedbackModalOutfit({ outfit: outfits[outfitIndex], index: outfitIndex });
   };
 
-  const handleSaveFeedback = async (_data: {
+  const handleSaveFeedback = async (data: {
     perItemFeedback: PerItemFeedback[];
     overallNotes: string;
   }) => {
     if (!firebaseUser || !feedbackModalOutfit) return;
 
     const outfit = feedbackModalOutfit.outfit;
+    const dislikedItemIds = data.perItemFeedback.filter(f => f.disliked).map(f => f.itemId);
 
     try {
       const token = await firebaseUser.getIdToken();
@@ -572,6 +749,8 @@ export default function Home() {
           itemIds: outfit.itemIds,
           action: "rejected",
           occasion: eventDescription || "casual",
+          perItemFeedback: data.perItemFeedback,
+          dislikedItemIds: dislikedItemIds.length > 0 ? dislikedItemIds : undefined,
         }),
       });
 
@@ -584,50 +763,17 @@ export default function Home() {
     }
   };
 
-  const handleSaveAndRegenerate = async (data: {
-    perItemFeedback: PerItemFeedback[];
-    overallNotes: string;
-    lockedItemIds: string[];
-    changeTarget: "outer" | "top" | "bottom" | "any";
-  }) => {
-    if (!firebaseUser || !feedbackModalOutfit) return;
+  const handleRegenerateClick = (outfitIndex: number) => {
+    setRegeneratedOutfitsInModal(null);
+    setRegenerateModalOutfit({ outfit: outfits[outfitIndex], index: outfitIndex });
+  };
 
-    const outfit = feedbackModalOutfit.outfit;
+  const handleRegenerateSubmit = async (lockedItemIds: string[], changeTarget: "outer" | "top" | "bottom" | "any") => {
+    if (!firebaseUser || !regenerateModalOutfit) return;
     setIsRegenerating(true);
-
+    setRecError("");
     try {
       const token = await firebaseUser.getIdToken();
-
-      // Save feedback first
-      await fetch("/api/interactions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          itemIds: outfit.itemIds,
-          action: "rejected",
-          occasion: eventDescription || "casual",
-        }),
-      });
-
-      // Get disliked item IDs
-      const dislikedItemIds = data.perItemFeedback
-        .filter(f => f.disliked)
-        .map(f => f.itemId);
-
-      // Build feedback notes for the regeneration prompt
-      const feedbackNotes = [
-        data.overallNotes,
-        ...data.perItemFeedback
-          .filter(f => f.notes)
-          .map(f => {
-            const item = outfit.items.find(i => i.id === f.itemId);
-            return `${item?.name || "Item"}: ${f.notes}`;
-          })
-      ].filter(Boolean).join("\n");
-
       const res = await fetch("/api/recommend/regenerate", {
         method: "POST",
         headers: {
@@ -638,35 +784,33 @@ export default function Home() {
           eventDescription,
           temperatureHint: environment?.temperatureHint,
           weatherSummary: environment?.weatherSummary,
-          lockedItemIds: data.lockedItemIds,
-          dislikedItemIds,
-          changeTarget: data.changeTarget,
-          feedbackNotes: feedbackNotes || undefined,
+          lockedItemIds,
+          dislikedItemIds: [],
+          changeTarget,
+          maxOutfits: 5,
         }),
       });
-
       const newData = await res.json();
-
       if (!res.ok) {
         setRecError(newData.error || "Failed to regenerate recommendations");
         return;
       }
-
-      // Replace all outfits with the new regenerated ones
-      setOutfits(newData.outfits || []);
-
-      if (newData.message) {
-        setRecMessage(newData.message);
-      }
-
-      // Close modal on success
-      setFeedbackModalOutfit(null);
+      setRegeneratedOutfitsInModal(newData.outfits || []);
+      if (newData.message) setRecMessage(newData.message);
     } catch (error) {
       console.error("Error regenerating:", error);
       setRecError("Failed to regenerate. Please try again.");
     } finally {
       setIsRegenerating(false);
     }
+  };
+
+  const handleRegenerateDone = () => {
+    if (regeneratedOutfitsInModal?.length) {
+      setOutfits(regeneratedOutfitsInModal);
+    }
+    setRegeneratedOutfitsInModal(null);
+    setRegenerateModalOutfit(null);
   };
 
   return (
@@ -752,34 +896,7 @@ export default function Home() {
               />
             )}
             <p className="mt-1 text-[11px] text-slate-500">
-              Used to fetch the weather forecast for the right time.
-            </p>
-          </div>
-
-          <div className="w-full">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">
-              Temperature hint (optional)
-            </label>
-            <div className="flex gap-2 flex-wrap">
-              {(["hot", "mild", "cold", "indoor"] as const).map((hint) => (
-                <button
-                  key={hint}
-                  onClick={() => setTemperatureHint(temperatureHint === hint ? "" : hint)}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                    temperatureHint === hint
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  {hint === "hot" && "🌡️ Hot"}
-                  {hint === "mild" && "🌤️ Mild"}
-                  {hint === "cold" && "❄️ Cold"}
-                  {hint === "indoor" && "🏠 Indoor"}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Leave empty to auto-detect from your event description.
+              Optional. If you allow location, we use it for weather; otherwise we recommend without weather.
             </p>
           </div>
 
@@ -842,32 +959,39 @@ export default function Home() {
                     </span>
                   </div>
                   
-                  {!outfit.feedback && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleLike(index)}
-                        className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-lg hover:bg-green-200 transition-colors flex items-center gap-1"
-                      >
-                        <span>👍</span> Like
-                      </button>
-                      <button
-                        onClick={() => handleDislikeClick(index)}
-                        className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
-                      >
-                        <span>👎</span> Dislike
-                      </button>
-                    </div>
-                  )}
-                  
-                  {outfit.feedback && (
-                    <span className={`px-3 py-1 text-sm font-medium rounded-lg ${
-                      outfit.feedback === "liked" 
-                        ? "bg-green-200 text-green-800" 
-                        : "bg-red-200 text-red-800"
-                    }`}>
-                      {outfit.feedback === "liked" ? "👍 Liked" : "👎 Disliked"}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleRegenerateClick(index)}
+                      className="px-3 py-1 bg-blue-100 text-blue-700 text-sm font-medium rounded-lg hover:bg-blue-200 transition-colors flex items-center gap-1"
+                    >
+                      <span>🔄</span> Regenerate
+                    </button>
+                    {!outfit.feedback && (
+                      <>
+                        <button
+                          onClick={() => handleLike(index)}
+                          className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-lg hover:bg-green-200 transition-colors flex items-center gap-1"
+                        >
+                          <span>👍</span> Like
+                        </button>
+                        <button
+                          onClick={() => handleDislikeClick(index)}
+                          className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
+                        >
+                          <span>👎</span> Dislike
+                        </button>
+                      </>
+                    )}
+                    {outfit.feedback && (
+                      <span className={`px-3 py-1 text-sm font-medium rounded-lg ${
+                        outfit.feedback === "liked" 
+                          ? "bg-green-200 text-green-800" 
+                          : "bg-red-200 text-red-800"
+                      }`}>
+                        {outfit.feedback === "liked" ? "👍 Liked" : "👎 Disliked"}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
@@ -963,15 +1087,32 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Feedback Modal */}
+      {/* Dislike feedback modal */}
       {feedbackModalOutfit && (
         <FeedbackModal
           outfit={feedbackModalOutfit.outfit}
           eventDescription={eventDescription}
           environment={environment}
-          onClose={() => !isRegenerating && setFeedbackModalOutfit(null)}
+          onClose={() => setFeedbackModalOutfit(null)}
           onSaveFeedback={handleSaveFeedback}
-          onSaveAndRegenerate={handleSaveAndRegenerate}
+        />
+      )}
+
+      {/* Regenerate modal (lock pieces, get new outfits; result shown in same modal) */}
+      {regenerateModalOutfit && (
+        <RegenerateModal
+          outfit={regenerateModalOutfit.outfit}
+          eventDescription={eventDescription}
+          environment={environment}
+          regeneratedOutfits={regeneratedOutfitsInModal}
+          onClose={() => {
+            if (!isRegenerating) {
+              setRegeneratedOutfitsInModal(null);
+              setRegenerateModalOutfit(null);
+            }
+          }}
+          onRegenerate={handleRegenerateSubmit}
+          onDone={handleRegenerateDone}
           isRegenerating={isRegenerating}
         />
       )}

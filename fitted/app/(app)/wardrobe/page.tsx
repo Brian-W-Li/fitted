@@ -33,20 +33,34 @@ const CATEGORY_OPTIONS = [
   { value: "footwear", label: "Footwear" },
 ] as const;
 const TYPE_OPTIONS = [
+  // Tops
   { value: "t-shirt", label: "T-Shirt" },
   { value: "shirt", label: "Shirt" },
+  { value: "blazer", label: "Blazer" },
   { value: "sweater", label: "Sweater" },
   { value: "hoodie", label: "Hoodie" },
   { value: "jacket", label: "Jacket" },
+  { value: "cardigan", label: "Cardigan" },
+  { value: "coat", label: "Coat" },
+  { value: "polo", label: "Polo" },
+  { value: "turtleneck", label: "Turtleneck" },
+  // Bottoms
   { value: "jeans", label: "Jeans" },
   { value: "pants", label: "Pants" },
+  { value: "cargos", label: "Cargos" },
+  { value: "chinos", label: "Chinos" },
   { value: "shorts", label: "Shorts" },
   { value: "skirt", label: "Skirt" },
+  { value: "joggers", label: "Joggers" },
+  // One piece
   { value: "dress", label: "Dress" },
+  { value: "jumpsuit", label: "Jumpsuit" },
+  // Footwear
   { value: "sneakers", label: "Sneakers" },
   { value: "boots", label: "Boots" },
   { value: "sandals", label: "Sandals" },
   { value: "dress shoes", label: "Dress Shoes" },
+  { value: "loafers", label: "Loafers" },
 ] as const;
 const PATTERN_OPTIONS = [
   { value: "solid", label: "Solid" },

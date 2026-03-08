@@ -2,14 +2,14 @@ import { Schema, model, models, type InferSchemaType } from "mongoose";
 
 const PreferenceSummarySchema = new Schema(
   {
-    user: { 
-      type: Schema.Types.ObjectId, 
-      ref: "User", 
-      required: true, 
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
       unique: true,
-      index: true 
+      index: true,
     },
-    text: { type: String, required: true },
+    text: { type: String, default: "" },
     feedbackCount: { type: Number, default: 0 },
     lastFeedbackAt: { type: Date },
   },

@@ -51,6 +51,7 @@ interface OutfitResult {
   itemIds: string[];
   confidence: number;
   reason: string;
+  mode?: "safe" | "exploratory";
 }
 
 // ============================================================================
@@ -420,6 +421,9 @@ COLOR & STYLE:
     // Add preference summary if available
     if (preferenceSummary) {
       userMessage += `USER_PREFERENCES:\n${preferenceSummary}\n\n`;
+      userMessage += `When generating outfits, interpret USER_PREFERENCES as follows:
+- Roughly half of the outfits ("safe") should strongly follow USER_PREFERENCES.
+- The other half ("exploratory") should still be appropriate for the event and weather, but try something fresh (e.g. more color, different silhouettes) without completely ignoring preferences.\n\n`;
     }
 
     userMessage += `EVENT_DESCRIPTION: "${eventDescription}"
@@ -436,6 +440,7 @@ Create ${maxOutfits} outfit recommendations. For each outfit:
 2. Consider the temperature - does it need layering?
 3. Select items that work together (colors, style, occasion).
 4. Provide a confidence score (0-100) and brief reason.
+5. If USER_PREFERENCES were provided, mark each outfit's "mode" as either "safe" (strongly follows preferences) or "exploratory" (intentionally different but still appropriate).
 
 RESPONSE FORMAT (JSON only):
 {
@@ -443,7 +448,8 @@ RESPONSE FORMAT (JSON only):
     {
       "itemIds": ["id1", "id2"],
       "confidence": 85,
-      "reason": "Brief explanation of why this works"
+      "reason": "Brief explanation of why this works",
+      "mode": "safe" or "exploratory"
     }
   ],
   "notEnoughItems": false,

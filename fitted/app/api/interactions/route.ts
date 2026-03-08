@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
+import { inferWhyForInteraction } from "@/lib/gemini";
+import { runPersonalizationSummarize } from "@/lib/runPersonalizationSummary";
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -114,7 +116,7 @@ export async function POST(request: NextRequest) {
 
     const { userId } = userResult;
     const body = await request.json();
-    const { itemIds, action, occasion } = body;
+    const { itemIds, action, occasion, perItemFeedback, dislikedItemIds: bodyDislikedIds } = body;
 
     if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
       return NextResponse.json(
@@ -130,7 +132,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { OutfitInteraction } = await initDatabase();
+    const { OutfitInteraction, WardrobeItem, PreferenceSummary } = await initDatabase();
 
     const interaction = await OutfitInteraction.create({
       user: userId,
@@ -140,6 +142,63 @@ export async function POST(request: NextRequest) {
         occasion: occasion || "casual",
       },
     });
+
+    // Gemini: infer "why" for this event and store on the interaction
+    const outfitItems = await WardrobeItem.find({
+      _id: { $in: itemIds },
+      user: userId,
+    })
+      .select("name category subCategory colors pattern layerRole")
+      .lean()
+      .exec();
+
+    const itemsForInference = outfitItems.map((doc: Record<string, unknown>) => ({
+      name: doc.name as string,
+      category: doc.category as string,
+      subCategory: doc.subCategory as string,
+      colors: doc.colors as string[],
+      pattern: doc.pattern as string,
+      layerRole: doc.layerRole as string,
+    }));
+    const dislikedIdsSet = new Set(Array.isArray(bodyDislikedIds) ? bodyDislikedIds.map(String) : []);
+    const dislikedItemNames = outfitItems
+      .filter((d: { _id?: unknown }) => dislikedIdsSet.has(String((d as { _id: unknown })._id)))
+      .map((d: Record<string, unknown>) => (d.name as string) || "Item");
+
+    const inferredWhy = await inferWhyForInteraction({
+      action: action === "accepted" ? "accepted" : "rejected",
+      occasion: occasion || "casual",
+      items: itemsForInference,
+      dislikedItemNames: dislikedItemNames.length > 0 ? dislikedItemNames : undefined,
+    });
+
+    if (inferredWhy) {
+      await OutfitInteraction.findByIdAndUpdate(interaction._id, { inferredWhy }).exec();
+    }
+
+    // Auto-run personalization summary when: no summary exists, or 5+ new interactions since last summary
+    if (process.env.GEMINI_API_KEY) {
+      const summary = await PreferenceSummary.findOne({ user: userId }).lean().exec();
+      const hasSummary = summary && (summary as { text?: string }).text?.trim();
+      let newCount = 0;
+      if (summary) {
+        newCount = await OutfitInteraction.countDocuments({
+          user: userId,
+          action: { $in: ["accepted", "rejected"] },
+          createdAt: { $gt: (summary as { updatedAt?: Date }).updatedAt },
+        });
+      } else {
+        newCount = await OutfitInteraction.countDocuments({
+          user: userId,
+          action: { $in: ["accepted", "rejected"] },
+        });
+      }
+      if (!hasSummary || newCount >= 5) {
+        void runPersonalizationSummarize(userId).catch((e) =>
+          console.error("Auto-summarize after like/dislike failed:", e)
+        );
+      }
+    }
 
     return NextResponse.json({
       success: true,
