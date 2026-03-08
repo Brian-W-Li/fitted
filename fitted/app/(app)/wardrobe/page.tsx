@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
+import { AddItemUploadStepActions } from "@/lib/addItemUploadStepActions";
 import { validateWardrobeForm } from "@/lib/wardrobeValidation";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 
@@ -252,6 +253,10 @@ type AddItemModalProps = {
   pendingAddFile?: File | null;
   onAnalyze?: (file: File) => Promise<void>;
   isAnalyzing?: boolean;
+  /** Error message from the most recent CV inference attempt, shown in the upload step. */
+  cvError?: string | null;
+  /** Called when the user wants to skip CV and go directly to the form. Receives the currently-selected file (may be null). */
+  onSkipToForm?: (file: File | null) => void;
   /** When editing, show current image and make file input optional so we don't overwrite. */
   existingImagePath?: string | null;
 };
@@ -265,6 +270,8 @@ function AddItemModal({
   pendingAddFile,
   onAnalyze,
   isAnalyzing,
+  cvError,
+  onSkipToForm,
   existingImagePath,
 }: AddItemModalProps) {
   const [name, setName] = useState(initialItem?.name ?? "");
@@ -444,7 +451,7 @@ function AddItemModal({
               <span className="text-lg leading-none">×</span>
             </button>
           </div>
-          <p className="mb-4 text-sm text-slate-600">Upload a photo and we&apos;ll suggest category, colors, and more. You can edit before saving.</p>
+          <p className="mb-4 text-sm text-slate-600">Upload a photo and we&apos;ll suggest category, colors, and more — or skip and fill in the details manually.</p>
           <div
             className={`relative rounded-xl border-2 border-dashed transition-colors ${
               dragOver ? "border-slate-400 bg-slate-50" : "border-slate-200 bg-slate-50/50"
@@ -481,26 +488,14 @@ function AddItemModal({
             )}
           </div>
           {imageError && <p className="mt-2 text-xs text-red-600">{imageError}</p>}
-          <div className="mt-6 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!imageFile || isAnalyzing}
-              onClick={() => imageFile && onAnalyze?.(imageFile)}
-              className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              {isAnalyzing ? (
-                <>
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Analyzing…
-                </>
-              ) : (
-                "Analyze photo"
-              )}
-            </button>
-          </div>
+          <AddItemUploadStepActions
+            imageFile={imageFile}
+            isAnalyzing={isAnalyzing}
+            cvError={cvError}
+            onClose={onClose}
+            onAnalyze={onAnalyze}
+            onSkipToForm={onSkipToForm}
+          />
         </div>
       </div>
     );
@@ -929,6 +924,7 @@ export default function WardrobePage() {
   const [addInferredCroppedImage, setAddInferredCroppedImage] = useState<string | null>(null);
   const [addPendingFile, setAddPendingFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [cvError, setCvError] = useState<string | null>(null);
   const cvAbortRef = useRef<AbortController | null>(null);
 
   // Watch Firebase auth state
@@ -1162,6 +1158,7 @@ export default function WardrobePage() {
               setAddInferred(null);
               setAddPendingFile(null);
               setIsAnalyzing(false);
+              setCvError(null);
               cvAbortRef.current?.abort();
               cvAbortRef.current = null;
               setIsModalOpen(true);
@@ -1216,6 +1213,7 @@ export default function WardrobePage() {
             setAddPendingFile(null);
             setAddInferredCroppedImage(null);
             setEditingItem(null);
+            setCvError(null);
           }}
           onSave={async (data, imageFile) => {
             if (editingItem) {
@@ -1346,6 +1344,7 @@ export default function WardrobePage() {
             const controller = new AbortController();
             cvAbortRef.current = controller;
             setIsAnalyzing(true);
+            setCvError(null);
             setError(null);
             try {
               const fd = new FormData();
@@ -1359,7 +1358,11 @@ export default function WardrobePage() {
               const json = await res.json().catch(() => ({}));
               if (controller.signal.aborted) return;
               if (!res.ok) {
-                setError(json.error ?? "Failed to analyze photo.");
+                // Use the structured message from the route when available
+                const msg = (json as { message?: string; error?: string }).message
+                  ?? (json as { error?: string }).error
+                  ?? "Image analysis failed. You can continue by filling the form manually.";
+                setCvError(msg);
                 return;
               }
               const full = json as CVInferResponse & { cropped_image_base64?: string | null };
@@ -1371,7 +1374,7 @@ export default function WardrobePage() {
             } catch (e) {
               if ((e as Error)?.name === "AbortError") return;
               console.error(e);
-              setError(e instanceof Error ? e.message : "Failed to analyze photo.");
+              setCvError(e instanceof Error ? e.message : "Image analysis failed. You can continue by filling the form manually.");
             } finally {
               if (!controller.signal.aborted) {
                 cvAbortRef.current = null;
@@ -1380,6 +1383,13 @@ export default function WardrobePage() {
             }
           }}
           isAnalyzing={isAnalyzing}
+          cvError={cvError}
+          onSkipToForm={(file) => {
+            setAddInferred(null);
+            setAddPendingFile(file);
+            setAddStep("form");
+            setCvError(null);
+          }}
           existingImagePath={editingItem?.imagePath}
         />
       )}
