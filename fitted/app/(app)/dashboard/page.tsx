@@ -29,7 +29,7 @@ interface Outfit {
 }
 
 interface EnvironmentContext {
-  temperatureHint: "hot" | "mild" | "cold" | "indoor";
+  temperatureHint: "hot" | "mild" | "cold" | "indoor" | "outdoor";
   weatherSummary?: string;
 }
 
@@ -974,6 +974,7 @@ export default function Home() {
               {environment.temperatureHint === "mild" && "🌤️"}
               {environment.temperatureHint === "cold" && "❄️"}
               {environment.temperatureHint === "indoor" && "🏠"}
+              {environment.temperatureHint === "outdoor" && "🌿"}
             </span>
             <span>
               Detected context: <strong>{environment.temperatureHint}</strong>
