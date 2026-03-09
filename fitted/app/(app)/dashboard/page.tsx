@@ -1100,52 +1100,36 @@ export default function Home() {
       </div>
 
       {/* How it works */}
-      <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-white p-8 shadow-sm">
-        <div className="mb-2 inline-flex rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
-          How it Works
-        </div>
-        <h3 className="text-2xl font-bold text-slate-900">How the AI Stylist Works</h3>
-        <p className="mt-2 text-slate-600">Our intelligent recommendation engine learns from your preferences</p>
-        <div className="mt-8 grid md:grid-cols-4 gap-6">
-          <div className="group relative rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-blue-100/50 p-6 transition-all hover:shadow-lg hover:border-blue-300">
-            <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-blue-400/0 to-blue-400/0 opacity-0 transition-opacity group-hover:opacity-10" />
-            <div className="relative">
-              <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100 text-2xl">🎯</div>
-              <p className="font-semibold text-slate-900">Smart Shortlisting</p>
-              <p className="mt-2 text-sm text-slate-600">
-                Filters your wardrobe by season, availability, and occasion relevance.
-              </p>
-            </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-6">
+        <h3 className="font-semibold text-slate-900">How the AI Stylist Works</h3>
+        <div className="mt-4 grid md:grid-cols-4 gap-4">
+          <div className="p-4 bg-blue-50 rounded-lg">
+            <div className="text-2xl mb-2">🎯</div>
+            <p className="font-medium text-slate-900">Smart Shortlisting</p>
+            <p className="text-sm text-slate-600 mt-1">
+              Filters your wardrobe by season, availability, and occasion relevance.
+            </p>
           </div>
-          <div className="group relative rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50 to-purple-100/50 p-6 transition-all hover:shadow-lg hover:border-purple-300">
-            <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-400/0 to-purple-400/0 opacity-0 transition-opacity group-hover:opacity-10" />
-            <div className="relative">
-              <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-purple-100 text-2xl">🧥</div>
-              <p className="font-semibold text-slate-900">Intelligent Layering</p>
-              <p className="mt-2 text-sm text-slate-600">
-                Adds outer and mid layers when the temperature calls for it.
-              </p>
-            </div>
+          <div className="p-4 bg-purple-50 rounded-lg">
+            <div className="text-2xl mb-2">🧥</div>
+            <p className="font-medium text-slate-900">Intelligent Layering</p>
+            <p className="text-sm text-slate-600 mt-1">
+              Adds outer and mid layers when the temperature calls for it.
+            </p>
           </div>
-          <div className="group relative rounded-xl border border-green-200 bg-gradient-to-br from-green-50 to-green-100/50 p-6 transition-all hover:shadow-lg hover:border-green-300">
-            <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-green-400/0 to-green-400/0 opacity-0 transition-opacity group-hover:opacity-10" />
-            <div className="relative">
-              <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-green-100 text-2xl">🧠</div>
-              <p className="font-semibold text-slate-900">Learns from You</p>
-              <p className="mt-2 text-sm text-slate-600">
-                Your detailed feedback builds a preference profile over time.
-              </p>
-            </div>
+          <div className="p-4 bg-green-50 rounded-lg">
+            <div className="text-2xl mb-2">🧠</div>
+            <p className="font-medium text-slate-900">Learns from You</p>
+            <p className="text-sm text-slate-600 mt-1">
+              Your detailed feedback builds a preference profile over time.
+            </p>
           </div>
-          <div className="group relative rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-orange-100/50 p-6 transition-all hover:shadow-lg hover:border-orange-300">
-            <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-orange-400/0 to-orange-400/0 opacity-0 transition-opacity group-hover:opacity-10" />
-            <div className="relative">
-              <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100 text-2xl">🔄</div>
-              <p className="font-semibold text-slate-900">Lock & Regenerate</p>
-              <p className="mt-2 text-sm text-slate-600">
-                Keep items you like and regenerate the rest with targeted changes.
-              </p>
-            </div>
+          <div className="p-4 bg-orange-50 rounded-lg">
+            <div className="text-2xl mb-2">🔄</div>
+            <p className="font-medium text-slate-900">Lock & Regenerate</p>
+            <p className="text-sm text-slate-600 mt-1">
+              Keep items you like and regenerate the rest with targeted changes.
+            </p>
           </div>
         </div>
       </div>
