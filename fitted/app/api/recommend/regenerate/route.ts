@@ -418,20 +418,21 @@ CRITICAL RULES:
 - NEVER use two tops (category "top") in the same outfit - only ONE top allowed.
 - NEVER use two bottoms (category "bottom") in the same outfit - only ONE bottom allowed.
 - One-piece items (dresses/jumpsuits) should NOT be combined with separate tops or bottoms.
+- Every outfit MUST include exactly ONE footwear item (shoes, sneakers, boots, sandals, etc.) when footwear is available in WARDROBE_ITEMS.
 
 VALID OUTFIT STRUCTURES (strictly follow these):
 
-For one-piece outfits (dress, jumpsuit):
-1. One-piece only
-2. One-piece + mid layer (e.g., dress + cardigan)
-3. One-piece + outer layer (e.g., dress + jacket)
-4. One-piece + mid layer + outer layer
+For one-piece outfits (dress, jumpsuit) — always add footwear when available:
+1. One-piece + footwear
+2. One-piece + mid layer + footwear (e.g., dress + cardigan + shoes)
+3. One-piece + outer layer + footwear (e.g., dress + jacket + shoes)
+4. One-piece + mid layer + outer layer + footwear
 
-For top+bottom outfits (MUST have base layer top):
-1. Base top + bottom - the basic outfit
-2. Base top + mid layer + bottom - adding a sweater/cardigan
-3. Base top + outer layer + bottom - adding a jacket/coat
-4. Base top + mid layer + outer layer + bottom - full layering
+For top+bottom outfits (MUST have base layer top) — always add footwear when available:
+1. Base top + bottom + footwear - the basic outfit
+2. Base top + mid layer + bottom + footwear - adding a sweater/cardigan
+3. Base top + outer layer + bottom + footwear - adding a jacket/coat
+4. Base top + mid layer + outer layer + bottom + footwear - full layering
 
 IMPORTANT: For top+bottom outfits, you MUST include a base layer top (t-shirt, shirt, blouse).
 Mid layers (sweaters, cardigans) and outer layers (jackets, coats) are ADDITIONS, not replacements.
@@ -494,8 +495,9 @@ Create ${maxOutfits} NEW outfit recommendations different from what the user dis
 1. Think about what formality and style the event requires.
 2. Consider the temperature - does it need layering?
 3. Select items that work together (colors, style, occasion).
-4. ${lockedItemsJson ? "Ensure all locked items are included." : ""}
-5. Provide a confidence score (0-100) and brief reason.
+4. Include exactly one footwear item (shoes, sneakers, boots, sandals, etc.) when available in WARDROBE_ITEMS.
+5. ${lockedItemsJson ? "Ensure all locked items are included." : ""}
+6. Provide a confidence score (0-100) and brief reason.
 
 RESPONSE FORMAT (JSON only):
 {
@@ -561,7 +563,24 @@ RESPONSE FORMAT (JSON only):
       }
       return "unknown";
     }
-    
+
+    const hasFootwearInWardrobe = shortlisted.some(s => inferItemType(s) === "footwear");
+    const footwearIds = shortlisted.filter(s => inferItemType(s) === "footwear").map(s => s.id);
+
+    // Post-process: if LLM omitted footwear, inject it so outfits pass validation.
+    if (hasFootwearInWardrobe && footwearIds.length > 0 && parsed.outfits?.length) {
+      const defaultFootwearId = footwearIds[0];
+      for (const outfit of parsed.outfits) {
+        if (!outfit.itemIds || !Array.isArray(outfit.itemIds)) continue;
+        outfit.itemIds = outfit.itemIds.map(id => String(id).trim()).filter(Boolean);
+        const items = outfit.itemIds.map(id => itemMap.get(id)).filter((i): i is ShortlistedItem => Boolean(i));
+        const hasFootwearByType = items.some(item => inferItemType(item) === "footwear");
+        if (!hasFootwearByType) {
+          outfit.itemIds = [...outfit.itemIds, defaultFootwearId];
+        }
+      }
+    }
+
     // Validate outfit structure
     function isValidOutfitStructure(itemIds: string[]): boolean {
       const items = itemIds.map(id => itemMap.get(id)).filter(Boolean);
@@ -594,6 +613,9 @@ RESPONSE FORMAT (JSON only):
       
       // Hard invalid: one-piece with separate base top or bottom (layers are OK)
       if (onePieces > 0 && (baseTops > 0 || bottoms > 0)) return false;
+
+      if (footwear > 1) return false;
+      if (hasFootwearInWardrobe && footwear !== 1) return false;
       
       // Limit layers to reasonable amounts
       if (midLayers > 2) return false;  // max 2 mid layers
