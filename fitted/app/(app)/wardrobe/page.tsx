@@ -1162,6 +1162,18 @@ export default function WardrobePage() {
               cvAbortRef.current?.abort();
               cvAbortRef.current = null;
               setIsModalOpen(true);
+              // Probe CV service in the background — if unavailable, surface the
+              // fallback message immediately so users don't have to wait 15s.
+              fetch("/api/cv/status")
+                .then((r) => r.json())
+                .then((data: { available?: boolean }) => {
+                  if (!data.available) {
+                    setCvError(
+                      "Image analysis is temporarily unavailable. You can continue by filling the form manually."
+                    );
+                  }
+                })
+                .catch(() => {/* silently ignore — user can still try Analyze */});
             }}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
           >

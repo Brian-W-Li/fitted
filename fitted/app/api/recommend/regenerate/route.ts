@@ -12,7 +12,7 @@ const openai = new OpenAI({
 // TYPES
 // ============================================================================
 
-type TemperatureHint = "hot" | "mild" | "cold" | "indoor";
+type TemperatureHint = "hot" | "mild" | "cold" | "indoor" | "outdoor";
 type ChangeTarget = "outer" | "top" | "bottom" | "any";
 
 interface EnvironmentContext {
@@ -119,20 +119,33 @@ function extractOccasionBuckets(eventDescription: string): string[] {
 
 function detectTemperatureHint(eventDescription: string): TemperatureHint {
   const text = eventDescription.toLowerCase();
-  
-  if (["cold", "winter", "freezing", "chilly", "snow", "frigid"].some(w => text.includes(w))) {
+  // Use word-boundary matching to prevent substring collisions (e.g. "hot" inside
+  // "hotel"/"photo", "warm" inside "swarm", "park" inside "spark", etc.).
+  // Single words use word-boundary regex to avoid substring collisions (e.g. "hot"
+  // matching inside "hotel"). Multi-word phrases (e.g. "air condition") use plain
+  // includes — they are long enough that false positives are practically impossible,
+  // and they may appear inflected ("air conditioned") which breaks \b at the end.
+  const hasWord = (w: string) =>
+    w.includes(" ") ? text.includes(w) : new RegExp(`\\b${w}\\b`).test(text);
+
+  if (["cold", "winter", "freezing", "chilly", "snow", "frigid"].some(hasWord)) {
     return "cold";
   }
-  if (["hot", "summer", "warm", "humid", "heat", "scorching"].some(w => text.includes(w))) {
+  if (["hot", "summer", "warm", "humid", "heat", "scorching"].some(hasWord)) {
     return "hot";
   }
-  if (["indoor", "inside", "air condition", "ac", "office"].some(w => text.includes(w))) {
+  // Check outdoor before indoor — "ac" was removed because it matches substrings
+  // like "beach" (be-AC-h), causing false indoor classifications.
+  if (["outdoor", "outside", "beach", "park", "picnic", "hiking", "hike", "camping", "barbecue", "bbq", "garden", "trail"].some(hasWord)) {
+    return "outdoor";
+  }
+  if (["indoor", "inside", "air condition", "office"].some(hasWord)) {
     return "indoor";
   }
-  if (["spring", "fall", "autumn", "mild", "cool", "moderate"].some(w => text.includes(w))) {
+  if (["spring", "fall", "autumn", "mild", "cool", "moderate"].some(hasWord)) {
     return "mild";
   }
-  
+
   return "mild";
 }
 
@@ -164,6 +177,7 @@ function calculateTemperatureScore(item: WardrobeItemLean, tempHint: Temperature
       }
       if (seasons.every(s => s === "winter")) return 0.5;
       return 0.8;
+    case "outdoor":
     default:
       return 1.0;
   }
