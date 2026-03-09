@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { getWeatherContext } from "@/lib/weather";
+import { runPersonalizationSummarize } from "@/lib/runPersonalizationSummary";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -271,16 +272,60 @@ function toShortlistedItem(item: WardrobeItemLean): ShortlistedItem {
 }
 
 // ============================================================================
-// PREFERENCE SUMMARY HELPER
+// PREFERENCE SUMMARY HELPER (lazy refresh)
 // ============================================================================
 
-async function getPreferenceSummary(userId: string): Promise<string | null> {
+const SUMMARY_STALE_THRESHOLD = 5;
+
+async function getOrRefreshPreferenceSummary(userId: string): Promise<string | null> {
   try {
-    const { PreferenceSummary } = await initDatabase();
-    const summary = await PreferenceSummary.findOne({ user: userId }).lean().exec();
+    const { PreferenceSummary, OutfitInteraction } = await initDatabase();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (summary as any)?.text || null;
-  } catch {
+    const existing = (await PreferenceSummary.findOne({ user: userId }).lean().exec()) as any;
+    const existingText: string | null = existing?.text || null;
+    const lastUpdatedAt: Date | null = existing?.updatedAt || null;
+
+    // Count qualifying interactions since last summary update
+    const sinceQuery: Record<string, unknown> = {
+      user: userId,
+      action: { $in: ["accepted", "rejected"] },
+      inferredWhy: { $exists: true, $ne: "" },
+    };
+    if (lastUpdatedAt) {
+      sinceQuery.createdAt = { $gt: lastUpdatedAt };
+    }
+    const newCount = await OutfitInteraction.countDocuments(sinceQuery).exec();
+
+    const isStale = !existingText || newCount >= SUMMARY_STALE_THRESHOLD;
+
+    console.info(JSON.stringify({
+      event: "summarize_refresh_decision",
+      userId,
+      hasSummary: !!existingText,
+      newInteractionsSinceUpdate: newCount,
+      threshold: SUMMARY_STALE_THRESHOLD,
+      willRefresh: isStale,
+    }));
+
+    if (!isStale) {
+      return existingText;
+    }
+
+    // Inline refresh — if it fails, fall back to existing summary
+    const result = await runPersonalizationSummarize(userId);
+    if (result.success && result.summaryText) {
+      return result.summaryText;
+    }
+
+    // Refresh failed (not enough data, Gemini error, validation rejection, etc.)
+    console.info(JSON.stringify({
+      event: "summarize_refresh_fallback",
+      userId,
+      reason: result.message,
+    }));
+    return existingText;
+  } catch (err) {
+    console.error(JSON.stringify({ event: "summarize_refresh_error", userId, message: (err as Error)?.message }));
     return null;
   }
 }
@@ -373,8 +418,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Get preference summary if available
-    const preferenceSummary = await getPreferenceSummary(userId);
+    // Get preference summary (lazy refresh if stale)
+    const preferenceSummary = await getOrRefreshPreferenceSummary(userId);
 
     // Build the prompt
     const systemMessage = `You are an expert fashion stylist creating outfit recommendations from a user's wardrobe.

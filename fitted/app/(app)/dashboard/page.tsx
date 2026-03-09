@@ -548,6 +548,11 @@ export default function Home() {
   const [recError, setRecError] = useState("");
   const [recMessage, setRecMessage] = useState("");
   
+  // Per-outfit disliked item IDs — contextual, not persisted, cleared on new recommendations.
+  // Maps outfit index → item IDs the user explicitly flagged in the dislike modal.
+  // Used only for the single regenerate call on that specific outfit.
+  const [outfitDislikedItems, setOutfitDislikedItems] = useState<Record<number, string[]>>({});
+
   // Feedback modal state (dislike)
   const [feedbackModalOutfit, setFeedbackModalOutfit] = useState<{ outfit: Outfit; index: number } | null>(null);
   // Regenerate modal state
@@ -658,6 +663,7 @@ export default function Home() {
     setRecError("");
     setRecMessage("");
     setOutfits([]);
+    setOutfitDislikedItems({});
 
     try {
       const token = await firebaseUser.getIdToken();
@@ -700,10 +706,16 @@ export default function Home() {
     if (!firebaseUser) return;
 
     const outfit = outfits[outfitIndex];
+    const prevFeedback = outfit.feedback;
+
+    // Optimistic update
+    setOutfits(prev => prev.map((o, i) =>
+      i === outfitIndex ? { ...o, feedback: "liked" as const } : o
+    ));
 
     try {
       const token = await firebaseUser.getIdToken();
-      await fetch("/api/interactions", {
+      const res = await fetch("/api/interactions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -716,11 +728,21 @@ export default function Home() {
         }),
       });
 
-      setOutfits(prev => prev.map((o, i) => 
-        i === outfitIndex ? { ...o, feedback: "liked" } : o
-      ));
+      if (!res.ok) {
+        // Revert optimistic update
+        setOutfits(prev => prev.map((o, i) =>
+          i === outfitIndex ? { ...o, feedback: prevFeedback } : o
+        ));
+        const data = await res.json().catch(() => ({}));
+        setRecError((data as { error?: string }).error || "Failed to save like. Please try again.");
+      }
     } catch (error) {
       console.error("Error saving feedback:", error);
+      // Revert optimistic update
+      setOutfits(prev => prev.map((o, i) =>
+        i === outfitIndex ? { ...o, feedback: prevFeedback } : o
+      ));
+      setRecError("Failed to save like. Please try again.");
     }
   };
 
@@ -735,11 +757,19 @@ export default function Home() {
     if (!firebaseUser || !feedbackModalOutfit) return;
 
     const outfit = feedbackModalOutfit.outfit;
+    const outfitIndex = feedbackModalOutfit.index;
+    const prevFeedback = outfit.feedback;
     const dislikedItemIds = data.perItemFeedback.filter(f => f.disliked).map(f => f.itemId);
+
+    // Optimistic update
+    setOutfits(prev => prev.map((o, i) =>
+      i === outfitIndex ? { ...o, feedback: "disliked" as const } : o
+    ));
+    setFeedbackModalOutfit(null);
 
     try {
       const token = await firebaseUser.getIdToken();
-      await fetch("/api/interactions", {
+      const res = await fetch("/api/interactions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -754,12 +784,28 @@ export default function Home() {
         }),
       });
 
-      setOutfits(prev => prev.map((o, i) => 
-        i === feedbackModalOutfit.index ? { ...o, feedback: "disliked" } : o
-      ));
-      setFeedbackModalOutfit(null);
+      if (!res.ok) {
+        // Revert optimistic update
+        setOutfits(prev => prev.map((o, i) =>
+          i === outfitIndex ? { ...o, feedback: prevFeedback } : o
+        ));
+        const resData = await res.json().catch(() => ({}));
+        setRecError((resData as { error?: string }).error || "Failed to save feedback. Please try again.");
+        return;
+      }
+
+      // Store disliked item IDs for this specific outfit — used only if the user
+      // immediately regenerates this same outfit. Not persisted or shared globally.
+      if (dislikedItemIds.length > 0) {
+        setOutfitDislikedItems(prev => ({ ...prev, [outfitIndex]: dislikedItemIds }));
+      }
     } catch (error) {
       console.error("Error saving feedback:", error);
+      // Revert optimistic update
+      setOutfits(prev => prev.map((o, i) =>
+        i === outfitIndex ? { ...o, feedback: prevFeedback } : o
+      ));
+      setRecError("Failed to save feedback. Please try again.");
     }
   };
 
@@ -785,7 +831,7 @@ export default function Home() {
           temperatureHint: environment?.temperatureHint,
           weatherSummary: environment?.weatherSummary,
           lockedItemIds,
-          dislikedItemIds: [],
+          dislikedItemIds: outfitDislikedItems[regenerateModalOutfit.index] ?? [],
           changeTarget,
           maxOutfits: 5,
         }),

@@ -1,9 +1,40 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+const GEMINI_TIMEOUT_MS = 15_000;
+
 function getClient() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
   return new GoogleGenerativeAI(apiKey);
+}
+
+/** Race a Gemini promise against a fixed timeout. Rejects with an Error whose name is "GeminiTimeout" on timeout. */
+function withGeminiTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => {
+      const err = new Error(`Gemini ${label} timed out after ${GEMINI_TIMEOUT_MS / 1000}s`);
+      err.name = "GeminiTimeout";
+      reject(err);
+    }, GEMINI_TIMEOUT_MS);
+    promise.then(
+      (v) => { clearTimeout(id); resolve(v); },
+      (e) => { clearTimeout(id); reject(e); },
+    );
+  });
+}
+
+/**
+ * Validate a Gemini-generated preference summary before storing it.
+ * Returns true only if the text looks like a real bullet-point style profile.
+ */
+export function isValidPreferenceSummary(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length < 20) return false;
+  // Reject common refusal/apology patterns
+  if (/^(i'?m sorry|i can'?t|i cannot|as an ai|i don'?t|unfortunately)/i.test(trimmed)) return false;
+  // Must contain at least one bullet point line
+  if (!trimmed.includes("- ")) return false;
+  return true;
 }
 
 export type OutfitItemForInference = {
@@ -47,11 +78,15 @@ In 1-2 short sentences, what went ${action === "accepted" ? "right" : "wrong"} w
   const modelId = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
   try {
     const model = gen.getGenerativeModel({ model: modelId });
-    const result = await model.generateContent(prompt);
+    console.info(JSON.stringify({ event: "gemini_infer_why_start", action, occasion }));
+    const result = await withGeminiTimeout(model.generateContent(prompt), "inferWhy");
     const text = result.response.text();
-    return text?.trim()?.slice(0, 500) || null;
+    const out = text?.trim()?.slice(0, 500) || null;
+    console.info(JSON.stringify({ event: "gemini_infer_why_success", chars: out?.length ?? 0 }));
+    return out;
   } catch (e) {
-    console.error("Gemini inferWhy error:", e);
+    const isTimeout = (e as Error)?.name === "GeminiTimeout";
+    console.error(JSON.stringify({ event: "gemini_infer_why_error", isTimeout, message: (e as Error)?.message }));
     return null;
   }
 }
@@ -93,11 +128,15 @@ Produce an updated style profile in 3-5 bullet points. Rules:
   const modelId = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
   try {
     const model = gen.getGenerativeModel({ model: modelId });
-    const result = await model.generateContent(prompt);
+    console.info(JSON.stringify({ event: "gemini_summarize_start", eventCount: events.length }));
+    const result = await withGeminiTimeout(model.generateContent(prompt), "summarize");
     const text = result.response.text();
-    return text?.trim()?.slice(0, 2000) || null;
+    const out = text?.trim()?.slice(0, 2000) || null;
+    console.info(JSON.stringify({ event: "gemini_summarize_success", chars: out?.length ?? 0 }));
+    return out;
   } catch (e) {
-    console.error("Gemini generatePersonalizationSummary error:", e);
+    const isTimeout = (e as Error)?.name === "GeminiTimeout";
+    console.error(JSON.stringify({ event: "gemini_summarize_error", isTimeout, message: (e as Error)?.message }));
     return null;
   }
 }

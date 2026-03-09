@@ -1,5 +1,5 @@
 import { initDatabase } from "@/lib/db";
-import { generatePersonalizationSummary } from "@/lib/gemini";
+import { generatePersonalizationSummary, isValidPreferenceSummary } from "@/lib/gemini";
 
 /**
  * Run personalization summarization for a user: load interactions with inferredWhy,
@@ -52,13 +52,32 @@ export async function runPersonalizationSummarize(userId: string): Promise<{
     ? (currentSummaryDoc as { text?: string }).text ?? null
     : null;
 
+  console.info(JSON.stringify({
+    event: "summarize_start",
+    userId,
+    eventCount: events.length,
+    hasPriorSummary: !!currentSummary,
+  }));
+
   const summaryText = await generatePersonalizationSummary({
     events,
     currentSummary,
   });
 
   if (!summaryText) {
+    console.info(JSON.stringify({ event: "summarize_failed", userId, reason: "gemini_returned_null" }));
     return { success: false, message: "Failed to generate preference summary." };
+  }
+
+  // Validate the output before storing — reject apologies, empty text, or non-bullet prose.
+  // If invalid, keep the existing valid summary rather than overwriting it with garbage.
+  if (!isValidPreferenceSummary(summaryText)) {
+    console.info(JSON.stringify({ event: "summarize_rejected", userId, reason: "invalid_output", preview: summaryText.slice(0, 100) }));
+    return {
+      success: false,
+      message: "Generated summary did not pass validation. Keeping existing summary.",
+      summaryText: currentSummary ?? undefined,
+    };
   }
 
   const updated = await PreferenceSummary.findOneAndUpdate(
@@ -70,6 +89,8 @@ export async function runPersonalizationSummarize(userId: string): Promise<{
     },
     { upsert: true, new: true }
   );
+
+  console.info(JSON.stringify({ event: "summarize_success", userId, feedbackCount: interactions.length }));
 
   return {
     success: true,
