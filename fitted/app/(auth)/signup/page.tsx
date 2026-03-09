@@ -4,6 +4,24 @@ import { auth } from "@/lib/firebaseClient";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import RedirectIfAuthenticated from "@/app/(app)/RedirectIfAuthenticated";
+
+function normalizeAuthError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = /auth\/[a-z-]+/.exec(message)?.[0];
+
+  if (code === "auth/unauthorized-domain") {
+    return "This domain is not authorized in Firebase Auth, use localhost or add this domain in Firebase Console";
+  }
+  if (code === "auth/popup-blocked") {
+    return "Popup was blocked by browser, please allow popups and try again";
+  }
+  if (code === "auth/popup-closed-by-user") {
+    return "Sign-up popup was closed before completing login";
+  }
+
+  return message || "Sign-up failed";
+}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -33,8 +51,11 @@ export default function SignupPage() {
 
       if (!syncResponse.ok) {
         const errorData = await syncResponse.json().catch(() => ({}));
-        console.error("Sync error:", errorData);
-        throw new Error(errorData.error || "Failed to create user in database");
+        const detail =
+          typeof errorData?.error === "string"
+            ? errorData.error
+            : "Failed to create user in database";
+        throw new Error(detail);
       }
 
       const data = await syncResponse.json();
@@ -44,16 +65,17 @@ export default function SignupPage() {
         localStorage.setItem("userId", data.userId);
       }
 
-      router.push("/");
+      router.push("/dashboard");
     } catch (e) {
       console.error("Signup error:", e);
-      const errorMessage = e instanceof Error ? e.message : "Sign-up failed. Please try again.";
-      setError(errorMessage);
+      setError(normalizeAuthError(e));
+    } finally {
       setLoading(false);
     }
   }
 
   return (
+    <RedirectIfAuthenticated>
     <div className="flex min-h-screen items-center justify-center bg-white">
       <main className="w-full max-w-md px-6 py-8">
         <div className="text-center mb-8">
@@ -100,5 +122,6 @@ export default function SignupPage() {
         )}
       </main>
     </div>
+    </RedirectIfAuthenticated>
   );
 }

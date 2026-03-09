@@ -7,7 +7,7 @@ import { adminAuth } from "@/lib/firebaseAdmin";
  *   → returns all wardrobe items for the authenticated user
  *
  * POST /api/wardrobe
- *   body: { name, category, colors?, fit?, size?, formality?, seasons?, occasions?, notes? }
+ *   body: { name, category, colors?, fit?, size?, seasons?, occasions?, notes? }
  *   → creates a wardrobe item tied to the authenticated user
  *
  * The user is derived from the Firebase ID token in the Authorization header:
@@ -63,12 +63,13 @@ export async function GET(request: NextRequest) {
       subCategory?: string;
       pattern?: string;
       colors?: string[];
+      layerRole?: string;
       fit?: string;
       size?: string;
-      formality?: string;
       seasons?: string[];
       occasions?: string[];
       notes?: string;
+      isAvailable?: boolean;
       imagePath?: string;
     };
 
@@ -86,12 +87,13 @@ export async function GET(request: NextRequest) {
         subCategory: item.subCategory ?? "",
         pattern: item.pattern ?? "",
         colors: item.colors ?? [],
+        layerRole: item.layerRole ?? "",
         fit: item.fit ?? "",
         size: item.size ?? "",
-        formality: item.formality ?? "",
         seasons: item.seasons ?? [],
         occasions: item.occasions ?? [],
         notes: item.notes ?? "",
+        isAvailable: item.isAvailable ?? true,
         imagePath: item.imagePath ?? undefined,
       })),
     });
@@ -125,10 +127,11 @@ export async function POST(request: NextRequest) {
       colors = [],
       fit = "",
       size = "",
-      formality = "",
       seasons = [],
       occasions = [],
       notes = "",
+      isAvailable = true,
+      layerRole = "",
     } = body;
 
     if (!name || !category) {
@@ -148,12 +151,13 @@ export async function POST(request: NextRequest) {
       subCategory: String(subCategory || "").trim() || undefined,
       pattern: String(pattern || "").trim() || undefined,
       colors: Array.isArray(colors) ? colors : [],
+      layerRole: String(layerRole || "").trim() || undefined,
       fit: String(fit || "").trim() || undefined,
       size: String(size || "").trim() || undefined,
-      formality: String(formality || "").trim() || undefined,
       seasons: Array.isArray(seasons) ? seasons : [],
       occasions: Array.isArray(occasions) ? occasions : [],
       notes: String(notes || "").trim() || undefined,
+      isAvailable: Boolean(isAvailable),
     });
 
     return NextResponse.json(
@@ -166,12 +170,13 @@ export async function POST(request: NextRequest) {
           subCategory: itemDoc.subCategory ?? "",
           pattern: itemDoc.pattern ?? "",
           colors: itemDoc.colors ?? [],
+          layerRole: itemDoc.layerRole ?? "",
           fit: itemDoc.fit ?? "",
           size: itemDoc.size ?? "",
-          formality: itemDoc.formality ?? "",
           seasons: itemDoc.seasons ?? [],
           occasions: itemDoc.occasions ?? [],
           notes: itemDoc.notes ?? "",
+          isAvailable: itemDoc.isAvailable ?? true,
         },
       },
       { status: 201 },
@@ -184,5 +189,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
 

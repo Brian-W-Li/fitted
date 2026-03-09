@@ -44,16 +44,24 @@ Next.js, Node.js/Python, Vercel, MongoDB (NoSQL DB), Firebase
 
 ## Installation Steps
 
+# Live App and local deployment
+
+You can access the deployed app here:
+https://fitted-sepia.vercel.app/
+
+Or run it locally:
+
 `git clone <repo-url>`  
 `cd pj12-outfit-recommender/fitted`  
-`pnpm install`  
-create a .env.local and add the API keys for Firebase Auth, MongoDB, Firebase Service Account, and OpenAI  
-`pnpm dev`  
+`pnpm install`  or `npm install`
+create a .env.local and add the API keys
+`pnpm dev` 
+Open in your browser at https://localhost:3000
 
 # Functionality
 
 - Sign in — /signin or /signup (Firebase, e.g. Google); user synced to MongoDB.
-- Wardrobe — Add/edit/delete items (name, category, colors, fit, size, formality, etc.).
+- Wardrobe — Add/edit/delete items (name, category, colors, fit, size, etc.).
 - Home — Pick occasion, get outfit suggestions (OpenAI); accept/reject stored as interactions.
 - History — Past outfit interactions (In Progress feature).
 - Account — Profile and optional age/gender.

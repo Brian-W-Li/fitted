@@ -12,7 +12,7 @@ This describes the **ML recommendation path** used when the user requests outfit
    - wardrobe items (as `WardrobeItemML`),
    - feedback history (accepted/rejected outfit pairs),
    - optional **PairScorer** (e.g. ONNX model) for gentle reranking only.
-4. **Hard filters** — Items that are clearly wrong for the occasion (formality too far off) or season (opposite-season-only) are removed before scoring.
+4. **Hard filters** — Items that are clearly wrong for the occasion (category/name-derived level too far off) or season (opposite-season-only) are removed before scoring.
 5. **Scoring** — Remaining top x bottom pairs are scored; rules (occasion + color) dominate.
 6. **Reranking** — If ONNX is loaded, the top 30 candidates get a gentle adjustment (~5 pts max).
 7. **Response** — Top-scoring outfits (up to 5) are returned with score and reasons, with diversity enforcement.
@@ -24,7 +24,6 @@ This describes the **ML recommendation path** used when the user requests outfit
 - Each wardrobe item is turned into a **fixed-size vector (embedding)** of size **80**.
 - **EmbeddingLayer** builds this from:
   - **Color(s)** — averaged embedding of each color (from a fixed palette: black, white, blue, navy, etc.).
-  - **Formality** — e.g. casual, formal.
   - **Occasions** — e.g. Casual, Business, Athletic (averaged).
   - **Seasons** — e.g. Summer, Winter (averaged).
   - **Category** — e.g. t-shirt, jeans, blazer.
@@ -45,7 +44,7 @@ This describes the **ML recommendation path** used when the user requests outfit
 
 Before any scoring happens, items are filtered:
 
-- **Occasion/formality filter**: Each item type has an inherent formality level (1=athletic/loungewear, 2=casual, 3=smart casual, 4=business, 5=formal). Each occasion has an acceptable range (e.g. business=[3,5]). Items whose formality is more than 1 level outside the range are rejected outright. This prevents tank tops from reaching business scoring and blazers from reaching athletic scoring.
+- **Occasion filter**: Each item’s suitability is derived from category/name keywords (e.g. tank, blazer) mapped to a level (1=athletic/loungewear, 2=casual, 3=smart casual, 4=business, 5=formal). Each occasion has an acceptable range (e.g. business=[3,5]). Items whose derived level is more than 1 level outside the range are rejected outright. This prevents tank tops from reaching business scoring and blazers from reaching athletic scoring.
 - **Season filter**: Items exclusively tagged for the opposite season (e.g. summer-only in winter) are rejected.
 - **Duplicate-type filter**: Pairs with both items of the same core type (e.g. hoodie+hoodie) are skipped.
 
@@ -57,7 +56,7 @@ For every (top, bottom) pair that passes hard filters, a **single score** in 0-1
 
 | Component        | Weight | What it does |
 |-----------------|--------|--------------|
-| **Occasion**    | 40%    | **ContextMatcher.matchOccasion**: Formality-based scoring. Perfect formality fit = 1.0; 1 level off = 0.3; explicit occasion tag is a boost. |
+| **Occasion**    | 40%    | **ContextMatcher.matchOccasion**: Category/name-derived level + occasion tag match. |
 | **Color**       | 30%    | **ColorHarmonyAnalyzer**: HSL palette with fashion-neutral awareness (navy, beige, khaki, brown count as neutrals). Rewards neutral+accent and analogous schemes; penalizes clashing saturated combos. |
 | **In-memory NN** | 10%   | In-memory NeuralNetwork trained on user like/dislike feedback. Uses 160-dim pair vectors. |
 | **Collaborative** | 15%  | **MatrixFactorization**: Latent factors for user and items. Trained on like/dislike feedback. |
@@ -100,8 +99,8 @@ For every (top, bottom) pair that passes hard filters, a **single score** in 0-1
 
 ## Summary
 
-- **Inputs**: Wardrobe items (with category, colors, formality, occasions, seasons), occasion filter, and optional like/dislike history.
-- **Hard filters**: Formality-based occasion filter + opposite-season filter remove obviously wrong items before scoring.
+- **Inputs**: Wardrobe items (with category, colors, occasions, seasons), occasion filter, and optional like/dislike history.
+- **Hard filters**: Occasion filter (category/name) + opposite-season filter remove obviously wrong items before scoring.
 - **Core scoring**: occasion (40%) + color (30%) + in-memory NN (10%) + collaborative (15%) + season (5%). Rules dominate.
 - **ONNX**: Gentle reranker only (~5 pt max) on top 30 candidates. Trained on synthetic data, intentionally weak until real-data model is available.
 - **Learning**: In-memory NN and matrix factorization are updated from user feedback.

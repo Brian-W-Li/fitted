@@ -1,17 +1,63 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import {
-  OutfitRecommendationEngine,
-  toMLItem,
-  type WardrobeItemML,
-} from "@/lib/recommendationEngine";
-import { ONNXModel } from "@/lib/onnxModel";
+import { getWeatherContext } from "@/lib/weather";
+import { runPersonalizationSummarize } from "@/lib/runPersonalizationSummary";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+type TemperatureHint = "hot" | "mild" | "cold" | "indoor";
+
+interface EnvironmentContext {
+  temperatureHint: TemperatureHint;
+  weatherSummary?: string;
+}
+
+interface WardrobeItemLean {
+  _id: { toString(): string };
+  name: string;
+  category: string;
+  subCategory?: string;
+  layerRole?: "base" | "mid" | "outer";
+  colors?: string[];
+  pattern?: string;
+  seasons?: string[];
+  occasions?: string[];
+  notes?: string;
+  isAvailable?: boolean;
+  imagePath?: string;
+}
+
+interface ShortlistedItem {
+  id: string;
+  name: string;
+  category: string;
+  subCategory?: string;
+  layerRole?: string;
+  colors: string[];
+  pattern?: string;
+  seasons: string[];
+  occasions: string[];
+  notes?: string;
+}
+
+interface OutfitResult {
+  itemIds: string[];
+  confidence: number;
+  reason: string;
+  mode?: "safe" | "exploratory";
+}
+
+// ============================================================================
+// AUTH HELPER
+// ============================================================================
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -41,211 +87,252 @@ async function getUserIdFromRequest(request: NextRequest) {
   }
 }
 
-async function getMLRecommendations(
-  userId: string,
-  occasion: string
-): Promise<{
-  outfits: Array<{
-    items: Array<{ id: string; name: string; category: string; colors: string[] }>;
-    reason: string;
-    score: number;
-  }>;
-}> {
-  const { WardrobeItem, OutfitInteraction } = await initDatabase();
+// ============================================================================
+// SHORTLISTING LOGIC
+// ============================================================================
 
-  type WardrobeDoc = {
-    _id: unknown;
-    name: string;
-    clothingType?: "top" | "bottom";
-    category?: string;
-    colors?: string[];
-    formality?: string;
-    seasons?: string[];
-    occasions?: string[];
-    metadata?: Map<string, unknown>;
-  };
-  const items = (await WardrobeItem.find({ user: userId })
-    .lean()
-    .exec()) as unknown as WardrobeDoc[];
-
-  if (items.length < 2) {
-    throw new Error(
-      "Add at least 2 items to your wardrobe to get recommendations"
-    );
+function extractOccasionBuckets(eventDescription: string): string[] {
+  const text = eventDescription.toLowerCase();
+  const buckets: string[] = [];
+  
+  if (["work", "office", "meeting", "business", "professional"].some(w => text.includes(w))) {
+    buckets.push("work");
   }
-
-  type InteractionDoc = {
-    items: unknown[];
-    action: string;
-  };
-  const feedbackDocs = (await OutfitInteraction.find({
-    user: userId,
-    action: { $in: ["accepted", "rejected"] },
-  })
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean()
-    .exec()) as unknown as InteractionDoc[];
-
-  const feedbackHistory = feedbackDocs.map((doc) => ({
-    itemIds: doc.items.map((id: unknown) => String(id)),
-    action: doc.action as "accepted" | "rejected",
-  }));
-
-  const mlItems: WardrobeItemML[] = items.map((item) => toMLItem(item));
-
-  let pairScorer: { predictBatch(features: number[][]): Promise<number[]> } | null =
-    null;
-  let onnx: ONNXModel | null = null;
-  try {
-    onnx = new ONNXModel();
-    await onnx.init();
-    pairScorer = onnx;
-  } catch (e) {
-    const hint = e instanceof Error && e.message.includes("external data")
-      ? " " + e.message
-      : "";
-    console.warn("ONNX model not loaded, using rule-based + neural scoring." + hint);
+  if (["formal", "wedding", "gala", "black tie", "elegant"].some(w => text.includes(w))) {
+    buckets.push("formal");
   }
-
-  const engine = new OutfitRecommendationEngine(mlItems, feedbackHistory, pairScorer ?? undefined);
-
-  let recommendations;
-  try {
-    recommendations = await engine.recommend({
-      occasion,
-      maxResults: 5,
-      minScore: 40,
-    });
-  } finally {
-    onnx?.dispose();
+  if (["casual", "relaxed", "chill", "hangout", "friends"].some(w => text.includes(w))) {
+    buckets.push("casual");
   }
-
-  return {
-    outfits: recommendations.map((rec) => ({
-      items: [
-        {
-          id: rec.top.id,
-          name: rec.top.name,
-          category: rec.top.category || "top",
-          colors: rec.top.colors || [],
-        },
-        {
-          id: rec.bottom.id,
-          name: rec.bottom.name,
-          category: rec.bottom.category || "bottom",
-          colors: rec.bottom.colors || [],
-        },
-      ],
-      reason: rec.reasons.join(". "),
-      score: rec.score,
-    })),
-  };
+  if (["date", "romantic", "dinner"].some(w => text.includes(w))) {
+    buckets.push("date");
+  }
+  if (["sport", "athletic", "gym", "workout", "active"].some(w => text.includes(w))) {
+    buckets.push("athletic");
+  }
+  if (["outdoor", "hiking", "picnic", "beach", "park"].some(w => text.includes(w))) {
+    buckets.push("outdoor");
+  }
+  
+  return buckets.length > 0 ? buckets : ["everyday"];
 }
 
-async function getAIRecommendations(
-  userId: string,
-  occasion: string,
-  colorStyle?: string
-): Promise<{
-  outfits: Array<{
-    items: Array<{ id: string; name: string; category: string; colors: string[] }>;
-    reason: string;
-  }>;
-}> {
-  const { WardrobeItem } = await initDatabase();
-
-  type WardrobeItemLean = {
-    _id: { toString(): string };
-    name: string;
-    category: string;
-    colors?: string[];
-    formality?: string;
-    occasions?: string[];
-  };
-
-  const items = (await WardrobeItem.find({ user: userId })
-    .lean()
-    .exec()) as unknown as WardrobeItemLean[];
-
-  if (items.length < 2) {
-    throw new Error(
-      "Add at least 2 items to your wardrobe to get recommendations"
-    );
+function detectTemperatureHint(eventDescription: string): TemperatureHint {
+  const text = eventDescription.toLowerCase();
+  
+  if (["cold", "winter", "freezing", "chilly", "snow", "frigid"].some(w => text.includes(w))) {
+    return "cold";
   }
+  if (["hot", "summer", "warm", "humid", "heat", "scorching"].some(w => text.includes(w))) {
+    return "hot";
+  }
+  if (["indoor", "inside", "air condition", "ac", "office"].some(w => text.includes(w))) {
+    return "indoor";
+  }
+  if (["spring", "fall", "autumn", "mild", "cool", "moderate"].some(w => text.includes(w))) {
+    return "mild";
+  }
+  
+  return "mild"; // default
+}
 
-  const wardrobeDescription = items.map((item) => ({
+function calculateOccasionScore(itemOccasions: string[], eventBuckets: string[]): number {
+  if (!itemOccasions || itemOccasions.length === 0) return 0.5; // neutral
+  
+  const itemOccLower = itemOccasions.map(o => o.toLowerCase());
+  const matches = eventBuckets.filter(b => itemOccLower.some(o => o.includes(b) || b.includes(o)));
+  
+  return matches.length > 0 ? 1.0 : 0.3;
+}
+
+function calculateTemperatureScore(item: WardrobeItemLean, tempHint: TemperatureHint): number {
+  const seasons = (item.seasons || []).map(s => s.toLowerCase());
+  const name = item.name.toLowerCase();
+  const layerRole = item.layerRole?.toLowerCase();
+  
+  // No penalty if no season info
+  if (seasons.length === 0 || seasons.includes("all")) return 1.0;
+  
+  switch (tempHint) {
+    case "cold":
+      // Prefer winter/fall items, slightly penalize summer-only
+      if (seasons.some(s => ["winter", "fall", "autumn"].includes(s))) return 1.0;
+      if (seasons.every(s => s === "summer")) return 0.4; // penalize but don't exclude
+      return 0.7;
+      
+    case "hot":
+      // Prefer summer/spring items, penalize heavy winter gear
+      if (seasons.some(s => ["summer", "spring"].includes(s))) return 1.0;
+      if (layerRole === "outer" && ["parka", "puffer", "wool", "heavy", "winter coat"].some(w => name.includes(w))) {
+        return 0.2; // heavy penalty for heavy coats in hot weather
+      }
+      if (seasons.every(s => s === "winter")) return 0.5;
+      return 0.8;
+      
+    case "mild":
+    case "indoor":
+    default:
+      return 1.0; // all items work for mild/indoor
+  }
+}
+
+function shortlistForLLM(
+  wardrobe: WardrobeItemLean[],
+  eventDescription: string,
+  env: EnvironmentContext,
+  maxItems: number = 80 // increased from 60
+): ShortlistedItem[] {
+  const eventBuckets = extractOccasionBuckets(eventDescription);
+  
+  // Step 1: Filter only by hard requirements (availability)
+  const available = wardrobe.filter(item => item.isAvailable !== false);
+  
+  // Step 2: Score items by multiple factors (soft filtering via scoring)
+  const scored = available.map(item => {
+    const occasionScore = calculateOccasionScore(item.occasions || [], eventBuckets);
+    const temperatureScore = calculateTemperatureScore(item, env.temperatureHint);
+    
+    // Combined score (weighted average)
+    const combinedScore = (occasionScore * 0.6) + (temperatureScore * 0.4);
+    
+    return { item, score: combinedScore };
+  });
+  
+  // Step 3: If under threshold, return all (sorted by score)
+  if (scored.length <= maxItems) {
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .map(({ item }) => toShortlistedItem(item));
+  }
+  
+  // Step 4: Sample with quotas per category, prioritizing higher scores
+  const byCategory: Record<string, typeof scored> = {
+    top: [],
+    bottom: [],
+    "one piece": [],
+    footwear: [],
+    outer: []
+  };
+  
+  for (const s of scored) {
+    const cat = s.item.category.toLowerCase();
+    const layerRole = s.item.layerRole?.toLowerCase();
+    const name = s.item.name.toLowerCase();
+    
+    // Smarter categorization - check layerRole and name patterns too
+    if (layerRole === "outer" || ["jacket", "coat", "blazer", "cardigan", "hoodie", "parka", "puffer"].some(w => name.includes(w))) {
+      byCategory.outer.push(s);
+    } else if (cat === "bottom" || cat === "bottoms" || ["pants", "jeans", "shorts", "skirt", "trousers"].some(w => cat.includes(w))) {
+      byCategory.bottom.push(s);
+    } else if (cat === "one piece" || ["dress", "jumpsuit", "romper"].some(w => cat.includes(w) || name.includes(w))) {
+      byCategory["one piece"].push(s);
+    } else if (cat === "footwear" || ["shoes", "sneakers", "boots", "sandals", "loafers"].some(w => cat.includes(w) || name.includes(w))) {
+      byCategory.footwear.push(s);
+    } else if (cat === "top" || cat === "tops" || ["shirt", "tee", "t-shirt", "blouse", "polo", "tank", "sweater"].some(w => cat.includes(w) || name.includes(w))) {
+      byCategory.top.push(s);
+    } else {
+      // Default to top if unclear
+      byCategory.top.push(s);
+    }
+  }
+  
+  // Sort each category by score (descending)
+  const result: ShortlistedItem[] = [];
+  const quotas: Record<string, number> = {
+    top: 25,      // increased
+    bottom: 20,   // increased
+    outer: 15,    // increased
+    "one piece": 10,
+    footwear: 10
+  };
+  
+  for (const [cat, items] of Object.entries(byCategory)) {
+    const quota = quotas[cat] || 10;
+    const sorted = items.sort((a, b) => b.score - a.score);
+    const sampled = sorted.slice(0, quota);
+    result.push(...sampled.map(s => toShortlistedItem(s.item)));
+  }
+  
+  return result.slice(0, maxItems);
+}
+
+function toShortlistedItem(item: WardrobeItemLean): ShortlistedItem {
+  return {
     id: item._id.toString(),
     name: item.name,
     category: item.category,
+    subCategory: item.subCategory,
+    layerRole: item.layerRole,
     colors: item.colors || [],
-    formality: item.formality || "casual",
+    pattern: item.pattern,
+    seasons: item.seasons || [],
     occasions: item.occasions || [],
-  }));
-
-  const colorHint = colorStyle
-    ? ` Preferred color style: ${colorStyle}.`
-    : "";
-
-  const prompt = `You are a fashion stylist. Given this wardrobe, suggest 3 outfit combinations for a ${occasion} occasion.${colorHint}
-
-WARDROBE:
-${JSON.stringify(wardrobeDescription, null, 2)}
-
-Rules:
-- Each outfit must have exactly 2 items: one upper wear (t-shirt, shirt, sweater, jacket, hoodie, top, blouse) and one lower wear (jeans, pants, shorts, skirt, trousers)
-- Colors should complement each other (neutrals go with everything, avoid clashing colors)
-- Match the formality to the occasion
-- Only use items from the wardrobe provided
-
-Respond ONLY with valid JSON in this exact format:
-{
-  "outfits": [
-    {
-      "items": ["item_id_1", "item_id_2"],
-      "reason": "Brief explanation why these items work together"
-    }
-  ]
-}`;
-
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0.7,
-  });
-
-  const responseText = completion.choices[0]?.message?.content || "{}";
-
-  let recommendations: { outfits: { items: string[]; reason: string }[] };
-  try {
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    recommendations = jsonMatch ? JSON.parse(jsonMatch[0]) : { outfits: [] };
-  } catch {
-    recommendations = { outfits: [] };
-  }
-
-  const itemMap = new Map(items.map((item) => [item._id.toString(), item]));
-
-  return {
-    outfits: recommendations.outfits.map(
-      (outfit: { items: string[]; reason: string }) => ({
-        items: outfit.items
-          .map((id: string) => {
-            const item = itemMap.get(id);
-            if (!item) return null;
-            return {
-              id: item._id.toString(),
-              name: item.name,
-              category: item.category,
-              colors: item.colors ?? [],
-            };
-          })
-          .filter((x): x is NonNullable<typeof x> => x != null),
-        reason: outfit.reason,
-      })
-    ),
+    notes: item.notes
   };
 }
+
+// ============================================================================
+// PREFERENCE SUMMARY HELPER (lazy refresh)
+// ============================================================================
+
+const SUMMARY_STALE_THRESHOLD = 5;
+
+async function getOrRefreshPreferenceSummary(userId: string): Promise<string | null> {
+  try {
+    const { PreferenceSummary, OutfitInteraction } = await initDatabase();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existing = (await PreferenceSummary.findOne({ user: userId }).lean().exec()) as any;
+    const existingText: string | null = existing?.text || null;
+    const lastUpdatedAt: Date | null = existing?.updatedAt || null;
+
+    // Count qualifying interactions since last summary update
+    const sinceQuery: Record<string, unknown> = {
+      user: userId,
+      action: { $in: ["accepted", "rejected"] },
+      inferredWhy: { $exists: true, $ne: "" },
+    };
+    if (lastUpdatedAt) {
+      sinceQuery.createdAt = { $gt: lastUpdatedAt };
+    }
+    const newCount = await OutfitInteraction.countDocuments(sinceQuery).exec();
+
+    const isStale = !existingText || newCount >= SUMMARY_STALE_THRESHOLD;
+
+    console.info(JSON.stringify({
+      event: "summarize_refresh_decision",
+      userId,
+      hasSummary: !!existingText,
+      newInteractionsSinceUpdate: newCount,
+      threshold: SUMMARY_STALE_THRESHOLD,
+      willRefresh: isStale,
+    }));
+
+    if (!isStale) {
+      return existingText;
+    }
+
+    // Inline refresh — if it fails, fall back to existing summary
+    const result = await runPersonalizationSummarize(userId);
+    if (result.success && result.summaryText) {
+      return result.summaryText;
+    }
+
+    // Refresh failed (not enough data, Gemini error, validation rejection, etc.)
+    console.info(JSON.stringify({
+      event: "summarize_refresh_fallback",
+      userId,
+      reason: result.message,
+    }));
+    return existingText;
+  } catch (err) {
+    console.error(JSON.stringify({ event: "summarize_refresh_error", userId, message: (err as Error)?.message }));
+    return null;
+  }
+}
+
+// ============================================================================
+// MAIN ENDPOINT
+// ============================================================================
 
 export async function POST(request: NextRequest) {
   try {
@@ -259,32 +346,317 @@ export async function POST(request: NextRequest) {
 
     const { userId } = userResult;
     const body = await request.json();
-    const { occasion = "casual", useAI = false, colorStyle } = body;
+    const {
+      eventDescription,
+      temperatureHint: providedTempHint,
+      eventTimeISO,
+      eventTimeLabel: rawEventTimeLabel,
+      lat,
+      lon,
+      maxOutfits = 5
+    } = body;
 
-    if (useAI && !process.env.OPENAI_API_KEY) {
+    if (!eventDescription) {
       return NextResponse.json(
-        { error: "OpenAI API key is required for AI recommendations." },
+        { error: "eventDescription is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: "OpenAI API key is required for recommendations." },
         { status: 503 }
       );
     }
 
-    let result;
+    const { WardrobeItem } = await initDatabase();
 
-    if (useAI && process.env.OPENAI_API_KEY) {
-      result = await getAIRecommendations(userId, occasion, colorStyle);
-    } else {
-      result = await getMLRecommendations(userId, occasion);
+    // Fetch wardrobe
+    const docs = (await WardrobeItem.find({ user: userId })
+      .lean()
+      .exec()) as unknown as WardrobeItemLean[];
+
+    if (docs.length === 0) {
+      return NextResponse.json({
+        outfits: [],
+        notEnoughItems: true,
+        message: "Your wardrobe is empty. Add some items first."
+      });
     }
 
+    // Discard the event-time label if the time is in the past — the backend
+    // already falls back to current conditions in that case, and a past label
+    // would confuse the LLM (e.g. "Wed, Mar 4, 10:00 AM" when it's 5 PM).
+    const eventTimeLabel =
+      typeof rawEventTimeLabel === "string" &&
+      (!eventTimeISO || new Date(eventTimeISO).getTime() > Date.now())
+        ? rawEventTimeLabel
+        : undefined;
+
+    // Determine environment context
+    const temperatureHint: TemperatureHint = providedTempHint || detectTemperatureHint(eventDescription);
+    const weatherResult = (typeof lat === "number" && typeof lon === "number")
+      ? await getWeatherContext({ lat, lon, eventTimeISO: typeof eventTimeISO === "string" ? eventTimeISO : undefined })
+      : null;
+    // Annotate so the LLM knows whether this is live or a forecast
+    const weatherSummary = weatherResult
+      ? weatherResult.isForecast
+        ? `${weatherResult.weatherSummary} (forecast for event time)`
+        : weatherResult.weatherSummary
+      : undefined;
+    const env: EnvironmentContext = { temperatureHint, weatherSummary };
+
+    // Shortlist items
+    const shortlisted = shortlistForLLM(docs, eventDescription, env);
+
+    if (shortlisted.length < 2) {
+      return NextResponse.json({
+        outfits: [],
+        notEnoughItems: true,
+        message: "Not enough available items to create outfits."
+      });
+    }
+
+    // Get preference summary (lazy refresh if stale)
+    const preferenceSummary = await getOrRefreshPreferenceSummary(userId);
+
+    // Build the prompt
+    const systemMessage = `You are an expert fashion stylist creating outfit recommendations from a user's wardrobe.
+
+CRITICAL RULES:
+- You MUST use only item IDs from the provided WARDROBE_ITEMS.
+- NEVER use two tops (category "top") in the same outfit - only ONE top allowed.
+- NEVER use two bottoms (category "bottom") in the same outfit - only ONE bottom allowed.
+- One-piece items (dresses/jumpsuits) should NOT be combined with separate tops or bottoms.
+
+VALID OUTFIT STRUCTURES (strictly follow these):
+
+For one-piece outfits (dress, jumpsuit):
+1. One-piece only
+2. One-piece + mid layer (e.g., dress + cardigan)
+3. One-piece + outer layer (e.g., dress + jacket)
+4. One-piece + mid layer + outer layer
+
+For top+bottom outfits (MUST have base layer top):
+1. Base top + bottom - the basic outfit
+2. Base top + mid layer + bottom - adding a sweater/cardigan
+3. Base top + outer layer + bottom - adding a jacket/coat
+4. Base top + mid layer + outer layer + bottom - full layering
+
+IMPORTANT: For top+bottom outfits, you MUST include a base layer top (t-shirt, shirt, blouse).
+Mid layers (sweaters, cardigans) and outer layers (jackets, coats) are ADDITIONS, not replacements.
+One-pieces can have layers added on top but NOT combined with separate tops or bottoms.
+
+LAYERING GUIDANCE:
+- "hot" temperature: Prefer single layers (one-piece or base+bottom). No heavy outers.
+- "cold" temperature: Add outer layer (jackets, coats) on top of base. Mid layers optional.
+- "mild"/"indoor": Flexible - light outer optional based on style.
+- Outer layers have layerRole: "outer" - these go ON TOP of base tops, not replacing them.
+- If WEATHER_SUMMARY says "(forecast for event time)", it reflects what conditions will be
+  when the outfit is worn — use it as the primary signal for layering decisions.
+
+COLOR & STYLE:
+- Ensure colors complement each other (neutrals work with everything).
+- Match formality to the occasion.
+- Max 1 bold pattern per outfit.`;
+
+    let userMessage = "";
+
+    // Add preference summary if available
+    if (preferenceSummary) {
+      userMessage += `USER_PREFERENCES:\n${preferenceSummary}\n\n`;
+      userMessage += `When generating outfits, interpret USER_PREFERENCES as follows:
+- Roughly half of the outfits ("safe") should strongly follow USER_PREFERENCES.
+- The other half ("exploratory") should still be appropriate for the event and weather, but try something fresh (e.g. more color, different silhouettes) without completely ignoring preferences.\n\n`;
+    }
+
+    userMessage += `EVENT_DESCRIPTION: "${eventDescription}"
+
+ENVIRONMENT:
+- TEMPERATURE_HINT: "${temperatureHint}"${eventTimeLabel ? `\n- EVENT_TIME: "${eventTimeLabel}"` : ""}${weatherSummary ? `\n- WEATHER_SUMMARY: "${weatherSummary}"` : ""}
+
+WARDROBE_ITEMS:
+${JSON.stringify(shortlisted, null, 2)}
+
+TASK:
+Create ${maxOutfits} outfit recommendations. For each outfit:
+1. Think about what formality and style the event requires.
+2. Consider the temperature - does it need layering?
+3. Select items that work together (colors, style, occasion).
+4. Provide a confidence score (0-100) and brief reason.
+5. If USER_PREFERENCES were provided, mark each outfit's "mode" as either "safe" (strongly follows preferences) or "exploratory" (intentionally different but still appropriate).
+
+RESPONSE FORMAT (JSON only):
+{
+  "outfits": [
+    {
+      "itemIds": ["id1", "id2"],
+      "confidence": 85,
+      "reason": "Brief explanation of why this works",
+      "mode": "safe" or "exploratory"
+    }
+  ],
+  "notEnoughItems": false,
+  "message": ""
+}`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemMessage },
+        { role: "user", content: userMessage }
+      ],
+      temperature: 0.5,
+      response_format: { type: "json_object" },
+    });
+
+    const responseText = completion.choices[0]?.message?.content || "{}";
+
+    let parsed: { outfits?: OutfitResult[]; notEnoughItems?: boolean; message?: string };
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      parsed = { outfits: [] };
+    }
+
+    // Validate and enrich outfit data
+    const itemMap = new Map(shortlisted.map(item => [item.id, item]));
+    
+    // Smart categorization helper - infers category from multiple signals
+    function inferItemType(item: ShortlistedItem): "base_top" | "mid_layer" | "outer_layer" | "bottom" | "one_piece" | "footwear" | "unknown" {
+      const cat = item.category.toLowerCase();
+      const layerRole = item.layerRole?.toLowerCase();
+      const name = item.name.toLowerCase();
+      const subCat = item.subCategory?.toLowerCase() || "";
+      
+      // Check for one-piece first
+      if (cat === "one piece" || ["dress", "jumpsuit", "romper"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
+        return "one_piece";
+      }
+      
+      // Check for bottom
+      if (cat === "bottom" || cat === "bottoms" || ["pants", "jeans", "shorts", "skirt", "trousers", "chinos", "leggings"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
+        return "bottom";
+      }
+      
+      // Check for footwear
+      if (cat === "footwear" || ["shoes", "sneakers", "boots", "sandals", "loafers", "heels", "flats"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
+        return "footwear";
+      }
+      
+      // Check for outer layer (explicit layerRole or name patterns)
+      if (layerRole === "outer" || ["jacket", "coat", "blazer", "parka", "puffer", "windbreaker", "trench", "overcoat"].some(w => name.includes(w) || subCat.includes(w))) {
+        return "outer_layer";
+      }
+      
+      // Check for mid layer
+      if (layerRole === "mid" || ["cardigan", "sweater", "hoodie", "fleece", "vest"].some(w => name.includes(w) || subCat.includes(w))) {
+        // Could be mid or outer depending on context - be flexible
+        return "mid_layer";
+      }
+      
+      // Default: if it's categorized as "top" or looks like a top, it's a base top
+      if (cat === "top" || cat === "tops" || ["shirt", "tee", "t-shirt", "blouse", "polo", "tank", "henley", "button-down", "oxford"].some(w => name.includes(w) || subCat.includes(w))) {
+        return "base_top";
+      }
+      
+      return "unknown";
+    }
+    
+    // Validate outfit structure
+    function isValidOutfitStructure(itemIds: string[]): boolean {
+      const items = itemIds.map(id => itemMap.get(id)).filter(Boolean);
+      if (items.length === 0) return false;
+      
+      let baseTops = 0;
+      let midLayers = 0;
+      let outerLayers = 0;
+      let bottoms = 0;
+      let onePieces = 0;
+      let footwear = 0;
+      let unknown = 0;
+      
+      for (const item of items) {
+        if (!item) continue;
+        const itemType = inferItemType(item);
+        
+        switch (itemType) {
+          case "base_top": baseTops++; break;
+          case "mid_layer": midLayers++; break;
+          case "outer_layer": outerLayers++; break;
+          case "bottom": bottoms++; break;
+          case "one_piece": onePieces++; break;
+          case "footwear": footwear++; break;
+          default: unknown++; break;
+        }
+      }
+      
+      // Hard invalid: more than one bottom
+      if (bottoms > 1) return false;
+      
+      // Hard invalid: more than one base top
+      if (baseTops > 1) return false;
+      
+      // Hard invalid: more than one one-piece
+      if (onePieces > 1) return false;
+      
+      // Hard invalid: one-piece with separate base top or bottom (layers are OK)
+      if (onePieces > 0 && (baseTops > 0 || bottoms > 0)) return false;
+      
+      // Limit layers to reasonable amounts
+      if (midLayers > 2) return false;  // max 2 mid layers
+      if (outerLayers > 1) return false; // max 1 outer layer
+      
+      // Valid structure: one-piece outfit (with optional mid/outer layers)
+      // e.g., dress alone, dress + cardigan, dress + jacket, dress + cardigan + jacket
+      if (onePieces === 1) return true;
+      
+      // For non-one-piece outfits: MUST have exactly 1 base top and 1 bottom
+      if (baseTops !== 1 || bottoms !== 1) return false;
+      
+      // Valid layering combinations (all require base top + bottom):
+      // 1. Base only: base + bottom
+      // 2. Base + mid: base + mid + bottom
+      // 3. Base + outer: base + outer + bottom
+      // 4. Base + mid + outer: base + mid + outer + bottom
+      
+      return true;
+    }
+    
+    const validOutfits = (parsed.outfits || [])
+      .filter(outfit => {
+        // Ensure all item IDs exist
+        if (!outfit.itemIds.every(id => itemMap.has(id))) return false;
+        // Ensure valid outfit structure
+        return isValidOutfitStructure(outfit.itemIds);
+      })
+      .map(outfit => ({
+        ...outfit,
+        items: outfit.itemIds.map(id => {
+          const item = itemMap.get(id)!;
+          const fullItem = docs.find(d => d._id.toString() === id);
+          return {
+            id: item.id,
+            name: item.name,
+            category: item.category,
+            subCategory: item.subCategory,
+            layerRole: item.layerRole,
+            colors: item.colors,
+            imagePath: fullItem?.imagePath
+          };
+        })
+      }));
+
     return NextResponse.json({
-      occasion,
-      method: useAI ? "ai" : "ml",
-      ...result,
+      outfits: validOutfits,
+      notEnoughItems: parsed.notEnoughItems || false,
+      message: parsed.message || "",
+      environment: env
     });
   } catch (error) {
     console.error("Error generating recommendations:", error);
-    const message =
-      error instanceof Error ? error.message : "Failed to generate recommendations";
+    const message = error instanceof Error ? error.message : "Failed to generate recommendations";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

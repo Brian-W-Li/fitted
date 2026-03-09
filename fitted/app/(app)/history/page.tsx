@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { useState, useEffect, useRef } from "react";
@@ -15,7 +16,6 @@ interface OutfitItem {
 // Helper to convert imagePath to actual image URL
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
-  // Backend stores images as "mongo:<imageId>"
   if (imagePath.startsWith("mongo:")) {
     const imageId = imagePath.slice("mongo:".length);
     return `/api/images/${imageId}`;
@@ -33,13 +33,21 @@ interface Interaction {
 
 type TabType = "liked" | "disliked";
 
-const OCCASIONS = [
-  { value: "all", label: "All Occasions" },
-  { value: "casual", label: "Casual" },
-  { value: "business", label: "Business" },
-  { value: "formal", label: "Formal" },
-  { value: "date night", label: "Date Night" },
-];
+function relativeTime(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const sec = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (sec < 60) return "Just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  const week = Math.floor(day / 7);
+  if (week < 4) return `${week}w ago`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+}
 
 export default function HistoryPage() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -49,7 +57,6 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [occasionFilter, setOccasionFilter] = useState("all");
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -126,6 +133,8 @@ export default function HistoryPage() {
     });
   };
 
+  const totalCount = likedOutfits.length + dislikedOutfits.length;
+
   const handleRemove = async (interactionId: string) => {
     if (!firebaseUser) return;
 
@@ -188,288 +197,241 @@ export default function HistoryPage() {
   };
 
   const baseOutfits = activeTab === "liked" ? likedOutfits : dislikedOutfits;
-  const currentOutfits = occasionFilter === "all"
-    ? baseOutfits
-    : baseOutfits.filter((outfit) => outfit.occasion.toLowerCase() === occasionFilter.toLowerCase());
-
-  // Get counts for filter badges
-  const filteredLikedCount = occasionFilter === "all"
-    ? likedOutfits.length
-    : likedOutfits.filter((o) => o.occasion.toLowerCase() === occasionFilter.toLowerCase()).length;
-  const filteredDislikedCount = occasionFilter === "all"
-    ? dislikedOutfits.length
-    : dislikedOutfits.filter((o) => o.occasion.toLowerCase() === occasionFilter.toLowerCase()).length;
+  const currentOutfits = baseOutfits;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-    <div>
-      <h1 className="text-3xl font-semibold tracking-tight">History</h1>
-      <p className="mt-2 text-sm text-slate-600">
-            Review your past outfit recommendations and feedback.
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+            History
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Your liked and disliked outfits. This helps us personalize future recommendations.
           </p>
         </div>
-
-        {/* Occasion Filter */}
-        <div className="flex items-center gap-2">
-          <label htmlFor="occasion-filter" className="text-sm font-medium text-slate-600">
-            Filter by:
-          </label>
-          <select
-            id="occasion-filter"
-            value={occasionFilter}
-            onChange={(e) => setOccasionFilter(e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500"
-          >
-            {OCCASIONS.map((occasion) => (
-              <option key={occasion.value} value={occasion.value}>
-                {occasion.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!loading && totalCount > 0 && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-slate-500">
+              <span className="font-medium text-green-600">{likedOutfits.length}</span> liked
+              <span className="mx-1.5 text-slate-300">·</span>
+              <span className="font-medium text-slate-600">{dislikedOutfits.length}</span> disliked
+            </span>
+            <button
+              onClick={fetchHistory}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+              title="Refresh"
+            >
+              Refresh
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-200">
+      {/* Tabs — pill style */}
+      <div className="inline-flex rounded-xl bg-slate-100 p-1">
         <button
           onClick={() => setActiveTab("liked")}
-          className={`relative px-6 py-3 text-sm font-medium transition-colors ${
+          className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-all ${
             activeTab === "liked"
-              ? "text-green-700"
+              ? "bg-white text-green-700 shadow-sm"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <span className="flex items-center gap-2">
-            <span>👍</span>
+            <span aria-hidden>👍</span>
             Liked
-            {filteredLikedCount > 0 && (
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                {filteredLikedCount}
+            {likedOutfits.length > 0 && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  activeTab === "liked" ? "bg-green-100 text-green-700" : "bg-slate-200 text-slate-600"
+                }`}
+              >
+                {likedOutfits.length}
               </span>
             )}
           </span>
-          {activeTab === "liked" && (
-            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-600" />
-          )}
         </button>
         <button
           onClick={() => setActiveTab("disliked")}
-          className={`relative px-6 py-3 text-sm font-medium transition-colors ${
+          className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-all ${
             activeTab === "disliked"
-              ? "text-red-700"
+              ? "bg-white text-red-700 shadow-sm"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <span className="flex items-center gap-2">
-            <span>👎</span>
+            <span aria-hidden>👎</span>
             Disliked
-            {filteredDislikedCount > 0 && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                {filteredDislikedCount}
+            {dislikedOutfits.length > 0 && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  activeTab === "disliked" ? "bg-red-100 text-red-700" : "bg-slate-200 text-slate-600"
+                }`}
+              >
+                {dislikedOutfits.length}
               </span>
             )}
           </span>
-          {activeTab === "disliked" && (
-            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-600" />
-          )}
         </button>
       </div>
 
       {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-600" />
-            <p className="text-sm text-slate-500">Loading your history...</p>
-          </div>
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-slate-600" />
+          <p className="mt-4 text-sm text-slate-500">Loading your history…</p>
         </div>
       ) : error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+        <div className="rounded-2xl border border-red-200 bg-red-50/50 p-8 text-center">
           <p className="text-red-700">{error}</p>
           <button
             onClick={fetchHistory}
-            className="mt-3 rounded-lg bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-200"
+            className="mt-4 rounded-lg bg-red-100 px-4 py-2.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-200"
           >
-            Try Again
+            Try again
           </button>
         </div>
       ) : currentOutfits.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-12 text-center">
-          <div className="text-4xl mb-3">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-12 text-center sm:p-16">
+          <div className="text-5xl sm:text-6xl" aria-hidden>
             {activeTab === "liked" ? "👍" : "👎"}
           </div>
-          <p className="text-slate-600">
-            {occasionFilter !== "all" ? (
-              <>No {activeTab} outfits found for <span className="font-medium capitalize">{occasionFilter}</span>.</>
-            ) : activeTab === "liked" ? (
-              "You haven't liked any outfits yet."
-            ) : (
-              "You haven't disliked any outfits yet."
-            )}
+          <h2 className="mt-4 text-lg font-medium text-slate-800">
+            {activeTab === "liked"
+              ? "No liked outfits yet"
+              : "No disliked outfits yet"}
+          </h2>
+          <p className="mt-2 max-w-sm mx-auto text-sm text-slate-500">
+            Get recommendations on the home page and tap like or dislike — they’ll show up here.
           </p>
-          <p className="mt-1 text-sm text-slate-500">
-            {occasionFilter !== "all" ? (
-              "Try selecting a different occasion or clear the filter."
-            ) : (
-              "Get recommendations on the Home page and provide feedback to see them here."
-            )}
-          </p>
-          {occasionFilter !== "all" && (
-            <button
-              onClick={() => setOccasionFilter("all")}
-              className="mt-3 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-300"
-            >
-              Clear Filter
-            </button>
-          )}
+          <Link
+            href="/dashboard"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+          >
+            Go to Home
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
         </div>
       ) : (
-        <div className="space-y-4">
-          {currentOutfits.map((outfit) => (
-            <div
-              key={outfit.id}
-              className={`rounded-xl border p-5 shadow-sm transition-colors ${
-                activeTab === "liked"
-                  ? "border-green-200 bg-green-50/50"
-                  : "border-red-200 bg-red-50/50"
-              }`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`rounded-full px-3 py-1 text-sm font-medium ${
-                      activeTab === "liked"
-                        ? "bg-green-200 text-green-800"
-                        : "bg-red-200 text-red-800"
-                    }`}
-                  >
-                    {activeTab === "liked" ? "👍 Liked" : "👎 Disliked"}
-                  </span>
-                  <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700 capitalize">
-                    {outfit.occasion}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-500">
-                    {formatDate(outfit.createdAt)}
-                  </span>
-                  {/* More options dropdown */}
-                  <div className="relative" ref={openMenuId === outfit.id ? menuRef : null}>
-                    <button
-                      onClick={() => setOpenMenuId(openMenuId === outfit.id ? null : outfit.id)}
-                      className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
-                      title="More options"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {currentOutfits.map((outfit) => {
+            const isLiked = activeTab === "liked";
+            return (
+              <div
+                key={outfit.id}
+                className={`relative rounded-2xl border bg-white shadow-sm transition-shadow hover:shadow-md ${
+                  isLiked ? "border-green-100" : "border-red-100"
+                }`}
+              >
+                {/* Outfit thumbnails row — spaced, full image visible (no crop) */}
+                <div className="flex gap-3 overflow-hidden rounded-t-2xl bg-slate-50 p-4">
+                  {outfit.items.map((item) => {
+                    const imgSrc = imageUrlFromPath(item.imagePath);
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex flex-1 min-w-0 rounded-lg flex items-center justify-center overflow-hidden"
+                        style={{ minHeight: 120 }}
                       >
-                        <circle cx="12" cy="5" r="2" />
-                        <circle cx="12" cy="12" r="2" />
-                        <circle cx="12" cy="19" r="2" />
-                      </svg>
-                    </button>
-                    {openMenuId === outfit.id && (
-                      <div className="absolute right-0 top-full mt-1 z-10 min-w-[160px] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                        <button
-                          onClick={() => {
-                            handleMove(
-                              outfit.id,
-                              activeTab === "liked" ? "rejected" : "accepted"
-                            );
-                            setOpenMenuId(null);
-                          }}
-                          className={`w-full px-4 py-2 text-left text-sm transition-colors flex items-center gap-2 ${
-                            activeTab === "liked"
-                              ? "text-red-700 hover:bg-red-50"
-                              : "text-green-700 hover:bg-green-50"
-                          }`}
-                        >
-                          <span>{activeTab === "liked" ? "👎" : "👍"}</span>
-                          {activeTab === "liked" ? "Move to Disliked" : "Move to Liked"}
-                        </button>
-                        <button
-                          onClick={() => {
-                            handleRemove(outfit.id);
-                            setOpenMenuId(null);
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100 flex items-center gap-2"
-                        >
-                          <span>🗑️</span>
-                          Remove
-                        </button>
+                        {imgSrc ? (
+                          <img
+                            src={imgSrc}
+                            alt=""
+                            className="max-h-28 w-full object-contain"
+                          />
+                        ) : (
+                          <div className="flex h-28 w-full items-center justify-center text-slate-300">
+                            <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16" />
+                            </svg>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    );
+                  })}
+                </div>
+
+                {/* Meta + actions */}
+                <div className="p-4 pt-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className="text-xs font-medium text-slate-500 capitalize truncate"
+                        title={outfit.occasion}
+                      >
+                        {outfit.occasion}
+                      </p>
+                      <p
+                        className="text-xs text-slate-400 mt-0.5"
+                        title={formatDate(outfit.createdAt)}
+                      >
+                        {relativeTime(outfit.createdAt)}
+                      </p>
+                    </div>
+                    <div className="relative flex-shrink-0 pt-0.5" ref={openMenuId === outfit.id ? menuRef : null}>
+                      <button
+                        onClick={() => setOpenMenuId(openMenuId === outfit.id ? null : outfit.id)}
+                        className="rounded-lg p-2.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                        title="Actions"
+                        aria-expanded={openMenuId === outfit.id}
+                        aria-haspopup="true"
+                      >
+                        <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                          <circle cx="12" cy="5" r="1.5" />
+                          <circle cx="12" cy="12" r="1.5" />
+                          <circle cx="12" cy="19" r="1.5" />
+                        </svg>
+                      </button>
+                      {openMenuId === outfit.id && (
+                        <div
+                          className="absolute right-0 top-full z-20 mt-2 min-w-[200px] rounded-xl border border-slate-200 bg-white py-2 shadow-lg"
+                          role="menu"
+                        >
+                          <button
+                            onClick={() => {
+                              handleMove(outfit.id, isLiked ? "rejected" : "accepted");
+                              setOpenMenuId(null);
+                            }}
+                            className={`flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors ${
+                              isLiked
+                                ? "text-red-600 hover:bg-red-50"
+                                : "text-green-600 hover:bg-green-50"
+                            }`}
+                            role="menuitem"
+                          >
+                            <span aria-hidden>{isLiked ? "👎" : "👍"}</span>
+                            {isLiked ? "Move to disliked" : "Move to liked"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleRemove(outfit.id);
+                              setOpenMenuId(null);
+                            }}
+                            className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+                            role="menuitem"
+                          >
+                            <svg className="h-4 w-4 flex-shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Remove from history
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Item names (compact) */}
+                  <p className="mt-2 text-xs text-slate-500 truncate">
+                    {outfit.items.map((i) => i.name).join(" · ")}
+                  </p>
                 </div>
               </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {outfit.items.map((item) => {
-                  const imgSrc = imageUrlFromPath(item.imagePath);
-                  return (
-                  <div
-                    key={item.id}
-                    className="flex gap-3 rounded-lg border border-slate-100 bg-white p-3"
-                  >
-                    {/* Image */}
-                    <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-slate-100">
-                      {imgSrc ? (
-                        <img
-                          src={imgSrc}
-                          alt={item.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-slate-400">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="24"
-                            height="24"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.47a1 1 0 00.99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.47a2 2 0 00-1.34-2.23z" />
-                          </svg>
-                        </div>
-                      )}
-                    </div>
-                    {/* Details */}
-                    <div className="flex flex-col justify-center min-w-0">
-                      <p className="font-medium text-slate-900 truncate">{item.name}</p>
-                      <p className="text-sm text-slate-500 capitalize">{item.category}</p>
-                      {item.colors.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {item.colors.slice(0, 3).map((color, i) => (
-                            <span
-                              key={i}
-                              className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-700"
-                            >
-                              {color}
-                            </span>
-                          ))}
-                          {item.colors.length > 3 && (
-                            <span className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-500">
-                              +{item.colors.length - 3}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

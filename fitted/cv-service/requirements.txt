@@ -1,8 +1,0 @@
-# Requirements for cv-service
-numpy>=1.20
-Pillow>=9.0
-torch>=2.0
-transformers>=4.30
-rembg[cpu]>=2.0
-fastapi>=0.100
-uvicorn[standard]>=0.22

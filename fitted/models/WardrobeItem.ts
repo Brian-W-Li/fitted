@@ -11,7 +11,8 @@ const WardrobeItemSchema = new Schema(
     colors: { type: [String], default: [] },
     seasons: { type: [String], default: [] },
     occasions: { type: [String], default: [] },
-    formality: { type: String },
+    // Optional layering role for tops/outerwear ("base", "mid", "outer"); may also be set for one-piece dresses.
+    layerRole: { type: String },
     brand: { type: String },
     fit: { type: String },
     size: { type: String },
@@ -22,6 +23,7 @@ const WardrobeItemSchema = new Schema(
 
     notes: { type: String },
     tags: { type: [String], default: [] },
+    isAvailable: { type: Boolean, default: true },
     isFavorite: { type: Boolean, default: false },
     lastWornAt: { type: Date },
     metadata: { type: Map, of: Schema.Types.Mixed, default: {} },

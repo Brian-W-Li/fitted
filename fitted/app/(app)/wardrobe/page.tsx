@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
+import { AddItemUploadStepActions } from "@/lib/addItemUploadStepActions";
 import { validateWardrobeForm } from "@/lib/wardrobeValidation";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 
@@ -14,10 +15,11 @@ type WardrobeItem = {
   category: string;
   subCategory?: string;
   pattern?: string;
+  isAvailable?: boolean;
+  layerRole?: string;
   colors: string[];
   fit: string;
   size: string;
-  formality: string;
   seasons: string[];
   occasions: string[];
   notes?: string;
@@ -28,22 +30,38 @@ type WardrobeItem = {
 const CATEGORY_OPTIONS = [
   { value: "top", label: "Top" },
   { value: "bottom", label: "Bottom" },
+  { value: "one piece", label: "One piece" },
   { value: "footwear", label: "Footwear" },
 ] as const;
 const TYPE_OPTIONS = [
+  // Tops
   { value: "t-shirt", label: "T-Shirt" },
   { value: "shirt", label: "Shirt" },
+  { value: "blazer", label: "Blazer" },
   { value: "sweater", label: "Sweater" },
   { value: "hoodie", label: "Hoodie" },
   { value: "jacket", label: "Jacket" },
+  { value: "cardigan", label: "Cardigan" },
+  { value: "coat", label: "Coat" },
+  { value: "polo", label: "Polo" },
+  { value: "turtleneck", label: "Turtleneck" },
+  // Bottoms
   { value: "jeans", label: "Jeans" },
   { value: "pants", label: "Pants" },
+  { value: "cargos", label: "Cargos" },
+  { value: "chinos", label: "Chinos" },
   { value: "shorts", label: "Shorts" },
   { value: "skirt", label: "Skirt" },
+  { value: "joggers", label: "Joggers" },
+  // One piece
+  { value: "dress", label: "Dress" },
+  { value: "jumpsuit", label: "Jumpsuit" },
+  // Footwear
   { value: "sneakers", label: "Sneakers" },
   { value: "boots", label: "Boots" },
   { value: "sandals", label: "Sandals" },
   { value: "dress shoes", label: "Dress Shoes" },
+  { value: "loafers", label: "Loafers" },
 ] as const;
 const PATTERN_OPTIONS = [
   { value: "solid", label: "Solid" },
@@ -52,15 +70,9 @@ const PATTERN_OPTIONS = [
   { value: "floral", label: "Floral" },
   { value: "graphic", label: "Graphic" },
 ] as const;
-const FORMALITY_OPTIONS = [
-  "Casual",
-  "Smart Casual",
-  "Business Casual",
-  "Formal",
-];
 const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
-const OCCASION_OPTIONS = ["Everyday", "Work", "Formal Event", "Workout"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
+const CV_GUIDE_DISMISS_FOREVER_KEY = "fitted-cv-guide-dismiss-forever-v1";
 
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
@@ -76,74 +88,125 @@ function WardrobeCard({
   item,
   onEdit,
   onDelete,
+  onToggleAvailability,
 }: {
   item: WardrobeItem;
   onEdit: (item: WardrobeItem) => void;
   onDelete: (item: WardrobeItem) => void;
+  onToggleAvailability: (item: WardrobeItem) => void;
 }) {
   const imgSrc = imageUrlFromPath(item.imagePath);
+  const isAvailable = item.isAvailable ?? true;
+
+  const categoryLabel = (item.category ?? "top").toLowerCase();
+  const categoryBadgeClass =
+    categoryLabel === "top"
+      ? "bg-blue-100 text-blue-700"
+      : categoryLabel === "bottom"
+        ? "bg-amber-100 text-amber-700"
+        : categoryLabel === "one piece"
+          ? "bg-violet-100 text-violet-700"
+          : "bg-slate-100 text-slate-700";
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div
+      className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-opacity ${
+        isAvailable ? "" : "opacity-60 grayscale"
+      }`}
+    >
       {/* Image */}
       {imgSrc ? (
-        <div className="relative h-44 w-full bg-slate-50">
+        <div className="relative h-64 w-full bg-slate-50 flex items-center justify-center p-2">
           <img
             src={imgSrc}
             alt={item.name}
-            className="h-full w-full object-cover"
+            className="max-h-full max-w-full object-contain"
             loading="lazy"
           />
         </div>
       ) : (
-        <div className="flex h-44 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
+        <div className="relative flex h-64 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
           No photo
         </div>
       )}
 
+      {/* Top left: category tag */}
+      <span
+        className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase shadow-sm ${categoryBadgeClass}`}
+      >
+        {item.category ?? "top"}
+      </span>
+
+      {/* Top right: round icon buttons */}
+      <div className="absolute right-2 top-2 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onToggleAvailability(item)}
+          className={`flex h-8 w-8 items-center justify-center rounded-full border bg-white/90 shadow-sm ${
+            isAvailable
+              ? "border-slate-200 text-slate-600 hover:bg-slate-100"
+              : "border-amber-200 text-amber-600 hover:bg-amber-50"
+          }`}
+          title={isAvailable ? "Exclude from recommendations" : "Include in recommendations"}
+          aria-label={isAvailable ? "Mark unavailable" : "Mark available"}
+        >
+          {isAvailable ? (
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" /><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" /><line x1="2" y1="2" x2="22" y2="22" />
+            </svg>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => onEdit(item)}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-600 shadow-sm hover:bg-slate-100"
+          title="Edit"
+          aria-label="Edit"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete(item)}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-white/90 text-red-600 shadow-sm hover:bg-red-50"
+          title="Delete"
+          aria-label="Delete"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            <line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+          </svg>
+        </button>
+      </div>
+
       {/* Content */}
       <div className="p-4">
-        <div className="mb-2 flex items-baseline justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-slate-900">{item.name}</h3>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                (item.category ?? "unknown") === "top"
-                  ? "bg-blue-100 text-blue-700"
-                  : "bg-amber-100 text-amber-700"
-              }`}>
-                {item.category ?? "unknown"}
-              </span>
-            </div>
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              {item.subCategory ? `${item.subCategory} · ${item.category}` : item.category}
-            </span>
-          </div>
-          <div className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onEdit(item)}
-              className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => onDelete(item)}
-              className="rounded-full border border-red-200 px-2 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50"
-            >
-              Delete
-            </button>
-          </div>
+        <div className="mb-2">
+          <h3 className={`text-base font-semibold ${isAvailable ? "text-slate-900" : "text-slate-500"}`}>
+            {item.name}
+          </h3>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            {item.subCategory ? `${item.subCategory} · ${item.category}` : item.category}
+          </span>
         </div>
 
-        {(item.formality || item.fit || item.seasons?.length || item.occasions?.length) && (
-          <p className="text-xs text-slate-500">
-            {[item.formality, item.fit, item.seasons?.join(", "), item.occasions?.join(", ")]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        )}
+        {(() => {
+          const fitDisplay = item.fit?.trim() && item.fit !== "0" ? item.fit : null;
+          const seasonsDisplay = item.seasons?.length ? item.seasons.join(", ") : null;
+          const occasionsDisplay = item.occasions?.length ? item.occasions.join(", ") : null;
+          const parts = [fitDisplay, seasonsDisplay, occasionsDisplay].filter(Boolean);
+          return parts.length > 0 ? (
+            <p className="text-xs text-slate-500">
+              {parts.join(" · ")}
+            </p>
+          ) : null;
+        })()}
 
         {item.colors.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5 items-center">
@@ -190,6 +253,10 @@ type AddItemModalProps = {
   pendingAddFile?: File | null;
   onAnalyze?: (file: File) => Promise<void>;
   isAnalyzing?: boolean;
+  /** Error message from the most recent CV inference attempt, shown in the upload step. */
+  cvError?: string | null;
+  /** Called when the user wants to skip CV and go directly to the form. Receives the currently-selected file (may be null). */
+  onSkipToForm?: (file: File | null) => void;
   /** When editing, show current image and make file input optional so we don't overwrite. */
   existingImagePath?: string | null;
 };
@@ -203,6 +270,8 @@ function AddItemModal({
   pendingAddFile,
   onAnalyze,
   isAnalyzing,
+  cvError,
+  onSkipToForm,
   existingImagePath,
 }: AddItemModalProps) {
   const [name, setName] = useState(initialItem?.name ?? "");
@@ -211,18 +280,27 @@ function AddItemModal({
   const [colors, setColors] = useState<string[]>(initialItem?.colors ?? []);
   const [colorsInput, setColorsInput] = useState("");
   const [pattern, setPattern] = useState(initialItem?.pattern ?? "");
-  const [formality, setFormality] = useState(initialItem?.formality ?? "");
+  const [layerRole, setLayerRole] = useState(initialItem?.layerRole ?? "");
   const [seasons, setSeasons] = useState<string[]>(initialItem?.seasons ?? []);
   const [occasions, setOccasions] = useState<string[]>(initialItem?.occasions ?? []);
+  const [occasionsInput, setOccasionsInput] = useState("");
   const [fit, setFit] = useState(initialItem?.fit ?? "");
+  const isAvailable = initialItem?.isAvailable ?? true;
   const [imageFile, setImageFile] = useState<File | null>(pendingAddFile ?? null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [guideDismissedSession, setGuideDismissedSession] = useState(false);
+  const [guideDismissedForever, setGuideDismissedForever] = useState(false);
 
   const isUploadStep = addStep === "upload";
   const isEdit = !!existingImagePath || (!!initialItem && !addStep);
   const showForm = !isUploadStep;
+  const canShowGuideInThisModal = showForm && addStep === "form";
+  const showCvGuide =
+    canShowGuideInThisModal &&
+    !guideDismissedSession &&
+    !guideDismissedForever;
 
   function toggleInArray(value: string, current: string[], setter: (v: string[]) => void) {
     if (current.includes(value)) setter(current.filter((v) => v !== value));
@@ -237,7 +315,7 @@ function AddItemModal({
     setSubCategory(initialItem.subCategory ?? "");
     setColors(initialItem.colors ?? []);
     setPattern(initialItem.pattern ?? "");
-    setFormality(initialItem.formality ?? "");
+    setLayerRole(initialItem.layerRole ?? "");
     setSeasons(initialItem.seasons ?? []);
     setOccasions(initialItem.occasions ?? []);
     setFit(initialItem.fit ?? "");
@@ -246,6 +324,16 @@ function AddItemModal({
   useEffect(() => {
     if (pendingAddFile != null) setImageFile(pendingAddFile);
   }, [pendingAddFile]);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(CV_GUIDE_DISMISS_FOREVER_KEY) === "1") {
+        setGuideDismissedForever(true);
+      }
+    } catch {
+      // Ignore localStorage access errors.
+    }
+  }, []);
 
   function onPickImage(file: File | null) {
     setImageError(null);
@@ -277,6 +365,26 @@ function AddItemModal({
     }
   }
 
+  function addOccasionTag(value: string) {
+    const raw = value.trim();
+    if (!raw) return;
+    // Normalize simple separators like commas or multiple spaces
+    const normalized = raw.replace(/\s+/g, " ");
+    if (!occasions.includes(normalized)) {
+      setOccasions((prev: string[]) => [...prev, normalized]);
+      setOccasionsInput("");
+    }
+  }
+
+  function dismissGuideForever() {
+    setGuideDismissedForever(true);
+    try {
+      window.localStorage.setItem(CV_GUIDE_DISMISS_FOREVER_KEY, "1");
+    } catch {
+      // Ignore localStorage write errors.
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -298,12 +406,13 @@ function AddItemModal({
           subCategory: subCategory || undefined,
           pattern: pattern.trim() || undefined,
           colors: colorsToSave,
+          layerRole: layerRole || undefined,
           fit: fit.trim(),
           size: "",
-          formality: formality.trim(),
           seasons,
           occasions,
           notes: "",
+          isAvailable,
         },
         fileToUpload
       );
@@ -342,7 +451,7 @@ function AddItemModal({
               <span className="text-lg leading-none">×</span>
             </button>
           </div>
-          <p className="mb-4 text-sm text-slate-600">Upload a photo and we&apos;ll suggest category, colors, and more. You can edit before saving.</p>
+          <p className="mb-4 text-sm text-slate-600">Upload a photo and we&apos;ll suggest category, colors, and more — or skip and fill in the details manually.</p>
           <div
             className={`relative rounded-xl border-2 border-dashed transition-colors ${
               dragOver ? "border-slate-400 bg-slate-50" : "border-slate-200 bg-slate-50/50"
@@ -379,26 +488,14 @@ function AddItemModal({
             )}
           </div>
           {imageError && <p className="mt-2 text-xs text-red-600">{imageError}</p>}
-          <div className="mt-6 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!imageFile || isAnalyzing}
-              onClick={() => imageFile && onAnalyze?.(imageFile)}
-              className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              {isAnalyzing ? (
-                <>
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Analyzing…
-                </>
-              ) : (
-                "Analyze photo"
-              )}
-            </button>
-          </div>
+          <AddItemUploadStepActions
+            imageFile={imageFile}
+            isAnalyzing={isAnalyzing}
+            cvError={cvError}
+            onClose={onClose}
+            onAnalyze={onAnalyze}
+            onSkipToForm={onSkipToForm}
+          />
         </div>
       </div>
     );
@@ -406,6 +503,42 @@ function AddItemModal({
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="relative flex w-full max-w-lg items-start justify-center">
+        {showCvGuide && (
+          <aside className="hidden lg:block absolute right-full mr-4 top-4 w-80 rounded-xl border border-slate-200/70 bg-sky-50/95 p-4 shadow-xl">
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <h4 className="text-sm font-semibold text-slate-900">Quick guide</h4>
+            </div>
+            <ul className="space-y-2 text-xs leading-5 text-slate-700">
+              <li>
+                <span className="font-semibold text-slate-900">CV may be wrong:</span> photo recognition is a draft, always verify category, type, and colors before saving
+              </li>
+              <li>
+                <span className="font-semibold text-slate-900">Check Layer role:</span> set base, mid, or outer so outfit matching handles stacking correctly
+              </li>
+              <li>
+                <span className="font-semibold text-slate-900">Use Occasions / contexts:</span> add how you usually wear this piece (e.g. gym, office, date night) to improve recommendations
+              </li>
+            </ul>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setGuideDismissedSession(true)}
+                className="rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={dismissGuideForever}
+                className="rounded-lg border border-slate-200 bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 transition-colors"
+              >
+                Dismiss forever
+              </button>
+            </div>
+          </aside>
+        )}
+
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-start justify-between gap-4 p-5 pb-4 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -420,7 +553,26 @@ function AddItemModal({
                 {title ?? "Add clothing item"}
               </h2>
               {addStep === "form" && pendingAddFile && (
-                <p className="text-xs text-slate-500 mt-0.5">Review and edit, then save</p>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <p className="text-xs text-slate-500">Review and edit, then save</p>
+                  {!showCvGuide && canShowGuideInThisModal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuideDismissedSession(false);
+                        setGuideDismissedForever(false);
+                        try {
+                          window.localStorage.removeItem(CV_GUIDE_DISMISS_FOREVER_KEY);
+                        } catch {
+                          // Ignore localStorage access errors.
+                        }
+                      }}
+                      className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                      Show guide
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -436,6 +588,40 @@ function AddItemModal({
 
         <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1 overflow-hidden">
           <div className="p-5 overflow-y-auto space-y-5">
+            {showCvGuide && (
+              <aside className="lg:hidden rounded-xl border border-slate-200/70 bg-sky-50/80 p-4">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-slate-900">Quick guide</h4>
+                </div>
+                <ul className="space-y-2 text-xs leading-5 text-slate-700">
+                  <li>
+                    <span className="font-semibold text-slate-900">CV may be wrong:</span> photo recognition is a draft, always verify category, type, and colors before saving
+                  </li>
+                  <li>
+                    <span className="font-semibold text-slate-900">Check Layer role:</span> set base, mid, or outer so outfit matching handles stacking correctly
+                  </li>
+                  <li>
+                    <span className="font-semibold text-slate-900">Use Occasions / contexts:</span> add how you usually wear this piece (e.g. gym, office, date night) to improve recommendations
+                  </li>
+                </ul>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGuideDismissedSession(true)}
+                    className="rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    type="button"
+                    onClick={dismissGuideForever}
+                    className="rounded-lg border border-slate-200 bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 transition-colors"
+                  >
+                    Dismiss forever
+                  </button>
+                </div>
+              </aside>
+            )}
             {/* Basics */}
             <section className="space-y-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Basics</h3>
@@ -548,16 +734,16 @@ function AddItemModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Formality</label>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Layer role</label>
                   <select
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                    value={formality}
-                    onChange={(e) => setFormality(e.target.value)}
+                    value={layerRole}
+                    onChange={(e) => setLayerRole(e.target.value)}
                   >
-                    <option value="">Select…</option>
-                    {FORMALITY_OPTIONS.map((f) => (
-                      <option key={f} value={f}>{f}</option>
-                    ))}
+                    <option value="">None / Not applicable</option>
+                    <option value="base">Base layer (e.g. tee, shirt)</option>
+                    <option value="mid">Mid layer (e.g. sweater)</option>
+                    <option value="outer">Outer layer (e.g. jacket, coat)</option>
                   </select>
                 </div>
               </div>
@@ -600,23 +786,49 @@ function AddItemModal({
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1.5">Occasions</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {OCCASION_OPTIONS.map((o) => {
-                    const active = occasions.includes(o);
-                    return (
-                      <button
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">Occasions / contexts</label>
+                {occasions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                    {occasions.map((o) => (
+                      <span
                         key={o}
-                        type="button"
-                        onClick={() => toggleInArray(o, occasions, setOccasions)}
-                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                          active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        }`}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
                       >
-                        {o}
-                      </button>
-                    );
-                  })}
+                        <span>{o}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOccasions((prev: string[]) => prev.filter((val: string) => val !== o))
+                          }
+                          className="text-slate-400 hover:text-red-600 transition-colors"
+                          aria-label={`Remove occasion ${o}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                    value={occasionsInput}
+                    onChange={(e) => setOccasionsInput(e.target.value)}
+                    placeholder='Add occasion tag (e.g. "date night", "business casual")'
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addOccasionTag(occasionsInput);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addOccasionTag(occasionsInput)}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    Add
+                  </button>
                 </div>
               </div>
             </section>
@@ -669,6 +881,7 @@ function AddItemModal({
           </div>
         </form>
       </div>
+      </div>
     </div>
   );
 }
@@ -708,8 +921,10 @@ export default function WardrobePage() {
   // Add flow: step 1 = upload only, step 2 = form with CV-inferred attributes
   const [addStep, setAddStep] = useState<"upload" | "form" | null>(null);
   const [addInferred, setAddInferred] = useState<WardrobeFormValues | null>(null);
+  const [addInferredCroppedImage, setAddInferredCroppedImage] = useState<string | null>(null);
   const [addPendingFile, setAddPendingFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [cvError, setCvError] = useState<string | null>(null);
   const cvAbortRef = useRef<AbortController | null>(null);
 
   // Watch Firebase auth state
@@ -786,41 +1001,68 @@ export default function WardrobePage() {
     }
   }
 
-  async function handleClearWardrobe() {
-  if (!firebaseUser) return;
-
-  const confirmed = window.confirm(
-    "Delete ALL wardrobe items? This cannot be undone."
-  );
-  if (!confirmed) return;
-
-  try {
-    setError(null);
-    setLoading(true);
-
-    const token = await firebaseUser.getIdToken();
-    const res = await fetch("/api/wardrobe/clear", {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data.error ?? "Failed to delete all items.");
-      return;
+  async function handleToggleAvailability(item: WardrobeItem) {
+    if (!firebaseUser) return;
+    try {
+      setError(null);
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch(`/api/wardrobe/${item.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isAvailable: !(item.isAvailable ?? true) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to update availability.");
+        return;
+      }
+      const raw = data.item;
+      const updated: WardrobeItem = { ...raw, id: raw.id ?? raw._id };
+      setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
+    } catch (e) {
+      console.error("Error updating availability:", e);
+      setError("Failed to update availability.");
     }
-
-    // Keep UI consistent with DB: clear local state after successful API delete
-    setItems([]);
-  } catch (e) {
-    console.error("Error clearing wardrobe:", e);
-    setError("Failed to delete all items.");
-  } finally {
-    setLoading(false);
   }
-}
+
+  async function handleClearWardrobe() {
+    if (!firebaseUser) return;
+
+    const confirmed = window.confirm(
+      "Delete ALL wardrobe items? This cannot be undone."
+    );
+    if (!confirmed) return;
+
+    try {
+      setError(null);
+      setLoading(true);
+
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/wardrobe/clear", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to delete all items.");
+        return;
+      }
+
+      // Keep UI consistent with DB: clear local state after successful API delete
+      setItems([]);
+    } catch (e) {
+      console.error("Error clearing wardrobe:", e);
+      setError("Failed to delete all items.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleAddItem(
     newItem: Omit<WardrobeItem, "id">,
@@ -916,6 +1158,7 @@ export default function WardrobePage() {
               setAddInferred(null);
               setAddPendingFile(null);
               setIsAnalyzing(false);
+              setCvError(null);
               cvAbortRef.current?.abort();
               cvAbortRef.current = null;
               setIsModalOpen(true);
@@ -942,7 +1185,7 @@ export default function WardrobePage() {
           you wear often (jeans, t‑shirts, jackets, shoes).
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {items.map((item) => (
             <WardrobeCard
               key={item.id}
@@ -955,6 +1198,7 @@ export default function WardrobePage() {
                 setIsModalOpen(true);
               }}
               onDelete={handleDeleteItem}
+              onToggleAvailability={handleToggleAvailability}
             />
           ))}
         </div>
@@ -967,7 +1211,9 @@ export default function WardrobePage() {
             setAddStep(null);
             setAddInferred(null);
             setAddPendingFile(null);
+            setAddInferredCroppedImage(null);
             setEditingItem(null);
+            setCvError(null);
           }}
           onSave={async (data, imageFile) => {
             if (editingItem) {
@@ -1027,16 +1273,37 @@ export default function WardrobePage() {
               }
             } else {
               const saved = await handleAddItem(data);
-              if (saved && imageFile && firebaseUser) {
+              if (saved && firebaseUser) {
                 try {
-                  const up = await uploadWardrobeItemImage({
-                    firebaseUser,
-                    wardrobeItemId: saved.id,
-                    file: imageFile,
-                  });
-                  setItems((prev) =>
-                    prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
-                  );
+                  if (addInferredCroppedImage) {
+                    // Use CV-cropped, background-removed image returned by the CV service
+                    const base64 = addInferredCroppedImage;
+                    const binary = atob(base64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                      bytes[i] = binary.charCodeAt(i);
+                    }
+                    const blob = new Blob([bytes], { type: "image/png" });
+                    const cvFile = new File([blob], "cv-cropped.png", { type: "image/png" });
+                    const up = await uploadWardrobeItemImage({
+                      firebaseUser,
+                      wardrobeItemId: saved.id,
+                      file: cvFile,
+                    });
+                    setItems((prev) =>
+                      prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
+                    );
+                  } else if (imageFile) {
+                    // Fallback: use the original uploaded image if CV did not return a cropped version
+                    const up = await uploadWardrobeItemImage({
+                      firebaseUser,
+                      wardrobeItemId: saved.id,
+                      file: imageFile,
+                    });
+                    setItems((prev) =>
+                      prev.map((it) => (it.id === saved.id ? { ...it, imagePath: up.imagePath } : it))
+                    );
+                  }
                 } catch (e) {
                   console.error(e);
                   setError(e instanceof Error ? e.message : "Failed to upload image.");
@@ -1045,6 +1312,7 @@ export default function WardrobePage() {
               setAddStep(null);
               setAddInferred(null);
               setAddPendingFile(null);
+              setAddInferredCroppedImage(null);
             }
           }}
           initialItem={
@@ -1055,12 +1323,13 @@ export default function WardrobePage() {
                   subCategory: editingItem.subCategory,
                   pattern: editingItem.pattern,
                   colors: editingItem.colors,
+                  layerRole: editingItem.layerRole,
                   fit: editingItem.fit ?? "",
                   size: editingItem.size,
-                  formality: editingItem.formality,
                   seasons: editingItem.seasons ?? [],
                   occasions: editingItem.occasions ?? [],
                   notes: editingItem.notes,
+                  isAvailable: editingItem.isAvailable,
                   imagePath: editingItem.imagePath,
                 }
               : addStep === "form"
@@ -1075,6 +1344,7 @@ export default function WardrobePage() {
             const controller = new AbortController();
             cvAbortRef.current = controller;
             setIsAnalyzing(true);
+            setCvError(null);
             setError(null);
             try {
               const fd = new FormData();
@@ -1088,16 +1358,23 @@ export default function WardrobePage() {
               const json = await res.json().catch(() => ({}));
               if (controller.signal.aborted) return;
               if (!res.ok) {
-                setError(json.error ?? "Failed to analyze photo.");
+                // Use the structured message from the route when available
+                const msg = (json as { message?: string; error?: string }).message
+                  ?? (json as { error?: string }).error
+                  ?? "Image analysis failed. You can continue by filling the form manually.";
+                setCvError(msg);
                 return;
               }
-              setAddInferred(cvResponseToFormValues(json as CVInferResponse));
+              const full = json as CVInferResponse & { cropped_image_base64?: string | null };
+              setAddInferred(cvResponseToFormValues(full));
+              const cropped = typeof (full as any).cropped_image_base64 === "string" ? (full as any).cropped_image_base64 : null;
+              setAddInferredCroppedImage(cropped);
               setAddPendingFile(file);
               setAddStep("form");
             } catch (e) {
               if ((e as Error)?.name === "AbortError") return;
               console.error(e);
-              setError(e instanceof Error ? e.message : "Failed to analyze photo.");
+              setCvError(e instanceof Error ? e.message : "Image analysis failed. You can continue by filling the form manually.");
             } finally {
               if (!controller.signal.aborted) {
                 cvAbortRef.current = null;
@@ -1106,6 +1383,13 @@ export default function WardrobePage() {
             }
           }}
           isAnalyzing={isAnalyzing}
+          cvError={cvError}
+          onSkipToForm={(file) => {
+            setAddInferred(null);
+            setAddPendingFile(file);
+            setAddStep("form");
+            setCvError(null);
+          }}
           existingImagePath={editingItem?.imagePath}
         />
       )}

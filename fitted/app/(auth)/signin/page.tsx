@@ -5,6 +5,24 @@ import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
+import RedirectIfAuthenticated from "@/app/(app)/RedirectIfAuthenticated";
+
+function normalizeAuthError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = /auth\/[a-z-]+/.exec(message)?.[0];
+
+  if (code === "auth/unauthorized-domain") {
+    return "This domain is not authorized in Firebase Auth, use localhost or add this domain in Firebase Console";
+  }
+  if (code === "auth/popup-blocked") {
+    return "Popup was blocked by browser, please allow popups and try again";
+  }
+  if (code === "auth/popup-closed-by-user") {
+    return "Sign-in popup was closed before completing login";
+  }
+
+  return message || "Sign-in failed";
+}
 
 export default function SigninPage() {
   const router = useRouter();
@@ -34,7 +52,12 @@ export default function SigninPage() {
       });
 
       if (!syncResponse.ok) {
-        throw new Error("Failed to sync user to database");
+        const errorData = await syncResponse.json().catch(() => ({}));
+        const detail =
+          typeof errorData?.error === "string"
+            ? errorData.error
+            : "Failed to sync user to database";
+        throw new Error(detail);
       }
 
       const data = await syncResponse.json();
@@ -44,16 +67,17 @@ export default function SigninPage() {
         localStorage.setItem("userId", data.userId);
       }
 
-      router.push("/");
+      router.push("/dashboard");
     } catch (e) {
-      console.error(e);
-      setError("Sign-in failed. Please try again.");
+      console.error("Signin error:", e);
+      setError(normalizeAuthError(e));
     } finally {
       setLoading(false);
     }
   }
 
   return (
+    <RedirectIfAuthenticated>
     <div className="flex min-h-screen items-center justify-center bg-white">
       <main className="w-full max-w-md px-6 py-8">
         <div className="text-center mb-8">
@@ -112,5 +136,6 @@ export default function SigninPage() {
         </div>
       </main>
     </div>
+    </RedirectIfAuthenticated>
   );
 }
