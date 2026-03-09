@@ -23,3 +23,4 @@
 | Mon 03/02 | Pengyu | Schedule the final week before code freeze |
 | Wed 03/04 | Brian | Made sure everyone did standup even though we are busy |
 | Fri 03/06 | Jenil | Made sure everyone did the lab requirements |
+| Mon 03/09 | Matthew | Focused up on making sure everybody had something to do before code freeze |
