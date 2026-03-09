@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { inferWhyForInteraction } from "@/lib/gemini";
-import { runPersonalizationSummarize } from "@/lib/runPersonalizationSummary";
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -132,72 +131,86 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { OutfitInteraction, WardrobeItem, PreferenceSummary } = await initDatabase();
+    const { OutfitInteraction, WardrobeItem } = await initDatabase();
 
+    // Normalize perItemFeedback from the request body
+    type RawPerItemFeedback = { itemId?: unknown; disliked?: unknown; notes?: unknown };
+    const normalizedPerItemFeedback = Array.isArray(perItemFeedback)
+      ? (perItemFeedback as RawPerItemFeedback[])
+          .filter((f) => f && typeof f.itemId === "string")
+          .map((f) => ({
+            itemId: f.itemId as string,
+            disliked: Boolean(f.disliked),
+            notes: typeof f.notes === "string" ? f.notes.slice(0, 500) : undefined,
+          }))
+      : undefined;
+
+    console.info(JSON.stringify({
+      event: "interaction_save_start",
+      userId,
+      action,
+      itemCount: itemIds.length,
+      hasPerItemFeedback: !!normalizedPerItemFeedback?.length,
+    }));
+
+    // Save immediately — do not block on Gemini
     const interaction = await OutfitInteraction.create({
       user: userId,
       items: itemIds,
-      action: action,
-      context: {
-        occasion: occasion || "casual",
-      },
+      action,
+      context: { occasion: occasion || "casual" },
+      ...(normalizedPerItemFeedback?.length ? { perItemFeedback: normalizedPerItemFeedback } : {}),
     });
 
-    // Gemini: infer "why" for this event and store on the interaction
-    const outfitItems = await WardrobeItem.find({
-      _id: { $in: itemIds },
-      user: userId,
-    })
-      .select("name category subCategory colors pattern layerRole")
-      .lean()
-      .exec();
-
-    const itemsForInference = outfitItems.map((doc: Record<string, unknown>) => ({
-      name: doc.name as string,
-      category: doc.category as string,
-      subCategory: doc.subCategory as string,
-      colors: doc.colors as string[],
-      pattern: doc.pattern as string,
-      layerRole: doc.layerRole as string,
+    console.info(JSON.stringify({
+      event: "interaction_save_success",
+      interactionId: interaction._id.toString(),
+      action,
     }));
-    const dislikedIdsSet = new Set(Array.isArray(bodyDislikedIds) ? bodyDislikedIds.map(String) : []);
-    const dislikedItemNames = outfitItems
-      .filter((d: { _id?: unknown }) => dislikedIdsSet.has(String((d as { _id: unknown })._id)))
-      .map((d: Record<string, unknown>) => (d.name as string) || "Item");
 
-    const inferredWhy = await inferWhyForInteraction({
-      action: action === "accepted" ? "accepted" : "rejected",
-      occasion: occasion || "casual",
-      items: itemsForInference,
-      dislikedItemNames: dislikedItemNames.length > 0 ? dislikedItemNames : undefined,
-    });
-
-    if (inferredWhy) {
-      await OutfitInteraction.findByIdAndUpdate(interaction._id, { inferredWhy }).exec();
-    }
-
-    // Auto-run personalization summary when: no summary exists, or 5+ new interactions since last summary
+    // Return immediately — do not wait for Gemini inferWhy
+    // inferWhy runs non-blocking and updates the interaction if it succeeds.
+    // On Vercel serverless the runtime may not keep the process alive after the
+    // response is sent, so inferWhy is best-effort rather than guaranteed.
     if (process.env.GEMINI_API_KEY) {
-      const summary = await PreferenceSummary.findOne({ user: userId }).lean().exec();
-      const hasSummary = summary && (summary as { text?: string }).text?.trim();
-      let newCount = 0;
-      if (summary) {
-        newCount = await OutfitInteraction.countDocuments({
-          user: userId,
-          action: { $in: ["accepted", "rejected"] },
-          createdAt: { $gt: (summary as { updatedAt?: Date }).updatedAt },
-        });
-      } else {
-        newCount = await OutfitInteraction.countDocuments({
-          user: userId,
-          action: { $in: ["accepted", "rejected"] },
-        });
-      }
-      if (!hasSummary || newCount >= 5) {
-        void runPersonalizationSummarize(userId).catch((e) =>
-          console.error("Auto-summarize after like/dislike failed:", e)
-        );
-      }
+      void (async () => {
+        try {
+          const outfitItems = await WardrobeItem.find({ _id: { $in: itemIds }, user: userId })
+            .select("name category subCategory colors pattern layerRole")
+            .lean()
+            .exec();
+
+          const itemsForInference = (outfitItems as Record<string, unknown>[]).map((doc) => ({
+            name: doc.name as string,
+            category: doc.category as string,
+            subCategory: doc.subCategory as string | undefined,
+            colors: doc.colors as string[],
+            pattern: doc.pattern as string | undefined,
+            layerRole: doc.layerRole as string | undefined,
+          }));
+
+          const dislikedIdsSet = new Set(Array.isArray(bodyDislikedIds) ? bodyDislikedIds.map(String) : []);
+          const dislikedItemNames = (outfitItems as Record<string, unknown>[])
+            .filter((d) => dislikedIdsSet.has(String((d as { _id: unknown })._id)))
+            .map((d) => (d.name as string) || "Item");
+
+          console.info(JSON.stringify({ event: "gemini_infer_why_queued", interactionId: interaction._id.toString() }));
+
+          const inferredWhy = await inferWhyForInteraction({
+            action: action === "accepted" ? "accepted" : "rejected",
+            occasion: occasion || "casual",
+            items: itemsForInference,
+            dislikedItemNames: dislikedItemNames.length > 0 ? dislikedItemNames : undefined,
+          });
+
+          if (inferredWhy) {
+            await OutfitInteraction.findByIdAndUpdate(interaction._id, { inferredWhy }).exec();
+            console.info(JSON.stringify({ event: "gemini_infer_why_saved", interactionId: interaction._id.toString() }));
+          }
+        } catch (e) {
+          console.error(JSON.stringify({ event: "gemini_infer_why_pipeline_error", message: (e as Error)?.message }));
+        }
+      })();
     }
 
     return NextResponse.json({

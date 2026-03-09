@@ -1,5 +1,14 @@
 import { Schema, model, models, type InferSchemaType } from "mongoose";
 
+const PerItemFeedbackSchema = new Schema(
+  {
+    itemId: { type: Schema.Types.ObjectId, ref: "WardrobeItem" },
+    disliked: { type: Boolean, default: false },
+    notes: { type: String },
+  },
+  { _id: false, timestamps: false },
+);
+
 const ContextSchema = new Schema(
   {
     weather: { type: String },
@@ -24,6 +33,8 @@ const OutfitInteractionSchema = new Schema(
     feedback: { type: String },
     /** One-off "why" for this event: inferred by Gemini (what went right or wrong). */
     inferredWhy: { type: String },
+    /** Per-item feedback from the dislike modal: which pieces the user marked as disliked and any notes. */
+    perItemFeedback: { type: [PerItemFeedbackSchema], default: undefined },
     context: { type: ContextSchema, default: () => ({}) },
     metadata: { type: Map, of: Schema.Types.Mixed, default: {} },
   },
