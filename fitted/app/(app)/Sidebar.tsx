@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const navItems = [
   { href: "/dashboard", label: "Home" },
@@ -12,6 +12,16 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogoClick = () => {
+    // If already on dashboard, refresh the page; otherwise navigate
+    if (pathname === "/dashboard") {
+      window.location.reload();
+    } else {
+      router.push("/dashboard");
+    }
+  };
 
   return (
     <aside className="w-full border-b border-slate-200/80 bg-white/85 px-6 py-5 backdrop-blur md:w-64 md:min-h-screen md:border-b-0 md:border-r">
