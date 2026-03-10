@@ -15,9 +15,11 @@ export default function Sidebar() {
 
   return (
     <aside className="w-full border-b border-slate-200/80 bg-white/85 px-6 py-5 backdrop-blur md:w-64 md:min-h-screen md:border-b-0 md:border-r">
-      <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white/90 px-3 py-1 text-2xl font-extrabold text-slate-900 shadow-sm">
-        Fitted
-      </div>
+      <Link href="/dashboard">
+        <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white/90 px-3 py-1 text-2xl font-extrabold text-slate-900 shadow-sm cursor-pointer hover:bg-slate-50 transition-colors">
+          Fitted
+        </div>
+      </Link>
       <nav className="mt-5 flex flex-wrap gap-2 md:flex-col md:gap-1">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
