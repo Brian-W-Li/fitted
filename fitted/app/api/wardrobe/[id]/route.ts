@@ -112,6 +112,8 @@ export async function PATCH(
         notes: doc.notes ?? "",
         isAvailable: doc.isAvailable ?? true,
         imagePath: doc.imagePath ?? undefined,
+        createdAt: (doc as unknown as { createdAt?: Date }).createdAt?.toISOString(),
+        updatedAt: (doc as unknown as { updatedAt?: Date }).updatedAt?.toISOString(),
       },
     });
   } catch (error) {
