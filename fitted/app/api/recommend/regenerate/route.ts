@@ -13,7 +13,7 @@ const openai = new OpenAI({
 // ============================================================================
 
 type TemperatureHint = "hot" | "mild" | "cold" | "indoor" | "outdoor";
-type ChangeTarget = "outer" | "top" | "bottom" | "any";
+type ChangeTarget = "outer" | "top" | "bottom" | "footwear" | "any";
 
 interface EnvironmentContext {
   temperatureHint: TemperatureHint;
@@ -465,14 +465,25 @@ ENVIRONMENT:
 
 `;
 
-    // Add regeneration-specific constraints
+    const changeTargetLabel =
+      changeTarget === "any"
+        ? "the non-locked items"
+        : changeTarget === "outer"
+          ? "the outer layer items"
+          : `the ${changeTarget} items`;
+
+    // Change target hint should apply even when nothing is locked.
+    userMessage += `CHANGE_TARGET: "${changeTarget}"
+- Primarily change ${changeTargetLabel}.
+
+`;
+
+    // Locked items are conditional.
     if (lockedItemsJson) {
       userMessage += `LOCKED_ITEMS (MUST be included in every outfit):
 ${lockedItemsJson}
 
-CHANGE_TARGET: "${changeTarget}"
 - You MUST include ALL locked items in every suggested outfit.
-- Primarily change ${changeTarget === "any" ? "the non-locked items" : `the ${changeTarget} items`}.
 
 `;
     }
