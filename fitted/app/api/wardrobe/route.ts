@@ -71,6 +71,8 @@ export async function GET(request: NextRequest) {
       notes?: string;
       isAvailable?: boolean;
       imagePath?: string;
+      createdAt?: Date;
+      updatedAt?: Date;
     };
 
     const items = (await WardrobeItem.find({ user: userId })
@@ -95,6 +97,8 @@ export async function GET(request: NextRequest) {
         notes: item.notes ?? "",
         isAvailable: item.isAvailable ?? true,
         imagePath: item.imagePath ?? undefined,
+        createdAt: item.createdAt?.toISOString(),
+        updatedAt: item.updatedAt?.toISOString(),
       })),
     });
   } catch (error) {

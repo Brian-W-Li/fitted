@@ -24,6 +24,8 @@ type WardrobeItem = {
   occasions: string[];
   notes?: string;
   imagePath?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 // Values must match CV output (cv-service/cv.py) for pre-fill; display is Title Case in the UI.
@@ -926,6 +928,9 @@ export default function WardrobePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [cvError, setCvError] = useState<string | null>(null);
   const cvAbortRef = useRef<AbortController | null>(null);
+  const [activeFilter, setActiveFilter] = useState<"all" | "top" | "bottom" | "one piece">("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "name">("newest");
 
   // Watch Firebase auth state
   useEffect(() => {
@@ -1189,32 +1194,114 @@ export default function WardrobePage() {
         </p>
       )}
 
-      {loading ? (
-        <p className="text-sm text-slate-500">Loading wardrobe…</p>
-      ) : items.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          You don&apos;t have any items yet. Start by adding a few key pieces
-          you wear often (jeans, t‑shirts, jackets, shoes).
-        </p>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {items.map((item) => (
-            <WardrobeCard
-              key={item.id}
-              item={item}
-              onEdit={(it) => {
-                setEditingItem(it);
-                setAddStep(null);
-                setAddInferred(null);
-                setAddPendingFile(null);
-                setIsModalOpen(true);
-              }}
-              onDelete={handleDeleteItem}
-              onToggleAvailability={handleToggleAvailability}
-            />
-          ))}
+      {/* Display-only controls — search, type filter, sort. No effect on recommendations. */}
+      {!loading && items.length > 0 && (
+        <div className="mb-4 space-y-3">
+          {/* Search */}
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search wardrobe by item name"
+            className="w-full rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300"
+          />
+
+          {/* Type filter pills + sort dropdown */}
+          <div className="flex flex-wrap items-center gap-2">
+            {(
+              [
+                { label: "All", value: "all" },
+                { label: "Tops", value: "top" },
+                { label: "Bottoms", value: "bottom" },
+                { label: "One-piece", value: "one piece" },
+              ] as { label: string; value: typeof activeFilter }[]
+            ).map(({ label, value }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setActiveFilter(value)}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  activeFilter === value
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)}
+              className="ml-auto rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            >
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="name">Name (A–Z)</option>
+            </select>
+          </div>
         </div>
       )}
+
+      {(() => {
+        // Pipeline: type filter → name search → sort → render
+        // None of these touch backend state or recommendation APIs.
+        let display = activeFilter === "all"
+          ? items
+          : items.filter((it) => it.category === activeFilter);
+
+        if (searchQuery.trim()) {
+          const q = searchQuery.trim().toLowerCase();
+          display = display.filter((it) => it.name.toLowerCase().includes(q));
+        }
+
+        display = [...display].sort((a, b) => {
+          if (sortOrder === "name") {
+            return a.name.localeCompare(b.name);
+          }
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return sortOrder === "newest" ? tb - ta : ta - tb;
+        });
+
+        if (loading) {
+          return <p className="text-sm text-slate-500">Loading wardrobe…</p>;
+        }
+        if (items.length === 0) {
+          return (
+            <p className="text-sm text-slate-500">
+              You don&apos;t have any items yet. Start by adding a few key pieces
+              you wear often (jeans, t‑shirts, jackets, shoes).
+            </p>
+          );
+        }
+        if (display.length === 0) {
+          return (
+            <p className="text-sm text-slate-500">
+              No items match your search.
+            </p>
+          );
+        }
+        return (
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {display.map((item) => (
+              <WardrobeCard
+                key={item.id}
+                item={item}
+                onEdit={(it) => {
+                  setEditingItem(it);
+                  setAddStep(null);
+                  setAddInferred(null);
+                  setAddPendingFile(null);
+                  setIsModalOpen(true);
+                }}
+                onDelete={handleDeleteItem}
+                onToggleAvailability={handleToggleAvailability}
+              />
+            ))}
+          </div>
+        );
+      })()}
 
       {isModalOpen && (
         <AddItemModal
