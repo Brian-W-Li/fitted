@@ -71,6 +71,8 @@ export async function GET(request: NextRequest) {
       notes?: string;
       isAvailable?: boolean;
       imagePath?: string;
+      createdAt?: Date;
+      updatedAt?: Date;
     };
 
     const items = (await WardrobeItem.find({ user: userId })
@@ -95,6 +97,8 @@ export async function GET(request: NextRequest) {
         notes: item.notes ?? "",
         isAvailable: item.isAvailable ?? true,
         imagePath: item.imagePath ?? undefined,
+        createdAt: item.createdAt?.toISOString(),
+        updatedAt: item.updatedAt?.toISOString(),
       })),
     });
   } catch (error) {
@@ -177,6 +181,8 @@ export async function POST(request: NextRequest) {
           occasions: itemDoc.occasions ?? [],
           notes: itemDoc.notes ?? "",
           isAvailable: itemDoc.isAvailable ?? true,
+          createdAt: (itemDoc as unknown as { createdAt?: Date }).createdAt?.toISOString(),
+          updatedAt: (itemDoc as unknown as { updatedAt?: Date }).updatedAt?.toISOString(),
         },
       },
       { status: 201 },

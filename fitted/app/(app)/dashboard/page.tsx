@@ -146,6 +146,56 @@ function getScoreColor(score: number) {
   return "text-orange-600 bg-orange-100";
 }
 
+
+function sortOutfitItems(items: OutfitItem[]): OutfitItem[] {
+  const getItemTypeOrder = (item: OutfitItem): number => {
+    const cat = item.category?.toLowerCase() || "";
+    const subCat = item.subCategory?.toLowerCase() || "";
+    const name = item.name?.toLowerCase() || "";
+    const layerRole = item.layerRole?.toLowerCase() || "";
+    
+    // One piece (dresses, jumpsuits) - should be first if present
+    if (cat === "one piece" || ["dress", "jumpsuit", "romper"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
+      return 0;
+    }
+    
+    // Base top (t-shirts, shirts, blouses)
+    if (cat === "top" || cat === "tops" || layerRole === "base" || 
+        ["shirt", "tee", "t-shirt", "blouse", "polo", "tank", "henley", "button-down", "oxford", "camisole"].some(w => name.includes(w) || subCat.includes(w))) {
+      return 1;
+    }
+    
+    // Bottom (pants, jeans, skirts)
+    if (cat === "bottom" || cat === "bottoms" || 
+        ["pants", "jeans", "shorts", "skirt", "trousers", "chinos", "leggings"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
+      return 2;
+    }
+    
+    // Mid layer (sweaters, cardigans, hoodies)
+    if (layerRole === "mid" || 
+        ["cardigan", "sweater", "hoodie", "fleece", "vest", "pullover"].some(w => name.includes(w) || subCat.includes(w))) {
+      return 3;
+    }
+    
+    // Outer layer (jackets, coats)
+    if (layerRole === "outer" || 
+        ["jacket", "coat", "blazer", "parka", "puffer", "windbreaker", "trench", "overcoat", "denim jacket"].some(w => name.includes(w) || subCat.includes(w))) {
+      return 4;
+    }
+    
+    // Footwear last
+    if (cat === "footwear" || 
+        ["shoes", "sneakers", "boots", "sandals", "loafers", "heels", "flats"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
+      return 5;
+    }
+    
+    // Unknown items at the end
+    return 6;
+  };
+  
+  return [...items].sort((a, b) => getItemTypeOrder(a) - getItemTypeOrder(b));
+}
+
 // ============================================================================
 // Feedback Modal Component
 // ============================================================================
@@ -230,7 +280,7 @@ function FeedbackModal({
         </div>
 
         <div className="p-6 space-y-4">
-          {outfit.items.map((item) => {
+          {sortOutfitItems(outfit.items).map((item) => {
             const imgSrc = imageUrlFromPath(item.imagePath);
             const isDisliked = perItemFeedback[item.id]?.disliked;
             const notesExpanded = expandedNotes.has(item.id);
@@ -413,7 +463,7 @@ function RegenerateModal({
                   </span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {regOutfit.items.map((item) => {
+                  {sortOutfitItems(regOutfit.items).map((item) => {
                     const imgSrc = imageUrlFromPath(item.imagePath);
                     return (
                       <div key={item.id} className="bg-white rounded-lg border border-slate-100 overflow-hidden">
@@ -453,7 +503,7 @@ function RegenerateModal({
         ) : (
           <>
             <div className="p-6 space-y-4">
-              {outfit.items.map((item) => {
+              {sortOutfitItems(outfit.items).map((item) => {
                 const imgSrc = imageUrlFromPath(item.imagePath);
                 const isLocked = lockedItemIds.has(item.id);
                 return (
@@ -1039,7 +1089,7 @@ export default function Home() {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  {outfit.items.map((item) => {
+                  {sortOutfitItems(outfit.items).map((item) => {
                     const imgSrc = imageUrlFromPath(item.imagePath);
                     return (
                       <div
