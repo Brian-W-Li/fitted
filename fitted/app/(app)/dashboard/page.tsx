@@ -324,16 +324,18 @@ function FeedbackModal({
                         >
                           {isDisliked ? "Disliked" : "Dislike"}
                         </button>
-                        <button
-                          onClick={() => toggleNotesExpanded(item.id)}
-                          className="px-2 py-1 text-sm bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
-                          title="Add notes for this item"
-                        >
-                          📝
-                        </button>
+                        {false && (
+                          <button
+                            onClick={() => toggleNotesExpanded(item.id)}
+                            className="px-2 py-1 text-sm bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
+                            title="Add notes for this item"
+                          >
+                            📝
+                          </button>
+                        )}
                       </div>
                     </div>
-                    {notesExpanded && (
+                    {false && notesExpanded && (
                       <input
                         type="text"
                         placeholder="e.g. Color too bright, doesn't fit well..."
@@ -348,18 +350,20 @@ function FeedbackModal({
             );
           })}
 
-          <div className="pt-4 border-t border-slate-200">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Overall feedback (optional)
-            </label>
-            <textarea
-              value={overallNotes}
-              onChange={(e) => setOverallNotes(e.target.value)}
-              placeholder="e.g. Too dressy for this occasion, colors don't match..."
-              rows={2}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
-            />
-          </div>
+	          {false && (
+	            <div className="pt-4 border-t border-slate-200">
+	              <label className="block text-sm font-medium text-slate-700 mb-2">
+	                Overall feedback (optional)
+	              </label>
+	              <textarea
+	                value={overallNotes}
+	                onChange={(e) => setOverallNotes(e.target.value)}
+	                placeholder="e.g. Too dressy for this occasion, colors don't match..."
+	                rows={2}
+	                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+	              />
+	            </div>
+	          )}
 
         </div>
 
@@ -386,7 +390,7 @@ function FeedbackModal({
 // Regenerate Modal (lock pieces, get new outfits)
 // ============================================================================
 
-type ChangeTarget = "outer" | "top" | "bottom" | "any";
+type ChangeTarget = "outer" | "top" | "bottom" | "footwear" | "any";
 
 interface RegenerateModalProps {
   outfit: Outfit;
@@ -545,6 +549,7 @@ function RegenerateModal({
                   <option value="top">Primarily change the top</option>
                   <option value="bottom">Primarily change the bottom</option>
                   <option value="outer">Primarily change the outer layer</option>
+                  <option value="footwear">Primarily change the footwear</option>
                 </select>
               </div>
             </div>
@@ -864,7 +869,7 @@ export default function Home() {
     setRegenerateModalOutfit({ outfit: outfits[outfitIndex], index: outfitIndex });
   };
 
-  const handleRegenerateSubmit = async (lockedItemIds: string[], changeTarget: "outer" | "top" | "bottom" | "any") => {
+  const handleRegenerateSubmit = async (lockedItemIds: string[], changeTarget: "outer" | "top" | "bottom" | "footwear" | "any") => {
     if (!firebaseUser || !regenerateModalOutfit) return;
     setIsRegenerating(true);
     setRecError("");

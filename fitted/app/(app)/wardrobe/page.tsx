@@ -928,7 +928,7 @@ export default function WardrobePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [cvError, setCvError] = useState<string | null>(null);
   const cvAbortRef = useRef<AbortController | null>(null);
-  const [activeFilter, setActiveFilter] = useState<"all" | "top" | "bottom" | "one piece">("all");
+  const [activeFilter, setActiveFilter] = useState<"all" | "top" | "bottom" | "one piece" | "footwear">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "name">("newest");
 
@@ -1219,6 +1219,7 @@ export default function WardrobePage() {
                 { label: "Tops", value: "top" },
                 { label: "Bottoms", value: "bottom" },
                 { label: "One-piece", value: "one piece" },
+                { label: "Footwear", value: "footwear" },
               ] as { label: string; value: typeof activeFilter }[]
             ).map(({ label, value }) => (
               <button
