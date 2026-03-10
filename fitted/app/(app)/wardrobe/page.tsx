@@ -1025,7 +1025,12 @@ export default function WardrobePage() {
         return;
       }
       const raw = data.item;
-      const updated: WardrobeItem = { ...raw, id: raw.id ?? raw._id };
+      const updated: WardrobeItem = {
+        ...raw,
+        id: raw.id ?? raw._id,
+        // Preserve createdAt from existing state if PATCH response omits it
+        createdAt: raw.createdAt ?? item.createdAt,
+      };
       setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
     } catch (e) {
       console.error("Error updating availability:", e);
@@ -1340,6 +1345,8 @@ export default function WardrobePage() {
                 let updated: WardrobeItem = {
                   ...raw,
                   id: raw.id ?? raw._id,
+                  // Preserve createdAt from existing state if PATCH response omits it
+                  createdAt: raw.createdAt ?? editingItem.createdAt,
                 };
                 if (!updated.id) {
                   setError("Update succeeded but server did not return an id.");

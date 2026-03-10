@@ -181,6 +181,8 @@ export async function POST(request: NextRequest) {
           occasions: itemDoc.occasions ?? [],
           notes: itemDoc.notes ?? "",
           isAvailable: itemDoc.isAvailable ?? true,
+          createdAt: (itemDoc as unknown as { createdAt?: Date }).createdAt?.toISOString(),
+          updatedAt: (itemDoc as unknown as { updatedAt?: Date }).updatedAt?.toISOString(),
         },
       },
       { status: 201 },
