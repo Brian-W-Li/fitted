@@ -860,13 +860,10 @@ export default function Home() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Home</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Get AI-powered outfit recommendations from your wardrobe.
-          </p>
         </div>
         <button
           onClick={handleLogout}
@@ -1088,7 +1085,7 @@ export default function Home() {
         )}
 
         {!recLoading && outfits.length === 0 && !recError && (
-          <div className="mt-6 p-6 bg-slate-50 rounded-lg text-center">
+          <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center">
             <p className="text-slate-600">
               Click &quot;Get Recommendations&quot; to see outfit suggestions.
             </p>
@@ -1100,34 +1097,34 @@ export default function Home() {
       </div>
 
       {/* How it works */}
-      <div className="rounded-xl border border-slate-200 bg-white p-6">
+      <div className="rounded-xl border border-slate-200 bg-white p-5">
         <h3 className="font-semibold text-slate-900">How the AI Stylist Works</h3>
-        <div className="mt-4 grid md:grid-cols-4 gap-4">
-          <div className="p-4 bg-blue-50 rounded-lg">
-            <div className="text-2xl mb-2">🎯</div>
-            <p className="font-medium text-slate-900">Smart Shortlisting</p>
-            <p className="text-sm text-slate-600 mt-1">
+        <div className="mt-3 grid md:grid-cols-4 gap-3">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-400">01</p>
+            <p className="mt-2 font-semibold text-slate-900">Smart Shortlisting</p>
+            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
               Filters your wardrobe by season, availability, and occasion relevance.
             </p>
           </div>
-          <div className="p-4 bg-purple-50 rounded-lg">
-            <div className="text-2xl mb-2">🧥</div>
-            <p className="font-medium text-slate-900">Intelligent Layering</p>
-            <p className="text-sm text-slate-600 mt-1">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-400">02</p>
+            <p className="mt-2 font-semibold text-slate-900">Intelligent Layering</p>
+            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
               Adds outer and mid layers when the temperature calls for it.
             </p>
           </div>
-          <div className="p-4 bg-green-50 rounded-lg">
-            <div className="text-2xl mb-2">🧠</div>
-            <p className="font-medium text-slate-900">Learns from You</p>
-            <p className="text-sm text-slate-600 mt-1">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-400">03</p>
+            <p className="mt-2 font-semibold text-slate-900">Learns from You</p>
+            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
               Your detailed feedback builds a preference profile over time.
             </p>
           </div>
-          <div className="p-4 bg-orange-50 rounded-lg">
-            <div className="text-2xl mb-2">🔄</div>
-            <p className="font-medium text-slate-900">Lock & Regenerate</p>
-            <p className="text-sm text-slate-600 mt-1">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-[11px] font-semibold tracking-wider text-slate-400">04</p>
+            <p className="mt-2 font-semibold text-slate-900">Lock & Regenerate</p>
+            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
               Keep items you like and regenerate the rest with targeted changes.
             </p>
           </div>
