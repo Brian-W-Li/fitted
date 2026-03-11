@@ -47,7 +47,7 @@ Next.js, Node.js/Python, Vercel, MongoDB (NoSQL DB), Firebase
 # Live App and local deployment
 
 You can access the deployed app here:
-https://fitted-sepia.vercel.app/
+https://fitted-outfits.vercel.app/
 
 Or run it locally:
 
@@ -77,3 +77,4 @@ Commit your changes: `git commit -am 'Add some feature'`
 Push to the branch: `git push origin my-new-feature`
 
 Submit a pull request :D
+
