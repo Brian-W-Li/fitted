@@ -26,15 +26,18 @@ User Input                    Shortlisting                  GPT-4o-mini         
 
 ## Step 1: Environment Context Detection
 
-If user doesn't provide a temperature hint, auto-detect from event description:
+If user doesn't provide a temperature hint, auto-detect from event description. Uses **word-boundary matching** to avoid substring collisions (e.g. "hot" in "hotel", "park" in "spark").
 
 | Keywords | Temperature Hint |
 |----------|------------------|
-| cold, winter, freezing, chilly, snow | `"cold"` |
-| hot, summer, warm, humid, heat | `"hot"` |
+| cold, winter, freezing, chilly, snow, frigid | `"cold"` |
+| hot, summer, warm, humid, heat, scorching | `"hot"` |
+| outdoor, outside, beach, park, picnic, hiking, hike, camping, barbecue, bbq, garden, trail | `"outdoor"` |
 | indoor, inside, air condition, office | `"indoor"` |
-| spring, fall, autumn, mild, cool | `"mild"` |
+| spring, fall, autumn, mild, cool, moderate | `"mild"` |
 | (default) | `"mild"` |
+
+**Priority order:** cold > hot > outdoor > indoor > mild. "ac" was removed from indoor (matched "beach" substring).
 
 ---
 
@@ -87,7 +90,7 @@ Score calculation:
 | `"hot"` | Heavy winter coat (parka, puffer, wool) | 0.2 |
 | `"hot"` | Winter-only item | 0.5 |
 | `"hot"` | Other | 0.8 |
-| `"mild"` / `"indoor"` | All items | 1.0 |
+| `"mild"` / `"indoor"` / `"outdoor"` | All items | 1.0 |
 
 #### Combined Score
 
@@ -154,20 +157,21 @@ CRITICAL RULES:
 - NEVER use two tops in the same outfit - only ONE top allowed.
 - NEVER use two bottoms in the same outfit - only ONE bottom allowed.
 - One-piece items should NOT be combined with separate tops or bottoms.
+- Every outfit MUST include exactly ONE footwear item when footwear is available in WARDROBE_ITEMS.
 
 VALID OUTFIT STRUCTURES:
 
-For one-piece outfits (dress, jumpsuit):
-1. One-piece only
-2. One-piece + mid layer (e.g., dress + cardigan)
-3. One-piece + outer layer (e.g., dress + jacket)
-4. One-piece + mid layer + outer layer
+For one-piece outfits (dress, jumpsuit) — always add footwear when available:
+1. One-piece + footwear
+2. One-piece + mid layer + footwear (e.g., dress + cardigan + shoes)
+3. One-piece + outer layer + footwear (e.g., dress + jacket + shoes)
+4. One-piece + mid layer + outer layer + footwear
 
-For top+bottom outfits (MUST have base layer top):
-1. Base top + bottom
-2. Base top + mid layer + bottom
-3. Base top + outer layer + bottom
-4. Base top + mid layer + outer layer + bottom
+For top+bottom outfits (MUST have base layer top) — always add footwear when available:
+1. Base top + bottom + footwear
+2. Base top + mid layer + bottom + footwear
+3. Base top + outer layer + bottom + footwear
+4. Base top + mid layer + outer layer + bottom + footwear
 
 IMPORTANT: For top+bottom outfits, you MUST include a base layer top.
 Mid layers and outer layers are ADDITIONS, not replacements.
@@ -175,7 +179,7 @@ Mid layers and outer layers are ADDITIONS, not replacements.
 LAYERING GUIDANCE:
 - "hot": Prefer single layers. No heavy outers.
 - "cold": Add outer layer on top of base. Mid layers optional.
-- "mild"/"indoor": Flexible - light outer optional.
+- "mild"/"indoor"/"outdoor": Flexible - light outer optional.
 
 COLOR & STYLE:
 - Ensure colors complement each other.
@@ -218,7 +222,8 @@ Create 5 outfit recommendations. For each outfit:
 1. Think about what formality and style the event requires.
 2. Consider the temperature - does it need layering?
 3. Select items that work together (colors, style, occasion).
-4. Provide a confidence score (0-100) and brief reason.
+4. Include exactly one footwear item (shoes, sneakers, boots, sandals, etc.) when available in WARDROBE_ITEMS.
+5. Provide a confidence score (0-100) and brief reason.
 
 RESPONSE FORMAT (JSON only):
 {
@@ -240,7 +245,11 @@ response_format: { type: "json_object" }
 
 ---
 
-## Step 5: Outfit Validation
+## Step 5: Footwear Post-Processing
+
+If the wardrobe has footwear but the LLM omits it from an outfit, the system injects the first footwear item into that outfit's `itemIds`. This uses item-type inference (not ID comparison) to avoid format mismatches from LLM output.
+
+## Step 6: Outfit Validation
 
 ### Smart Item Type Inference
 
@@ -274,6 +283,8 @@ Each outfit is validated against these rules:
 | Multiple base tops | Max 1 base top |
 | Multiple one-pieces | Max 1 one-piece |
 | One-piece with top/bottom | One-piece cannot have separate base top or bottom |
+| Multiple footwear | Max 1 footwear |
+| Missing footwear | When wardrobe has footwear, outfit must have exactly 1 |
 | Too many mid layers | Max 2 mid layers |
 | Too many outer layers | Max 1 outer layer |
 
@@ -281,6 +292,7 @@ Each outfit is validated against these rules:
 
 For **one-piece outfits**:
 - Must have exactly 1 one-piece
+- Must have exactly 1 footwear when wardrobe has footwear
 - Can optionally add mid layers (cardigan, sweater)
 - Can optionally add outer layer (jacket, coat)
 - Cannot have separate base top or bottom
@@ -288,6 +300,7 @@ For **one-piece outfits**:
 For **top+bottom outfits**:
 - Must have exactly 1 base top (t-shirt, shirt, blouse)
 - Must have exactly 1 bottom (pants, jeans, shorts, skirt)
+- Must have exactly 1 footwear when wardrobe has footwear
 - Can optionally add mid layers
 - Can optionally add outer layer
 
@@ -295,20 +308,21 @@ For **top+bottom outfits**:
 
 | Type | Structure | Example | Valid |
 |------|-----------|---------|:-----:|
-| One-piece | One-piece only | Dress | ✓ |
-| One-piece | One-piece + mid | Dress + cardigan | ✓ |
-| One-piece | One-piece + outer | Dress + jacket | ✓ |
-| One-piece | One-piece + mid + outer | Dress + cardigan + coat | ✓ |
+| One-piece | One-piece + footwear | Dress + shoes | ✓ |
+| One-piece | One-piece + mid + footwear | Dress + cardigan + shoes | ✓ |
+| One-piece | One-piece + outer + footwear | Dress + jacket + shoes | ✓ |
+| One-piece | One-piece + mid + outer + footwear | Dress + cardigan + coat + shoes | ✓ |
 | One-piece | One-piece + top | Dress + t-shirt | ✗ |
 | One-piece | One-piece + bottom | Dress + pants | ✗ |
-| Top+Bottom | Base + bottom | T-shirt + jeans | ✓ |
-| Top+Bottom | Base + mid + bottom | T-shirt + sweater + jeans | ✓ |
-| Top+Bottom | Base + outer + bottom | T-shirt + jacket + jeans | ✓ |
-| Top+Bottom | Base + mid + outer + bottom | T-shirt + sweater + jacket + jeans | ✓ |
+| Top+Bottom | Base + bottom + footwear | T-shirt + jeans + shoes | ✓ |
+| Top+Bottom | Base + mid + bottom + footwear | T-shirt + sweater + jeans + shoes | ✓ |
+| Top+Bottom | Base + outer + bottom + footwear | T-shirt + jacket + jeans + shoes | ✓ |
+| Top+Bottom | Base + mid + outer + bottom + footwear | T-shirt + sweater + jacket + jeans + shoes | ✓ |
 | Top+Bottom | Mid + bottom (no base) | Sweater + jeans | ✗ |
 | Top+Bottom | Outer + bottom (no base) | Jacket + pants | ✗ |
 | Invalid | Two base tops | T-shirt + polo + jeans | ✗ |
 | Invalid | Two bottoms | Shirt + jeans + shorts | ✗ |
+| Invalid | Two footwear | Shirt + jeans + sneakers + boots | ✗ |
 
 **Key rule:** Every top+bottom outfit MUST have a base layer. Mid/outer layers are additions on top, not replacements.
 
@@ -341,7 +355,7 @@ For **top+bottom outfits**:
                                │ (50 most recent, last 90 days)
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  GPT SUMMARIZATION                                              │
+│  GEMINI SUMMARIZATION (gemini-2.5-flash-lite)                    │
 │                                                                 │
 │  Input per interaction:                                         │
 │  {                                                              │
@@ -379,7 +393,7 @@ For **top+bottom outfits**:
 
 ### Data Available for Summarization
 
-For each liked/disliked outfit, GPT receives:
+For each liked/disliked outfit, Gemini receives:
 
 | Field | Description |
 |-------|-------------|
@@ -387,7 +401,7 @@ For each liked/disliked outfit, GPT receives:
 | `occasion` | Event context (e.g., "casual brunch") |
 | `items[]` | Array of item details (name, category, colors, layerRole) |
 
-**Note:** Per-item feedback (e.g., "this jacket was too heavy") is not stored. GPT infers patterns from which complete outfits were liked vs disliked.
+**Note:** Per-item feedback (e.g., "this jacket was too heavy") is not stored. Gemini infers patterns from which complete outfits were liked vs disliked.
 
 ### When Summarization Runs
 
