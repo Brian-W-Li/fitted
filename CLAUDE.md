@@ -92,6 +92,27 @@ Sketch of the arc:
 
 The `_score_outfit` interface in `ml-system/outfit_recommender.py` is the natural seam — replace the rule body, keep the signature.
 
+## Canonical sources
+
+This is a refactor. The v1.2 spec is the target architecture, not something to negotiate against existing behavior.
+
+**Authoritative for design:**
+- `docs/Fitted_Refactor_v1.2_Spec.pdf` — the target architecture. When the spec and deployed behavior disagree, the spec wins.
+- `docs/plans/spec-resolutions.md` — canonical overlay resolving the spec's internal ambiguities. Where the PDF is silent, self-contradictory, or defines a term two ways, **this doc wins over the PDF**. Holds the authoritative pipeline order and the resolved design decisions.
+- `ml-system/outfit_recommender.py`, `ml-system/README.md`, `ml-system/mlWhatWeAreGoingTodo` — starting point for the ML substrate; the refactor builds on this.
+- `docs/plans/*.md` — per-milestone plans produced by `/spec` or the `planner` subagent. Active execution plans.
+- This `CLAUDE.md` — project conventions and scope.
+
+**Authoritative for data shape:**
+- `fitted/models/*.ts` — actual deployed Mongo schemas. These are what exists today; M4/M5 will migrate them to support v1.2. Reference them for data shape, not for behavioral baselines.
+
+**Historical context only — do not mine for architectural truth:**
+- `docs/DESIGN.md`, `docs/MANUAL.md`, `docs/RECOMMENDATION_MODEL.md` — earlier design docs, superseded by v1.2.
+- `meetings/`, `team/` — team artifacts (standups, contribution docs). Not relevant to the refactor.
+- The currently-deployed app's behavior at fitted-outfits.vercel.app — what it does today is not a constraint on what v1.2 must do.
+
+When uncertain whether to reference a doc: if it's not in the "Authoritative" lists above, don't bring it in unless directly asked.
+
 ## Out of scope (don't proactively work on these)
 
 - **Public launch / user growth.** Teammates' framing; Brian has explicitly scoped to portfolio + technical depth. Don't suggest deploy / marketing / scaling work unless asked.
@@ -105,3 +126,6 @@ The `_score_outfit` interface in `ml-system/outfit_recommender.py` is the natura
 - Brian leads with systems engineering; he won't deep-read TS/Next.js. When writing app-side code, lean on plain explanation of what it does so he can verify behavior.
 - For ml-system work, prefer source-grounded reasoning (datasets, eval methodology, citations to specific papers/issues) over vibes.
 - Tests: `fitted/tests/` uses jest. `ml-system/` has no tests yet — add pytest as the rewrite lands.
+- **Spec-first for non-trivial work.** For any task spanning more than 1–2 files or with unclear scope, prefer `/spec <slug>` (interview + write `docs/plans/<slug>.md`) or the `planner` subagent before coding. Spec-first beats code-first when sessions are days apart and context recovery matters.
+- **Promise-driven decisions.** For non-trivial design calls: reason from the user-facing promise the decision serves (determinism/consistency, speed + convenience), teach the mechanics from first principles before deciding, and get a Fable review (`Agent` with `model: "fable"`) on the important ones. Record resolutions in `docs/plans/` (e.g. `spec-resolutions.md`).
+- **Short sessions; externalize state.** Keep sessions short — long context is the main usage cost. Push durable state into `docs/plans/`, `docs/sessions/`, and memory so each session starts from a small reading list, not full history. `/clear` between unrelated tasks.
