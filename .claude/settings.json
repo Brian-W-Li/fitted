@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm ci)",
+      "Bash(npm test)",
+      "Bash(npm test -- *)",
+      "Bash(npm run test:watch)",
+      "Bash(npm run dev)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+
+      "Bash(python3 ml-system/*)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(pip install -r requirements.txt)",
+      "Bash(pip install -r ml-system/requirements.txt)",
+
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff)",
+      "Bash(git diff *)",
+      "Bash(git log)",
+      "Bash(git log *)",
+      "Bash(git show)",
+      "Bash(git show *)",
+      "Bash(git fetch)",
+      "Bash(git fetch *)",
+      "Bash(git remote -v)",
+      "Bash(git remote)",
+      "Bash(git branch)",
+      "Bash(git branch -v)",
+      "Bash(git branch -a)",
+      "Bash(git branch --list *)",
+      "Bash(git ls-remote *)",
+      "Bash(git ls-files *)",
+
+      "Bash(ls)",
+      "Bash(ls *)",
+      "Bash(find . *)",
+      "Bash(find ./fitted *)",
+      "Bash(find ./ml-system *)",
+      "Bash(find ./docs *)",
+      "Bash(find ./ml-system -*)",
+
+      "Read",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -fd*)"
+    ]
+  }
+}
