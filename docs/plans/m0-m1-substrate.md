@@ -129,9 +129,11 @@ hook M6 plugs the trained model into. Everything else in M0/M1 is plumbing aroun
    not a v1.2 requirement and adds parsing surface. Houses every named constant M0/M1 touch:
    `DEFAULT_K=10`, per-type caps (`CAP_TOPS=35`, `CAP_BOTTOMS=30`, `CAP_DRESSES=25`,
    `CAP_OUTER=20`, `CAP_SHOES=25`), `MAX_PROMPT_ITEMS=135`, `MAX_CANDIDATES=40`,
-   `RANDOM_FRACTION=0.7`, `MIN_SIGNAL_THRESHOLD=5` (appendix B2), plus forward-declared
+   `MIN_SIGNAL_THRESHOLD=5` (appendix B2), plus forward-declared
    constants other milestones own but that belong in one file: `MAX_AFFINITY=20` (A3),
    `OVERUSE_MIN_POOL=15` (B1). Forward-declared constants get a `# used in M3` comment.
+   The 70/30 split is **not** a config constant — see **R6**: it lives as the sampler-owned
+   `random_count(cap)` helper (`(cap*7+5)//10`), not `RANDOM_FRACTION`.
 
 6. **M1 signal path — stubbed to cold-start (100% random), seam left for M6.** Why: real
    signal selection (§7.3's 30%) needs `affinityScore` / interaction data that **does not
@@ -184,9 +186,11 @@ Each task: spec section → contract produced → test file.
 ### M0-1 — Config constants — §18 (and A3/B1/B2 forward-decls)
 - **Produces:** `config.py` with every named constant M0/M1 reference (see decision §1.5).
 - **Test (`test_config.py`):** assert exact spec values (`MAX_CANDIDATES == 40`,
-  `MAX_PROMPT_ITEMS == 135`, sum of per-type caps `== MAX_PROMPT_ITEMS`,
-  `MIN_SIGNAL_THRESHOLD == 5`, `RANDOM_FRACTION == 0.7`). This is a regression guard so a
-  later edit can't silently desync caps from the documented `MAX_PROMPT_ITEMS`.
+  `MAX_PROMPT_ITEMS == 135`, sum of per-type caps `== MAX_PROMPT_ITEMS`, each per-type cap
+  pinned individually (so a compensating drift can't pass the sum guard),
+  `MIN_SIGNAL_THRESHOLD == 5`). This is a regression guard so a
+  later edit can't silently desync caps from the documented `MAX_PROMPT_ITEMS`. (No
+  `RANDOM_FRACTION` assert — the split is the sampler's `random_count` helper, R6.)
 - **Effort:** ~0.5 hr.
 
 ### M0-2 — Data model — §4.1 WardrobeItem, §6.2 roles
@@ -351,8 +355,9 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
     True; `interaction_count` 5 with a *fake* scorer → 70/30 split exercised (proves the
     seam is wired even though prod ships cold-start only).
   - **Determinism:** same seed → identical sampled set across runs.
-  - **Split math:** over-cap with cap=10 → 7 random + 3 signal (with fake scorer). Rounding is
-    **integer, half-up, float-free**: `random = (cap * 7 + 5) // 10`, signal = remainder
+  - **Split math:** over-cap with cap=10 → 7 random + 3 signal (with fake scorer). Lives in the
+    sampler-owned `random_count(cap)` helper (R6), not inlined at call sites. Rounding is
+    **integer, half-up, float-free**: `random_count = (cap * 7 + 5) // 10`, signal = remainder
     (**revised** from `round(cap*0.7)` — Python's banker's rounding on exact half-values splits
     the real caps in *opposite* directions: `round(35*0.7)=round(24.5)=24` but
     `round(25*0.7)=round(17.5)=18`, and any TS/numpy reimpl that rounds halves up would silently
@@ -459,11 +464,16 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
     incrementing it on every wardrobe mutation** (§3.2).
   - **No `sessionId` / session concept exists.** The seed and cache key need it (§3.1, §14);
     M5 must pick a strategy (authenticated → userId; anonymous → persistent cookie).
-  - **`type` (5-value) must be derived from the real `clothingType` (2-value: top/bottom) +
-    `category` + `layerRole`.** `WardrobeItem.ts:7` is `enum ["top","bottom"]` — no
-    `dress`/`outer_layer`/`shoes`. M5 needs a documented
-    `WardrobeItemDocument → fitted_core.WardrobeItem` adapter (the deployed app already does
-    this derivation at runtime; reference it for the mapping, not as a behavioral baseline).
+  - **`type` (5-value) is a *consolidation* of the deployed app's de-facto classification, not a
+    new capability.** `WardrobeItem.ts:7` is `enum ["top","bottom"]`, but the deployed app already
+    handles dresses/jumpsuits/outer/shoes — via **request-time string-matching** over
+    `category`/`name`/`subCategory` (`route.ts:241,550`), with first-class one-piece prompt rules
+    (`route.ts:445–464`) and validation (`route.ts:638`). M4/M5 must **promote that scattered
+    classification to first-class `clothingType` values + backfill**, then add a documented
+    `WardrobeItemDocument → fitted_core.WardrobeItem` adapter. Reference the runtime derivation for
+    the *mapping logic*, not as a behavioral baseline — and the string-grep path is a deletion-
+    license candidate (CLAUDE.md → *Deletion license*; doesn't survive the M5 cutover). See
+    `spec-resolutions.md` §4 for the evidence.
   - **`generation_logs` collection (§15) is new** — M4/M5 create it; logging stays
     best-effort and off the critical path.
 - **Fly.io service + Next.js wiring → M5.** Deploy `fitted_core` as a Dockerized Python

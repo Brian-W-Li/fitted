@@ -113,6 +113,26 @@ This is a refactor. The v1.2 spec is the target architecture, not something to n
 
 When uncertain whether to reference a doc: if it's not in the "Authoritative" lists above, don't bring it in unless directly asked.
 
+## Deletion license (refactor scope)
+
+Canonical sources says the spec is the design target, not the deployed behavior. This extends
+that to **code**: where existing app-side code is ugly, tangled, or fights the v1.2 design,
+**mass deletion is on the table — not just refactoring around it.** This codebase carries heavy
+migrational and structural debt (a 10-week class project: an abandoned early ML attempt, and
+dresses bolted on at week 8 via string-matching over `category`/`name`/`subCategory` instead of
+a first-class `clothingType` — see `docs/plans/spec-resolutions.md` §4). Carrying that cruft
+forward weakens the foundation.
+
+This is a **license, not a default.** Measure before cutting. Guardrails:
+
+- **Activation: M5 (cutover) and M6 (legacy retirement), NOT now.** M0–M3 are pure additive
+  substrate in `ml-system/fitted_core/` — nothing to delete yet. `outfit_recommender.py` stays
+  untouched until M6 (plan §1.5 decision 2).
+- **Threshold:** any deletion under `fitted/` is a **design call** — get a Fable read first, same
+  as any contract change.
+- **Test:** if a code path would **not** survive the M5 `USE_ML_SHORTLISTER` cutover, it's fair
+  game to delete cleanly. If it's still called by paths we keep, it gets **migrated, not deleted.**
+
 ## Out of scope (don't proactively work on these)
 
 - **Public launch / user growth.** Teammates' framing; Brian has explicitly scoped to portfolio + technical depth. Don't suggest deploy / marketing / scaling work unless asked.

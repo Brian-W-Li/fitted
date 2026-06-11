@@ -48,7 +48,7 @@ construction.
 ```
 canonical input order: sessionId, wardrobeVersion, occasion, weather, date, generationIndex
 
-_canonical_seed(...)        # private: join with "\x1f", sha256, first 8 bytes → int
+_canonical_seed(...)        # private: length-prefix each field (see encoding note below), sha256, first 8 bytes → int
 session_seed(...)           # wrapper: passes date, NO generationIndex
 tiebreak_seed(..., gi)      # wrapper: session inputs + generationIndex
 ```
@@ -176,6 +176,46 @@ sampler. M0/M1 take the already-canonical value as a parameter.
 
 **Implements:** contract noted in M1-3 `RequestContext`; normalization at M5.
 
+### R6 — The 70/30 split is a sampler-owned helper, not a config constant *(new; M0-1 verification, Fable-reviewed 2026-06-10)*
+
+**Problem.** `config.py` shipped `RANDOM_FRACTION = 0.7` (a float). The resolved split arithmetic
+(plan M1-3, confirmation #4 — see also R4) is **integer, half-up, float-free**:
+`random = (cap*7 + 5) // 10`, signal = remainder. That formula never references `RANDOM_FRACTION`,
+so the float is dead — and a trap: `round(cap * RANDOM_FRACTION)` reintroduces the banker's-rounding
+bug M1-3#4 removed (`round(35*0.7)=24` but `round(25*0.7)=18` — splits the real caps in opposite
+directions; any TS/numpy reimpl that rounds halves up disagrees with prod). The cold-start branch
+is the *only* path prod runs pre-M6, so the split must port bit-identically (R4).
+
+**Decision (Fable, helper-only).** The split's contract is *behavior*, not a value. Expose **one
+helper, owned by the sampler module (M1-3), not config.py**:
+
+```python
+def random_count(cap: int) -> int:
+    """70/30 split per type (spec §7.3). Integer half-up — NOT round() (banker's rounding
+    splits the real caps inconsistently; see R6/R4). Must port bit-identically to any reimpl."""
+    return (cap * 7 + 5) // 10
+```
+
+`signal_count = cap - random_count(cap)`. `7`/`10` stay **local** to the helper.
+
+- **No `RANDOM_NUMERATOR`/`DENOMINATOR` constants.** Exposing them adds no protection — a call
+  site could write `round(cap * NUM / DEN)` and reintroduce the bug — and recreates the
+  dual-source "logs lie" trap that killed `RANDOM_FRACTION`. The helper is the single legal path.
+- **§18 does not apply.** §18 ("named constants in one config file") governs *tunable* knobs
+  (`comboBoost`, penalties, `MAX_AFFINITY`). The 70/30 split is a **structural constant** — welded
+  into §7.3 and the bit-identical-port contract; changing it changes the algorithm. §18's real
+  intent (no scattered magic numbers, one findable home) is met by one occurrence in one
+  documented function.
+- **Placement.** `config.py`'s docstring promises "no logic," so the helper does not live there.
+  The drift guard is the **value table over the real caps** (35→25, 30→21, 25→18, 20→14), which
+  pins behavior better than any named constant.
+
+**Implements (config deletion PENDING Brian's go):** delete `RANDOM_FRACTION = 0.7` from
+`config.py` (add no replacement; optional one-line pointer near the caps: split math is the
+sampler's `random_count`, §7.3); drop the `RANDOM_FRACTION == 0.7` assert from `test_config.py`;
+M1-3 ships `random_count` + the value-table test. (Supersedes the earlier numerator/denominator
+draft of this resolution.)
+
 ---
 
 ## 3. Resolved consistency findings (no design fork — recorded for implementers)
@@ -201,6 +241,18 @@ sampler. M0/M1 take the already-canonical value as a parameter.
   appendix; not re-litigated here.
 - **Data-model migrations** (`ItemAffinity`, `wardrobeVersion`, `sessionId`, `clothingType→type`)
   → M4/M5, per `m0-m1-substrate.md` §6.
+  - **`clothingType→type` is a *consolidation*, not an addition.** The deployed app already
+    supports dresses/jumpsuits — just not via the `clothingType` enum (`WardrobeItem.ts:7` is
+    `["top","bottom"]`). One-piece classification is **string-matched at request time** over
+    `category`/`name`/`subCategory` (`route.ts:241,550`: `["dress","jumpsuit","romper"].some(...)`),
+    with first-class one-piece rules in the GPT prompt (`route.ts:445–464`) and structural
+    validation (`route.ts:638` rejects one-piece + separate top/bottom). Commit
+    `6b7e326e "changing cv to include dresses"` added this (CS 148 week 8). So M4/M5 must
+    **promote the de-facto dress/outer/shoes classification to first-class `clothingType`
+    values + backfill existing rows**, then map `WardrobeItemDocument → fitted_core.WardrobeItem`
+    — replacing the scattered string-greps, not adding a new capability. Prime candidate for the
+    deletion license (CLAUDE.md → *Deletion license*): the runtime string-match path does not
+    survive the M5 cutover.
 
 ---
 
