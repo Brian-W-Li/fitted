@@ -94,7 +94,7 @@ The `_score_outfit` interface in `ml-system/outfit_recommender.py` is the natura
 
 ## Canonical sources
 
-This is a refactor. The v1.2 spec is the target architecture, not something to negotiate against existing behavior.
+This is a refactor. The v1.2 spec is the target architecture, not something to negotiate against existing behavior. **It is a direction marker, not a ceiling** (Brian, 2026-06-11): improvements beyond the spec are welcome and expected — the legacy app beats the spec in places (see `docs/plans/legacy-prospecting.md` §3) and the ideas are what matter. A better idea overrides the spec **via a recorded resolution in `spec-resolutions.md`** (the decision ledger), stating which pipeline step it occupies. Precedence: resolutions > spec PDF > legacy-as-reference. The spec still always wins over deployed *behavior*.
 
 **Authoritative for design:**
 - `docs/Fitted_Refactor_v1.2_Spec.pdf` — the target architecture. When the spec and deployed behavior disagree, the spec wins.
@@ -112,6 +112,34 @@ This is a refactor. The v1.2 spec is the target architecture, not something to n
 - The currently-deployed app's behavior at fitted-outfits.vercel.app — what it does today is not a constraint on what v1.2 must do.
 
 When uncertain whether to reference a doc: if it's not in the "Authoritative" lists above, don't bring it in unless directly asked.
+
+### Doc lifecycle (capacity + truth control)
+
+The doc set must stay small, current, and internally consistent. Rules:
+
+- **Single-home rule.** Every decision lives in exactly one authoritative doc —
+  `spec-resolutions.md` is the decision ledger. Other docs (plans, session notes, memory)
+  may *point* to a resolution, never restate it in full. Duplication is how docs drift.
+- **Docs are living, not immutable.** Stale or wrong content is **edited or deleted in
+  place** — no "superseded by," no amendment narrative, no preserved drafts. Git is the
+  archive; the doc states current verified truth only. Distinction: keep **trap-guards**
+  (rationale that stops a future implementer from re-making a mistake — e.g. R6's
+  banker's-rounding warning); delete **evolution narrative** (what the doc used to say and
+  when it changed).
+- **Conflicts are bugs.** If two docs disagree, the non-ledger copy is wrong by definition.
+  Fix on sight, in the session that notices it — never leave a known conflict standing.
+- **Default reading list** for a milestone session: `CLAUDE.md` + the active milestone's plan
+  + `spec-resolutions.md`. Everything else — `sessions/`, completed plans, prospecting docs,
+  the spec PDF itself — is on-demand reference, pulled only when a pointer leads there.
+- **Retirement.** When a milestone completes, its plan doc gets a `> COMPLETED <date>` header
+  line and leaves the default list. `sessions/` notes are write-mostly: read only when
+  hunting history, never required context. (Retired/historical docs are exempt from the
+  truth standard; the ledger and active plans are not.)
+- **Hole/conflict cadence.** Each milestone `/spec` opens by hole-checking and
+  conflict-checking the docs it inherits. Global review passes concluded 2026-06-11.
+- **Compaction backstop.** In-place editing should keep the ledger from accreting; if the
+  default reading list nonetheless exceeds roughly **1,500 lines**, spend a dedicated session
+  compacting it.
 
 ## Deletion license (refactor scope)
 
@@ -138,6 +166,10 @@ This is a **license, not a default.** Measure before cutting. Guardrails:
 - **Public launch / user growth.** Teammates' framing; Brian has explicitly scoped to portfolio + technical depth. Don't suggest deploy / marketing / scaling work unless asked.
 - **Visual try-on** (issues #82, #87–92). v2 candidate at most; diffusion-model territory; not the current dive.
 - **Frontend redesign.** UX changes only if they're needed to demo the `ml-system/` work.
+  **Exception (Brian, 2026-06-11): the wardrobe *ingestion* surface is in-scope** — it's the
+  data faucet for M4/M6 (CV reliability, async/batch upload, review form). Tracked as the
+  **W-track** in `docs/plans/spec-resolutions.md` §4; sequenced adjacent to M4/M5, `/spec`
+  before building.
 - **`meetings/`, `team/`.** Class-project artifacts; leave alone.
 
 ## Conventions

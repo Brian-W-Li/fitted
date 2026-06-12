@@ -323,7 +323,9 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 - **M6 seam contract (the most important deliverable in this chunk):**
   ```
   RequestContext (dataclass, built by the sampler entry point M1-5):
-    occasion: str                  # canonical bucket (R5), not free text
+    occasion: str                  # normalized verbatim user text (R5: trim/lowercase/
+                                   #   collapse-whitespace — NOT a bucket; bucketing aliases
+                                   #   distinct occasions in the cache)
     weather: str                   # canonical bucket (R5) — raw live weather mutates every
                                    #   render → seed never stable; M5 adapter buckets it
     sessionId: str
@@ -462,8 +464,9 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
     `User.ts` has no such field. The seed (M0-5) takes it as a parameter, so M0/M1 are fine,
     but **M5 cannot supply a real `wardrobeVersion` without adding it to `User.ts` and
     incrementing it on every wardrobe mutation** (§3.2).
-  - **No `sessionId` / session concept exists.** The seed and cache key need it (§3.1, §14);
-    M5 must pick a strategy (authenticated → userId; anonymous → persistent cookie).
+  - **No `sessionId` / session concept exists.** The seed and cache key need it (§3.1, §14).
+    Strategy decided: `sessionId = userId` always, anonymous sessions dropped
+    (`spec-resolutions.md` R8); M5 implements.
   - **`type` (5-value) is a *consolidation* of the deployed app's de-facto classification, not a
     new capability.** `WardrobeItem.ts:7` is `enum ["top","bottom"]`, but the deployed app already
     handles dresses/jumpsuits/outer/shoes — via **request-time string-matching** over

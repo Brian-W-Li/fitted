@@ -55,8 +55,7 @@ tiebreak_seed(..., gi)      # wrapper: session inputs + generationIndex
 
 - `date` is `None` until C1 (daily re-seed) is activated at M5.
 
-**Canonical-string encoding — length-prefix, not a bare delimiter** *(supersedes the earlier
-`"\x1f"`-join rule; resolves a runtime-collision bug).* A plain `"\x1f".join(...)` does **not**
+**Canonical-string encoding — length-prefix, not a bare delimiter.** A plain `"\x1f".join(...)` does **not**
 prevent field-collision: `join(["a", "b\x1fc"]) == join(["a\x1fb", "c"]) == "a\x1fb\x1fc"`, so
 two distinct input tuples hash to the same seed. Since `occasion` is free text and an anonymous
 `sessionId` can be a client-supplied cookie, the join char *can* appear in a field. Encode each
@@ -84,10 +83,17 @@ session/occasion/weather/date would return the byte-identical outfits the user j
 and pre-M6, when scoring is all `+1.0` base (no boosts until M4), `tiebreak_seed(generationIndex)`
 is the *sole* source of result variety, so this is total. **Decision:** the cache stores the
 **expensive upstream stage** (sampled pool + GPT candidates) keyed on `session_seed` inputs;
-**Step 6 ranking runs per-request** over the cached candidates with `tiebreak_seed(...,
-generationIndex)`. Re-roll reuses the cached candidates but re-ranks with a new
-`generationIndex`, so it is cheap *and* genuinely different. *(M5 wires this; recorded now so
-the cache shape is decided before the seed lands.)*
+**Steps 4–6 run per-request** over the cached candidates — cooldown filter, scoring, and
+ranking with `tiebreak_seed(..., generationIndex)`. Re-roll reuses the cached candidates but
+re-ranks with a new `generationIndex`, so it is cheap *and* genuinely different.
+
+Steps 4–6 are pure memory lookups over ≤40 candidates (~free per-request), and running them
+per-request is what makes **all** feedback reflect on the very next render even on a cache
+hit: a new dislike vanishes via the Step 4 cooldown filter, a new like re-scores via Step 5.
+**Do not cache Step 5 scores** — likes deliberately don't invalidate the cache, so a cached
+score would make a like within the TTL visibly do nothing. A4's dislike-invalidation
+refreshes the candidate pool itself and remains a second guard. *(M5 wires this; recorded now
+so the cache shape is decided before the seed lands.)*
 
 **Implements:** M0-5 (primitive + wrappers, length-prefix encoding, None sentinel); tie-break
 wrapper used at M3; cache key + two-stage caching at M5.
@@ -161,7 +167,7 @@ renders with nothing failing.
 
 **Implements:** M1-1 (partition ordering), M1-3 (sort-before-sample, shared RNG), M1 tests.
 
-### R5 — Seed inputs must be canonical buckets, especially `weather` *(new; resolves a fan-out)*
+### R5 — Seed inputs must be stable by contract: `weather` bucketed, `occasion` normalized verbatim *(resolves a fan-out)*
 
 **Problem.** `RequestContext.weather` is typed as a free `str` and is a `session_seed` input.
 If M5 passes live weather text (`"72°F partly cloudy"` → `"71°F …"` minutes later), the seed
@@ -169,10 +175,20 @@ changes on every render → §3.1 stability and the cache hit-rate both collapse
 it just looks like "the seed isn't working." The deployed app already buckets to a small
 `temperatureHint` set.
 
-**Decision.** Every `session_seed` input must be **stable by contract**. `weather` (and
-`occasion`) entering the seed must be a **canonical bucket from a small closed set**, not raw
-sensor/free text; the raw-→-bucket normalization is owned by the **M5 request adapter**, not the
-sampler. M0/M1 take the already-canonical value as a parameter.
+**Decision.** Every `session_seed` input must be **stable by contract**,
+but stability has two different sources, so the two fields get different rules:
+- **`weather` = canonical bucket** from a small closed set (the legacy `temperatureHint` set
+  `hot|mild|cold|indoor|outdoor` is the production-proven candidate). Weather drifts *without
+  user intent*, so raw text would destabilize the seed every render.
+- **`occasion` = normalized verbatim user text** (trim, collapse whitespace, lowercase) — NOT
+  a bucket. Occasion is *user-authored*: it changes only by user intent, so raw text is
+  already stable by contract. Bucketing it opens a cache-mismatch leak: "job interview" and
+  "office party" sharing a `work` bucket → same cache key → a hit returns candidates GPT
+  generated for the *other* free text (GPT consumes the verbatim occasion, §16). §3.1's
+  "fresh generation when occasion changes" supports text-level sensitivity.
+
+Raw→canonical normalization is owned by the **M5 request adapter**, not the sampler. M0/M1
+take the already-canonical values as parameters.
 
 **Implements:** contract noted in M1-3 `RequestContext`; normalization at M5.
 
@@ -210,11 +226,51 @@ def random_count(cap: int) -> int:
   The drift guard is the **value table over the real caps** (35→25, 30→21, 25→18, 20→14), which
   pins behavior better than any named constant.
 
-**Implements (config deletion PENDING Brian's go):** delete `RANDOM_FRACTION = 0.7` from
-`config.py` (add no replacement; optional one-line pointer near the caps: split math is the
-sampler's `random_count`, §7.3); drop the `RANDOM_FRACTION == 0.7` assert from `test_config.py`;
-M1-3 ships `random_count` + the value-table test. (Supersedes the earlier numerator/denominator
-draft of this resolution.)
+**Implements:** `RANDOM_FRACTION` is deleted from `config.py` and `test_config.py` (done,
+M0-1); M1-3 ships `random_count` + the value-table test over the real caps.
+
+### R7 — Host, not frame: the shell persists; the recommendation vertical is replaced wholesale *(new; Brian, 2026-06-11)*
+
+**Question.** Integrate the v1.2 engine into the existing app, or rebuild greenfield around
+`fitted_core` using the old code as inspiration?
+
+**Decision.** Neither extreme — **the old app is a host, not a frame.** Full greenfield rejected
+(weeks of commodity shell work in Brian's weakest suit, deletes the M6 A/B control arm, breaks
+the working-app-at-every-step property). But nothing in the new engine bends to old behavior —
+the recommendation **vertical is replaced outright**, not integrated-with.
+
+- **Persists as host infrastructure:** Firebase auth (`sessionId = userId` requires it, §3.1),
+  wardrobe upload/CV pipeline (the data faucet — but see the W-track note in §4), profile +
+  wardrobe UI, Mongo plumbing.
+- **Replaced wholesale at M5/M6, written clean against the spec:** `recommend/route.ts`,
+  `regenerate/route.ts`, the recommendation display UI (§17 contract). Old code is reference
+  for mapping logic only, never a behavioral baseline.
+- **Retired: the Gemini `PreferenceSummary` path** (`preferences/summarize` +
+  `lib/runPersonalizationSummary.ts`). Three stacking reasons: (1) no slot in the §16 prompt
+  contract — v1.2 personalization is additive from `OutfitInteraction`, and attribute-level
+  taste learning is a §21 non-goal; (2) leaving an LLM-summarized taste profile in the
+  treatment arm **contaminates M6 lift attribution**; (3) deletion-license test: nothing in
+  the new path calls it. **Sequencing:** freeze the old vertical (incl. Gemini) as the M5
+  fallback arm; delete the entire arm — and the `GEMINI_API_KEY` dependency — at M6.
+- **The entire integration surface is four contact points:** auth token → userId;
+  `WardrobeItemDocument → fitted_core.WardrobeItem` adapter; `wardrobeVersion` increment in
+  wardrobe mutation routes; `OutfitInteraction` writes.
+- **Open at M6 (deferred):** permanent kill switch — keep a minimal OpenAI-direct path forever,
+  vs. accept "Fly down → friendly error" once the service has earned trust.
+
+**Implements:** M5 (flag + frozen fallback arm), M6 (arm deletion).
+
+### R8 — `sessionId = userId`, always; anonymous sessions dropped *(resolves §3.1 scope; Brian, 2026-06-11)*
+
+The spec's anonymous-cookie session (§3.1, ~24h cookie) serves no real user: the app is
+auth-only end-to-end (every route requires a Bearer token), and an anonymous visitor has no
+wardrobe to recommend from. **Decision:** drop anonymous support. `sessionId = userId`
+unconditionally — no cookie machinery, no expiry logic. Simplifies the seed, the cache key,
+and the M5 adapter. If a try-before-signup flow ever materializes, it re-enters as a new
+resolution with its own session design.
+
+**Implements:** M5 (adapter supplies userId as sessionId). M0-5's seed API is unaffected
+(takes sessionId as an opaque string).
 
 ---
 
@@ -233,12 +289,47 @@ draft of this resolution.)
 
 ## 4. Open items deferred to their milestone (recorded, not resolved here)
 
+- **Repetition-window state (§11.4) has no home** *(2026-06-11 pass)*: the §15
+  `generation_logs` schema records counts, not which FullSignatures were shown — so the
+  shown-outfits window cannot be computed from anything currently designed. M3 takes
+  shown-history as a ranker *input* (pure, testable); M4/M5 decide storage (add
+  `shownFullSignatures[]` to generation_logs, or a per-user ring buffer). Contrast: the
+  cooldown buffer needs **no** new state — last-10 disliked baseKeys are derivable from
+  `OutfitInteraction` (§4.3 stores keys on interactions).
+- **Key-computation locus** *(2026-06-11 pass)*: §4.3 computes baseKey/fullSig at interaction
+  write time, but the interaction route is TS and the key functions are Python
+  (`fitted_core`). **Do not reimplement keys in TS** (R6-class drift hazard). Sketch: the
+  recommend response includes baseKey/fullSig per outfit; the client echoes them on the
+  like/dislike POST; backend stores verbatim (tamper risk acceptable; server recompute
+  optional later). Keys are computed exactly once, in Python, at generation. → M4/M5.
+- **M5 data path default** *(2026-06-11 pass)*: the Next route fetches the wardrobe from
+  Mongo and **POSTs it to the Fly service** (Fly stays stateless; no Mongo credentials on the
+  second service). Fly-reads-Mongo is the rejected-by-default alternative unless payload size
+  ever forces it.
 - **itemBoost magnitude calibration** → measure in offline eval (M3/M6); levers listed in R2.
 - **Appendix pre-deployment items** A4 (dislike invalidates cache), B1 (`OVERUSE_MIN_POOL`),
   A3 (`MAX_AFFINITY` cap — adopted as a constant, behavior at M3), D1 (log token usage), D2
   (rate limiting), D3 (strip `warmth` from the GPT payload) → handled at the milestone that
   owns each (mostly M3/M5). Tracked in `docs/plans/m0-m1-substrate.md` §6 and the spec
   appendix; not re-litigated here.
+- **W-track — wardrobe ingestion revamp (Brian, 2026-06-11; in-scope, unspecced).** Brian
+  explicitly pulled the ingestion surface in-scope (amends CLAUDE.md's frontend-redesign
+  exclusion): ingestion UX is **data acquisition for M6** — friction starves the wardrobe,
+  the interaction volume, and the trained scorer's features. Problems on record: CV service
+  uptime (separate HF Space, cold starts, sometimes unreachable); synchronous per-item flow
+  traps the user; no batch upload; photo constraints (clean background, full item; background
+  bleeds into color detection); manual-entry fallback demands hex codes. Sketch (to be
+  `/spec`'d when M3 wraps; sequenced adjacent to M4/M5): **(A)** replace the extractor —
+  leading option is VLM structured extraction (JSON-schema output of the §4.1 attribute set,
+  named colors not hex, robust to messy photos; backend validates structure, same philosophy
+  as the GPT pipeline), fallback option is rehosting a CV model on the Fly box; **(B)** async
+  ingestion — Mongo-backed job queue + worker on the always-on M5 Fly box, items land in a
+  `needs_review` state, user reviews in batch; **(C)** one review surface = CV-correction form
+  = manual-entry form, chips/suggestions, never hex. Pinned interactions: non-active items
+  invisible to the sampler; `wardrobeVersion` bumps on item *activation*; new ingestion writes
+  the 5-type schema natively (delivery vehicle for the `clothingType` consolidation — backfill
+  covers only historical rows); the old synchronous upload path is a deletion-license
+  candidate at cutover.
 - **Data-model migrations** (`ItemAffinity`, `wardrobeVersion`, `sessionId`, `clothingType→type`)
   → M4/M5, per `m0-m1-substrate.md` §6.
   - **`clothingType→type` is a *consolidation*, not an addition.** The deployed app already
@@ -265,8 +356,9 @@ draft of this resolution.)
   cache-key invariant + **two-stage caching** (so regenerate isn't a no-op) are recorded for M5.
 - **R4** — M1 must **sort per-type lists by id, fix type-iteration order, and share one RNG**;
   add a permuted-input determinism test. This protects the *only* branch prod runs pre-M6.
-- **R5** — `RequestContext.weather`/`occasion` entering the seed are **canonical buckets**, not
-  raw text; bucketing is M5's adapter, M0/M1 take the canonical value.
+- **R5** — `RequestContext.weather` entering the seed is a **canonical bucket**; `occasion`
+  is **normalized verbatim user text** (not a bucket); normalization is M5's adapter, M0/M1
+  take the canonical values.
 
 R2 and R3 are M3 concerns — recorded now so M3's plan inherits settled decisions rather than
 re-opening them. The §1 pipeline order is the reference M2/M3 build against.
