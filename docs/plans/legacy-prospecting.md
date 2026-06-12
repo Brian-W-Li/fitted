@@ -48,7 +48,7 @@ Each maps to the v1.2 mechanism that fixes it.
 | F11 | **`regenerate` is a 693-line fork** with drift (weather fetch missing, different preference instructions, comment rot). | R1 two-stage cache: regenerate = re-rank cached candidates with a new `generationIndex`; no second route body. |
 | F12 | **Client-controlled cost.** `maxOutfits` comes from the request body unvalidated (route.ts:370) — a client can ask for arbitrarily many. Echoes spec D2 (no rate limiting). | §7.4 `candidateRequested` is server-computed; K is a server constant; D2 documented. |
 | F13 | Auth helper copy-pasted in every route (verify + User lookup, 2 sequential round-trips). Minor. | Factor once in the new vertical. |
-| F14 | Regenerate's lock feature breaks silently for low-scored items: `lockedItems = shortlisted.filter(...)` (regenerate) — if a locked item didn't survive the shortlist quota, the lock instruction silently omits it. | If locks are carried forward (see §3.1), pin locked items into the pool *before* sampling. |
+| F14 | Regenerate's lock feature breaks silently for low-scored items: `lockedItems = shortlisted.filter(...)` (regenerate) — if a locked item didn't survive the shortlist quota, the lock instruction silently omits it. | Locks are carried forward (R9): locked items are pinned into the pool *before* sampling. |
 
 ---
 
@@ -57,14 +57,13 @@ Each maps to the v1.2 mechanism that fixes it.
 The spec was written against an idealized app; the deployed one grew real features. Each needs
 an explicit keep/drop call rather than silent loss.
 
-### 3.1 Outfit regeneration controls — **locks, change-target, contextual dislikes** *(decide at M3/M5)*
+### 3.1 Outfit regeneration controls — **locks, change-target, contextual dislikes** *(resolved → R9)*
 Regenerate accepts `lockedItemIds` ("keep the jeans"), `changeTarget` ("just change the
 shoes"), `dislikedItemIds` (exclude these for *this* re-roll), and `feedbackNotes` (free-text
 why). v1.2's regenerate is only "new `generationIndex` → new shuffle" — it **cannot express
-"keep this item."** These are genuinely good UX and fit the pipeline cleanly as a **Step 6
-ranking filter** (rank only cached candidates containing the locked items; if too few survive,
-fallback ladder applies) or as sampler pinning. Flagged as a candidate **R8 / v2 expansion**;
-do not lose silently.
+"keep this item."** **Resolved as R9** (`spec-resolutions.md`, 2026-06-12): locks + contextual
+dislikes carried forward as per-request Step-4 filters with one-shot constrained escalation;
+`changeTarget` and `feedbackNotes` dropped. Plan: `docs/plans/regen-controls.md`.
 
 ### 3.2 Per-item dislike feedback *(keep through M4 — M6 gold)*
 `OutfitInteraction.perItemFeedback` records *which pieces* of a rejected outfit the user
@@ -195,7 +194,7 @@ exactly this.
 | Milestone | Items |
 |---|---|
 | M2 (GPT stage) | §3.3 reason-field decision; F5 (repair + strict schema) |
-| M3 (ranker) | §3.1 lock/changeTarget as Step-6 filter (or explicitly defer to v2) |
+| M3 (ranker) | §3.1 regen controls per R9 (filter/escalation/pinning functions; plan: `regen-controls.md`) |
 | M4 (data) | F9 backfill (ignore `clothingType`, derive via `inferItemType`); baseKey/fullSig backfill from `items[]`; keep `perItemFeedback` (§3.2); `isFavorite` affinity prior (§3.7); seasons→warmth mapping rule; F8 (labels move off serverless) |
 | M5 (integration) | §3.5 isAvailable filter; §3.6 weather two-channel adapter (+ reuse `detectTemperatureHint`); F12 server-owned K; F13 shared auth helper; F11 (regenerate route retired by two-stage cache) |
 | W-track | F10 (extractor must emit full §4.1 attributes — evidence for VLM option); F8 pattern (worker owns async) |

@@ -32,6 +32,9 @@ mechanisms must state which step they belong to before being added.
 The repetition-window penalty (§11.4) slots into Step 6 **after the overuse penalty and before
 the fallback ladder**, per appendix A1's stated intent. *(Resolves S3.)*
 
+Regen controls (locks + contextual dislikes) are per-request **Step 4** filters, with a
+one-shot constrained re-entry of Steps 1–3 on starvation (R9).
+
 ---
 
 ## 2. Resolved design decisions
@@ -271,6 +274,33 @@ resolution with its own session design.
 
 **Implements:** M5 (adapter supplies userId as sessionId). M0-5's seed API is unaffected
 (takes sessionId as an opaque string).
+
+### R9 — Regen controls: locks + contextual dislikes as Step-4 params, hybrid escalation *(resolves legacy-prospecting §3.1; Brian, 2026-06-12)*
+
+The legacy regenerate modal's controls (issue #115) cannot be expressed by R1's regenerate
+(= re-rank cached candidates with a new `generationIndex`): "keep this item" needs candidates
+the unconstrained pool rarely contains. **Decision** (interview 2026-06-12):
+
+- **Contextual dislikes** (`dislikedItemIds`) — **Step 4** per-request filter: drop cached
+  candidates containing them. Request-scoped; persistent labels already flow via
+  `POST /api/interactions` `perItemFeedback`.
+- **Locks** (`lockedItemIds`) — **Step 4** per-request filter (keep only candidates containing
+  *all* locked items) + **hybrid escalation**: if survivors `< DEFAULT_K`, **one** constrained
+  re-entry of Steps 1–3 (locks pinned into the pool *before* sampling — the F14 fix; dislikes
+  excluded; must-include prompt instruction; Step-3 validation + lock-containment check).
+  Escalation output **merges into the session's cached candidate pool** (dedup by
+  FullSignature; key unchanged — locks never enter `session_seed`/cache key, preserving the
+  R1 invariant). Repeat re-rolls with the same lock are then free.
+- **Failure = partial + explicit notice** — never silently drop a lock (F14 lesson). Max one
+  escalation per request.
+- **Dropped from the contract:** `changeTarget` (locks express the intent; dropdown dies at
+  M5) and `feedbackNotes` (UI never sends it on regen; notes persist via the feedback flow).
+- Structurally impossible lock sets (violate §13 — e.g. one-piece + bottom) reject **before**
+  any GPT spend.
+
+**Implements:** M3 (pure filter/escalation-trigger/pinning functions), M5 (single-route
+wiring; `regenerate/route.ts` deleted — deletion-license call recorded). Execution detail:
+`docs/plans/regen-controls.md`.
 
 ---
 
