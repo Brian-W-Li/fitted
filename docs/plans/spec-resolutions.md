@@ -60,10 +60,12 @@ tiebreak_seed(..., gi)      # wrapper: session inputs + generationIndex
 
 **Canonical-string encoding — length-prefix, not a bare delimiter.** A plain `"\x1f".join(...)` does **not**
 prevent field-collision: `join(["a", "b\x1fc"]) == join(["a\x1fb", "c"]) == "a\x1fb\x1fc"`, so
-two distinct input tuples hash to the same seed. Since `occasion` is free text and an anonymous
-`sessionId` can be a client-supplied cookie, the join char *can* appear in a field. Encode each
-field **length-prefixed** before joining: `"".join(f"{len(s)}:{s}" for s in fields)` (or an
-equivalent unambiguous framing). This is collision-free for arbitrary field content.
+two distinct input tuples hash to the same seed. Since `occasion` is free text (and `sessionId` is
+an opaque string — `= userId` per R8), the join char *can* appear in a field. Encode each
+field **length-prefixed** before joining: `"".join(f"{len(s.encode('utf-8'))}:{s}" for s in
+fields)` (or an equivalent unambiguous framing). This is collision-free for arbitrary field
+content. **Length is the UTF-8 byte count, not Python `len()`** — a reproducing runtime (the M5 TS
+adapter) must agree on non-BMP text where char count and JS string length differ.
 - **`None` sentinel:** `date=None` serializes **distinctly from `0`, from `"None"`, and from
   absence** — use a typed marker that no real field can produce (e.g. the framing `-:` with no
   value, distinct from `4:None`). The naive `str(None) == "None"` collides with `date="None"`,
@@ -389,6 +391,36 @@ touching M1 code.
 signal-first selection order); `ColdStartSignalScorer` ships the always-unavailable
 implementation; M6 plugs `TrainedSignalScorer`.
 
+### R12 — M0/M1 boundary ownership: duplicate item-IDs and wire-value validation *(2026-06-13; resolves codex M0-readiness clarifications #4/#5)*
+
+Two ownership questions the codex M0-readiness review surfaced. Both are **boundary**
+decisions — where a check lives, not a new mechanism — recorded so M0 stays narrowly scoped and
+M1/M5 inherit the responsibility explicitly.
+
+**(1) Duplicate wardrobe item IDs → rejected at the M1 sampler entry, not M0.** A wardrobe
+carrying two items with the same `id` would later collapse in M2's sampled-pool lookup (one id →
+two items) and corrupt key equality. M0's per-outfit primitives (`models`/`keys`/`slotmap`) never
+see the wardrobe *list*, so this cannot live in M0. **Owner: `build_candidate_pool` (M1-5),
+before `partition` (M1-1)** — reject (or de-duplicate with a logged warning; reject is the
+default) a wardrobe with duplicate logical ids *before any sampling*, so determinism (R4) and the
+M2 lookup both rest on a unique-id pool. Not built now (M1 is deferred); recorded as an M1-5
+acceptance criterion.
+
+**(2) Malformed `WardrobeItem` wire-value validation → owned by the M5 Mongo adapter, not the
+model.** Today `WardrobeItem.__post_init__` enforces only two narrow invariants (enum coercion of
+`type`, `warmth ∈ 0..10`); it accepts `warmth=True` (bool is an int in Python) and raises an
+incidental `TypeError` for some other malformed values, and does not reject empty
+id/name/image_url or malformed tag containers. **Decision: the dataclass is an *internal* contract,
+not the wire boundary.** Full wire-value validation (types, non-empty strings, tag-container
+shape, one predictable error channel) belongs in the **M5 `WardrobeItemDocument → WardrobeItem`
+adapter**, where untrusted Mongo data actually enters — same locus as the §4.1 attribute mapping
+and the `clothingType` consolidation (§4). M0 is **not** expanded into schema validation now; the
+model keeps its current narrow guards as a last-resort backstop. Recorded as an M5 adapter
+acceptance criterion (and revisited if M4 needs an earlier boundary).
+
+**Implements:** M1-5 (duplicate-id reject before partition); M5 adapter (wire-value validation +
+single error channel). M0 unchanged beyond this note.
+
 ---
 
 ## 3. Resolved consistency findings (no design fork — recorded for implementers)
@@ -565,6 +597,9 @@ implementation; M6 plugs `TrainedSignalScorer`.
 - **R11** — M1-3's `SignalScorer` protocol gains `is_available()`; the signal branch is gated on
   count ≥ threshold **AND** availability, with three behavior-identical, log-distinct fallback
   reasons and a signal-first deterministic selection order. This is the M6 seam.
+- **R12** — duplicate wardrobe item-IDs are rejected at the **M1-5 sampler entry** (not M0);
+  malformed `WardrobeItem` **wire-value** validation is the **M5 adapter's** job (not the model).
+  M0 stays narrowly scoped; the model keeps only its two narrow guards.
 
 R2 and R3 are M3 concerns — recorded now so M3's plan inherits settled decisions rather than
 re-opening them. The §1 pipeline order is the reference M2/M3 build against.

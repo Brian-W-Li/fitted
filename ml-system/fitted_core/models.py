@@ -69,9 +69,12 @@ class WardrobeItem:
     formality: Optional[str] = None
 
     def __post_init__(self) -> None:
-        # Coerce/validate the one enum field at construction so a bad value from
-        # the M5 Mongo adapter (a raw string `type`) is rejected here, not carried
-        # silently into the sampler. ItemType(...) raises ValueError on an unknown.
+        # Two narrow guards only — this dataclass is an *internal* contract, not the
+        # wire boundary. Full malformed-wire-value validation (empty ids, warmth=True,
+        # bad tag containers, one predictable error channel) is the M5 Mongo adapter's
+        # job, where untrusted data enters; M0 is not expanded into schema validation
+        # (spec-resolutions R12). Coerce the one enum field so a raw string `type` from
+        # the adapter is rejected here; ItemType(...) raises ValueError on an unknown.
         self.type = ItemType(self.type)
         if not 0 <= self.warmth <= 10:
             raise ValueError(f"warmth must be in 0..10, got {self.warmth}")

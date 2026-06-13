@@ -109,11 +109,13 @@ hook M6 plugs the trained model into. Everything else in M0/M1 is plumbing aroun
    that must be stable across re-renders. Use
    `int.from_bytes(sha256(canonical.encode()).digest()[:8], "big")` to derive a stable
    64-bit seed, fed to a dedicated `random.Random(seed)` instance (never the global RNG).
-   The canonical string **length-prefixes each field** (`"".join(f"{len(s)}:{s}" ...)`), not a
-   bare `"\x1f"` delimiter: a plain join collides (`join(["a","b\x1fc"]) ==
-   join(["a\x1fb","c"])`) and both `occasion` (free text) and an anonymous `sessionId` (cookie)
-   can contain any delimiter, so the delimiter approach is unsafe. `date=None` uses a typed
-   sentinel distinct from `"None"`/`""`/absence. See `spec-resolutions.md` R1.
+   The canonical string **length-prefixes each field by its UTF-8 byte count**
+   (`"".join(f"{len(s.encode('utf-8'))}:{s}" ...)`), not a bare `"\x1f"` delimiter: a plain join
+   collides (`join(["a","b\x1fc"]) == join(["a\x1fb","c"])`) and `occasion` (free text) can
+   contain any delimiter (`sessionId` is an opaque string, `= userId` per R8), so the delimiter
+   approach is unsafe. Byte length, not char count, so a reproducing runtime (M5 TS adapter)
+   agrees on non-BMP text. `date=None` uses a typed sentinel distinct from `"None"`/`""`/absence.
+   See `spec-resolutions.md` R1.
 
 4. **Daily re-seed (appendix C1) — implement the hook in M0, default OFF.** Why: C1 says
    append `date` (YYYY-MM-DD) to the seed for authenticated users. The seed signature is a
@@ -204,6 +206,10 @@ Each task: spec section → contract produced → test file.
   - `SlotMap` dataclass: `dress, top, bottom, outer, shoes` (each `itemId | None`) — §6.3.
 - **Test (`test_models.py`):** construction with/without optional fields; `warmth` accepts
   0 and 10; `type` rejects an unknown value; tags accept arbitrary strings.
+- **Wire-value validation is *not* M0's job (R12).** The dataclass keeps only two narrow guards
+  (enum coercion of `type`, `warmth ∈ 0..10`); full malformed-wire-value rejection (empty ids,
+  `warmth=True`, bad tag containers, one predictable error channel) belongs to the **M5 Mongo
+  adapter**, where untrusted data enters. M0 is deliberately not expanded into schema validation.
 - **Effort:** ~1 hr.
 
 ### M0-3 — Canonical keys — §5 BaseKey + FullSignature
@@ -274,9 +280,11 @@ Each task: spec section → contract produced → test file.
 ### M0-5 — Seed derivation — §3.3 (+ C1 hook)
 - **Produces:** `seed.py` (structure per `spec-resolutions.md` R1 — one private primitive,
   two named wrappers, so the session and tie-break seeds cannot drift):
-  - `_canonical_seed(...)` **private** primitive: **length-prefix** each field
-    (`f"{len(s)}:{s}"`), join, sha256, first 8 bytes → int (decision §1.3). `None` → typed
-    sentinel, not `str(None)`.
+  - `_canonical_seed(...)` **private** primitive: **length-prefix** each field by its
+    **UTF-8 byte length** (`f"{len(s.encode('utf-8'))}:{s}"`), join, sha256, first 8 bytes →
+    int (decision §1.3). Byte length, not Python `len()`: any reproducing runtime (the M5 TS
+    adapter) must agree on non-BMP text where Python char count and JS string length differ.
+    `None` → typed sentinel `"-:"` (no valid byte length is negative), not `str(None)`.
   - `session_seed(sessionId, wardrobeVersion, occasion, weather, date=None) -> int` — wrapper,
     no `generationIndex`. Used by sampling (M1) and the cache key (M5).
   - `tiebreak_seed(sessionId, wardrobeVersion, occasion, weather, date=None, *, generationIndex) -> int`
@@ -286,13 +294,19 @@ Each task: spec section → contract produced → test file.
     `session_seed` inputs, including `date` when C1 is active (R1).
 - **Test (`test_seed.py`):** determinism (same inputs → same int across calls); sensitivity
   (any single field change → different int, incl. the C1 `date` param and `generationIndex`);
-  `session_seed` ignores `generationIndex` while `tiebreak_seed` varies with it; both share the
-  primitive — assert by calling `_canonical_seed` directly (same non-gi inputs → same base);
-  **field-framing guard** — the length-prefix encoding makes the two ambiguous tuples differ:
-  occasion `"a"`+weather `"b\x1fc"` ≠ occasion `"a\x1fb"`+weather `"c"` (a bare `"\x1f"` join
-  would make these equal — this test fails against the wrong implementation); **`None`
-  encoding** — `date=None` ≠ `date="None"` ≠ `date=""` ≠ the omit-field tuple; `seeded_rng`
-  reproducibility (two RNGs from same seed emit identical sequences).
+  **wrapper/primitive delegation** — only `tiebreak_seed` *accepts* `generationIndex` (the codex
+  fix: do **not** word it as "`session_seed` ignores `generationIndex`" — `session_seed` has no
+  such parameter), and both wrappers equal `_canonical_seed(...)` called with the matching
+  generationIndex slot (`None` for session, the value for tiebreak); **field-framing guard** —
+  the length-prefix encoding makes the two ambiguous tuples differ: occasion `"a"`+weather
+  `"b\x1fc"` ≠ occasion `"a\x1fb"`+weather `"c"` (a bare `"\x1f"` join would make these equal —
+  this test fails against the wrong implementation); **UTF-8 byte framing** — a 1-char/4-byte
+  occasion (`"💎"`) ≠ a 4-char ASCII occasion (proves byte-length, not char-length, framing);
+  **`None` encoding** — `date=None` ≠ `date="None"` ≠ `date=""` ≠ `date="0"`; `seeded_rng`
+  reproducibility (two RNGs from same seed emit identical sequences). **No universal
+  collision-freedom property is asserted** (codex fix): length-prefix framing is injective, but
+  truncating SHA-256 to 64 bits is not — only known framing ambiguities + per-field sensitivity
+  are tested.
 - **Effort:** ~1 hr.
 
 **M0 subtotal: ~5.5 hr** (≈ one 4–8 hr/wk session).
@@ -431,8 +445,11 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 - **Effort:** ~1 hr.
 
 ### M1-5 — Sampler entry point + logging fields — §7, §18
-- **Produces:** `sampler.build_candidate_pool(wardrobe, request_context) -> SamplerResult`
-  tying M1-1..M1-4 together. `RequestContext` (fields specified in M1-3) is defined here too —
+- **Produces:** `sampler.build_candidate_pool(wardrobe, request_context, scorer) -> SamplerResult`
+  tying M1-1..M1-4 together. **Rejects a wardrobe with duplicate logical item-IDs *before*
+  `partition`** (R12 — a duplicate id collapses M2's sampled-pool lookup and breaks key equality;
+  M0 can't catch it because it never sees the wardrobe list). `RequestContext` (fields specified
+  in M1-3) is defined here too —
   it is the request-level input the sampler builds and the `SignalScorer` seam consumes.
   `SamplerResult` carries the bounded per-type pool,
   `candidateRequested`, and best-effort log fields: the **sampling-fallback reason** (R11 —
@@ -473,8 +490,9 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   - **Config (§18):** caps sum to `MAX_PROMPT_ITEMS`; exact constant values.
   - **Seed (§3.3 / C1):** determinism, per-field sensitivity, delimiter-injection guard.
 - **Optional property-based (hypothesis) — nice-to-have, not blocking:**
-  - Seed: ∀ distinct input tuples, `session_seed` differs (collision-free over generated
-    samples).
+  - Seed: ∀ distinct input tuples, the **canonical framing string** differs (the framing is
+    injective). Do **not** assert `session_seed` ints are collision-free — the 64-bit SHA-256
+    truncation is not (codex M0 clarification #3); the property belongs on the framing, not the hash.
   - Sampler: ∀ wardrobe ≥ cap and ∀ seed, `len(sample_type) == cap` and outputs are a subset
     of inputs with no duplicates.
   - **Confirmed:** example-based only for M0/M1; revisit hypothesis if the sampler's
