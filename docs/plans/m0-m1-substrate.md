@@ -22,7 +22,7 @@ is a planning doc only.
 > **canonical input ordering**, not just a seed (R4, M1-1/M1-3); (2) the cache-key invariant
 > made **regenerate a no-op** → two-stage caching (R1); (3) the bare `"\x1f"` seed delimiter
 > **collides** → length-prefix encoding + `None` sentinel (R1, M0-5); (4) `is_valid_slotmap`
-> was assigned two rejects its input type can't represent → **normalizer error channel** (M0-4);
+> was assigned rejects its input type can't represent → **normalizer error channel** (M0-4);
 > (5) `round(cap*0.7)` split the real caps inconsistently → **integer half-up** (M1-3); plus
 > `weather` must be a canonical seed bucket (R5) and `total_base==0` short-circuits (M1-4).
 
@@ -213,6 +213,14 @@ Each task: spec section → contract produced → test file.
     Excludes outer_layer and shoes (§5.1).
   - `full_signature(slotmap) -> str`:
     `BaseKey + "|outer=" + (outerId or "none") + "|shoes=" + (shoesId or "none")` (§5.2).
+  - **Preconditions (R10) — raise `ValueError`:** (1) **structurally invalid base** (no valid
+    one_piece XOR two_piece) — the key functions assume an already-normalized, validated SlotMap
+    (spec: "computed from the SlotMap *after normalization*"; §1 pipeline computes keys inside
+    Step 3, after validation); (2) any **participating itemId** containing a reserved char (`:`,
+    `|`, `=`) or equal to the sentinel `"none"`. (2) is an R1-class collision guard: the literal
+    key format can't be length-prefixed (it's spec-fixed + tested), so the defense is a
+    precondition. Real ObjectId-hex ids never trigger it (zero false-reject risk). See
+    `spec-resolutions.md` **R10**.
 - **Test (`test_keys.py`):** exact spec examples —
   - two_piece BaseKey `"abc:def"`; one_piece BaseKey `"ghi"`.
   - FullSig with outer no shoes `"abc:def|outer=ghi|shoes=none"`.
@@ -220,7 +228,10 @@ Each task: spec section → contract produced → test file.
   - one_piece full `"ghi|outer=jkl|shoes=mno"`.
   - **Key-responsibility invariant (§5.3):** same dress + different outer ⇒ same BaseKey,
     different FullSignature. Assert both, since the spec calls conflating them a bug.
-- **Effort:** ~1 hr.
+  - **R10 preconditions:** `ValueError` on a structurally invalid base (e.g. empty SlotMap, or
+    dress+top); `ValueError` on an itemId containing each of `:`, `|`, `=`; `ValueError` on an
+    itemId equal to `"none"`.
+- **Effort:** ~1.25 hr.
 
 ### M0-4 — SlotMap normalizer + validity — §6.3
 - **Produces:** `slotmap.py`:
@@ -229,25 +240,35 @@ Each task: spec section → contract produced → test file.
     structurally bad candidate). **Resolved from spec §16:** the candidate is a role-tagged item
     list — `items: [{itemId, role}]`, exactly GPT's output schema — so the normalizer input
     matches the M2 producer with no adapter.
-    - **Owns the two rejects a single-valued `SlotMap` cannot represent:** *multiple
-      tops/bottoms* (two `base_top`/`base_bottom` roles) and *unknown/unrecognized role*. Once a
-      candidate is collapsed into one-per-slot, those states are erased — a last-write-wins
-      normalizer would silently drop an item and emit a valid-looking SlotMap. So they must be
-      caught **here**, before normalization, not in `is_valid_slotmap`.
+    - **Owns every reject a single-valued `SlotMap` cannot represent — duplicate role *and*
+      unknown role.** Each of the five roles (`base_top`, `base_bottom`, `one_piece`,
+      `outer_layer`, `shoes`) maps to exactly one SlotMap slot (`top`, `bottom`, `dress`,
+      `outer`, `shoes`). So a **second item tagged with any already-seen role** — not only a
+      second `base_top`/`base_bottom`, but a second `one_piece`, `outer_layer`, or `shoes` —
+      would be silently dropped by last-write-wins assignment, emitting a valid-looking SlotMap
+      with an item erased. The normalizer therefore **rejects a second assignment to any
+      role-owned slot, and any unknown/unrecognized role, before constructing the SlotMap.**
+      These states are inexpressible once collapsed, so they cannot be caught in
+      `is_valid_slotmap` — they must be caught here. *(Matches spec §13's duplicate-slot reject
+      and the legacy route's per-role counts at `fitted/app/api/recommend/route.ts:628-648`,
+      which reject >1 bottom / base-top / one-piece / footwear and cap outer at 1 — protection
+      the replacement must not lose. Reject-set authority: §13, see `spec-resolutions.md` N3.)*
   - `is_valid_slotmap(slotmap) -> tuple[bool, reason]` enforcing §6.3 over the **slot-level**
     rules (those a `SlotMap` can express):
     - **Valid:** (dress set, top/bottom null → one_piece) XOR (top+bottom set, dress null →
       two_piece), plus optional outer/shoes.
     - **Invalid (reject):** dress+top or dress+bottom (mixed templates); no base role (empty);
-      duplicate itemId across slots. *(multiple tops/bottoms and unknown role are handled
+      duplicate itemId across slots. *(duplicate role-owned slots and unknown role are handled
       upstream in `normalize_to_slotmap` — see above.)*
   - `template_of(slotmap) -> Template`.
 - **Test (`test_slotmap.py`):** one parametrized case per **valid** shape, plus one per
   **invalid** case across **both** functions — `is_valid_slotmap` rejects (mixed templates ×2,
-  empty, duplicate itemId) **and** `normalize_to_slotmap` rejects (multiple tops/bottoms,
-  unknown role), each asserting accept/reject and the reason. Splitting by owner is the point:
-  the two normalizer-owned rejects are *inexpressible* as a `SlotMap`, so they can only be
-  tested through the raw role-tagged input. This is the densest correctness surface in M0.
+  empty, duplicate itemId) **and** `normalize_to_slotmap` rejects (a duplicate of **each** of the
+  five role-owned slots — second `base_top`, second `base_bottom`, second `one_piece`, second
+  `outer_layer`, second `shoes` — plus unknown role), each asserting accept/reject and the
+  reason. Splitting by owner is the point: the normalizer-owned rejects are *inexpressible* as a
+  `SlotMap`, so they can only be tested through the raw role-tagged input. This is the densest
+  correctness surface in M0.
 - **Effort:** ~2 hr.
 
 ### M0-5 — Seed derivation — §3.3 (+ C1 hook)
@@ -310,16 +331,28 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 ### M1-3 — 70/30 sampling + session seed + cold-start — §7.3, appendix B2 (**the M6 seam**)
 - **Produces:** `sampler.sample_type(items, cap, rng, signal_fn, interaction_count) ->
   list[WardrobeItem]`, applied per type only when over cap:
-  - **70% random**, drawn from the **single shared** `random.Random` seeded by M0-5 over the
-    **id-sorted** type list (R4) — deterministic per session only if both the seed and the input
-    order are fixed.
-  - **30% signal-based** via the **stubbed seam** `signal_fn`.
-  - **Cold-start guard (§7.3 + B2):** if `interaction_count < MIN_SIGNAL_THRESHOLD` (=5),
-    use **100% random** and set `coldStartSampling = True`. Spec B2 is explicit: log
-    coldStartSampling whenever `interactionCount < MIN_SIGNAL_THRESHOLD`, **not only when
-    it equals zero**. **Critical (R4):** this branch uses the **same seeded RNG over the sorted
-    list** — not bare `random.sample` — because until M4 it is the *only* branch prod ever
-    takes, so the §3.1 determinism promise rides entirely on it.
+  - **Signal-first selection order (R11):** when the signal branch runs, the **30% signal slot
+    is picked first** as the deterministic top-`signal_count` by `(score desc, id asc)` over the
+    id-sorted list (consumes no RNG); then the **70% random slot** draws `random_count` (R6)
+    from the **remaining** id-sorted items via the **single shared** `random.Random` seeded by
+    M0-5 (R4). Disjoint by construction; total = `cap`. Determinism needs both the seed *and*
+    the input order fixed (R4).
+  - **30% signal-based** via the **stubbed seam** `signal_fn` (the `SignalScorer` protocol below).
+  - **Signal-branch gate (§7.3 + B2; R11):** the signal branch runs only when
+    `interaction_count >= MIN_SIGNAL_THRESHOLD` (=5) **AND** `signal_fn.is_available()`.
+    Otherwise the type's signal slot falls back to **100% seeded random over the id-sorted list**
+    with one of three **mutually-exclusive, behavior-identical** log reasons (they sample the
+    same way; only the logged cause differs, so logs never lie about *why* random ran):
+    - `coldStartSampling` — `interaction_count < MIN_SIGNAL_THRESHOLD` (the only reason pre-M4;
+      B2 is explicit — log whenever below threshold, **not** only at zero).
+    - `signalUnavailable` — count ≥ threshold but `not signal_fn.is_available()` (M4→M6 window).
+    - `signalScorerFault` — scorer available + invoked but `score()` raised or returned a
+      non-finite value (NaN/±inf) → the whole type's signal slot falls back (fail-loud, not
+      silent item-dropping bias).
+    **Critical (R4):** every fallback uses the **same seeded RNG over the sorted list** — not
+    bare `random.sample` — because pre-M6 prod *always* takes a fallback path, so the §3.1
+    determinism promise rides entirely on it. Identical fallback sampling means M4's data
+    arrival changes only the log label, never the outfits, until M6 (R11).
 - **M6 seam contract (the most important deliverable in this chunk):**
   ```
   RequestContext (dataclass, built by the sampler entry point M1-5):
@@ -336,26 +369,33 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
     # Rule: new fields are additive only — never rename or remove the above.
 
   SignalScorer protocol:
+    is_available() -> bool                                         # R11: model-presence gate
     score(item: WardrobeItem, context: RequestContext) -> float   # higher = more relevant
   ```
   The `occasion / weather / sessionId / wardrobeVersion / date` fields are exactly the
   `session_seed` inputs (M0-5); `interaction_count` is the only addition. The sampler already
   holds all of them, so building the context is free.
-  - **M1 ships `ColdStartSignalScorer`**: always reports "no signal" so the sampler takes the
-    100%-random branch. Equivalently, `sample_type` short-circuits to random whenever
-    `interaction_count < MIN_SIGNAL_THRESHOLD`, and the 30% branch is only reachable with a
-    real scorer — which does not exist until M6.
+  - **M1 ships `ColdStartSignalScorer`**: `is_available()` always returns `False`, so the
+    sampler always takes a fallback (seeded-random) path and the 30% branch is unreachable until
+    M6 plugs in a scorer whose `is_available()` returns `True`.
   - **M6 plugs in** `TrainedSignalScorer` implementing the same protocol (trained on the M4
-    data — see the §6 data-model migration note). No other M1 code changes.
-  - Until M4 exists, `interaction_count` is **always 0** at the call site, so the 30% branch
-    is dead by construction. The protocol + the 70/30 split structure are built and tested
-    now, so **M6 is a swap rather than a rewrite — conditional on M4 first materializing the
-    signal fields** (`affinityScore` / `interaction_count`), which are not in the data model
-    today (§6).
+    data — see the §6 data-model migration note); its `is_available()` returns `True` once the
+    model is loaded. No other M1 code changes.
+  - Until M4 exists, `interaction_count` is **always 0**, so the 30% branch is dead by the
+    **count gate**. After M4 (count can reach ≥5) it stays dead by the **`is_available()` gate**
+    (R11) until M6 — the two-gate design is precisely what stops M4's data arrival from
+    perturbing the seeded product. The protocol + 70/30 structure are built and tested now, so
+    **M6 is a swap, not a rewrite — conditional on M4 first materializing the signal fields**
+    (`affinityScore` / `interaction_count`), absent from the data model today (§6).
 - **Test (`test_sampler.py`):**
-  - **Cold-start fallback:** `interaction_count` 0 and 4 → 100% random, `coldStartSampling`
-    True; `interaction_count` 5 with a *fake* scorer → 70/30 split exercised (proves the
-    seam is wired even though prod ships cold-start only).
+  - **Fallback reasons (R11):** `interaction_count` ∈ {0, 4} → 100% random, `coldStartSampling`;
+    count 5 + **unavailable** scorer (`is_available()` False) → 100% random, `signalUnavailable`;
+    count 5 + available scorer that **raises / returns NaN** → 100% random, `signalScorerFault`;
+    count 5 + available *fake* scorer → 70/30 split exercised (proves the seam is wired).
+  - **Fallbacks are behavior-identical:** the three fallback paths produce the **same** sampled
+    set for the same seed — only the logged reason differs.
+  - **Signal-first order (R11):** with an available fake scorer, the signal slot = top-N by
+    `(score desc, id asc)` and the random slot is disjoint, drawn from the remainder.
   - **Determinism:** same seed → identical sampled set across runs.
   - **Split math:** over-cap with cap=10 → 7 random + 3 signal (with fake scorer). Lives in the
     sampler-owned `random_count(cap)` helper (R6), not inlined at call sites. Rounding is
@@ -395,11 +435,12 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   tying M1-1..M1-4 together. `RequestContext` (fields specified in M1-3) is defined here too —
   it is the request-level input the sampler builds and the `SignalScorer` seam consumes.
   `SamplerResult` carries the bounded per-type pool,
-  `candidateRequested`, and best-effort log fields (`coldStartSampling`, estimated prompt
-  item count). Logging is **return-value data only** here — actual async/best-effort emission
-  (§18) is M5's concern; M1 must not block on it.
+  `candidateRequested`, and best-effort log fields: the **sampling-fallback reason** (R11 —
+  `coldStartSampling` per B2, or `signalUnavailable` / `signalScorerFault`, or none when the
+  signal branch ran) and the estimated prompt item count. Logging is **return-value data only**
+  here — actual async/best-effort emission (§18) is M5's concern; M1 must not block on it.
 - **Test:** end-to-end on the demo-wardrobe fixture: pool within caps, `candidateRequested`
-  matches §7.4, cold-start flag set for the zero-interaction fixture.
+  matches §7.4, `coldStartSampling` reason set for the zero-interaction fixture.
 - **Effort:** ~1 hr.
 
 **M1 subtotal: ~6 hr** (≈ one session).
@@ -416,15 +457,19 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   (to exercise sampling), plus a zero-interaction context and a `FakeSignalScorer` for the
   30% branch.
 - **Must-cover cases (spec-enumerated):**
-  - **SlotMap (§6.3):** all valid shapes (one_piece, two_piece, each ± outer/shoes) and all 6
-    invalid shapes (mixed templates, multiple tops/bottoms, empty, unknown role, duplicate
-    itemId).
-  - **Keys (§5):** the four exact FullSignature examples + the two BaseKey examples + the
-    "same dress, different outer" invariant.
+  - **SlotMap (§6.3 / §13):** all valid shapes (one_piece, two_piece, each ± outer/shoes) and
+    every invalid shape — `is_valid_slotmap`: mixed templates, empty, duplicate itemId;
+    `normalize_to_slotmap`: a duplicate of each of the five role-owned slots (base_top,
+    base_bottom, one_piece, outer_layer, shoes) and unknown role.
+  - **Keys (§5 / R10):** the four exact FullSignature examples + the two BaseKey examples + the
+    "same dress, different outer" invariant + the R10 preconditions (invalid base raises;
+    reserved-char and `"none"` itemId raise).
   - **Scaling (§7.4):** `total_base <= 5` branch, `> 5` branch, the `== 5` boundary, the
     `MAX_CANDIDATES` ceiling, and a dresses-only (one_piece) case.
-  - **Cold-start fallback (§7.3 / B2):** `interaction_count` ∈ {0, 4} → 100% random +
-    `coldStartSampling = True`; `== 5` → split path reachable.
+  - **Signal-branch gate + fallback reasons (§7.3 / B2 / R11):** `interaction_count` ∈ {0, 4} →
+    100% random + `coldStartSampling`; `== 5` with unavailable scorer → `signalUnavailable`;
+    `== 5` with available scorer that faults → `signalScorerFault`; `== 5` with available fake
+    scorer → split path reachable. The three fallbacks sample identically (same seed → same set).
   - **Config (§18):** caps sum to `MAX_PROMPT_ITEMS`; exact constant values.
   - **Seed (§3.3 / C1):** determinism, per-field sensitivity, delimiter-injection guard.
 - **Optional property-based (hypothesis) — nice-to-have, not blocking:**
@@ -463,7 +508,10 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   - **`wardrobeVersion` is not on `User`.** Spec §3.2 says it lives on the user record;
     `User.ts` has no such field. The seed (M0-5) takes it as a parameter, so M0/M1 are fine,
     but **M5 cannot supply a real `wardrobeVersion` without adding it to `User.ts` and
-    incrementing it on every wardrobe mutation** (§3.2).
+    incrementing it whenever the sampler-visible (active) wardrobe changes** (§3.2) — item
+    activation, deletion of an active item, or an edit to an active item's attributes, **not**
+    every raw mutation (a `needs_review` item the sampler can't see must not bump it; reconciles
+    with the W-track activation rule in `spec-resolutions.md` §4).
   - **No `sessionId` / session concept exists.** The seed and cache key need it (§3.1, §14).
     Strategy decided: `sessionId = userId` always, anonymous sessions dropped
     (`spec-resolutions.md` R8); M5 implements.

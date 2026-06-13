@@ -265,12 +265,20 @@ the recommendation **vertical is replaced outright**, not integrated-with.
 
 ### R8 — `sessionId = userId`, always; anonymous sessions dropped *(resolves §3.1 scope; Brian, 2026-06-11)*
 
-The spec's anonymous-cookie session (§3.1, ~24h cookie) serves no real user: the app is
-auth-only end-to-end (every route requires a Bearer token), and an anonymous visitor has no
-wardrobe to recommend from. **Decision:** drop anonymous support. `sessionId = userId`
-unconditionally — no cookie machinery, no expiry logic. Simplifies the seed, the cache key,
-and the M5 adapter. If a try-before-signup flow ever materializes, it re-enters as a new
-resolution with its own session design.
+The spec's anonymous-cookie session (§3.1, ~24h cookie) serves no real user: the recommendation
+flow is auth-gated (the `recommend`, `wardrobe`, `preferences`, and `interactions` routes verify
+a Firebase Bearer token), and an anonymous visitor has no wardrobe to recommend from.
+**Decision:** drop anonymous support. `sessionId = userId` unconditionally — no cookie
+machinery, no expiry logic. Simplifies the seed, the cache key, and the M5 adapter. If a
+try-before-signup flow ever materializes, it re-enters as a new resolution with its own session
+design.
+
+**Correction (do not restate "every route requires a token").** The recommendation vertical is
+token-verified, but the app is **not** uniformly authenticated: `auth/sync`, `account`,
+`images/[imageId]`, and `cv/infer` trust body-supplied identity or are unauthenticated (verified
+2026-06-12). R8's scope rests only on the *recommendation* routes being auth-gated — which holds.
+The unauthenticated retained-host routes are a separate **trust-boundary integration gate**, see
+§4 ("Retained-host trust boundaries").
 
 **Implements:** M5 (adapter supplies userId as sessionId). M0-5's seed API is unaffected
 (takes sessionId as an opaque string).
@@ -302,6 +310,85 @@ the unconstrained pool rarely contains. **Decision** (interview 2026-06-12):
 wiring; `regenerate/route.ts` deleted — deletion-license call recorded). Execution detail:
 `docs/plans/regen-controls.md`.
 
+### R10 — Key strings: validated base + reserved-character precondition (an R1-class collision) *(2026-06-12; resolves a §5 gap; self-reviewed, independent Fable pass pending)*
+
+**Problem.** `base_key(slotmap)` for two_piece is `f"{topId}:{bottomId}"`; `full_signature`
+adds `|outer={id|"none"}|shoes={id|"none"}` (spec §5, literal format — exact strings are tested
+in M0-3). `WardrobeItem.id` is an arbitrary `str` (`models.py:60`). If an id contains a reserved
+character (`:`, `|`, `=`), the keys collide exactly like the R1 seed bug:
+`topId="a:b", bottomId="c"` → `"a:b:c"` == `topId="a", bottomId="b:c"`. A real id equal to the
+literal `"none"` collides an empty slot with a filled one (`|outer=none`). Keys are compared for
+**equality** (BaseKey cooldown match, FullSignature dedup) and — per §4.3 / §4 "Key-computation
+locus" — echoed by the client and stored, so a collision silently conflates two distinct outfits.
+
+**Constraint.** Unlike the seed (R1), the keys **cannot be length-prefix encoded** — the spec
+fixes the literal format (`"abc:def"`, `"abc:def|outer=ghi|shoes=none"`) and M0-3 asserts those
+exact strings. The defense must live in a **precondition**, not the encoding.
+
+**Decision.** The key functions assume a normalized, validated input and enforce two
+preconditions, raising `ValueError` on violation (keys are computed once per outfit at Step 3,
+≤40 candidates — not hot; the R1 precedent chooses loud defense over silent corruption):
+1. **Structural validity** — a valid base (one_piece XOR two_piece present); raise on a
+   structurally invalid SlotMap. Matches spec "computed from the SlotMap after normalization"
+   and the §1 pipeline (keys are computed *inside* Step 3, after validation).
+2. **Reserved-character / sentinel guard** — every participating itemId (base ids for BaseKey;
+   base + outer + shoes for FullSignature) must not contain `:`, `|`, or `=`, and must not equal
+   the sentinel `"none"`; raise otherwise.
+
+**Source of guarantee.** Real ids are Mongo ObjectId hex (24 chars, `[0-9a-f]`) — the M5 adapter
+maps `_id.toString()`, so no reserved char or `"none"` can appear and the guard never fires in
+production. It is the defensive backstop + the documented contract for any future id source, with
+**zero false-reject risk** for ObjectId-shaped ids.
+
+**Implements:** M0-3 (both preconditions + tests: reject an invalid base, reject ids containing
+each reserved char, reject id `"none"`). The §4.3 client-echo path (M4/M5) inherits the same
+ObjectId precondition.
+
+### R11 — Scorer availability is separate from interaction_count; fallbacks are behavior-identical, log-distinct *(2026-06-12; resolves the M6-seam gap in M1-3; self-reviewed, independent Fable pass pending)*
+
+**Problem.** M1-3 conflated two conditions into one gate: `interaction_count >=
+MIN_SIGNAL_THRESHOLD` (=5) and "a trained scorer exists." They diverge in the **M4→M6 window**:
+M4 makes `interaction_count` real (it can reach ≥5) **before** M6 installs `TrainedSignalScorer`.
+A user can therefore cross the count threshold while no usable scorer exists, and the
+`score(...) -> float` signature cannot represent "no signal," nor guard a NaN/inf return.
+
+**Decision.**
+- **Two orthogonal gates.** The 30% signal branch is taken only when
+  `interaction_count >= MIN_SIGNAL_THRESHOLD` **AND** `scorer.is_available()` — a new explicit
+  predicate on the `SignalScorer` protocol. `ColdStartSignalScorer.is_available()` → always
+  `False`; `TrainedSignalScorer.is_available()` → `True` when its model is loaded. (count = the
+  data-sufficiency check; availability = the model-presence check — orthogonal.)
+- **Three mutually-exclusive fallback reasons, identical behavior.** All three fall the type's
+  signal slot back to **seeded random over the full id-sorted pool** (the cold-start path); they
+  differ only in the logged reason, so the logs never lie about *why* random was used:
+  - `coldStartSampling` — `interaction_count < MIN_SIGNAL_THRESHOLD` (the only reason pre-M4).
+  - `signalUnavailable` — count ≥ threshold but `not scorer.is_available()` (the M4→M6 window).
+  - `signalScorerFault` — scorer available and invoked, but `score()` raised or returned a
+    non-finite value (NaN/±inf); the **whole type's** signal slot falls back (fail-loud, over
+    silently biasing the selection by dropping items).
+- **Behavior-identical fallbacks are load-bearing.** Because all three sample `cap` items the
+  same way, M4's data arrival changes only the **log label**, never the outfits, until M6 ships a
+  real scorer. The seeded product (R4) does not shift under the user the moment they hit 5
+  interactions.
+- **Deterministic selection / RNG-consumption order (signal path only).** When the signal branch
+  *is* taken: pick the signal slot **first** as the deterministic top-`signal_count` by
+  `(score desc, id asc)` over the id-sorted pool (consumes no RNG); then draw `random_count` (R6)
+  from the **remaining** id-sorted items via the single shared seeded RNG (R4). Disjoint by
+  construction; total = `cap`. The fallback path consumes RNG differently (sample `cap` from the
+  full pool) — fine; the two are different code paths and need no cross-path determinism.
+- **Not an error.** count ≥ 5 with no scorer must **not** raise — that would break the product for
+  power users between M4 and M6. Graceful seeded-random fallback + the distinct log reason is the
+  contract.
+
+**Deferred (additive at M6, do not build now):** per-item abstention (a trained scorer returning a
+sentinel for items it has no signal on) is a finer-grained M6 refinement; the M1 contract is
+scorer-level availability only. Protocol fields are additive (M1-3 rule), so M6 can add it without
+touching M1 code.
+
+**Implements:** M1-3 (`is_available()` on the protocol, the AND-gate, the three log reasons, the
+signal-first selection order); `ColdStartSignalScorer` ships the always-unavailable
+implementation; M6 plugs `TrainedSignalScorer`.
+
 ---
 
 ## 3. Resolved consistency findings (no design fork — recorded for implementers)
@@ -312,7 +399,7 @@ wiring; `regenerate/route.ts` deleted — deletion-license call recorded). Execu
 | **S5** | Cold-start trigger: body says "zero interactions," appendix B2 says "< MIN_SIGNAL_THRESHOLD" | Adopt **B2**: cold-start (100% random) when `interaction_count < MIN_SIGNAL_THRESHOLD = 5`; log `coldStartSampling = true` whenever below threshold, not only at zero. *(Already in M1-3.)* | §7.3, §19, B2 |
 | **N1/cache** | Session seed and cache key share the same 4 inputs but are conceptually distinct | See R1: cache-key inputs ≡ session-seed inputs, by rule. They may share the primitive. | §3.3, §14 |
 | **N2/C1** | Appendix C1 daily re-seed (`+ date`) contradicts §3.1 "stable indefinitely" | Adopt **C1**: results refresh daily for authenticated users; "stable indefinitely" is superseded. `date` flows through `session_seed` *and* the cache key (R1). Activated at M5. *(Already in M0-5 as the `date` param.)* | §3.1, §3.3, C1 |
-| **N3** | §6.3 invalid-SlotMap list vs §13 validation list overlap, §13 adds two rules | **§13 is the authoritative validation superset.** §6.3 is the normalization-time subset; the full reject set is §13 (adds "itemId not in sampled pool," "wrong base count for templateType"). | §6.3, §13 |
+| **N3** | §6.3 invalid-SlotMap list vs §13 validation list overlap, §13 adds two rules | **§13 is the authoritative validation superset**, split across three owners so no reject is stranded: **(a)** duplicate role-owned slots + unknown role → `normalize_to_slotmap` (M0-4, *pre-collapse* — inexpressible in a single-valued SlotMap); **(b)** mixed templates, empty base, duplicate itemId, *wrong base count for templateType* → `is_valid_slotmap` (M0-4, slot-level; post-normalization "wrong base count" reduces to the base XOR rule); **(c)** *itemId not in sampled pool* → the **Step-3 pipeline validator (M2)**, which must take the sampled pool as an input that the pure `is_valid_slotmap(slotmap)` signature cannot accept. (c) is the one §13 reject with no M0 home — record it so M2 threads the pool in rather than discovering the signature gap late. | §6.3, §13 |
 | **N4** | `relaxedCooldown` (per-outfit bool) vs `relaxedCooldownCount` (per-request) | No conflict — per-outfit boolean and per-request aggregate. Both kept as defined. | §4.2, §15 |
 
 ---
@@ -332,10 +419,93 @@ wiring; `regenerate/route.ts` deleted — deletion-license call recorded). Execu
   recommend response includes baseKey/fullSig per outfit; the client echoes them on the
   like/dislike POST; backend stores verbatim (tamper risk acceptable; server recompute
   optional later). Keys are computed exactly once, in Python, at generation. → M4/M5.
+  - **Feedback-authenticity gate (do NOT carry "tamper risk acceptable" into the training
+    path)** *(2026-06-12)*: today `POST /api/interactions` (`route.ts:106-163`) authenticates the
+    caller and server-assigns the owner, but persists the client-supplied `items` array and
+    `perItemFeedback.itemId` with **no existence / ownership / outfit-membership check** — an
+    authenticated user can fabricate interaction rows or reference another user's item id. That
+    is tolerable while feedback only feeds a user's own `PreferenceSummary`, but **M4 turns these
+    rows into training labels** and M6 may consume them, where unbound feedback is a
+    dataset-poisoning vector (cross-user if ever pooled; self-poisoning even per-user). **Gate
+    (M4):** bind feedback to a server-issued generation/outfit identity and validate item
+    existence, authenticated-user ownership, and per-item membership in the issued outfit before
+    persistence. The "store client-echoed keys verbatim" sketch above stays for the *key* strings
+    but **not** for unvalidated item references entering training truth. *(Confirmed against
+    source 2026-06-12; ChatGPT review #4.)*
 - **M5 data path default** *(2026-06-11 pass)*: the Next route fetches the wardrobe from
   Mongo and **POSTs it to the Fly service** (Fly stays stateless; no Mongo credentials on the
   second service). Fly-reads-Mongo is the rejected-by-default alternative unless payload size
   ever forces it.
+- **Retained-host trust boundaries — gate before integration (HIGH)** *(2026-06-12; ChatGPT
+  review #3, confirmed against source)*: R7 keeps several legacy host routes through M4/M5, and
+  some trust client-supplied identity or expose unauthenticated compute:
+  - `auth/sync/route.ts:12-39` — creates/finds a user from a body-supplied Firebase UID/email
+    with **no ID-token verification** (anyone can mint or fetch any account).
+  - `account/route.ts` — reads/modifies accounts by body-supplied UID without authenticating the
+    caller.
+  - `images/[imageId]/route.ts:4-25` — returns image bytes by ObjectId with no auth/ownership
+    check.
+  - `cv/infer/route.ts` — exposes external CV compute with no auth, rate limit, or app-level
+    upload-size cap. (`cv/status` is a bounded health probe — not in scope.)
+
+  `AuthGate` is a client-side UI redirect and does **not** protect direct API calls. **Gate:**
+  before these surfaces are retained through the M5 cutover, verify the Firebase token, derive
+  identity only from the verified token, enforce image ownership, and authenticate + rate-limit
+  CV inference. The future Next.js→Fly service-to-service auth is a *separate* contract (M5). Not
+  an M0 blocker; a release blocker before any retained route is treated as trusted.
+- **Within-day cache stability vs the 15-min TTL** *(2026-06-12; ChatGPT review #6)*: PDF §14
+  sets a 15-minute cache TTL while Appendix C1 promises stability within the day. The R1 daily
+  seed reproduces the **sampled pool** deterministically, but GPT candidates are **stochastic**
+  (temperature > 0) and are only held stable by the *candidate cache*, not by the seed — so a
+  cache expiry mid-day reruns GPT (regen-controls.md:92 reruns Steps 1-3) and yields different
+  candidates with nothing failing. **Unresolved M5 design call** (pick one): promise stability
+  only for the candidate-cache lifetime; or persist/extend the candidate stage across the daily
+  seed period; or make candidate generation independently reproducible (e.g. seed the GPT call /
+  pin a candidate snapshot per seed-day). Also resolve at M5: whether PDF `forceRegenerate=true`
+  (fresh GPT call) is retained, renamed, or removed given R1/R9 define regenerate as cached
+  rerank + constrained escalation; and **`generationIndex` lifecycle** — ownership, valid range,
+  increment rule, retry behavior, reset — which is currently only *referenced* in
+  `regen-controls.md` (lines 20, 52), **not defined anywhere**. M5 must define it (it is the sole
+  input distinguishing a re-roll, R1, so its semantics are load-bearing for the two-stage cache).
+- **Daily-reseed date needs an explicit timezone contract** *(2026-06-12; ChatGPT review,
+  additional findings)*: C1/N2 append `date` (YYYY-MM-DD) to the seed, but "which midnight"
+  (server UTC vs validated user-local) is undefined — it sets the reseed boundary and must be
+  identical across the Next.js adapter and the Fly service or the seed/cache desync at the
+  day boundary. Decide at M5 when `date` is activated; default candidate is UTC.
+- **M4 interaction-time feature snapshots (training-truth durability)** *(2026-06-12; ChatGPT
+  review #5)*: `OutfitInteraction` stores **mutable wardrobe references**, not interaction-time
+  item snapshots; editing an item (`wardrobe/[id]/route.ts:51-89`) retroactively rewrites how
+  old feedback reads, and deleting one (`:146-149`, `wardrobe/clear/route.ts:21`) yields
+  incomplete/empty historical outfits (Mongoose omits missing refs — the previously-feared null
+  500 does **not** occur, ChatGPT corrected this). Ids / `baseKey` / `fullSig` cannot reconstruct
+  the attributes shown when feedback was given. **Gate (M4):** before interactions become
+  training labels, persist immutable interaction-time feature snapshots (or versioned wardrobe
+  refs); add history tests for edited, partially-deleted, and fully-deleted outfits.
+- **M4 idempotency / transaction rules** *(2026-06-12; ChatGPT review, additional findings)*:
+  duplicate feedback, affinity updates, interaction PATCH/DELETE, concurrent cap enforcement, and
+  `wardrobeVersion` increments need defined idempotency/transaction semantics so derived state
+  can't double-count or race. Resolve when M4 is specified.
+- **M6 eligibility measurement + exposure-aware eval** *(2026-06-12; ChatGPT review #7 + eval
+  finding)*: the M6 scorer only changes behavior for a request that has **both** ≥5 interactions
+  **and** ≥1 type over its cap — at/below every cap the scorer is behaviorally inert (the sampler
+  has no shortlisting decision to make). Prevalence is **unknown** (no production wardrobe
+  histogram). **Gate (before M6):** measure the % of recommendation requests meeting both
+  conditions; if low, add a model-controlled surface (candidate ordering, GPT-candidate scoring,
+  or downstream ranking) so the dive has a behavioral surface. The offline eval needs
+  exposure/candidate identity, positions, model/treatment version, context, and interaction-time
+  feature snapshots — interaction rows alone are selection-biased.
+- **Pre-M5 engineering debt (CI / runtime reproducibility)** *(2026-06-12; ChatGPT review #9)*:
+  no tracked CI workflow; no Node engine / Python runtime pin; `ml-system/requirements.txt` uses
+  lower bounds, not a resolved lock; `ml-system` has no centralized project config / formatter /
+  linter / type checker. Valid debt **now** (the Next.js app already has lockfile + ESLint +
+  strict TS + Jest). Cross-runtime CI should exist **before** the M5 integration so
+  serialization / auth / timeout / fallback behavior can't drift silently between Next.js and
+  Fly. Fly artifacts (`fly.toml`, Docker, service schema) are correctly absent until M5.
+- **Retained-host cleanup bugs (current, low-to-medium)** *(2026-06-12; ChatGPT review,
+  additional findings)*: clear-wardrobe and user-cascade paths omit some image/preference
+  cleanup; image **replacement deletes the old image before the replacement is fully committed**
+  (a data-loss ordering bug). Fix when the W-track ingestion revamp or the trust-boundary gate
+  touches these routes; not a refactor-contract hole, recorded so it isn't lost.
 - **itemBoost magnitude calibration** → measure in offline eval (M3/M6); levers listed in R2.
 - **Appendix pre-deployment items** A4 (dislike invalidates cache), B1 (`OVERUSE_MIN_POOL`),
   A3 (`MAX_AFFINITY` cap — adopted as a constant, behavior at M3), D1 (log token usage), D2
@@ -379,7 +549,7 @@ wiring; `regenerate/route.ts` deleted — deletion-license call recorded). Execu
 
 ## 5. What this changes for M0/M1 (the chunk being built next)
 
-**R1, R4, R5 touch M0/M1 directly:**
+**R1, R4, R5, R10, R11 touch M0/M1 directly:**
 - **R1** — M0-5 builds the **private `_canonical_seed` primitive + the `session_seed` /
   `tiebreak_seed` wrappers** (not a single flat function), now with **length-prefix encoding**
   (the bare `"\x1f"` join was collision-prone) and a **typed `None` sentinel** for `date`. The
@@ -389,6 +559,12 @@ wiring; `regenerate/route.ts` deleted — deletion-license call recorded). Execu
 - **R5** — `RequestContext.weather` entering the seed is a **canonical bucket**; `occasion`
   is **normalized verbatim user text** (not a bucket); normalization is M5's adapter, M0/M1
   take the canonical values.
+- **R10** — M0-3's `base_key` / `full_signature` enforce two preconditions (valid base; no
+  reserved char / `"none"` in any participating itemId), raising `ValueError`. An R1-class
+  collision guard the literal key format can't encode away.
+- **R11** — M1-3's `SignalScorer` protocol gains `is_available()`; the signal branch is gated on
+  count ≥ threshold **AND** availability, with three behavior-identical, log-distinct fallback
+  reasons and a signal-first deterministic selection order. This is the M6 seam.
 
 R2 and R3 are M3 concerns — recorded now so M3's plan inherits settled decisions rather than
 re-opening them. The §1 pipeline order is the reference M2/M3 build against.
