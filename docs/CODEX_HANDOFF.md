@@ -2,81 +2,67 @@
 
 ## Operating Contract
 
-Codex is a read-only support reviewer for this repository.
+Codex is a read-only support reviewer for this repository, except this handoff file when
+Brian explicitly asks Codex to route findings here.
 
-- Do not edit source code, tests, configuration, plans, or existing documentation.
-- Review Claude's work for correctness, omissions, regressions, maintainability, and coding conventions.
-- Review plans and documentation for holes, contradictions, unclear contracts, and downstream consequences.
+- Do not edit source code, tests, configuration, plans, or existing documentation unless Brian
+  explicitly changes that instruction.
+- Review Claude's work for correctness, omissions, regressions, maintainability, and coding
+  conventions.
+- Review plans and documentation for holes, contradictions, unclear contracts, and downstream
+  consequences.
 - Act as a sounding board for architecture, implementation choices, and evaluation ideas.
-- Avoid substantial implementation work unless Brian explicitly changes this instruction.
-- The only standing write permission is this file.
 - Distinguish verified findings from suggestions and unresolved questions.
 
-## Directional Review: 2026-06-13
+## Post-M0 Review: 2026-06-16
 
-The plan is intentionally being developed direction-first through milestone-specific `/spec`
-sessions. Findings below are not demands to fully design M4-M6 now. They are early warnings to
-route into the owning specification before implementation reaches the affected boundary.
+Brian clarified the current direction: the documents are intentionally directional and several
+future `/spec` runs are still expected. Treat future M4-M6 issues below as routing notes, not as
+claims that M0 should have solved them. The current working assumption is to keep most of the app
+shell and host infrastructure, while replacing the recommender system and the CV service if needed.
+If a retained surface is later abandoned, the corresponding hardening item can be dropped.
 
-The previous review's M0/M1 findings are removed because Claude resolved them in the active
-plans:
+### Verification Snapshot
 
-- M0-4 now rejects duplicate assignment to all five role-owned slots before SlotMap collapse.
-- R10 now defines key validity and reserved-character preconditions.
-- R11 now separates scorer availability from interaction count and defines deterministic
-  fallback behavior.
+- `ml-system`: M0 substrate exists in `ml-system/fitted_core/` and is covered by pytest.
+  `cd ml-system && .venv/bin/python -m pytest` passed: **73 tests passed**.
+- `fitted`: after dependency install, `npm test -- --runInBand` passed: **206 tests passed**.
+- `fitted`: `npm run lint` failed: **42 errors, 18 warnings**. Most errors are
+  `@typescript-eslint/no-explicit-any` in tests; two are in `app/(app)/wardrobe/page.tsx`.
+- `npm install` reported **42 audited vulnerabilities**: 2 low, 30 moderate, 8 high,
+  2 critical.
+- Worktree was clean after reverting install-only lockfile churn.
 
-Current verdict: **M0-M3 remain feasible.** The main unresolved work belongs to M2 validation
-and the future M4/M5 specifications.
+### Current Verdict
 
-## M0-M3 Implementation Readiness Review
+M0 is implemented and green. The remaining high-value work is:
 
-Council review on 2026-06-13 used four independent passes covering contract consistency,
-M0/M1 algorithms, M2 validation, and M3 ranking. Codex reconciled the reports against the PDF,
-active plans, current source, and tests.
+1. Tighten the M1 sampler API before implementation.
+2. Route M4/M5 state, cache, migration, and feedback contracts into their owning `/spec` runs.
+3. Decide which host routes survive the refactor; harden and test retained routes before M5.
+4. Add status banners or rewrites so legacy docs cannot be mistaken for the v1.2 source of truth.
 
-### Readiness Verdict
+## Findings For Claude
 
-| Milestone | Verdict | Meaning |
-|---|---|---|
-| M0 | **GO after minor plan clarifications** | Architecture and task split are sound. Fix the seed-test wording and byte-framing rule while implementing. |
-| M1 | **CONDITIONAL GO** | Algorithm is sound, but scorer injection and per-type sampling outcomes must be resolved before freezing the API. |
-| M2 | **SPEC FIRST** | Feasible, but current docs are directional and lack an executable schema, validation/result contracts, and repair semantics. |
-| M3 | **SPEC FIRST** | Feasible, but current docs do not yet define one deterministic authoritative ranking algorithm. |
+### 1. M1 Sampler API Still Cannot Carry Its Promised State
 
-The overall M0-M3 foundation passes review. These are localized contract gaps, not reasons to
-change the architecture.
+**Owner:** M1 `/spec` or immediate M1 implementation pass.  
+**Severity:** High.  
+**Status:** Must resolve before writing `sampler.py`.
 
-### Required Before M0/M1 Implementation
-
-#### M0 clarifications
-
-1. **Seed framing must use UTF-8 byte length**, not Python character count, if another runtime
-   may reproduce the seed. Python `len()` and JavaScript string length disagree for non-BMP
-   text.
-2. Replace the impossible test wording that `session_seed` “ignores `generationIndex`.”
-   `session_seed` does not accept that argument. Test instead that only `tiebreak_seed` includes
-   it and that both wrappers delegate to the same canonical primitive.
-3. Remove the proposed universal seed-collision property. Length-prefix framing is injective,
-   but truncating SHA-256 to 64 bits is not. Test known framing ambiguities and ordinary
-   per-field sensitivity instead.
-4. Reject duplicate wardrobe item IDs before sampling. Duplicate logical IDs would later
-   collapse in M2's sampled-item lookup.
-5. Decide whether malformed wire-value validation belongs in `WardrobeItem` or the future
-   adapter. Current code accepts `warmth=True` and raises incidental `TypeError` for some other
-   malformed values. This is narrow and need not expand M0 into full schema validation.
-
-#### M1 API corrections
-
-The documented signatures currently cannot implement the promised scorer seam:
+The active plan still says:
 
 ```python
-build_candidate_pool(
-    wardrobe: Sequence[WardrobeItem],
-    context: RequestContext,
-    scorer: SignalScorer,
-) -> SamplerResult
+sampler.sample_type(items, cap, rng, signal_fn, interaction_count) -> list[WardrobeItem]
+```
 
+But the same plan requires per-type signal/random mode, fallback reason, and scorer-fault
+handling. A scalar list return cannot say whether one type used signal while another fell back.
+Likewise, `SamplerResult` currently has one aggregate fallback reason, which can falsify logs.
+
+Recommended contract:
+
+```python
 sample_type(
     items: Sequence[WardrobeItem],
     cap: int,
@@ -86,265 +72,250 @@ sample_type(
 ) -> TypeSampleResult
 ```
 
-`sample_type` discovers scorer faults, so it cannot return only `list[WardrobeItem]`.
 `TypeSampleResult` should carry:
 
 - sampled items
-- sampling mode (`signal` or `random`)
-- optional fallback reason (`coldStartSampling`, `signalUnavailable`, or
-  `signalScorerFault`)
+- sampling mode: `signal` or `random`
+- optional fallback reason: `coldStartSampling`, `signalUnavailable`, `signalScorerFault`
+- counts for random and signal slots when the signal path runs
 
-`SamplerResult` should retain outcomes by `ItemType` or aggregate counts. One scalar request
-reason is insufficient because one type can use signal successfully while another faults.
+`SamplerResult` should retain outcomes by `ItemType`, not just one request-level reason.
 
-Also define:
+Also define before coding:
 
-- evaluate `scorer.is_available()` once per request
-- availability exceptions/malformed returns use an explicit fallback
-- scores must be finite real numbers, excluding booleans
-- final per-type output ordering, since deterministic selection alone does not guarantee
-  deterministic GPT prompt order
+- whether `scorer.is_available()` is evaluated once per request or once per type
+- behavior when `is_available()` throws or returns a malformed value
+- finite-score validation, excluding booleans
+- final canonical output order for the GPT prompt
+- whether `RequestContext` is built by the entry point or passed in already normalized
 
-### Required M2 `/spec`
+### 2. Retained Auth And Account Routes Trust Body-Supplied Firebase UIDs
 
-- Executable strict JSON Schema: required fields, `additionalProperties`, array bounds,
-  non-empty IDs, and whether exactly `candidateRequested` outfits are required.
-- Raw candidate type retaining mandatory `templateType`.
-- Decide whether the single repair attempt covers schema failure only or also an all-candidates
-  structurally rejected result; the PDF currently says both.
-- Validate sampled-pool membership, role-to-item-type compatibility, and declared template
-  versus `template_of(slotmap)`.
-- Define deterministic first-wins FullSignature deduplication and canonical response item order.
-- Define typed valid-candidate, rejection, and generation-error results with stable reason codes.
-- Add M2-specific tests; the current test plan covers only M0/M1.
+**Owner:** retained host hardening, before M5 if these routes survive.  
+**Severity:** High.  
+**Status:** Verified in code.
 
-### Required M3 `/spec`
+`fitted/app/api/auth/sync/route.ts` accepts `{ firebaseUid, email }` from JSON and creates or
+returns a Mongo user without verifying a Firebase ID token. `fitted/app/api/account/route.ts`
+reads and updates account metadata by body-supplied `firebaseUid`. The account client sends JSON,
+not an `Authorization: Bearer <idToken>` header.
 
-- Exact scoring and penalty constants, including overuse and repetition-window penalties.
-- Deterministic greedy variant-cap/ranking algorithm and canonical pre-tie ordering.
-- Exact overuse population and denominator.
-- Per-step fallback state table stating whether relaxations are cumulative.
-- Placement of final post-fallback dedup and refill behavior.
-- Separate hard request filters (contextual dislikes and locks) from relaxable historical
-  cooldown.
-- Resolve the contradiction: normal fallback Step 4 relaxes cooldown, while regeneration says
-  cooldown is never bypassed.
-- Constrained-pool pinning rules: pinned items replace sampled items or expand caps, ordering,
-  and prompt-ceiling preservation.
-- Pure ranker input/output dataclasses, score breakdown, fallback trace, and partial-result
-  precedence.
+Impact: any caller who knows or guesses a Firebase UID can pre-create, read, or patch account
+metadata for that UID. This is inconsistent with wardrobe, recommend, preferences, and
+interactions routes that derive the Mongo user from a verified bearer token.
 
-## Findings To Route Forward
+Route forward:
 
-### 1. M2 Must Validate Meaning, Not Only Slot Shape
+- introduce one shared authenticated-user helper for retained API routes
+- make account GET/PATCH derive UID from the token, not the body
+- make auth sync verify the ID token and bind token UID/email to the created Mongo user
+- add tests for unauthenticated requests, invalid token, and token/body UID mismatch
 
-**Owner:** M2 `/spec`. **Status:** early contract hole, not an M0 blocker.
+### 3. Wardrobe Images Are Served By Raw ID Without Ownership
 
-The current plan assigns M2 the sampled-pool membership check, while M0 validates SlotMap
-shape. Two semantic checks are still missing:
+**Owner:** retained host hardening, before M5 if Mongo-backed image serving survives.  
+**Severity:** High.  
+**Status:** Verified in code.
 
-- A GPT role must match the canonical type of the referenced sampled item:
-  `base_top → top`, `base_bottom → bottom`, `one_piece → dress`,
-  `outer_layer → outer_layer`, `shoes → shoes`.
-- The explicit GPT `templateType` must equal the template derived from the normalized SlotMap.
+`fitted/app/api/images/[imageId]/route.ts` fetches `WardrobeImage.findById(imageId)` and returns
+the bytes without auth. `WardrobeImage` stores `user` and `wardrobeItem`, but the read path ignores
+both.
 
-Without these checks, a sampled dress tagged `base_top`, or a top+bottom candidate declaring
-`templateType: one_piece`, can be structurally valid but semantically false. This matters
-because the UI contract explicitly says to trust `templateType`, not infer it.
+Impact: wardrobe/CV-upload images become bearerless URLs. Any known `mongo:<id>` can be fetched by
+another user or after deletion if the image document remains.
 
-Route into M2:
+Route forward:
 
-> The Step-3 validator should receive the sampled item map, validate role/type compatibility,
-> validate declared-versus-derived template type, and reject rather than repair either mismatch.
-> Add one rejection test per role mismatch and both template mismatch directions.
+- require bearer auth on image reads
+- query by `{ _id: imageId, user: userId }`
+- consider whether `wardrobeItem` must also exist and belong to the same user
+- add negative tests for no token, invalid token, cross-user image ID, and deleted item/image
 
-### 2. Candidate Cache Ownership Is Not Yet Defined
+### 4. Interaction Writes Are Not Safe As Future Training Truth
 
-**Owner:** M5 `/spec`. **Status:** blocking only when M5 caching is designed.
+**Owner:** M4 `/spec`, plus retained route hardening if legacy interactions remain.  
+**Severity:** High.  
+**Status:** Verified in code.
 
-R1 caches stochastic GPT candidates, and R9 merges constrained-escalation candidates into that
-cache. The selected data path also says Fly remains stateless. Vercel process memory is not a
-durable or shared cache, and no Redis/KV/Mongo cache owner is currently named.
+`POST /api/interactions` verifies auth, but it stores client-supplied `itemIds` directly after
+checking only that the array exists. `perItemFeedback` is normalized by shape only. Ownership is
+used later only for best-effort Gemini enrichment, after the interaction row has already been
+persisted.
 
-The M5 specification needs to choose:
+Impact: a user can submit nonexistent IDs, foreign-user item IDs, or per-item feedback for items
+outside the shown outfit. That poisons history now and becomes dangerous once M4/M6 treat
+interactions as affinity, cooldown, or training labels.
 
-- storage owner and persistence model
-- TTL and daily-stability behavior
-- atomic merge/dedup under concurrent regeneration
-- an actual entry-size or candidate-count bound
-- failure behavior when cache storage is unavailable
+Route forward:
 
-The statement that growth is bounded by “dedup + TTL” is insufficient: repeated requests with
-different lock sets can continue adding distinct FullSignatures until expiry.
+- define server-issued generation ID and outfit ID
+- store immutable snapshots of item IDs, SlotMap, BaseKey, FullSignature, visible attributes, and
+  model/control-arm metadata at issue time
+- accept feedback only for issued, unexpired outfits owned by the user
+- require `perItemFeedback.itemId` membership in the issued outfit
+- define idempotency for duplicate submissions and retry behavior
+- decide whether PATCH/DELETE reverses derived affinity or is disallowed after derivation
+- add tests for fabricated IDs, foreign IDs, stale/deleted items, and feedback outside the outfit
 
-### 3. The M4 Wardrobe Migration Needs a Total Mapping
+### 5. M4 Wardrobe Migration And Adapter Need A Total Mapping
 
-**Owner:** M4/W-track `/spec`. **Status:** direction is sound; migration rules remain open.
+**Owner:** M4 or W-track `/spec`.  
+**Severity:** High.  
+**Status:** Direction is sound; implementation rules are not total yet.
 
-The committed Python `WardrobeItem` requires `warmth` and `image_url`, while current Mongo rows
-may lack the new attributes and an image. Existing rows may also be classified as
-`mid_layer`, which has no destination in the v1.2 five-type enum.
+Current Mongo wardrobe rows are not shaped like M0 `WardrobeItem`.
 
-The migration/adapter specification should define:
+- `fitted/models/WardrobeItem.ts` has `clothingType: enum ["top", "bottom"]`.
+- v1.2 requires five types: `top`, `bottom`, `dress`, `outer_layer`, `shoes`.
+- Python `WardrobeItem` requires `warmth` and `image_url`.
+- Legacy classification can produce `mid_layer`, which has no v1.2 slot.
 
-- mid-layer policy: map to `top`, map to `outer_layer`, mark inactive/review-required, or reject
-- defaults or nullability for warmth, image, material, formality, and tag fields
-- seasons-to-warmth and legacy-tag mapping
-- treatment of ambiguous/unclassifiable rows
-- migration counts and a quarantine/review report rather than silent coercion
+Route forward:
 
-“Derive via `inferItemType`” is not currently total because that function can return
-`mid_layer`.
+- define a total mapping from legacy rows to v1.2 rows
+- decide mid-layer policy: map to `top`, map to `outer_layer`, quarantine, or deactivate
+- define defaults or nullability for `warmth`, image, material, formality, and tag fields
+- define seasons-to-warmth mapping
+- quarantine ambiguous/unclassifiable rows instead of silently coercing
+- emit migration counts by reason
+- add adapter/backfill tests, including malformed wire values such as `warmth=True`
 
-### 4. Feedback Binding Needs an Issued-Outfit Contract
+### 6. Candidate Cache Ownership Is Undefined
 
-**Owner:** M4 `/spec`. **Status:** the gate is recorded; its implementable shape is still open.
+**Owner:** M5 `/spec`.  
+**Severity:** High for M5, not an M0/M1 blocker.  
+**Status:** Open.
 
-The ledger correctly says feedback must be bound to a server-issued generation/outfit before it
-becomes training truth. The future specification still needs to define:
+R1 requires two-stage caching of sampled pool plus GPT candidates. R9 later merges constrained
+lock-escalation candidates into that same candidate cache. The selected architecture also says Fly
+should remain stateless. No durable/shared cache owner is named.
 
-- generation ID and outfit ID schema
-- what exact immutable item/key snapshot is issued
-- expiry and replay semantics
-- idempotency for duplicate submissions
-- validation of item existence, ownership, outfit membership, and per-item feedback membership
-- whether interaction PATCH/DELETE reverses derived affinity and liked-signature state, or is
-  disallowed after derivation
+M5 must choose:
 
-Current `POST /api/interactions` persists client-supplied item IDs before any ownership or
-issued-outfit check. Existing tests encode that pass-through behavior.
+- storage owner: Mongo, Redis, Vercel KV, or other
+- TTL and daily-reseed behavior
+- atomic merge and FullSignature dedup under concurrent regenerations
+- entry-size or candidate-count bound
+- cache-unavailable fallback
+- whether escalation output is appended to the shared session entry or tracked separately
 
-### 5. Legacy Interaction History Needs an Eligibility Policy
+Refine the R1 wording too: candidate-generation inputs should determine the candidate-cache key.
+Per-request ranking/filtering inputs should not. Explicitly keep `generationIndex`, locks,
+contextual dislikes, cooldown state, and feedback updates out of the candidate-cache key unless
+the M5 spec intentionally changes the architecture.
 
-**Owner:** M4/M6 data `/spec`. **Status:** future-data snapshots are already identified; old
-data remains unrecoverable.
+### 7. Regeneration Has Deferred But Load-Bearing M5 Decisions
 
-Interaction-time snapshots can preserve new feedback, but they cannot reconstruct attributes
-for legacy items already edited or deleted. Therefore a blanket backfill of BaseKey,
-FullSignature, or training features from current references would overstate label quality.
+**Owner:** M5 `/spec`; M3 pure functions can proceed with assumptions.  
+**Severity:** Medium/High for M5.  
+**Status:** Open; do not leave `regen-controls.md` saying "None blocking" without qualification.
 
-Route into the data specification:
+R9 is a good direction: locks and contextual dislikes are per-request filters, and starvation gets
+one constrained escalation. The open pieces are M5 lifecycle rules:
 
-> Define a historical cutoff and eligibility rules. Exclude or down-rank unverifiable rows,
-> record counts by exclusion reason, and report how much usable training data survives. Do not
-> silently treat reconstructed legacy state as interaction-time truth.
-
-### 6. `wardrobeVersion` and Derived State Need Atomic Semantics
-
-**Owner:** M4 `/spec`. **Status:** already noted generally; make it an acceptance criterion.
-
-Create, edit, delete, clear, availability changes, interaction writes, interaction PATCH, and
-interaction DELETE are separate operations today. The future seed/cache and affinity state
-cannot tolerate a committed wardrobe mutation without its version bump, or a duplicated
-feedback update that increments affinity twice.
-
-The M4 specification should explicitly cover:
-
-- atomic or transactionally recoverable `wardrobeVersion` increments
-- retry/idempotency behavior
-- duplicate feedback
-- interaction action changes and deletion
-- affinity cap updates under concurrency
-- repair/reconciliation for partial failures
-
-### 7. Regeneration Has Deferred but Load-Bearing M5 Decisions
-
-**Owner:** M5 `/spec`. **Status:** does not block M3 pure functions.
-
-`regen-controls.md` currently says “None blocking,” but the integrated behavior still depends
-on unresolved decisions:
-
-- `generationIndex` owner, range, increment, retry, replay, and reset lifecycle
-- 15-minute cache expiry versus within-day stability
+- `generationIndex` owner, valid range, increment, retry, replay, and reset behavior
+- interaction between 15-minute cache expiry and within-day stability
 - whether hard refresh survives, is renamed, or is removed
 - concurrent regeneration and duplicate request behavior
-- whether an invalid/deleted lock is dropped or causes a request rejection
+- invalid/deleted/unavailable locks
+- exact `regenNotice` shape and partial-result precedence
 
-Describe these as deferred M5 decisions rather than “none blocking.”
+Recommended wording: "M3 pure functions are unblocked; M5 behavior remains blocked on lifecycle
+and cache decisions."
 
-### 8. Retained Host Security Needs Executable Release Gates
+### 8. Legacy Docs Still Conflict With v1.2
 
-**Owner:** W-track/M5 `/spec`. **Status:** current legacy debt; block release of retained
-surfaces, not M0-M3.
+**Owner:** docs cleanup before the next major handoff.  
+**Severity:** Medium.  
+**Status:** Verified.
 
-The affected routes remain:
+Several docs still read as current architecture even though the M0-M6 plan supersedes them.
 
-- `auth/sync` and `account`: body-supplied identity without token binding
-- `images/[imageId]`: no authentication or ownership check
-- `cv/infer`: no authentication, application upload limit, or rate limit
+Examples:
 
-The current ledger identifies the problem but not the acceptance tests. Before treating these
-surfaces as retained trusted infrastructure, require negative-token, cross-user ownership,
-upload-limit, and rate-limit tests. Next.js-to-Fly service authentication is a separate M5
-contract.
+- `ml-system/README.md` presents `outfit_recommender.py` as the ML system and does not describe
+  `fitted_core/` or the M0 pytest suite.
+- `docs/RECOMMENDATION_MODEL.md` says per-item feedback is not stored, but current code stores
+  `OutfitInteraction.perItemFeedback` and future plans treat it as important negative-label data.
+- `docs/RECOMMENDATION_MODEL.md` still describes old shortlisting limits, footwear injection,
+  and mid-layer behavior that conflict with v1.2 SlotMap rules.
+- `docs/plans/legacy-prospecting.md` still says `extractOccasionBuckets` is a candidate for
+  R5 occasion bucketing, but R5 says occasion is normalized verbatim text, not bucketed.
 
-### 9. The “Four Contact Points” Description Is Too Narrow
+Route forward:
 
-**Owner:** M4/M5 `/spec`. **Status:** documentation precision issue.
+- add "legacy/current/future" banners to design and recommendation docs
+- update `ml-system/README.md` with a split between legacy demo and v1.2 substrate
+- mark M0 complete in active handoff/planning docs
+- correct the R5 legacy-prospecting note: occasion buckets may be legacy evidence or GPT context,
+  but seed/cache uses normalized verbatim occasion text
 
-R7 summarizes integration as auth, wardrobe adaptation, `wardrobeVersion`, and interaction
-writes. Steps 4-6 also need cooldown history, liked signatures, affinities, shown-signature
-history, generation state, and candidate-cache access. The direction can remain stateless Fly,
-but then the Next adapter must query and send a defined ranking-state payload.
+### 9. Test Infrastructure Does Not Yet Protect The Cross-Runtime Plan
 
-Replace “the entire integration surface is four contact points” with “four primary host
-boundaries,” and let M4/M5 define the full request/state schema.
+**Owner:** testing/CI cleanup before M5.  
+**Severity:** Medium.  
+**Status:** Verified.
 
-### 10. The Feature Flag Is Not Yet an A/B Design
+Current state:
 
-**Owner:** M5/M6 evaluation `/spec`. **Status:** future evaluation requirement.
+- root `npm test` only delegates to `fitted`; it does not run `ml-system` pytest
+- no `.github/workflows` directory is present
+- Jest coverage only collects `lib/**/*.ts`, excluding API routes, pages, models, and route tests
+- some tests inline copies of production logic instead of testing shared code paths
+- `requirements.txt` mixes M0 pytest with heavy CV dependencies and uses lower bounds
 
-`USE_ML_SHORTLISTER` is currently described as both a kill switch and A/B mechanism. An
-environment-wide boolean supports cutover/fallback, but not stable treatment assignment or
-online lift measurement.
+Route forward:
 
-Before claiming A/B results, define:
+- add one repo-level test command that runs both runtimes
+- add CI once the workflow is stable locally
+- expand coverage collection or create explicit route/security suites
+- split or lock Python test dependencies enough for reproducible CI
+- add M1 tests for partition ordering, duplicate IDs, seeded fallback, 70/30 split, scorer
+  availability, scorer faults, and per-type logging outcomes
+- add M5 cross-runtime seed/cache tests using the Python golden values before implementing the TS
+  adapter/cache key
 
-- stable user/session assignment
-- control and treatment version identifiers
-- exposure and candidate-position logging
-- baseline window and minimum sample
-- quality, latency, and error guardrails
-- rollback criteria
+### 10. `USE_ML_SHORTLISTER` Is A Kill Switch, Not An A/B Design
 
-Offline evaluation must also retain candidate/exposure identity; interaction rows alone are
-selection-biased.
+**Owner:** M5/M6 evaluation `/spec`.  
+**Severity:** Medium.  
+**Status:** Open.
 
-### 11. Current M0 Model Validation Is Permissive
+An environment boolean is useful for cutover and rollback, but it is not a stable online
+experiment. If M6 lift is going to be claimed through A/B, define:
 
-**Owner:** M0-2 follow-up or M5 adapter contract. **Status:** narrow code-quality issue.
+- user/session assignment
+- treatment version IDs
+- exposure logging
+- candidate-position logging
+- baseline/control window
+- minimum sample size or stopping criteria
+- guardrail metrics and rollback conditions
 
-`WardrobeItem.__post_init__` accepts `warmth=True` because `bool` is an `int`, while `None` and
-string values raise incidental `TypeError` rather than the documented validation error. Empty
-IDs/names/image URLs and malformed tag containers are not rejected.
+### 11. M6 Scorer May Be Inert For Many Users Unless Eligibility Is Measured
 
-Before the Mongo adapter relies on the dataclass as a boundary, decide whether validation lives
-in the adapter or model. Whichever owns it should produce one predictable error channel and
-test malformed wire values.
+**Owner:** M6 evaluation `/spec`.  
+**Severity:** Medium.  
+**Status:** Open.
 
-### 12. Active Documentation Still Has Stale Pointers
+The planned trained scorer affects only the 30% signal branch, and only when:
 
-**Owner:** documentation cleanup; safe to fix opportunistically.
+- the user has enough interaction history
+- the scorer is available
+- at least one item type exceeds its cap, so sampling actually happens
 
-- `legacy-prospecting.md` says R5 uses occasion buckets; R5 actually requires normalized
-  verbatim occasion text.
-- `regen-controls.md` says “None blocking” despite the deferred M5 decisions above.
-- `docs/RECOMMENDATION_MODEL.md` and `ml-system/README.md` still read like active architecture
-  even though they describe the legacy pipeline. Add prominent historical/legacy banners or
-  retire them from active entry points.
-- R1/M0 rationale still mentions anonymous cookie input after R8 removed anonymous sessions.
-- The cache-key rule should say that **candidate-generation inputs** must change the cache key.
-  Per-request ranking inputs such as locks, contextual dislikes, feedback, and
-  `generationIndex` intentionally do not.
+For users with small wardrobes or sparse feedback, M6 may not visibly affect recommendations.
+Before treating M6 as the ML-depth deliverable, measure scorer-eligible request prevalence. If
+eligibility is low, consider expanding the model-controlled surface to candidate ordering,
+candidate scoring/ranking, or another downstream slot that affects more requests.
 
-## Suggested Sequencing
+## Suggested Next Actions
 
-1. Implement the remaining M0 work after applying the minor seed/input clarifications above.
-2. Correct the M1 scorer/result interfaces, then implement M1.
-3. Run dedicated M2 and M3 `/spec` sessions before implementing either milestone.
-4. In M4 `/spec`, settle migration totality, issued-outfit feedback, historical eligibility,
-   snapshots, idempotency, and atomic derived state.
-5. In M5 `/spec`, settle cache ownership, full cross-runtime state schema, regeneration
-   lifecycle, service auth, failure behavior, and release gates.
-6. Before M6 evaluation, measure scorer eligibility and define real exposure-aware A/B and
-   offline evaluation contracts.
+1. Update `m0-m1-substrate.md` M1 signatures/results before implementing M1.
+2. Patch docs status: mark M0 complete, add legacy/current/future banners, fix the R5 occasion
+   bucketing note.
+3. Decide retained host routes for M5; if keeping account/images/interactions, add auth and
+   ownership tests before relying on them.
+4. Run M4 `/spec` for wardrobe migration plus issued-outfit feedback truth.
+5. Run M5 `/spec` for candidate cache ownership, regeneration lifecycle, and cross-runtime seed
+   adapter.

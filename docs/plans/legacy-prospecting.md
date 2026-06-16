@@ -180,9 +180,12 @@ exactly this.
 - **Legacy validator ↔ §13 overlap**: `itemMap.has(id)` = "itemId not in sampled pool";
   one-piece ⊕ top/bottom exclusion (route.ts:638) = mixed-template reject. The new rules are a
   superset; nothing in the old validator needs preserving beyond what M0-4/M2 already define.
-- **`extractOccasionBuckets`** (route.ts:94–118): occasion free-text → closed bucket set —
-  candidate input for R5's occasion bucketing at M5 (decide whether occasion seeds on raw text
-  or buckets — R5 says canonical buckets).
+- **`extractOccasionBuckets`** (route.ts:94–118): occasion free-text → closed bucket set.
+  **Not used for seed/cache** — R5 resolved occasion to **normalized verbatim user text, never a
+  bucket** (bucketing aliases distinct occasions like "job interview"/"office party" into one
+  cache key). The bucket set may survive only as *legacy evidence* or as GPT taste context; the
+  seed and cache key key on the normalized verbatim occasion. (Was mis-recorded as "R5 says
+  canonical buckets" — that rule is weather-only.)
 - **CV proxy error UX** (`cv/infer/route.ts`): timeout + "continue manually" messaging and
   structured per-request logging — the *pattern* (not the code) carries into W-track job
   states.

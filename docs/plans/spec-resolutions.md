@@ -312,7 +312,7 @@ the unconstrained pool rarely contains. **Decision** (interview 2026-06-12):
 wiring; `regenerate/route.ts` deleted — deletion-license call recorded). Execution detail:
 `docs/plans/regen-controls.md`.
 
-### R10 — Key strings: validated base + reserved-character precondition (an R1-class collision) *(2026-06-12; resolves a §5 gap; self-reviewed, independent Fable pass pending)*
+### R10 — Key strings: validated base + reserved-character precondition (an R1-class collision) *(2026-06-12; resolves a §5 gap; self-reviewed + first-principles design pass 2026-06-16: reserved set `: | =` proven complete for the literal format, `"none"` over-rejection harmless, empty-id routed to M5 per R12)*
 
 **Problem.** `base_key(slotmap)` for two_piece is `f"{topId}:{bottomId}"`; `full_signature`
 adds `|outer={id|"none"}|shoes={id|"none"}` (spec §5, literal format — exact strings are tested
@@ -346,7 +346,7 @@ production. It is the defensive backstop + the documented contract for any futur
 each reserved char, reject id `"none"`). The §4.3 client-echo path (M4/M5) inherits the same
 ObjectId precondition.
 
-### R11 — Scorer availability is separate from interaction_count; fallbacks are behavior-identical, log-distinct *(2026-06-12; resolves the M6-seam gap in M1-3; self-reviewed, independent Fable pass pending)*
+### R11 — Scorer availability is separate from interaction_count; fallbacks are behavior-identical, log-distinct *(2026-06-12; resolves the M6-seam gap in M1-3; independent review served by codex post-M0 pass 2026-06-16, finding #1 — sampler contract tightened to per-type `TypeSampleResult` so logs can't conflate diverging type outcomes; see M1-3)*
 
 **Problem.** M1-3 conflated two conditions into one gate: `interaction_count >=
 MIN_SIGNAL_THRESHOLD` (=5) and "a trained scorer exists." They diverge in the **M4→M6 window**:

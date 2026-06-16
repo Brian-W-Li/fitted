@@ -1,6 +1,20 @@
-# Fitted ML System - Issue #32
+# Fitted ML System
 
-## What This Does
+> **Two layers live here — don't confuse them:**
+> - **`fitted_core/`** — the **v1.2 substrate** (the current focus). Pure-function contracts +
+>   sampler for the GPT-orchestration refactor, built test-first under `tests/` (pytest).
+>   Authoritative design: `docs/plans/m0-m1-substrate.md` + `docs/plans/spec-resolutions.md`.
+>   **M0 is complete; M1 (sampler) is next.**
+> - **`outfit_recommender.py`** — the **legacy rule-based demo** (Issue #32, below). Kept as a
+>   runnable reference only; retired at M6 when the trained scorer lands. Not the architecture.
+>
+> The rest of this file documents the legacy demo.
+
+---
+
+## Legacy demo (Issue #32)
+
+### What This Does
 
 Rule-based outfit recommendation system that:
 1. Takes clothing items from user's wardrobe
