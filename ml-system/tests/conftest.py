@@ -34,3 +34,31 @@ def demo_wardrobe() -> list[WardrobeItem]:
         WardrobeItem("s2", "Black dress shoes", ItemType.shoes, warmth=3, image_url="s2.jpg",
                      color_tags=["#000000"], style_tags=["solid"], occasion_tags=["business"]),
     ]
+
+
+# Synthetic wardrobe that exceeds every per-type cap (§7.2: tops 35, bottoms 30,
+# dresses 25, outer 20, shoes 25), so the sampler's over-cap path is exercised
+# for all five types. Ids are generated in DESCENDING order so insertion order
+# != id-sorted order — partition's R4 sort must actually do work to pass.
+@pytest.fixture
+def over_cap_wardrobe() -> list[WardrobeItem]:
+    counts = {
+        ItemType.top: 40,
+        ItemType.bottom: 35,
+        ItemType.dress: 30,
+        ItemType.outer_layer: 25,
+        ItemType.shoes: 30,
+    }
+    items: list[WardrobeItem] = []
+    for item_type, n in counts.items():
+        for i in reversed(range(n)):
+            items.append(
+                WardrobeItem(
+                    id=f"{item_type.value}-{i:03d}",
+                    name=f"{item_type.value} {i}",
+                    type=item_type,
+                    warmth=5,
+                    image_url=f"{item_type.value}{i}.jpg",
+                )
+            )
+    return items

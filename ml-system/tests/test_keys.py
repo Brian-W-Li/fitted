@@ -78,6 +78,18 @@ def test_reserved_or_sentinel_id_in_optional_slots_raises(bad_id):
         full_signature(SlotMap(top="t1", bottom="b1", shoes=bad_id))
 
 
+@pytest.mark.parametrize("bad_id", ["a:b", "a|b", "a=b", "none"])
+def test_reserved_or_sentinel_id_in_optional_slots_one_piece_base_raises(bad_id):
+    # The optional-slot guard is base-template-agnostic, but the other optional-slot
+    # test only exercises a two_piece base — assert the one_piece (dress) base path
+    # guards outer/shoes too, so R10's "reserved-char/none itemId raises" holds for
+    # both templates.
+    with pytest.raises(ValueError):
+        full_signature(SlotMap(dress="d1", outer=bad_id))
+    with pytest.raises(ValueError):
+        full_signature(SlotMap(dress="d1", shoes=bad_id))
+
+
 def test_base_key_ignores_reserved_char_in_optional_slots():
     # BaseKey is the silhouette key — it excludes outer/shoes (§5.1), so a reserved
     # char in those slots must NOT make base_key raise (only full_signature guards

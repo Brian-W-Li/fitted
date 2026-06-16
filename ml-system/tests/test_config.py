@@ -36,3 +36,14 @@ def test_per_type_caps_sum_to_prompt_ceiling():
 
 def test_sampler_constants():
     assert config.MIN_SIGNAL_THRESHOLD == 5
+
+
+def test_default_k():
+    assert config.DEFAULT_K == 10
+
+
+def test_forward_declared_constants():
+    # Owned by M3 but pinned here per §18 (one config file). Without this guard an
+    # accidental edit to either value passes today — no test references them yet.
+    assert config.MAX_AFFINITY == 20
+    assert config.OVERUSE_MIN_POOL == 15

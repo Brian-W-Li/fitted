@@ -5,26 +5,12 @@ Plan doc for the first implementation chunk of the Fitted Refactor **v1.2** spec
 and **M1** (the sampler / shortlister). No implementation code is written here — this
 is a planning doc only.
 
-> **Process note:** Interview completed at top level on 2026-06-09. The decisions below
-> are **confirmed** (formerly recommended defaults). Brian resolved the pivotal language/home
-> and hosting choices; the remaining low-stakes items were ratified at their recommended
-> defaults. Former `[CONFIRM]` markers are now resolved — see §1 and §8.
->
-> **Gap review folded in (2026-06-09):** a fresh-context review surfaced three gaps now
-> addressed here — `RequestContext` is defined concretely (M1-3); the data-model migration
-> the v1.2 seams depend on is recorded as explicit M4/M5 work (§6); the Fly.io rationale was
-> corrected (§0 Decision 2). Findings that measured v1.2 against superseded deployed behavior
-> (per CLAUDE.md → *Canonical sources*) were intentionally **not** folded in.
->
-> **Implementation fan-out review folded in (2026-06-09, Fable):** a runtime-behavior review
-> (not doc-vs-spec drift) surfaced bugs the contracts would have shipped — now fixed here and in
-> `spec-resolutions.md` R1/R4/R5: (1) determinism rides only on the cold-start branch and needs
-> **canonical input ordering**, not just a seed (R4, M1-1/M1-3); (2) the cache-key invariant
-> made **regenerate a no-op** → two-stage caching (R1); (3) the bare `"\x1f"` seed delimiter
-> **collides** → length-prefix encoding + `None` sentinel (R1, M0-5); (4) `is_valid_slotmap`
-> was assigned rejects its input type can't represent → **normalizer error channel** (M0-4);
-> (5) `round(cap*0.7)` split the real caps inconsistently → **integer half-up** (M1-3); plus
-> `weather` must be a canonical seed bucket (R5) and `total_base==0` short-circuits (M1-4).
+> **Status:** Interview completed 2026-06-09; all decisions below are **confirmed** (no open
+> `[CONFIRM]` markers — see §1 and §8). The contract bug-fixes that shaped M0/M1 — canonical input
+> ordering, two-stage caching, length-prefix seed framing + `None` sentinel, the normalizer error
+> channel, the integer half-up split, weather bucketing, the `total_base==0` short-circuit — live as
+> trap-guards in `spec-resolutions.md` R1/R4/R5/R6 and the relevant task bodies; they are not
+> restated here.
 
 ---
 
@@ -68,8 +54,8 @@ Architecture (mirrors the team's Vercel + Python-service pattern, Fly.io as the 
 
 | Milestone | Scope | Status |
 |---|---|---|
-| **M0** | Contracts & pure functions: §3 ids/seed, §4.1 WardrobeItem, §5 keys, §6.3 SlotMap, §18 config constants. No Mongo, no API keys. | ✅ **done** (commit `2e4c8d44`, 2026-06-13; 73 pytest green) |
-| **M1** | Sampler / shortlister: §7 pool partition, per-type caps, cold-start, §7.3 70/30 sampling + session seed, §7.4 candidate scaling. Signal path **stubbed** (cold-start fallback). | **next** |
+| **M0** | Contracts & pure functions: §3 ids/seed, §4.1 WardrobeItem, §5 keys, §6.3 SlotMap, §18 config constants. No Mongo, no API keys. | ✅ **done** (commit `2e4c8d44`, 2026-06-13; 73 pytest green at M0 close) |
+| **M1** | Sampler / shortlister: §7 pool partition, per-type caps, cold-start, §7.3 70/30 sampling + session seed, §7.4 candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) done (95 pytest green); M1-3/M1-4/M1-5 next. The M1-2→M1-3 seam contract is **R13**. |
 | M2 | SlotMap validation + strict JSON schema validation of GPT output (§6.3 reject rules, §8.3). In `fitted_core/`. | later |
 | M3 | Ranker: comboBoost, dislike cooldown (BaseKey/FullSignature), variant cap, overuse penalty, dedup (§5.3, §11, appendix B1/B3). In `fitted_core/`. | later |
 | M4 | Data-model migration in `fitted/models/*.ts` (add `ItemAffinity`, `wardrobeVersion`, `generation_logs`; see §6) + the interaction data the substrate consumes. Produces the labeled feedback data. | later |
@@ -331,6 +317,12 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 - **Effort:** ~0.5 hr.
 
 ### M1-2 — Per-type caps + "include all if at/below cap" — §7.2, §18
+> **Shipped, with a seam rework pending (R13).** M1-2 landed as `apply_cap(items, cap, sample_fn) ->
+> list[WardrobeItem]` (95 pytest green). The `(items, cap) -> list` callback shape does **not** match
+> M1-3's `sample_type(...) -> TypeSampleResult`; **R13** resolves it — the per-type outcome becomes a
+> uniform `TypeSampleResult` (include-all = `mode="includeAll"`), so at M1-3 `apply_cap` is reworked to
+> return one (or absorbed into the M1-5 per-type loop) and the list+callback seam goes away. Build M1-3
+> against R13, not the interim signature below.
 - **Produces:** `sampler.apply_cap(items, cap, ...) -> list[WardrobeItem]`. If
   `count <= cap`: include all (spec: scarce categories fully represented). Else: hand off to
   the 70/30 sampler (M1-3). Surface an estimated prompt item count for logging (§7.2 / §18).
@@ -378,15 +370,15 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
     from the **remaining** id-sorted items via the **single shared** `random.Random` seeded by
     M0-5 (R4). Disjoint by construction; total = `cap`. Determinism needs both the seed *and*
     the input order fixed (R4).
-  - **30% signal-based** via the **stubbed seam** `signal_fn` (the `SignalScorer` protocol below).
+  - **30% signal-based** via the **stubbed seam** `scorer` (the `SignalScorer` protocol below).
   - **Signal-branch gate (§7.3 + B2; R11):** the signal branch runs only when
-    `interaction_count >= MIN_SIGNAL_THRESHOLD` (=5) **AND** `signal_fn.is_available()`.
+    `interaction_count >= MIN_SIGNAL_THRESHOLD` (=5) **AND** `scorer.is_available()`.
     Otherwise the type's signal slot falls back to **100% seeded random over the id-sorted list**
     with one of three **mutually-exclusive, behavior-identical** log reasons (they sample the
     same way; only the logged cause differs, so logs never lie about *why* random ran):
     - `coldStartSampling` — `interaction_count < MIN_SIGNAL_THRESHOLD` (the only reason pre-M4;
       B2 is explicit — log whenever below threshold, **not** only at zero).
-    - `signalUnavailable` — count ≥ threshold but `not signal_fn.is_available()` (M4→M6 window).
+    - `signalUnavailable` — count ≥ threshold but `not scorer.is_available()` (M4→M6 window).
     - `signalScorerFault` — scorer available + invoked but `score()` raised or returned a
       non-finite value (NaN/±inf) → the whole type's signal slot falls back (fail-loud, not
       silent item-dropping bias).
