@@ -280,8 +280,8 @@ Each task: spec section → contract produced → test file.
     `session_seed` inputs, including `date` when C1 is active (R1).
 - **Test (`test_seed.py`):** determinism (same inputs → same int across calls); sensitivity
   (any single field change → different int, incl. the C1 `date` param and `generationIndex`);
-  **wrapper/primitive delegation** — only `tiebreak_seed` *accepts* `generationIndex` (the codex
-  fix: do **not** word it as "`session_seed` ignores `generationIndex`" — `session_seed` has no
+  **wrapper/primitive delegation** — only `tiebreak_seed` *accepts* `generationIndex` (do **not**
+  word it as "`session_seed` ignores `generationIndex`" — `session_seed` has no
   such parameter), and both wrappers equal `_canonical_seed(...)` called with the matching
   generationIndex slot (`None` for session, the value for tiebreak); **field-framing guard** —
   the length-prefix encoding makes the two ambiguous tuples differ: occasion `"a"`+weather
@@ -290,7 +290,7 @@ Each task: spec section → contract produced → test file.
   occasion (`"💎"`) ≠ a 4-char ASCII occasion (proves byte-length, not char-length, framing);
   **`None` encoding** — `date=None` ≠ `date="None"` ≠ `date=""` ≠ `date="0"`; `seeded_rng`
   reproducibility (two RNGs from same seed emit identical sequences). **No universal
-  collision-freedom property is asserted** (codex fix): length-prefix framing is injective, but
+  collision-freedom property is asserted:** length-prefix framing is injective, but
   truncating SHA-256 to 64 bits is not — only known framing ambiguities + per-field sensitivity
   are tested.
 - **Effort:** ~1 hr.
@@ -336,8 +336,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 
 ### M1-3 — 70/30 sampling + session seed + cold-start — §7.3, appendix B2 (**the M6 seam**)
 - **Produces:** `sampler.sample_type(items, cap, rng, scorer, context) -> TypeSampleResult`,
-  applied per type only when over cap. **Return is a struct, not a bare list** (codex post-M0
-  review #1, 2026-06-16): a scalar `list[WardrobeItem]` cannot carry the per-type selection-path/fallback
+  applied per type only when over cap. **Return is a struct, not a bare list:** a scalar `list[WardrobeItem]` cannot carry the per-type selection-path/fallback
   reason, and R11's "logs never lie about *why* random ran" requires that each type report its
   own outcome — type A may sample on signal while type B faults to random. `TypeSampleResult`
   carries:
@@ -348,7 +347,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   - `reason: None | "coldStartSampling" | "signalUnavailable" | "signalScorerFault"` — the
     R11 fallback reason, set only on a `random` fallback (`None` for `signal` and `includeAll`).
   - `random_count: int`, `signal_count: int` — slot sizes (signal_count 0 on a fallback).
-- **Contract resolutions (codex #1 sub-questions, resolved 2026-06-16 — pin before coding):**
+- **Contract resolutions (pin before coding):**
   - **`scorer.is_available()` is evaluated once per request, not per type.** Availability is a
     property of the scorer (model loaded or not), identical across types; per-type evaluation
     would be redundant. The entry point (M1-5) checks it once and passes the boolean down.
@@ -474,7 +473,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   it is the request-level input the sampler builds and the `SignalScorer` seam consumes.
   `SamplerResult` carries the bounded per-type pool,
   `candidateRequested`, and best-effort log fields. **Sampling outcomes are keyed by `ItemType`,
-  not a single request-level reason** (codex #1, 2026-06-16): `SamplerResult` holds the per-type
+  not a single request-level reason:** `SamplerResult` holds the per-type
   `TypeSampleResult`s (selection path + reason + slot counts from M1-3), so a log can report that tops
   cold-started while shoes faulted. A flattened request-level reason would falsify the log the
   moment two types diverge (always possible once some types are over cap and others under).
@@ -516,7 +515,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 - **Optional property-based (hypothesis) — nice-to-have, not blocking:**
   - Seed: ∀ distinct input tuples, the **canonical framing string** differs (the framing is
     injective). Do **not** assert `session_seed` ints are collision-free — the 64-bit SHA-256
-    truncation is not (codex M0 clarification #3); the property belongs on the framing, not the hash.
+    truncation is not; the property belongs on the framing, not the hash.
   - Sampler: ∀ wardrobe ≥ cap and ∀ seed, `len(sample_type) == cap` and outputs are a subset
     of inputs with no duplicates.
   - **Confirmed:** example-based only for M0/M1; revisit hypothesis if the sampler's
@@ -556,7 +555,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
     with the W-track activation rule in `spec-resolutions.md` §4).
   - **No `sessionId` / session concept exists.** The seed and cache key need it (§3.1, §14).
     Strategy decided: `sessionId = userId` always, anonymous sessions dropped
-    (`spec-resolutions.md` R8); M5 implements.
+    (`scope-decisions.md` R8); M5 implements.
   - **`type` (5-value) is a *consolidation* of the deployed app's de-facto classification, not a
     new capability.** `WardrobeItem.ts:7` is `enum ["top","bottom"]`, but the deployed app already
     handles dresses/jumpsuits/outer/shoes — via **request-time string-matching** over

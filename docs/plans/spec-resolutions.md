@@ -6,10 +6,10 @@ resolves them authoritatively.** Precedence: where the PDF is unambiguous, the P
 **where the PDF is silent, self-contradictory, or defines a term two ways, this doc wins.**
 The PDF is not edited; this is the overlay.
 
-**Provenance.** Resolutions below come from (a) an internal-consistency review of the PDF,
-(b) a Fable design consult, and (c) Brian's decisions on 2026-06-09 (session 2). Each entry
-cites the spec section it resolves and the milestone that implements it. See also
-`CLAUDE.md` → *Canonical sources* and `docs/plans/m0-m1-substrate.md`.
+**Reading guide.** Each entry cites the spec section it resolves and the milestone that
+implements it. **Scope/boundary calls (R7, R8) live in `docs/scope-decisions.md`** — same
+R-numbering, split out so this ledger stays focused on PDF ambiguities. See also `CLAUDE.md`
+→ *Canonical sources* and `docs/plans/m0-m1-substrate.md`.
 
 ---
 
@@ -73,14 +73,14 @@ adapter) must agree on non-BMP text where char count and JS string length differ
   reintroducing exactly the session/tie-break drift this resolution prevents.
 - Use `sha256`, never Python's process-salted `hash()`.
 
-**Cache-key invariant** *(new, from Fable — resolves the §14 gap):* the cache key uses
+**Cache-key invariant** *(resolves the §14 gap):* the cache key uses
 **exactly the `session_seed` inputs, including `date` when daily re-seed is active.** Rule:
 `cache_key inputs ≡ session_seed inputs, always`. If `date` fed the seed but not the cache
 key, a cache hit would return yesterday's outfits and the daily re-seed would silently never
 fire. This also keeps dislike/edit cache invalidation (appendix A4, M5) coherent — anything
 that should change results must change a seed/cache input.
 
-**Regenerate vs the cache — two-stage caching** *(new — resolves a fan-out that would make
+**Regenerate vs the cache — two-stage caching** *(resolves a fan-out that would make
 re-roll a no-op).* `generationIndex` is the only input that distinguishes a re-roll, and the
 invariant above deliberately bars it from `session_seed` / the cache key. If the cache stored
 the **final response**, a `/api/recommend/regenerate` hit with the same
@@ -120,8 +120,8 @@ remix of the same items). Keep the spec's weights for v1.
 by `dislikePenalty` (Step 5) and the cooldown buffer (Step 4), so the two memories never
 contradict.
 
-**Known risk — itemBoost magnitude (deferred to eval, NOT resolved by tuning now)** *(new,
-from Fable):* at the cap, a 4-item outfit's itemBoost ≈ `0.1 × 20 × 4 = +8`, which dwarfs
+**Known risk — itemBoost magnitude (deferred to eval, NOT resolved by tuning now):** at the
+cap, a 4-item outfit's itemBoost ≈ `0.1 × 20 × 4 = +8`, which dwarfs
 comboBoost (+2) and base (+1) — so for a heavy user a novel mashup of four max-affinity items
 can outrank an exact previously-loved outfit, making comboBoost nearly decorative (plus a
 rich-get-richer loop). Per the spec's "scalable in design, not prematurely optimised" stance,
@@ -143,7 +143,7 @@ seeded shuffle (`tiebreak_seed`). It **reorders, never excludes**, so it cannot 
 fill — unlike a soft re-weight, which in a scarce wardrobe would penalize most of the remaining
 candidates and quietly re-impose the cap Step 3 just removed.
 
-- **Determinism** *(from Fable):* the precedence is *(1) least-represented silhouette so far,
+- **Determinism:** the precedence is *(1) least-represented silhouette so far,
   then (2) seeded shuffle within that tie* — stated explicitly so two implementers can't order
   it differently and break reproducibility.
 - This may **degenerate to a no-op** if exact score ties are rare. That's acceptable; in the
@@ -152,7 +152,7 @@ candidates and quietly re-impose the cap Step 3 just removed.
 
 **Implements:** M3 (fallback ladder + tie-break).
 
-### R4 — Determinism requires canonical input ordering, not just a stable seed *(new; resolves a fan-out)*
+### R4 — Determinism requires canonical input ordering, not just a stable seed *(resolves a fan-out)*
 
 **Problem.** The §3.1 stability promise rests on the seeded RNG, but `random.sample(items, k)`
 is deterministic only for a fixed seed **and a fixed input ordering** — same seed + reordered
@@ -197,7 +197,7 @@ take the already-canonical values as parameters.
 
 **Implements:** contract noted in M1-3 `RequestContext`; normalization at M5.
 
-### R6 — The 70/30 split is a sampler-owned helper, not a config constant *(new; M0-1 verification, Fable-reviewed 2026-06-10)*
+### R6 — The 70/30 split is a sampler-owned helper, not a config constant
 
 **Problem.** `config.py` shipped `RANDOM_FRACTION = 0.7` (a float). The resolved split arithmetic
 (plan M1-3, confirmation #4 — see also R4) is **integer, half-up, float-free**:
@@ -207,7 +207,7 @@ bug M1-3#4 removed (`round(35*0.7)=24` but `round(25*0.7)=18` — splits the rea
 directions; any TS/numpy reimpl that rounds halves up disagrees with prod). The cold-start branch
 is the *only* path prod runs pre-M6, so the split must port bit-identically (R4).
 
-**Decision (Fable, helper-only).** The split's contract is *behavior*, not a value. Expose **one
+**Decision (helper-only).** The split's contract is *behavior*, not a value. Expose **one
 helper, owned by the sampler module (M1-3), not config.py**:
 
 ```python
@@ -234,62 +234,19 @@ def random_count(cap: int) -> int:
 **Implements:** `RANDOM_FRACTION` is deleted from `config.py` and `test_config.py` (done,
 M0-1); M1-3 ships `random_count` + the value-table test over the real caps.
 
-### R7 — Host, not frame: the shell persists; the recommendation vertical is replaced wholesale *(new; Brian, 2026-06-11)*
+### R7 — Host, not frame: the shell persists; the recommendation vertical is replaced wholesale
 
-**Question.** Integrate the v1.2 engine into the existing app, or rebuild greenfield around
-`fitted_core` using the old code as inspiration?
+→ **moved to `docs/scope-decisions.md`** — scope/boundary call, not a PDF-ambiguity resolution. R-number unchanged; cross-refs to "R7" still resolve here.
 
-**Decision.** Neither extreme — **the old app is a host, not a frame.** Full greenfield rejected
-(weeks of commodity shell work in Brian's weakest suit, deletes the M6 A/B control arm, breaks
-the working-app-at-every-step property). But nothing in the new engine bends to old behavior —
-the recommendation **vertical is replaced outright**, not integrated-with.
+### R8 — `sessionId = userId`, always; anonymous sessions dropped
 
-- **Persists as host infrastructure:** Firebase auth (`sessionId = userId` requires it, §3.1),
-  wardrobe upload/CV pipeline (the data faucet — but see the W-track note in §4), profile +
-  wardrobe UI, Mongo plumbing.
-- **Replaced wholesale at M5/M6, written clean against the spec:** `recommend/route.ts`,
-  `regenerate/route.ts`, the recommendation display UI (§17 contract). Old code is reference
-  for mapping logic only, never a behavioral baseline.
-- **Retired: the Gemini `PreferenceSummary` path** (`preferences/summarize` +
-  `lib/runPersonalizationSummary.ts`). Three stacking reasons: (1) no slot in the §16 prompt
-  contract — v1.2 personalization is additive from `OutfitInteraction`, and attribute-level
-  taste learning is a §21 non-goal; (2) leaving an LLM-summarized taste profile in the
-  treatment arm **contaminates M6 lift attribution**; (3) deletion-license test: nothing in
-  the new path calls it. **Sequencing:** freeze the old vertical (incl. Gemini) as the M5
-  fallback arm; delete the entire arm — and the `GEMINI_API_KEY` dependency — at M6.
-- **The entire integration surface is four contact points:** auth token → userId;
-  `WardrobeItemDocument → fitted_core.WardrobeItem` adapter; `wardrobeVersion` increment in
-  wardrobe mutation routes; `OutfitInteraction` writes.
-- **Open at M6 (deferred):** permanent kill switch — keep a minimal OpenAI-direct path forever,
-  vs. accept "Fly down → friendly error" once the service has earned trust.
+→ **moved to `docs/scope-decisions.md`** — scope/boundary call, not a PDF-ambiguity resolution. R-number unchanged; cross-refs to "R8" still resolve here.
 
-**Implements:** M5 (flag + frozen fallback arm), M6 (arm deletion).
-
-### R8 — `sessionId = userId`, always; anonymous sessions dropped *(resolves §3.1 scope; Brian, 2026-06-11)*
-
-The spec's anonymous-cookie session (§3.1, ~24h cookie) serves no real user: the recommendation
-flow is auth-gated (the `recommend`, `wardrobe`, `preferences`, and `interactions` routes verify
-a Firebase Bearer token), and an anonymous visitor has no wardrobe to recommend from.
-**Decision:** drop anonymous support. `sessionId = userId` unconditionally — no cookie
-machinery, no expiry logic. Simplifies the seed, the cache key, and the M5 adapter. If a
-try-before-signup flow ever materializes, it re-enters as a new resolution with its own session
-design.
-
-**Correction (do not restate "every route requires a token").** The recommendation vertical is
-token-verified, but the app is **not** uniformly authenticated: `auth/sync`, `account`,
-`images/[imageId]`, and `cv/infer` trust body-supplied identity or are unauthenticated (verified
-2026-06-12). R8's scope rests only on the *recommendation* routes being auth-gated — which holds.
-The unauthenticated retained-host routes are a separate **trust-boundary integration gate**, see
-§4 ("Retained-host trust boundaries").
-
-**Implements:** M5 (adapter supplies userId as sessionId). M0-5's seed API is unaffected
-(takes sessionId as an opaque string).
-
-### R9 — Regen controls: locks + contextual dislikes as Step-4 params, hybrid escalation *(resolves legacy-prospecting §3.1; Brian, 2026-06-12)*
+### R9 — Regen controls: locks + contextual dislikes as Step-4 params, hybrid escalation *(resolves legacy-prospecting §3.1)*
 
 The legacy regenerate modal's controls (issue #115) cannot be expressed by R1's regenerate
 (= re-rank cached candidates with a new `generationIndex`): "keep this item" needs candidates
-the unconstrained pool rarely contains. **Decision** (interview 2026-06-12):
+the unconstrained pool rarely contains. **Decision:**
 
 - **Contextual dislikes** (`dislikedItemIds`) — **Step 4** per-request filter: drop cached
   candidates containing them. Request-scoped; persistent labels already flow via
@@ -312,7 +269,7 @@ the unconstrained pool rarely contains. **Decision** (interview 2026-06-12):
 wiring; `regenerate/route.ts` deleted — deletion-license call recorded). Execution detail:
 `docs/plans/regen-controls.md`.
 
-### R10 — Key strings: validated base + reserved-character precondition (an R1-class collision) *(2026-06-12; resolves a §5 gap; self-reviewed + first-principles design pass 2026-06-16: reserved set `: | =` proven complete for the literal format, `"none"` over-rejection harmless, empty-id routed to M5 per R12)*
+### R10 — Key strings: validated base + reserved-character precondition (an R1-class collision) *(resolves a §5 gap)*
 
 **Problem.** `base_key(slotmap)` for two_piece is `f"{topId}:{bottomId}"`; `full_signature`
 adds `|outer={id|"none"}|shoes={id|"none"}` (spec §5, literal format — exact strings are tested
@@ -335,7 +292,8 @@ preconditions, raising `ValueError` on violation (keys are computed once per out
    and the §1 pipeline (keys are computed *inside* Step 3, after validation).
 2. **Reserved-character / sentinel guard** — every participating itemId (base ids for BaseKey;
    base + outer + shoes for FullSignature) must not contain `:`, `|`, or `=`, and must not equal
-   the sentinel `"none"`; raise otherwise.
+   the sentinel `"none"`; raise otherwise. The set is closed for the literal §5 format; adding a
+   reserved character requires re-verifying no other §5 separator collides with it.
 
 **Source of guarantee.** Real ids are Mongo ObjectId hex (24 chars, `[0-9a-f]`) — the M5 adapter
 maps `_id.toString()`, so no reserved char or `"none"` can appear and the guard never fires in
@@ -346,7 +304,7 @@ production. It is the defensive backstop + the documented contract for any futur
 each reserved char, reject id `"none"`). The §4.3 client-echo path (M4/M5) inherits the same
 ObjectId precondition.
 
-### R11 — Scorer availability is separate from interaction_count; fallbacks are behavior-identical, log-distinct *(2026-06-12; resolves the M6-seam gap in M1-3; independent review served by codex post-M0 pass 2026-06-16, finding #1 — sampler contract tightened to per-type `TypeSampleResult` so logs can't conflate diverging type outcomes; see M1-3)*
+### R11 — Scorer availability is separate from interaction_count; fallbacks are behavior-identical, log-distinct *(resolves the M6-seam gap in M1-3; see R13)*
 
 **Problem.** M1-3 conflated two conditions into one gate: `interaction_count >=
 MIN_SIGNAL_THRESHOLD` (=5) and "a trained scorer exists." They diverge in the **M4→M6 window**:
@@ -391,11 +349,11 @@ touching M1 code.
 signal-first selection order); `ColdStartSignalScorer` ships the always-unavailable
 implementation; M6 plugs `TrainedSignalScorer`.
 
-### R12 — M0/M1 boundary ownership: duplicate item-IDs and wire-value validation *(2026-06-13; resolves codex M0-readiness clarifications #4/#5)*
+### R12 — M0/M1 boundary ownership: duplicate item-IDs and wire-value validation
 
-Two ownership questions the codex M0-readiness review surfaced. Both are **boundary**
-decisions — where a check lives, not a new mechanism — recorded so M0 stays narrowly scoped and
-M1/M5 inherit the responsibility explicitly.
+Two ownership questions — both **boundary** decisions (where a check lives, not a new
+mechanism) — recorded so M0 stays narrowly scoped and M1/M5 inherit the responsibility
+explicitly.
 
 **(1) Duplicate wardrobe item IDs → rejected at the M1 sampler entry, not M0.** A wardrobe
 carrying two items with the same `id` would later collapse in M2's sampled-pool lookup (one id →
@@ -421,16 +379,15 @@ acceptance criterion (and revisited if M4 needs an earlier boundary).
 **Implements:** M1-5 (duplicate-id reject before partition); M5 adapter (wire-value validation +
 single error channel). M0 unchanged beyond this note.
 
-### R13 — Per-type sampling outcome is uniformly a `TypeSampleResult`; the M1-2 list seam is interim *(2026-06-15; resolves the M1-2↔M1-3 contract seam; review basis below)*
+### R13 — Per-type sampling outcome is uniformly a `TypeSampleResult`; the M1-2 list seam is interim *(resolves the M1-2↔M1-3 contract seam)*
 
 **Problem.** M1-2 shipped `apply_cap(items, cap, sample_fn) -> list[WardrobeItem]` with the over-cap
-seam typed `SampleFn = (items, cap) -> list`. But M1-3 (tightened in the codex post-M0 pass,
-2026-06-16) specs `sample_type(items, cap, rng, scorer, context) -> TypeSampleResult` carrying
+seam typed `SampleFn = (items, cap) -> list`. But M1-3 specs
+`sample_type(items, cap, rng, scorer, context) -> TypeSampleResult` carrying
 `items`, a per-type selection path, `reason`, and slot counts. The seam mismatches in **both arity** (M1-3
 needs `rng/scorer/context`) **and return type** (struct, not list). Left as-is, M1-5 would unwrap
 `.items` and **discard the per-type selection path / `reason`** that R11 introduced precisely so logs can't
-conflate diverging type outcomes ("tops cold-started while shoes faulted"). Independently flagged by
-the code review, the doc review, and codex (handoff finding #1).
+conflate diverging type outcomes ("tops cold-started while shoes faulted").
 
 **Decision.** The per-type outcome is **uniformly a `TypeSampleResult`**, including the at/below-cap
 path:
@@ -439,7 +396,7 @@ path:
   selection path** alongside `signal`/`random` — it was neither sampled nor a fallback, and M1-5's
   log must represent under-cap types symmetrically rather than special-casing "types absent from the
   sampled set were included whole" (the asymmetry that makes logs lie, R11).
-- **The path field is a typed enum, not string literals** (codex smell review, 2026-06-15). Three
+- **The path field is a typed enum, not string literals.** Three
   fixed values, compared in branching and logged — a `str` invites a silent typo (`"signl"`) that no
   test catches. Name it to convey **"per-type selection path," not sampler "mode"** (`includeAll` is
   a cap-path outcome, not a sampling mode — e.g. `selection_kind: SelectionKind`). `reason` stays
@@ -451,12 +408,6 @@ path:
 - `TypeSampleResult` is defined once in `sampler.py` (M1-3) and used by both the include-all branch
   and `sample_type`; M1-2's list-returning `apply_cap` and its `sample_fn` callback are validated
   against no real caller, so the rework carries no shipped-behavior risk.
-
-**Review basis.** Fable is currently unavailable; per the amended decision-method convention
-(CLAUDE.md → *Conventions*), a thorough dual read — this session's deep code+doc review **and** codex's
-independent handoff pass — substitutes for the Fable read on this call. Both converged on the same
-defect and the "don't lose per-type metadata" constraint; the `includeAll` selection path is the
-resolution that satisfies it.
 
 **Implements:** M1-3 (`TypeSampleResult` + include-all selection path), M1-5 (uniform per-type collection). M1-2
 ships unchanged in behavior; only its return contract is reworked at M1-3.
@@ -478,21 +429,21 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
 
 ## 4. Open items deferred to their milestone (recorded, not resolved here)
 
-- **Repetition-window state (§11.4) has no home** *(2026-06-11 pass)*: the §15
+- **Repetition-window state (§11.4) has no home:** the §15
   `generation_logs` schema records counts, not which FullSignatures were shown — so the
   shown-outfits window cannot be computed from anything currently designed. M3 takes
   shown-history as a ranker *input* (pure, testable); M4/M5 decide storage (add
   `shownFullSignatures[]` to generation_logs, or a per-user ring buffer). Contrast: the
   cooldown buffer needs **no** new state — last-10 disliked baseKeys are derivable from
   `OutfitInteraction` (§4.3 stores keys on interactions).
-- **Key-computation locus** *(2026-06-11 pass)*: §4.3 computes baseKey/fullSig at interaction
+- **Key-computation locus:** §4.3 computes baseKey/fullSig at interaction
   write time, but the interaction route is TS and the key functions are Python
   (`fitted_core`). **Do not reimplement keys in TS** (R6-class drift hazard). Sketch: the
   recommend response includes baseKey/fullSig per outfit; the client echoes them on the
   like/dislike POST; backend stores verbatim (tamper risk acceptable; server recompute
   optional later). Keys are computed exactly once, in Python, at generation. → M4/M5.
   - **Feedback-authenticity gate (do NOT carry "tamper risk acceptable" into the training
-    path)** *(2026-06-12)*: today `POST /api/interactions` (`route.ts:106-163`) authenticates the
+    path):** today `POST /api/interactions` (`route.ts:106-163`) authenticates the
     caller and server-assigns the owner, but persists the client-supplied `items` array and
     `perItemFeedback.itemId` with **no existence / ownership / outfit-membership check** — an
     authenticated user can fabricate interaction rows or reference another user's item id. That
@@ -502,14 +453,13 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
     (M4):** bind feedback to a server-issued generation/outfit identity and validate item
     existence, authenticated-user ownership, and per-item membership in the issued outfit before
     persistence. The "store client-echoed keys verbatim" sketch above stays for the *key* strings
-    but **not** for unvalidated item references entering training truth. *(Confirmed against
-    source 2026-06-12; ChatGPT review #4.)*
-- **M5 data path default** *(2026-06-11 pass)*: the Next route fetches the wardrobe from
+    but **not** for unvalidated item references entering training truth.
+- **M5 data path default:** the Next route fetches the wardrobe from
   Mongo and **POSTs it to the Fly service** (Fly stays stateless; no Mongo credentials on the
   second service). Fly-reads-Mongo is the rejected-by-default alternative unless payload size
   ever forces it.
-- **M5 graceful-fallback contract — specify the failure semantics, not just the mechanism**
-  *(2026-06-15; UX review)*: §0 Decision 2 names "health check + short `fetch` timeout → graceful
+- **M5 graceful-fallback contract — specify the failure semantics, not just the mechanism:**
+  §0 Decision 2 names "health check + short `fetch` timeout → graceful
   fallback to OpenAI-only," but three sub-promises are unpinned and the difference is "never a 500"
   vs "never a 500 but sometimes waits 30s." M5 must pin: **(a) a numeric timeout budget** tied to the
   no-cold-starts speed promise (the deployed `route.ts` OpenAI call has no timeout today) — a hung Fly
@@ -518,8 +468,7 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
   *reachable-but-wrong*); **(c) an anti-rot smoke test** that exercises the OpenAI-only fallback arm,
   since a never-exercised frozen arm (R7) rots silently — the `CV_SERVICE_URL` brittleness is the
   precedent. Owner: M5.
-- **Retained-host trust boundaries — gate before integration (HIGH)** *(2026-06-12; ChatGPT
-  review #3, confirmed against source)*: R7 keeps several legacy host routes through M4/M5, and
+- **Retained-host trust boundaries — gate before integration (HIGH):** R7 keeps several legacy host routes through M4/M5, and
   some trust client-supplied identity or expose unauthenticated compute:
   - `auth/sync/route.ts:12-39` — creates/finds a user from a body-supplied Firebase UID/email
     with **no ID-token verification** (anyone can mint or fetch any account).
@@ -535,7 +484,7 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
   identity only from the verified token, enforce image ownership, and authenticate + rate-limit
   CV inference. The future Next.js→Fly service-to-service auth is a *separate* contract (M5). Not
   an M0 blocker; a release blocker before any retained route is treated as trusted.
-- **Within-day cache stability vs the 15-min TTL** *(2026-06-12; ChatGPT review #6)*: PDF §14
+- **Within-day cache stability vs the 15-min TTL:** PDF §14
   sets a 15-minute cache TTL while Appendix C1 promises stability within the day. The R1 daily
   seed reproduces the **sampled pool** deterministically, but GPT candidates are **stochastic**
   (temperature > 0) and are only held stable by the *candidate cache*, not by the seed — so a
@@ -553,26 +502,23 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
   mid-session wardrobe change mints a new cache key (R1), so the merged escalation pool under the old
   key is dropped and repeat re-rolls with the same lock are no longer free (correct: the locked item
   may no longer exist). State this scope where the "free re-rolls" promise lives (regen-controls.md).
-- **Daily-reseed date needs an explicit timezone contract** *(2026-06-12; ChatGPT review,
-  additional findings)*: C1/N2 append `date` (YYYY-MM-DD) to the seed, but "which midnight"
+- **Daily-reseed date needs an explicit timezone contract:** C1/N2 append `date` (YYYY-MM-DD) to the seed, but "which midnight"
   (server UTC vs validated user-local) is undefined — it sets the reseed boundary and must be
   identical across the Next.js adapter and the Fly service or the seed/cache desync at the
   day boundary. Decide at M5 when `date` is activated; default candidate is UTC.
-- **M4 interaction-time feature snapshots (training-truth durability)** *(2026-06-12; ChatGPT
-  review #5)*: `OutfitInteraction` stores **mutable wardrobe references**, not interaction-time
+- **M4 interaction-time feature snapshots (training-truth durability):** `OutfitInteraction` stores **mutable wardrobe references**, not interaction-time
   item snapshots; editing an item (`wardrobe/[id]/route.ts:51-89`) retroactively rewrites how
   old feedback reads, and deleting one (`:146-149`, `wardrobe/clear/route.ts:21`) yields
   incomplete/empty historical outfits (Mongoose omits missing refs — the previously-feared null
-  500 does **not** occur, ChatGPT corrected this). Ids / `baseKey` / `fullSig` cannot reconstruct
+  500 does **not** occur). Ids / `baseKey` / `fullSig` cannot reconstruct
   the attributes shown when feedback was given. **Gate (M4):** before interactions become
   training labels, persist immutable interaction-time feature snapshots (or versioned wardrobe
   refs); add history tests for edited, partially-deleted, and fully-deleted outfits.
-- **M4 idempotency / transaction rules** *(2026-06-12; ChatGPT review, additional findings)*:
+- **M4 idempotency / transaction rules:**
   duplicate feedback, affinity updates, interaction PATCH/DELETE, concurrent cap enforcement, and
   `wardrobeVersion` increments need defined idempotency/transaction semantics so derived state
   can't double-count or race. Resolve when M4 is specified.
-- **M6 eligibility measurement + exposure-aware eval** *(2026-06-12; ChatGPT review #7 + eval
-  finding)*: the M6 scorer only changes behavior for a request that has **both** ≥5 interactions
+- **M6 eligibility measurement + exposure-aware eval:** the M6 scorer only changes behavior for a request that has **both** ≥5 interactions
   **and** ≥1 type over its cap — at/below every cap the scorer is behaviorally inert (the sampler
   has no shortlisting decision to make). Prevalence is **unknown** (no production wardrobe
   histogram). **Gate (before M6):** measure the % of recommendation requests meeting both
@@ -580,15 +526,14 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
   or downstream ranking) so the dive has a behavioral surface. The offline eval needs
   exposure/candidate identity, positions, model/treatment version, context, and interaction-time
   feature snapshots — interaction rows alone are selection-biased.
-- **Pre-M5 engineering debt (CI / runtime reproducibility)** *(2026-06-12; ChatGPT review #9)*:
+- **Pre-M5 engineering debt (CI / runtime reproducibility):**
   no tracked CI workflow; no Node engine / Python runtime pin; `ml-system/requirements.txt` uses
   lower bounds, not a resolved lock; `ml-system` has no centralized project config / formatter /
   linter / type checker. Valid debt **now** (the Next.js app already has lockfile + ESLint +
   strict TS + Jest). Cross-runtime CI should exist **before** the M5 integration so
   serialization / auth / timeout / fallback behavior can't drift silently between Next.js and
   Fly. Fly artifacts (`fly.toml`, Docker, service schema) are correctly absent until M5.
-- **Retained-host cleanup bugs (current, low-to-medium)** *(2026-06-12; ChatGPT review,
-  additional findings)*: clear-wardrobe and user-cascade paths omit some image/preference
+- **Retained-host cleanup bugs (current, low-to-medium):** clear-wardrobe and user-cascade paths omit some image/preference
   cleanup; image **replacement deletes the old image before the replacement is fully committed**
   (a data-loss ordering bug). Fix when the W-track ingestion revamp or the trust-boundary gate
   touches these routes; not a refactor-contract hole, recorded so it isn't lost.
@@ -598,7 +543,7 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
   (rate limiting), D3 (strip `warmth` from the GPT payload) → handled at the milestone that
   owns each (mostly M3/M5). Tracked in `docs/plans/m0-m1-substrate.md` §6 and the spec
   appendix; not re-litigated here.
-- **W-track — wardrobe ingestion revamp (Brian, 2026-06-11; in-scope, unspecced).** Brian
+- **W-track — wardrobe ingestion revamp (in-scope, unspecced).** Brian
   explicitly pulled the ingestion surface in-scope (amends CLAUDE.md's frontend-redesign
   exclusion): ingestion UX is **data acquisition for M6** — friction starves the wardrobe,
   the interaction volume, and the trained scorer's features. Problems on record: CV service
@@ -615,8 +560,8 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
   invisible to the sampler; `wardrobeVersion` bumps on item *activation*; new ingestion writes
   the 5-type schema natively (delivery vehicle for the `clothingType` consolidation — backfill
   covers only historical rows); the old synchronous upload path is a deletion-license
-  candidate at cutover. **The W-track `/spec` must define two things the sketch leaves open**
-  *(2026-06-15; UX review)*: **(1) the availability state machine** — `WardrobeItem.ts` today has only
+  candidate at cutover. **The W-track `/spec` must define two things the sketch leaves open:**
+  **(1) the availability state machine** — `WardrobeItem.ts` today has only
   `isAvailable: {default:true}` and no `needs_review`/active state; the revamp introduces
   `needs_review`, so the spec must reconcile the three concepts (`isAvailable` vs `needs_review` vs
   sampler-visible "active") and name the *single* transition (review-form submit? CV-success
