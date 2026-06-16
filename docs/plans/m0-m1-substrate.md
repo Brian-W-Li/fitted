@@ -55,7 +55,7 @@ Architecture (mirrors the team's Vercel + Python-service pattern, Fly.io as the 
 | Milestone | Scope | Status |
 |---|---|---|
 | **M0** | Contracts & pure functions: §3 ids/seed, §4.1 WardrobeItem, §5 keys, §6.3 SlotMap, §18 config constants. No Mongo, no API keys. | ✅ **done** (commit `2e4c8d44`, 2026-06-13; 73 pytest green at M0 close) |
-| **M1** | Sampler / shortlister: §7 pool partition, per-type caps, cold-start, §7.3 70/30 sampling + session seed, §7.4 candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) done (95 pytest green); M1-3/M1-4/M1-5 next. The M1-2→M1-3 seam contract is **R13**. |
+| **M1** | Sampler / shortlister: §7 pool partition, per-type caps, cold-start, §7.3 70/30 sampling + session seed, §7.4 candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) done (pytest green); M1-3/M1-4/M1-5 next. The M1-2→M1-3 seam contract is **R13**. |
 | M2 | SlotMap validation + strict JSON schema validation of GPT output (§6.3 reject rules, §8.3). In `fitted_core/`. | later |
 | M3 | Ranker: comboBoost, dislike cooldown (BaseKey/FullSignature), variant cap, overuse penalty, dedup (§5.3, §11, appendix B1/B3). In `fitted_core/`. | later |
 | M4 | Data-model migration in `fitted/models/*.ts` (add `ItemAffinity`, `wardrobeVersion`, `generation_logs`; see §6) + the interaction data the substrate consumes. Produces the labeled feedback data. | later |
@@ -318,9 +318,9 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 
 ### M1-2 — Per-type caps + "include all if at/below cap" — §7.2, §18
 > **Shipped, with a seam rework pending (R13).** M1-2 landed as `apply_cap(items, cap, sample_fn) ->
-> list[WardrobeItem]` (95 pytest green). The `(items, cap) -> list` callback shape does **not** match
+> list[WardrobeItem]` (pytest green). The `(items, cap) -> list` callback shape does **not** match
 > M1-3's `sample_type(...) -> TypeSampleResult`; **R13** resolves it — the per-type outcome becomes a
-> uniform `TypeSampleResult` (include-all = `mode="includeAll"`), so at M1-3 `apply_cap` is reworked to
+> uniform `TypeSampleResult` (include-all is a first-class selection path; R13), so at M1-3 `apply_cap` is reworked to
 > return one (or absorbed into the M1-5 per-type loop) and the list+callback seam goes away. Build M1-3
 > against R13, not the interim signature below.
 - **Produces:** `sampler.apply_cap(items, cap, ...) -> list[WardrobeItem]`. If
@@ -337,14 +337,16 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 ### M1-3 — 70/30 sampling + session seed + cold-start — §7.3, appendix B2 (**the M6 seam**)
 - **Produces:** `sampler.sample_type(items, cap, rng, scorer, context) -> TypeSampleResult`,
   applied per type only when over cap. **Return is a struct, not a bare list** (codex post-M0
-  review #1, 2026-06-16): a scalar `list[WardrobeItem]` cannot carry per-type mode/fallback
+  review #1, 2026-06-16): a scalar `list[WardrobeItem]` cannot carry the per-type selection-path/fallback
   reason, and R11's "logs never lie about *why* random ran" requires that each type report its
   own outcome — type A may sample on signal while type B faults to random. `TypeSampleResult`
   carries:
   - `items: list[WardrobeItem]` — the sampled selection (== `cap`).
-  - `mode: "signal" | "random"` — which path ran.
+  - the per-type **selection path** — a typed enum, **not** a `str` named `mode` (field type +
+    final name per **R13**). `sample_type` (over-cap only) emits `signal` or `random`; the under-cap
+    include-all branch emits the third value `includeAll` (R13), so the enum spans all three.
   - `reason: None | "coldStartSampling" | "signalUnavailable" | "signalScorerFault"` — the
-    R11 fallback reason (`None` only when `mode == "signal"`).
+    R11 fallback reason, set only on a `random` fallback (`None` for `signal` and `includeAll`).
   - `random_count: int`, `signal_count: int` — slot sizes (signal_count 0 on a fallback).
 - **Contract resolutions (codex #1 sub-questions, resolved 2026-06-16 — pin before coding):**
   - **`scorer.is_available()` is evaluated once per request, not per type.** Availability is a
@@ -473,7 +475,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   `SamplerResult` carries the bounded per-type pool,
   `candidateRequested`, and best-effort log fields. **Sampling outcomes are keyed by `ItemType`,
   not a single request-level reason** (codex #1, 2026-06-16): `SamplerResult` holds the per-type
-  `TypeSampleResult`s (mode + reason + slot counts from M1-3), so a log can report that tops
+  `TypeSampleResult`s (selection path + reason + slot counts from M1-3), so a log can report that tops
   cold-started while shoes faulted. A flattened request-level reason would falsify the log the
   moment two types diverge (always possible once some types are over cap and others under).
   Also carries the estimated prompt item count. Logging is **return-value data only**

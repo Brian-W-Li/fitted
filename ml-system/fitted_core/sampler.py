@@ -83,9 +83,9 @@ def apply_cap(
 
     Interim seam (R13): the `(items, cap) -> list` sample_fn shape does NOT match
     M1-3's sample_type(items, cap, rng, scorer, context) -> TypeSampleResult. Per
-    R13 the per-type outcome is uniformly a TypeSampleResult (include-all becomes
-    mode="includeAll"), so at M1-3 this function is reworked to return one (or is
-    absorbed into the M1-5 per-type loop) and this list+callback seam goes away.
+    R13 the per-type outcome is uniformly a TypeSampleResult (include-all is a
+    first-class selection path), so at M1-3 this function is reworked to return one
+    (or is absorbed into the M1-5 per-type loop) and this list+callback seam goes away.
     """
     if len(items) <= cap:
         return list(items)

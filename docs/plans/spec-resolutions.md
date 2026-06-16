@@ -421,24 +421,30 @@ acceptance criterion (and revisited if M4 needs an earlier boundary).
 **Implements:** M1-5 (duplicate-id reject before partition); M5 adapter (wire-value validation +
 single error channel). M0 unchanged beyond this note.
 
-### R13 — Per-type sampling outcome is uniformly a `TypeSampleResult`; the M1-2 list seam is interim *(2026-06-15; resolves the M1-2↔M1-3 contract seam — dual deep review M1-3 below)*
+### R13 — Per-type sampling outcome is uniformly a `TypeSampleResult`; the M1-2 list seam is interim *(2026-06-15; resolves the M1-2↔M1-3 contract seam; review basis below)*
 
 **Problem.** M1-2 shipped `apply_cap(items, cap, sample_fn) -> list[WardrobeItem]` with the over-cap
 seam typed `SampleFn = (items, cap) -> list`. But M1-3 (tightened in the codex post-M0 pass,
 2026-06-16) specs `sample_type(items, cap, rng, scorer, context) -> TypeSampleResult` carrying
-`items / mode / reason / random_count / signal_count`. The seam mismatches in **both arity** (M1-3
+`items`, a per-type selection path, `reason`, and slot counts. The seam mismatches in **both arity** (M1-3
 needs `rng/scorer/context`) **and return type** (struct, not list). Left as-is, M1-5 would unwrap
-`.items` and **discard the per-type `mode`/`reason`** that R11 introduced precisely so logs can't
+`.items` and **discard the per-type selection path / `reason`** that R11 introduced precisely so logs can't
 conflate diverging type outcomes ("tops cold-started while shoes faulted"). Independently flagged by
 the code review, the doc review, and codex (handoff finding #1).
 
 **Decision.** The per-type outcome is **uniformly a `TypeSampleResult`**, including the at/below-cap
 path:
-- The **include-all** branch (count ≤ cap) returns `TypeSampleResult(items=all, mode="includeAll",
-  reason=None, random_count=0, signal_count=0)`. `"includeAll"` is a **third `mode`** alongside
-  `"signal"`/`"random"` — it was neither sampled nor a fallback, and M1-5's log must represent
-  under-cap types symmetrically rather than special-casing "types absent from the sampled set were
-  included whole" (the asymmetry that makes logs lie, R11).
+- The **include-all** branch (count ≤ cap) returns a `TypeSampleResult` whose selection path is
+  `includeAll`, `reason=None`, `random_count=0`, `signal_count=0`. `includeAll` is a **third
+  selection path** alongside `signal`/`random` — it was neither sampled nor a fallback, and M1-5's
+  log must represent under-cap types symmetrically rather than special-casing "types absent from the
+  sampled set were included whole" (the asymmetry that makes logs lie, R11).
+- **The path field is a typed enum, not string literals** (codex smell review, 2026-06-15). Three
+  fixed values, compared in branching and logged — a `str` invites a silent typo (`"signl"`) that no
+  test catches. Name it to convey **"per-type selection path," not sampler "mode"** (`includeAll` is
+  a cap-path outcome, not a sampling mode — e.g. `selection_kind: SelectionKind`). `reason` stays
+  only for the fallback explanation (`coldStartSampling`/`signalUnavailable`/`signalScorerFault`),
+  `None` for `signal` and `includeAll`. Final field name is an M1-3 call; the enum-not-`str` is firm.
 - At M1-3, `apply_cap` is **reworked to return a `TypeSampleResult`** (or absorbed into the M1-5
   per-type loop: `if len ≤ cap: includeAll-result else: sample_type(...)`). The current
   `(items, cap) -> list` + `sample_fn` seam is **interim** and is removed at M1-3 — do not preserve it.
@@ -449,10 +455,10 @@ path:
 **Review basis.** Fable is currently unavailable; per the amended decision-method convention
 (CLAUDE.md → *Conventions*), a thorough dual read — this session's deep code+doc review **and** codex's
 independent handoff pass — substitutes for the Fable read on this call. Both converged on the same
-defect and the "don't lose per-type metadata" constraint; the `"includeAll"` mode is the resolution
-that satisfies it.
+defect and the "don't lose per-type metadata" constraint; the `includeAll` selection path is the
+resolution that satisfies it.
 
-**Implements:** M1-3 (`TypeSampleResult` + include-all mode), M1-5 (uniform per-type collection). M1-2
+**Implements:** M1-3 (`TypeSampleResult` + include-all selection path), M1-5 (uniform per-type collection). M1-2
 ships unchanged in behavior; only its return contract is reworked at M1-3.
 
 ---
@@ -659,8 +665,9 @@ ships unchanged in behavior; only its return contract is reworked at M1-3.
   malformed `WardrobeItem` **wire-value** validation is the **M5 adapter's** job (not the model).
   M0 stays narrowly scoped; the model keeps only its two narrow guards.
 - **R13** — the per-type sampling outcome is a uniform `TypeSampleResult` (include-all =
-  `mode="includeAll"`). M1-2's shipped `apply_cap(...) -> list` + `sample_fn` seam is **interim**;
-  M1-3 reworks it to return a `TypeSampleResult` (or absorbs it into M1-5) so per-type `mode`/`reason`
+  `includeAll` as a first-class selection path; typed enum, not `str`). M1-2's shipped
+  `apply_cap(...) -> list` + `sample_fn` seam is **interim**;
+  M1-3 reworks it to return a `TypeSampleResult` (or absorbs it into M1-5) so per-type selection path / `reason`
   is never lost. Build M1-3 against R13.
 
 R2 and R3 are M3 concerns — recorded now so M3's plan inherits settled decisions rather than

@@ -41,6 +41,7 @@ def _frame(value: _Field) -> str:
 
 
 def _canonical_seed(
+    *,
     session_id: str,
     wardrobe_version: int,
     occasion: str,
@@ -61,6 +62,7 @@ def _canonical_seed(
 
 
 def session_seed(
+    *,
     session_id: str,
     wardrobe_version: int,
     occasion: str,
@@ -69,23 +71,43 @@ def session_seed(
 ) -> int:
     """§3.3 session seed — no generationIndex. Used by sampling (M1) and the M5 cache key.
 
-    ``date`` defaults to None (C1 daily re-seed inactive until M5).
+    ``date`` defaults to None (C1 daily re-seed inactive until M5). All args are
+    **keyword-only**: ``occasion`` and ``weather`` are both ``str`` and adjacent, so a
+    positional swap would silently compute a *wrong but valid* seed — the one error
+    class that corrupts the §3.1 determinism promise with nothing failing. Naming is
+    enforced; the M5 TS adapter has no keyword-only equivalent, so it must guard the
+    same field order by other means.
     """
-    return _canonical_seed(session_id, wardrobe_version, occasion, weather, date, None)
+    return _canonical_seed(
+        session_id=session_id,
+        wardrobe_version=wardrobe_version,
+        occasion=occasion,
+        weather=weather,
+        date=date,
+        generation_index=None,
+    )
 
 
 def tiebreak_seed(
+    *,
     session_id: str,
     wardrobe_version: int,
     occasion: str,
     weather: str,
     date: Optional[str] = None,
-    *,
     generation_index: int,
 ) -> int:
-    """§10.4 tie-break seed — session inputs + generationIndex (used by the M3 tie-break)."""
+    """§10.4 tie-break seed — session inputs + generationIndex (used by the M3 tie-break).
+
+    Keyword-only for the same reason as ``session_seed`` (adjacent same-typed fields).
+    """
     return _canonical_seed(
-        session_id, wardrobe_version, occasion, weather, date, generation_index
+        session_id=session_id,
+        wardrobe_version=wardrobe_version,
+        occasion=occasion,
+        weather=weather,
+        date=date,
+        generation_index=generation_index,
     )
 
 

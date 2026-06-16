@@ -46,25 +46,25 @@ def test_wrappers_delegate_to_the_same_primitive():
     # Only tiebreak_seed carries generationIndex; session_seed never does. Both are
     # the canonical primitive with that one slot differing.
     assert session_seed(**_BASE) == _canonical_seed(
-        "user1", 3, "brunch", "mild", None, None
+        **_BASE, date=None, generation_index=None
     )
     assert tiebreak_seed(**_BASE, generation_index=7) == _canonical_seed(
-        "user1", 3, "brunch", "mild", None, 7
+        **_BASE, date=None, generation_index=7
     )
 
 
 def test_session_and_tiebreak_share_the_base():
     # Same non-gi inputs land the same base in the primitive; the seeds differ only
     # because tiebreak fills the generationIndex slot.
-    assert session_seed(**_BASE) == _canonical_seed("user1", 3, "brunch", "mild", None, None)
+    assert session_seed(**_BASE) == _canonical_seed(**_BASE, date=None, generation_index=None)
     assert tiebreak_seed(**_BASE, generation_index=0) != session_seed(**_BASE)
 
 
 def test_length_prefix_framing_guard():
     # A bare "\x1f" join would make these two distinct tuples collide; length-prefix
     # framing keeps them distinct. This test fails against the wrong implementation.
-    a = session_seed("user1", 3, "a", "b\x1fc")
-    b = session_seed("user1", 3, "a\x1fb", "c")
+    a = session_seed(session_id="user1", wardrobe_version=3, occasion="a", weather="b\x1fc")
+    b = session_seed(session_id="user1", wardrobe_version=3, occasion="a\x1fb", weather="c")
     assert a != b
 
 
@@ -83,7 +83,19 @@ def test_utf8_byte_framing_golden_value():
     # distinguishes them. char-length framing yields 10733744661519570972, not this.
     # The byte-length requirement exists so the M5 TS adapter (JS .length disagrees
     # with Python len() on surrogate pairs) reproduces the same seed.
-    assert session_seed("u", 1, "💎", "mild") == 16995489292698255755
+    assert session_seed(session_id="u", wardrobe_version=1, occasion="💎", weather="mild") == 16995489292698255755
+
+
+def test_seed_functions_are_keyword_only():
+    # The seed inputs include two adjacent str fields (occasion, weather); a positional
+    # swap would compute a wrong-but-valid seed silently. Keyword-only forecloses that —
+    # lock it so a future edit dropping `*,` is caught.
+    import pytest
+
+    with pytest.raises(TypeError):
+        session_seed("user1", 3, "brunch", "mild")  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        tiebreak_seed("user1", 3, "brunch", "mild", generation_index=0)  # type: ignore[misc]
 
 
 def test_seeded_rng_reproducibility():

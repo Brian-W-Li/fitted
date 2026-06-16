@@ -56,7 +56,7 @@ def test_partition_is_permutation_invariant(over_cap_wardrobe):
 # --- M1-2: apply_cap (§7.2) ---
 
 
-def _items(type_, n):
+def _items(type_: ItemType, n: int) -> list[WardrobeItem]:
     return [
         WardrobeItem(id=f"x{i:03d}", name=f"x{i}", type=type_, warmth=5, image_url=f"x{i}.jpg")
         for i in range(n)
@@ -69,9 +69,8 @@ def test_apply_cap_below_cap_includes_all_in_order():
 
 
 def test_apply_cap_below_cap_returns_a_copy_not_the_input_list():
-    # The include-all path returns list(items), a copy — `==` alone passes even if
-    # the input were aliased, which would let a caller's in-place mutation corrupt
-    # the partition's internal list. Pin the copy explicitly.
+    # The include-all path returns list(items), a copy — `==` alone passes even if the
+    # input were aliased. Pin the copy so callers may mutate capped results independently.
     items = _items(ItemType.top, 3)
     result = apply_cap(items, cap=10)
     assert result == items
