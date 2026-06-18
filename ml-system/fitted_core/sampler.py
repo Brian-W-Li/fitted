@@ -6,20 +6,22 @@ across types — v2 §10 / Appendix A R4). apply_cap() applies v2 §10's per-typ
 ceilings, including the "scarce category fully represented" rule (include all
 when at/below cap). sample_type() (M1-3) is the over-cap 70/30 sampler and the
 SignalScorer seam M6 plugs into; it returns the uniform TypeSampleResult (R13).
+candidate_requested() (M1-4) scales how many outfit drafts to ask GPT for from the
+post-cap pool counts.
 
 The over-cap branch of apply_cap still delegates via an injected callback (the
 M1-2 interim seam); M1-5's per-type loop will call sample_type() directly and
 retire that callback (R13). sample_type() is built standalone here.
 
 Sources: docs/Fitted_Spec_v2.md §10 / §11 / Appendix A R4/R6/R11/R13,
-docs/plans/m0-m1-substrate.md §4 (M1-1..M1-3).
+docs/plans/m0-m1-substrate.md §4 (M1-1..M1-4).
 """
 
 import math
 import random
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Optional, Protocol, runtime_checkable
+from typing import Callable, Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 from fitted_core.config import (
     CAP_BOTTOMS,
@@ -27,6 +29,7 @@ from fitted_core.config import (
     CAP_OUTER,
     CAP_SHOES,
     CAP_TOPS,
+    MAX_CANDIDATES,
     MIN_SIGNAL_THRESHOLD,
 )
 from fitted_core.models import ItemType, WardrobeItem
@@ -320,3 +323,38 @@ def _random_fallback(
     """
     sampled = _seeded_pick(items, cap, rng)
     return TypeSampleResult(sampled, SelectionKind.random, reason, random_count=cap, signal_count=0)
+
+
+# ============================================================================
+# M1-4 — candidate-request scaling (v2 §10)
+# ============================================================================
+
+
+def candidate_requested(pool: Mapping[ItemType, Sequence[WardrobeItem]]) -> int:
+    """How many outfit drafts to request from GPT, from POST-CAP pool counts (v2 §10).
+
+    ``pool`` maps each ItemType to its already-sampled items (the per-type pool M1-5
+    assembles from M1-1..M1-3). Only base roles size the request — outer and shoes are
+    optional roles layered onto a base, never a base, so they never contribute:
+
+        two_piece_base = n_tops * n_bottoms     # every top can pair with every bottom
+        one_piece_base = n_dresses
+        total_base     = two_piece_base + one_piece_base
+
+    Scaling: ``total_base <= 5`` → ``total_base * 3`` (no floor — a tiny closet asks
+    proportionally fewer); otherwise ``min(MAX_CANDIDATES, total_base * 3)``.
+
+    ``total_base == 0`` (no top+bottom pairing AND no dress — e.g. tops-but-no-bottoms,
+    or an empty pool) returns ``0``. That 0 is the signal the M1-5 entry point uses to
+    short-circuit to ``notEnoughItems`` **before any GPT call**, never asking GPT for
+    zero candidates and running the pipeline on nothing (v2 §10 / §12 edge cases).
+    """
+    n_tops = len(pool.get(ItemType.top, ()))
+    n_bottoms = len(pool.get(ItemType.bottom, ()))
+    n_dresses = len(pool.get(ItemType.dress, ()))
+    total_base = n_tops * n_bottoms + n_dresses
+    if total_base == 0:
+        return 0  # notEnoughItems signal — M1-5 returns before any GPT call
+    if total_base <= 5:
+        return total_base * 3
+    return min(MAX_CANDIDATES, total_base * 3)

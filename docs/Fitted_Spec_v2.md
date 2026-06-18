@@ -686,7 +686,7 @@ The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) is partly b
 | Stage | Scope | Status / rung |
 |---|---|---|
 | **M0** | Contracts & pure functions: keys, SlotMap, seed, config, models | ✅ done |
-| **M1** | Sampler: partition, caps, 70/30, the SignalScorer seam (`ColdStartSignalScorer`) | in progress (M1-1/M1-2/M1-3 done — seam built per §10/§11; M1-4/M1-5 = candidate scaling + entry point) |
+| **M1** | Sampler: partition, caps, 70/30, the SignalScorer seam (`ColdStartSignalScorer`) | in progress (M1-1..M1-4 done — seam + candidate scaling built per §10/§11; M1-5 = entry point) |
 | **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | `[NOW]` |
 | **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, dedup, fallback, regen controls | `[NOW]` |
 | **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, like/dislike via the existing `OutfitInteraction`. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | `[NOW]` — proves the whole vision |

@@ -56,7 +56,7 @@ Architecture (mirrors the team's Vercel + Python-service pattern, Fly.io as the 
 | Milestone | Scope | Status |
 |---|---|---|
 | **M0** | Contracts & pure functions: v2 §15 seed, v2 §6.1 WardrobeItem, v2 §7 keys, v2 §8 SlotMap, Appendix B config constants. No Mongo, no API keys. | ✅ **done** (commit `2e4c8d44`, 2026-06-13; 73 pytest green at M0 close) |
-| **M1** | Sampler / shortlister: v2 §10 pool partition, per-type caps, cold-start, 70/30 sampling + session seed, candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) + M1-3 (70/30 sampler + `SignalScorer` seam) done (pytest green); M1-4/M1-5 next. The M1-2→M1-3 seam contract is **R13**; `apply_cap`'s interim callback seam is retained until M1-5 absorbs it. |
+| **M1** | Sampler / shortlister: v2 §10 pool partition, per-type caps, cold-start, 70/30 sampling + session seed, candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) + M1-3 (70/30 sampler + `SignalScorer` seam) + M1-4 (candidate scaling) done (pytest green); M1-5 (entry point) next. The M1-2→M1-3 seam contract is **R13**; `apply_cap`'s interim callback seam is retained until M1-5 absorbs it. |
 | M2 | SlotMap validation + strict JSON schema validation of GPT output (v2 §8/§13 reject rules, v2 §12 schema). In `fitted_core/`. | later |
 | M3 | Ranker: comboBoost, dislike cooldown (BaseKey/FullSignature), variant cap, overuse penalty, dedup (v2 §7/§14, Appendix B). In `fitted_core/`. | later |
 | M4 | Data-model migration in `fitted/models/*.ts` (add `ItemAffinity`, `wardrobeVersion`, `generation_logs`; see §6) + the interaction data the substrate consumes. Produces the labeled feedback data. | later |

@@ -20,6 +20,7 @@ from fitted_core.sampler import (
     RequestContext,
     SelectionKind,
     apply_cap,
+    candidate_requested,
     partition,
     random_count,
     sample_type,
@@ -346,3 +347,61 @@ def test_fallback_determinism_same_seed():
     a = sample_type(items, 35, rng=random.Random(42), **kw)
     b = sample_type(items, 35, rng=random.Random(42), **kw)
     assert [it.id for it in a.items] == [it.id for it in b.items]
+
+
+# ============================================================================
+# M1-4: candidate_requested — candidate-request scaling (§10)
+# ============================================================================
+
+
+def _pool(*, n_tops=0, n_bottoms=0, n_dresses=0, n_outer=0, n_shoes=0):
+    # Post-cap per-type pool. candidate_requested only reads lengths, so reusing the
+    # `x%03d` ids across types is harmless here.
+    return {
+        ItemType.top: _items(ItemType.top, n_tops),
+        ItemType.bottom: _items(ItemType.bottom, n_bottoms),
+        ItemType.dress: _items(ItemType.dress, n_dresses),
+        ItemType.outer_layer: _items(ItemType.outer_layer, n_outer),
+        ItemType.shoes: _items(ItemType.shoes, n_shoes),
+    }
+
+
+def test_candidate_requested_zero_when_no_base():
+    # tops but no bottoms, no dresses -> total_base 0 -> 0 (the notEnoughItems signal).
+    assert candidate_requested(_pool(n_tops=5)) == 0
+
+
+def test_candidate_requested_zero_on_empty_pool():
+    assert candidate_requested(_pool()) == 0
+
+
+def test_candidate_requested_tiny_no_floor():
+    # tops=1,bottoms=1 -> total_base 1 -> 3 (proportionally fewer, no floor).
+    assert candidate_requested(_pool(n_tops=1, n_bottoms=1)) == 3
+
+
+def test_candidate_requested_boundary_at_5():
+    # total_base == 5 -> 15 (the <=5 branch). tops=5,bottoms=1.
+    assert candidate_requested(_pool(n_tops=5, n_bottoms=1)) == 15
+
+
+def test_candidate_requested_just_over_boundary():
+    # total_base == 6 -> 18 (>5 branch, still under the ceiling). tops=6,bottoms=1.
+    assert candidate_requested(_pool(n_tops=6, n_bottoms=1)) == 18
+
+
+def test_candidate_requested_ceiling_at_max_candidates():
+    # total_base*3 > 40 -> exactly MAX_CANDIDATES (40). tops=10,bottoms=10 -> 100 -> 40.
+    assert candidate_requested(_pool(n_tops=10, n_bottoms=10)) == 40
+
+
+def test_candidate_requested_dresses_contribute_independently():
+    # Dresses-only (no top*bottom pairing): total_base 4 -> 12.
+    assert candidate_requested(_pool(n_dresses=4)) == 12
+    # Dresses add on top of the two_piece base: 2*2 + 2 = 6 -> 18.
+    assert candidate_requested(_pool(n_tops=2, n_bottoms=2, n_dresses=2)) == 18
+
+
+def test_candidate_requested_ignores_outer_and_shoes():
+    # outer/shoes are optional roles, never a base -> they never change total_base.
+    assert candidate_requested(_pool(n_tops=1, n_bottoms=1, n_outer=9, n_shoes=9)) == 3
