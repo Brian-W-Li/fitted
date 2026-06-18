@@ -56,7 +56,7 @@ Architecture (mirrors the team's Vercel + Python-service pattern, Fly.io as the 
 | Milestone | Scope | Status |
 |---|---|---|
 | **M0** | Contracts & pure functions: v2 §15 seed, v2 §6.1 WardrobeItem, v2 §7 keys, v2 §8 SlotMap, Appendix B config constants. No Mongo, no API keys. | ✅ **done** (commit `2e4c8d44`, 2026-06-13; 73 pytest green at M0 close) |
-| **M1** | Sampler / shortlister: v2 §10 pool partition, per-type caps, cold-start, 70/30 sampling + session seed, candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) done (pytest green); M1-3/M1-4/M1-5 next. The M1-2→M1-3 seam contract is **R13**. |
+| **M1** | Sampler / shortlister: v2 §10 pool partition, per-type caps, cold-start, 70/30 sampling + session seed, candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) + M1-3 (70/30 sampler + `SignalScorer` seam) done (pytest green); M1-4/M1-5 next. The M1-2→M1-3 seam contract is **R13**; `apply_cap`'s interim callback seam is retained until M1-5 absorbs it. |
 | M2 | SlotMap validation + strict JSON schema validation of GPT output (v2 §8/§13 reject rules, v2 §12 schema). In `fitted_core/`. | later |
 | M3 | Ranker: comboBoost, dislike cooldown (BaseKey/FullSignature), variant cap, overuse penalty, dedup (v2 §7/§14, Appendix B). In `fitted_core/`. | later |
 | M4 | Data-model migration in `fitted/models/*.ts` (add `ItemAffinity`, `wardrobeVersion`, `generation_logs`; see §6) + the interaction data the substrate consumes. Produces the labeled feedback data. | later |
@@ -318,12 +318,12 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 - **Effort:** ~0.5 hr.
 
 ### M1-2 — Per-type caps + "include all if at/below cap" — v2 §10 / Appendix B
-> **Shipped, with a seam rework pending (R13).** M1-2 landed as `apply_cap(items, cap, sample_fn) ->
+> **Shipped; seam absorbed at M1-5 (R13).** M1-2 landed as `apply_cap(items, cap, sample_fn) ->
 > list[WardrobeItem]` (pytest green). The `(items, cap) -> list` callback shape does **not** match
-> M1-3's `sample_type(...) -> TypeSampleResult`; **R13** resolves it — the per-type outcome becomes a
-> uniform `TypeSampleResult` (include-all is a first-class selection path; R13), so at M1-3 `apply_cap` is reworked to
-> return one (or absorbed into the M1-5 per-type loop) and the list+callback seam goes away. Build M1-3
-> against R13, not the interim signature below.
+> M1-3's `sample_type(...) -> TypeSampleResult`; **R13** makes the per-type outcome a uniform
+> `TypeSampleResult` (include-all is a first-class selection path). M1-3 built `sample_type` **standalone**
+> rather than reworking `apply_cap`; M1-5's per-type loop will call `sample_type` (over cap) and emit an
+> `include_all` `TypeSampleResult` (at/below cap), retiring this interim callback seam.
 - **Produces:** `sampler.apply_cap(items, cap, ...) -> list[WardrobeItem]`. If
   `count <= cap`: include all (spec: scarce categories fully represented). Else: hand off to
   the 70/30 sampler (M1-3). Surface an estimated prompt item count for logging (v2 §10 / Appendix B).

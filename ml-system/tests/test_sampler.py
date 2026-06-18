@@ -9,9 +9,21 @@ import random
 
 import pytest
 
-from fitted_core.config import MAX_PROMPT_ITEMS
+from fitted_core.config import MAX_PROMPT_ITEMS, MIN_SIGNAL_THRESHOLD
 from fitted_core.models import ItemType, WardrobeItem
-from fitted_core.sampler import CAP_BY_TYPE, apply_cap, partition
+from fitted_core.sampler import (
+    COLD_START_SAMPLING,
+    SIGNAL_SCORER_FAULT,
+    SIGNAL_UNAVAILABLE,
+    CAP_BY_TYPE,
+    ColdStartSignalScorer,
+    RequestContext,
+    SelectionKind,
+    apply_cap,
+    partition,
+    random_count,
+    sample_type,
+)
 
 
 # --- M1-1: partition (§10, R4) ---
@@ -151,3 +163,186 @@ def test_cap_by_type_maps_each_type_to_its_own_cap():
     assert CAP_BY_TYPE[ItemType.dress] == 25
     assert CAP_BY_TYPE[ItemType.outer_layer] == 20
     assert CAP_BY_TYPE[ItemType.shoes] == 25
+
+
+# ============================================================================
+# M1-3: sample_type — 70/30 sampler + SignalScorer seam (§10/§11, R6/R11/R13)
+# ============================================================================
+
+
+def _ctx(interaction_count: int) -> RequestContext:
+    return RequestContext(
+        occasion="brunch", weather="mild", session_id="u1",
+        wardrobe_version=1, interaction_count=interaction_count,
+    )
+
+
+class _LowerIdRanksHigher:
+    """Available scorer with distinct scores: "x000" ranks highest, "x039" lowest.
+
+    score = -int(id digits), so (score desc, id asc) ranks by ascending id — making
+    the deterministic signal slot a known, assertable set.
+    """
+
+    def is_available(self):
+        return True
+
+    def score(self, item, context):
+        return -float(int(item.id[1:]))
+
+
+class _Raises:
+    def is_available(self):
+        return True
+
+    def score(self, item, context):
+        raise RuntimeError("scorer boom")
+
+
+class _Returns:
+    """Available scorer returning a fixed bad value (NaN / inf / bool)."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def is_available(self):
+        return True
+
+    def score(self, item, context):
+        return self._value
+
+
+# --- helpers + seam objects ---
+
+
+def test_random_count_real_caps_integer_half_up():
+    # R6 trap-guard: integer half-up, NOT banker's rounding. These are the 70% values.
+    assert random_count(35) == 25
+    assert random_count(30) == 21
+    assert random_count(25) == 18
+    assert random_count(20) == 14
+    assert random_count(10) == 7  # cap 10 -> 7 random + 3 signal
+
+
+def test_cold_start_scorer_never_available_and_score_raises():
+    s = ColdStartSignalScorer()
+    assert s.is_available() is False
+    # score() must never be called once is_available() gates it — raising is the contract.
+    with pytest.raises(NotImplementedError):
+        s.score(_items(ItemType.top, 1)[0], _ctx(0))
+
+
+def test_selection_kind_spans_all_three_outcomes():
+    # R13: the enum must span signal/random/include_all so a per-type log is never
+    # ambiguous. include_all is produced by the M1-5 per-type loop, not sample_type.
+    assert {k.value for k in SelectionKind} == {"signal", "random", "includeAll"}
+
+
+# --- fallback reasons (R11): behavior-identical, log-distinct ---
+
+
+@pytest.mark.parametrize("count", [0, 4, MIN_SIGNAL_THRESHOLD - 1])
+def test_cold_start_fallback_below_threshold(count):
+    items = _items(ItemType.top, 40)
+    res = sample_type(items, 35, rng=random.Random(7), scorer=ColdStartSignalScorer(),
+                      context=_ctx(count), scorer_available=False)
+    assert res.selection_kind is SelectionKind.random
+    assert res.reason == COLD_START_SAMPLING
+    assert res.signal_count == 0 and res.random_count == 35
+    assert len(res.items) == 35
+
+
+def test_signal_unavailable_fallback_at_threshold_without_scorer():
+    # Count meets the threshold but the scorer isn't available (M4->M6 window).
+    items = _items(ItemType.top, 40)
+    res = sample_type(items, 35, rng=random.Random(7), scorer=ColdStartSignalScorer(),
+                      context=_ctx(MIN_SIGNAL_THRESHOLD), scorer_available=False)
+    assert res.selection_kind is SelectionKind.random
+    assert res.reason == SIGNAL_UNAVAILABLE
+
+
+@pytest.mark.parametrize("scorer", [
+    _Raises(),
+    _Returns(float("nan")),
+    _Returns(float("inf")),
+    _Returns(float("-inf")),
+    _Returns(True),  # bool is an int subclass; isfinite(True) is True — must still fault
+])
+def test_signal_scorer_fault_fallback(scorer):
+    items = _items(ItemType.top, 40)
+    res = sample_type(items, 35, rng=random.Random(7), scorer=scorer,
+                      context=_ctx(MIN_SIGNAL_THRESHOLD), scorer_available=True)
+    assert res.selection_kind is SelectionKind.random
+    assert res.reason == SIGNAL_SCORER_FAULT
+    assert res.signal_count == 0 and len(res.items) == 35
+
+
+def test_three_fallbacks_are_behavior_identical_same_seed():
+    # The load-bearing R11 invariant: data arrival changes only the log label, never
+    # the outfits, until M6. All three fallbacks route through one seeded path.
+    items = _items(ItemType.top, 40)
+    cold = sample_type(items, 35, rng=random.Random(99), scorer=ColdStartSignalScorer(),
+                       context=_ctx(0), scorer_available=True)
+    unavail = sample_type(items, 35, rng=random.Random(99), scorer=ColdStartSignalScorer(),
+                          context=_ctx(MIN_SIGNAL_THRESHOLD), scorer_available=False)
+    fault = sample_type(items, 35, rng=random.Random(99), scorer=_Raises(),
+                        context=_ctx(MIN_SIGNAL_THRESHOLD), scorer_available=True)
+    ids = lambda r: [it.id for it in r.items]
+    assert ids(cold) == ids(unavail) == ids(fault)
+    assert {cold.reason, unavail.reason, fault.reason} == {
+        COLD_START_SAMPLING, SIGNAL_UNAVAILABLE, SIGNAL_SCORER_FAULT,
+    }
+
+
+# --- signal branch (R11): signal-first, disjoint random remainder ---
+
+
+def test_signal_branch_70_30_split_and_signal_first():
+    items = _items(ItemType.top, 40)  # ids x000..x039
+    res = sample_type(items, 35, rng=random.Random(3), scorer=_LowerIdRanksHigher(),
+                      context=_ctx(MIN_SIGNAL_THRESHOLD), scorer_available=True)
+    assert res.selection_kind is SelectionKind.signal
+    assert res.reason is None
+    assert res.signal_count == 10 and res.random_count == 25  # 35 -> 25 random + 10 signal
+    result_ids = [it.id for it in res.items]
+    assert len(result_ids) == 35
+    assert len(set(result_ids)) == 35  # no duplicates across signal + random slots
+    # Signal-first: the deterministic top-10 by (score desc, id asc) = x000..x009 must
+    # all survive (they consume no RNG and are picked before the random slot).
+    top_signal = {f"x{i:03d}" for i in range(10)}
+    assert top_signal.issubset(set(result_ids))
+    # Random slot is disjoint from the signal slot, drawn from the remainder.
+    random_slot = set(result_ids) - top_signal
+    assert len(random_slot) == 25
+    assert random_slot.issubset({f"x{i:03d}" for i in range(10, 40)})
+    # Emit order is id-sorted (byte-stable prompt).
+    assert result_ids == sorted(result_ids)
+
+
+def test_split_sizes_at_cap_10():
+    # Plan §4 M1-3: over-cap cap=10 -> 7 random + 3 signal with an available scorer.
+    items = _items(ItemType.top, 12)
+    res = sample_type(items, 10, rng=random.Random(1), scorer=_LowerIdRanksHigher(),
+                      context=_ctx(MIN_SIGNAL_THRESHOLD), scorer_available=True)
+    assert res.random_count == 7 and res.signal_count == 3
+    assert len(res.items) == 10
+
+
+# --- determinism (R4): same seed -> same set ---
+
+
+def test_signal_branch_determinism_same_seed():
+    items = _items(ItemType.top, 40)
+    kw = dict(scorer=_LowerIdRanksHigher(), context=_ctx(MIN_SIGNAL_THRESHOLD),
+              scorer_available=True)
+    a = sample_type(items, 35, rng=random.Random(42), **kw)
+    b = sample_type(items, 35, rng=random.Random(42), **kw)
+    assert [it.id for it in a.items] == [it.id for it in b.items]
+
+
+def test_fallback_determinism_same_seed():
+    items = _items(ItemType.top, 40)
+    kw = dict(scorer=ColdStartSignalScorer(), context=_ctx(0), scorer_available=False)
+    a = sample_type(items, 35, rng=random.Random(42), **kw)
+    b = sample_type(items, 35, rng=random.Random(42), **kw)
+    assert [it.id for it in a.items] == [it.id for it in b.items]
