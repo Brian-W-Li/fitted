@@ -11,6 +11,7 @@ import pytest
 
 from fitted_core.config import MAX_PROMPT_ITEMS, MIN_SIGNAL_THRESHOLD
 from fitted_core.models import ItemType, WardrobeItem
+from fitted_core.seed import seeded_rng, session_seed
 from fitted_core.sampler import (
     COLD_START_SAMPLING,
     SIGNAL_SCORER_FAULT,
@@ -604,3 +605,90 @@ def test_sample_one_type_over_cap_delegates_to_sample_type():
     assert res.selection_kind is SelectionKind.random
     assert res.reason == COLD_START_SAMPLING
     assert len(res.items) == 10
+
+
+# ============================================================================
+# M1 closeout — Codex low-test-gap follow-ups (behavior tests, no new behavior)
+# ============================================================================
+
+
+def _typed_items(type_: ItemType, prefix: str, n: int) -> list[WardrobeItem]:
+    # Distinct, id-sorted ids per type (the shared `_items` always uses "x%03d", which
+    # would collide across two types and trip the R12 duplicate-id reject).
+    return [
+        WardrobeItem(id=f"{prefix}{i:03d}", name=f"{prefix}{i}", type=type_, warmth=5,
+                     image_url=f"{prefix}{i}.jpg")
+        for i in range(n)
+    ]
+
+
+def test_build_pool_threads_one_shared_sequential_rng_across_types():
+    # Codex gap 1: prove build_candidate_pool threads ONE random.Random(session_seed)
+    # sequentially through ItemType enum order, NOT a fresh per-type RNG re-seeded from the
+    # same session_seed. Two over-cap types (dress, then shoes in enum order) with distinct
+    # pools: under one shared RNG, dress's draw advances the state shoes then draws from, so
+    # shoes != what a fresh-seeded RNG would pick. A per-type re-seed would make shoes
+    # independent of dress (== the fresh-seed pick). Reconstruct the exact sequential
+    # consumption and assert the pool follows it, not the re-seed alternative.
+    dress = _typed_items(ItemType.dress, "d", 30)  # over cap 25
+    shoes = _typed_items(ItemType.shoes, "s", 30)  # over cap 25; later in enum order
+    ctx = _ctx(0)  # cold start -> seeded-random fallback path consumes the shared rng
+    res = build_candidate_pool(dress + shoes, ctx, ColdStartSignalScorer())
+
+    seed = session_seed(
+        session_id=ctx.session_id, wardrobe_version=ctx.wardrobe_version,
+        occasion=ctx.occasion, weather=ctx.weather, date=ctx.date,
+    )
+    by_id = lambda its: sorted(its, key=lambda it: it.id)
+    ids = lambda its: [it.id for it in its]
+
+    # Sequential: one shared RNG consumed in enum order (dress before shoes; top/bottom/outer
+    # are empty -> include_all -> consume nothing, so dress and shoes draw back-to-back).
+    rng_seq = seeded_rng(seed)
+    seq_dress = by_id(rng_seq.sample(dress, 25))  # dress is already id-sorted
+    seq_shoes = by_id(rng_seq.sample(shoes, 25))
+
+    # Re-seed mutant: a fresh RNG per type from the same seed -> shoes independent of dress.
+    reseed_shoes = by_id(seeded_rng(seed).sample(shoes, 25))
+
+    assert ids(res.pool[ItemType.dress]) == ids(seq_dress)
+    assert ids(res.pool[ItemType.shoes]) == ids(seq_shoes)
+    # Discriminator: the sequential and re-seed shoe draws genuinely differ, and the real pool
+    # follows the sequential one -> the RNG is shared and advanced, not re-seeded per type.
+    assert ids(seq_shoes) != ids(reseed_shoes)
+    assert ids(res.pool[ItemType.shoes]) != ids(reseed_shoes)
+
+
+class _CountingAvailableScorer:
+    """Available scorer with finite scores; records is_available() call count.
+
+    The signal branch actually runs with this scorer (count >= threshold + available +
+    finite), so it proves availability is resolved ONCE even on the active path.
+    """
+
+    def __init__(self):
+        self.availability_checks = 0
+
+    def is_available(self):
+        self.availability_checks += 1
+        return True
+
+    def score(self, item, context):
+        return 1.0  # finite, constant -> no fault; signal branch runs
+
+
+def test_build_pool_evaluates_is_available_once_when_signal_path_active(over_cap_wardrobe):
+    # Codex gap 2: the existing once-check uses an UNAVAILABLE scorer at cold start, where the
+    # signal branch never runs. This pins the once-evaluation when the path is ACTUALLY active:
+    # count >= threshold, scorer available, finite scores, every type over cap running signal.
+    # A per-type re-check would call is_available() once per over-cap type (> 1).
+    scorer = _CountingAvailableScorer()
+    res = build_candidate_pool(over_cap_wardrobe, _ctx(MIN_SIGNAL_THRESHOLD), scorer)
+    assert scorer.availability_checks == 1
+    assert res.scorer_available is True
+    parts = partition(over_cap_wardrobe)
+    over_cap_types = [t for t in ItemType if len(parts[t]) > CAP_BY_TYPE[t]]
+    assert over_cap_types  # guard: fixture really has over-cap types, so the branch ran
+    for t in over_cap_types:
+        assert res.per_type[t].selection_kind is SelectionKind.signal
+        assert res.per_type[t].reason is None
