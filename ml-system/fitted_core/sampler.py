@@ -45,7 +45,7 @@ def partition(wardrobe: list[WardrobeItem]) -> dict[ItemType, list[WardrobeItem]
     """Group a wardrobe by type, id-sorted within each type (v2 §10 / Appendix A R4).
 
     Every ItemType is present as a key in enum order — a type the wardrobe lacks
-    maps to an empty list (feeds the §19 no-tops/no-dresses edge cases). Sorting
+    maps to an empty list (feeds the §10 no-tops/no-dresses edge cases). Sorting
     by id here is load-bearing, not cosmetic: pre-M6 prod always rides the
     seeded-random fallback path, and random.sample is reproducible only over a
     fixed input order, so the v2 §10/§15 determinism contract is established here,

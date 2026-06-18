@@ -1,4 +1,4 @@
-"""Tests for M1-1 (partition) and M1-2 (per-type caps). Spec §7.1/§7.2, R4.
+"""Tests for M1-1 (partition) and M1-2 (per-type caps). v2 §10, Appendix A R4.
 
 The permuted-input determinism test is the one that matters: an in-memory
 fixture is already in a stable order, so only shuffling the input can prove
@@ -14,7 +14,7 @@ from fitted_core.models import ItemType, WardrobeItem
 from fitted_core.sampler import CAP_BY_TYPE, apply_cap, partition
 
 
-# --- M1-1: partition (§7.1, R4) ---
+# --- M1-1: partition (§10, R4) ---
 
 
 def test_partition_groups_by_type(demo_wardrobe):
@@ -26,7 +26,7 @@ def test_partition_groups_by_type(demo_wardrobe):
 
 def test_partition_includes_every_type_even_when_empty(demo_wardrobe):
     # The demo wardrobe has no dresses or outer layers by design; those types
-    # must still be present as empty lists (§19 no-dresses edge case).
+    # must still be present as empty lists (§10 no-dresses edge case).
     buckets = partition(demo_wardrobe)
     assert set(buckets.keys()) == set(ItemType)
     assert buckets[ItemType.dress] == []
@@ -53,7 +53,7 @@ def test_partition_is_permutation_invariant(over_cap_wardrobe):
     assert partition(shuffled) == partition(over_cap_wardrobe)
 
 
-# --- M1-2: apply_cap (§7.2) ---
+# --- M1-2: apply_cap (§10) ---
 
 
 def _items(type_: ItemType, n: int) -> list[WardrobeItem]:

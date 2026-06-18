@@ -13,7 +13,7 @@ def test_candidate_and_prompt_ceilings():
 
 
 def test_per_type_cap_values():
-    # Pin each cap individually (spec §7.2). The sum guard below alone passes under a
+    # Pin each cap individually (v2 §10). The sum guard below alone passes under a
     # compensating drift (e.g. 36/29/... still = 135) that would change M1-3's per-type
     # 70/30 split — these values are what random_count() is tested against.
     assert config.CAP_TOPS == 35
@@ -43,7 +43,7 @@ def test_default_k():
 
 
 def test_forward_declared_constants():
-    # Owned by M3 but pinned here per §18 (one config file). Without this guard an
+    # Owned by M3 but pinned here per v2 §22 (one config file). Without this guard an
     # accidental edit to either value passes today — no test references them yet.
     assert config.MAX_AFFINITY == 20
     assert config.OVERUSE_MIN_POOL == 15

@@ -1,4 +1,4 @@
-"""M0-5 contract tests — seed derivation (spec §3.3/§10.4/C1, spec-resolutions R1).
+"""M0-5 contract tests — seed derivation (v2 §15 / Appendix A R1, N2-C1).
 
 Covers determinism, per-field sensitivity (including the C1 ``date`` param and
 ``generationIndex``), the wrapper/primitive delegation, the length-prefix framing

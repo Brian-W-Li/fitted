@@ -1,6 +1,6 @@
-"""M0-3 contract tests — BaseKey + FullSignature (spec §5, spec-resolutions R10).
+"""M0-3 contract tests — BaseKey + FullSignature (v2 §7, Appendix A R10).
 
-Covers the exact spec string examples, the §5.3 key-responsibility invariant
+Covers the exact spec string examples, the §7 key-responsibility invariant
 (same dress + different outer ⇒ same BaseKey, different FullSignature), and the
 R10 preconditions (invalid base, reserved chars, the "none" sentinel id).
 """
@@ -11,7 +11,7 @@ from fitted_core.keys import base_key, full_signature
 from fitted_core.models import SlotMap
 
 
-# --- Exact spec examples (§5.1/§5.2) ---
+# --- Exact spec examples (§7) ---
 
 def test_base_key_two_piece():
     assert base_key(SlotMap(top="abc", bottom="def")) == "abc:def"
@@ -36,7 +36,7 @@ def test_full_signature_one_piece_full():
     assert full_signature(sm) == "ghi|outer=jkl|shoes=mno"
 
 
-# --- §5.3 key-responsibility invariant (conflating them is called a bug) ---
+# --- §7 key-responsibility invariant (conflating them is called a bug) ---
 
 def test_same_dress_different_outer_same_basekey_different_fullsig():
     a = SlotMap(dress="ghi", outer="jacketA")
@@ -91,7 +91,7 @@ def test_reserved_or_sentinel_id_in_optional_slots_one_piece_base_raises(bad_id)
 
 
 def test_base_key_ignores_reserved_char_in_optional_slots():
-    # BaseKey is the silhouette key — it excludes outer/shoes (§5.1), so a reserved
+    # BaseKey is the silhouette key — it excludes outer/shoes (§7), so a reserved
     # char in those slots must NOT make base_key raise (only full_signature guards
     # them, per R10). Pins that base_key reads only the base ids.
     assert base_key(SlotMap(top="t1", bottom="b1", outer="a:b", shoes="c|d")) == "t1:b1"

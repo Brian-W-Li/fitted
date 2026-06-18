@@ -312,7 +312,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   Determinism depends on input *order*, not just the seed — `random.sample` over a list in
   Mongo-return order (unsorted at M5) is non-reproducible. This is the only branch prod runs
   pre-M6, so the guarantee lives here.
-- **Test:** mixed wardrobe partitions correctly; empty type → empty list (feeds §19 edge
+- **Test:** mixed wardrobe partitions correctly; empty type → empty list (feeds §10 edge
   cases: no tops/bottoms, no dresses); **permuted-input determinism** — shuffling the input
   wardrobe yields an identically-sorted partition (and, with M1-3, identical samples).
 - **Effort:** ~0.5 hr.

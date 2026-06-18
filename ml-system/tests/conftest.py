@@ -1,7 +1,7 @@
 """Shared pytest fixtures for the fitted_core substrate.
 
 `demo_wardrobe` re-expresses the legacy outfit_recommender.py demo wardrobe in
-the v1.2 5-type schema (plan §1.5 decision 2 — re-express, do NOT migrate the
+the v2 5-type schema (plan §1 decision 2 — re-express, do NOT migrate the
 legacy file in place). The legacy demo modeled only top/bottom/footwear, so this
 fixture has no dresses or outer layers by design; the larger over-cap synthetic
 wardrobe that exercises sampling lands with M1.
@@ -36,7 +36,7 @@ def demo_wardrobe() -> list[WardrobeItem]:
     ]
 
 
-# Synthetic wardrobe that exceeds every per-type cap (§7.2: tops 35, bottoms 30,
+# Synthetic wardrobe that exceeds every per-type cap (§10: tops 35, bottoms 30,
 # dresses 25, outer 20, shoes 25), so the sampler's over-cap path is exercised
 # for all five types. Ids are generated in DESCENDING order so insertion order
 # != id-sorted order — partition's R4 sort must actually do work to pass.

@@ -1,4 +1,4 @@
-"""M0-4 contract tests — normalize_to_slotmap + is_valid_slotmap (spec §6.3/§13).
+"""M0-4 contract tests — normalize_to_slotmap + is_valid_slotmap (v2 §8/§13).
 
 The densest correctness surface in M0. Split by owner is the point: the
 normalizer-owned rejects (duplicate role-owned slot, unknown role) are
