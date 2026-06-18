@@ -20,6 +20,7 @@ from fitted_core.sampler import (
     RequestContext,
     SamplerResult,
     SelectionKind,
+    _sample_one_type,
     build_candidate_pool,
     candidate_requested,
     partition,
@@ -455,3 +456,151 @@ def test_build_pool_deterministic_same_context(over_cap_wardrobe):
     for t in ItemType:
         assert [it.id for it in a.pool[t]] == [it.id for it in b.pool[t]]
     assert a.candidate_requested == b.candidate_requested
+
+
+# ============================================================================
+# M1 mutation-hardening pass — close gaps where a wrong implementation survives
+# (these target specific mutants; see the audit report). No new behavior.
+# ============================================================================
+
+
+class _TruthyAvailable:
+    """is_available() returns a truthy NON-True value; score() is a finite float.
+
+    Pins the strict ``is True`` availability resolution: a ``bool(...)`` mutant would
+    accept this as available, this scorer makes that observable.
+    """
+
+    def is_available(self):
+        return 1  # truthy, but not literally True
+
+    def score(self, item, context):
+        return 1.0
+
+
+def _one_type(items, cap):
+    # _sample_one_type with the default stub scorer (unavailable, count 0 -> fallback
+    # on the over-cap path). Isolates the cap/include-all boundary the retired apply_cap
+    # used to own.
+    return _sample_one_type(
+        items, cap, rng=random.Random(0), scorer=ColdStartSignalScorer(),
+        context=_ctx(0), scorer_available=False,
+    )
+
+
+# --- candidate_requested: the min() ceiling activation boundary (A) ---
+
+
+def test_candidate_requested_cap_activation_boundary():
+    # The ceiling activates exactly when total_base*3 > MAX_CANDIDATES(40): total_base
+    # 13 -> 39 (uncapped), 14 -> 42 -> 40 (capped). The 6->18 and 100->40 cases leave
+    # this transition untested; a near-boundary off-by-one would survive without this.
+    assert candidate_requested(_pool(n_dresses=13)) == 39
+    assert candidate_requested(_pool(n_dresses=14)) == 40
+
+
+# --- sample_type: fallback id-ordering + log-label literals (B) ---
+
+
+def test_fallback_result_items_are_id_sorted():
+    # The fallback path's ONLY id-sort is inside _seeded_pick — the signal branch
+    # re-sorts `combined`, so it can't cover this. A byte-stable prompt needs the
+    # fallback sorted too; a dropped sort here would survive every other test.
+    items = _items(ItemType.top, 40)
+    res = sample_type(items, 35, rng=random.Random(7), scorer=ColdStartSignalScorer(),
+                      context=_ctx(0), scorer_available=False)
+    result_ids = [it.id for it in res.items]
+    assert result_ids == sorted(result_ids)
+
+
+def test_fallback_reason_constants_match_spec_log_labels():
+    # The three log labels are a v2 §10 contract (analytics keys off them). sample_type
+    # tests compare against the constants, so a string-value rename would survive — pin
+    # the literals here.
+    assert COLD_START_SAMPLING == "coldStartSampling"
+    assert SIGNAL_UNAVAILABLE == "signalUnavailable"
+    assert SIGNAL_SCORER_FAULT == "signalScorerFault"
+
+
+def test_signal_slot_forces_top_scorers_across_seeds():
+    # Robust signal-first (R11): the top signal_count scorers are force-included with NO
+    # RNG, so they appear in EVERY seed's result; lower scorers ride the random slot and
+    # vary. n >> cap so the random slot cannot accidentally cover the top scorers under a
+    # wrong (ascending / lowest-first) selection — this makes the kill seed-independent,
+    # unlike the single-seed subset assertion above which only happens to catch it.
+    items = _items(ItemType.top, 100)  # x000 highest score ... x099 lowest
+    cap = 10  # sc=3 signal, rc=7 random
+    results = [
+        sample_type(items, cap, rng=random.Random(s), scorer=_LowerIdRanksHigher(),
+                    context=_ctx(MIN_SIGNAL_THRESHOLD), scorer_available=True)
+        for s in range(8)
+    ]
+    top3 = {"x000", "x001", "x002"}
+    for r in results:
+        assert r.selection_kind is SelectionKind.signal
+        assert r.signal_count == 3 and r.random_count == 7
+        assert top3.issubset({it.id for it in r.items})  # forced — present every seed
+    # Guard: the random slot genuinely varies across seeds, so "always present" above is
+    # a real signal-slot property, not a constant pool.
+    assert len({tuple(it.id for it in r.items) for r in results}) > 1
+
+
+# --- build_candidate_pool integration (C) ---
+
+
+def test_build_pool_truthy_non_true_is_available_treated_unavailable(over_cap_wardrobe):
+    # R11: availability resolution is strict `is True`; a truthy-but-not-True result is
+    # NOT confirmed availability -> treated unavailable. A `bool(...)` mutant would flip
+    # scorer_available to True here (and sample on signal); pin it to False.
+    res = build_candidate_pool(over_cap_wardrobe, _ctx(MIN_SIGNAL_THRESHOLD), _TruthyAvailable())
+    assert res.scorer_available is False
+
+
+def test_build_pool_seed_depends_on_context(over_cap_wardrobe):
+    # build must thread the request context into the session seed (R4); a build that
+    # hardcoded or ignored its seed inputs would return the same pool for different
+    # contexts. (Per-field seed sensitivity itself is covered in test_seed.)
+    base = _ctx(0)  # occasion="brunch"
+    other = RequestContext(
+        occasion="gala", weather=base.weather, session_id=base.session_id,
+        wardrobe_version=base.wardrobe_version, interaction_count=0,
+    )
+    a = build_candidate_pool(over_cap_wardrobe, base, ColdStartSignalScorer())
+    b = build_candidate_pool(over_cap_wardrobe, other, ColdStartSignalScorer())
+    a_ids = [it.id for t in ItemType for it in a.pool[t]]
+    b_ids = [it.id for t in ItemType for it in b.pool[t]]
+    assert a_ids != b_ids
+
+
+# --- apply_cap retirement: equivalent behavior covered via _sample_one_type (D) ---
+
+
+def test_sample_one_type_below_cap_includes_all_as_copy():
+    # Below cap -> include_all, items unchanged, returned as a COPY (callers may mutate
+    # independently). Migrates the retired apply_cap below-cap + copy coverage.
+    items = _items(ItemType.top, 3)
+    res = _one_type(items, 10)
+    assert res.selection_kind is SelectionKind.include_all
+    assert res.reason is None
+    assert res.signal_count == 0 and res.random_count == 0
+    assert [it.id for it in res.items] == [it.id for it in items]
+    assert res.items is not items  # a copy, not the partition bucket
+
+
+def test_sample_one_type_at_cap_includes_all():
+    # Boundary: len == cap is include-all (the `<=` boundary), NOT sampled. A `<` mutant
+    # would route this to sample_type and mislabel it random/signal.
+    items = _items(ItemType.top, 10)
+    res = _one_type(items, 10)
+    assert res.selection_kind is SelectionKind.include_all
+    assert len(res.items) == 10
+
+
+def test_sample_one_type_over_cap_delegates_to_sample_type():
+    # Over cap -> sample_type path (here the cold-start fallback): exactly cap items,
+    # labeled random (not include_all). Migrates the retired apply_cap over-cap coverage.
+    items = _items(ItemType.top, 11)
+    res = _one_type(items, 10)
+    assert res.selection_kind is SelectionKind.random
+    assert res.reason == COLD_START_SAMPLING
+    assert len(res.items) == 10
