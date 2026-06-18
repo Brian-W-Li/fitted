@@ -1,3 +1,7 @@
+> **DEPLOYED-SCHEMA REFERENCE, NOT V2 DIRECTION.** This describes the current/legacy Mongo shape.
+> For future v2 data-model targets, use `../../docs/Fitted_Spec_v2.md`. For exact current behavior,
+> prefer the model source files in `../models/`.
+
 # Database design
 
 MongoDB + Mongoose back the data layer. Connect with `initDatabase()` from `@/lib/db`, which opens the client and registers indexes.

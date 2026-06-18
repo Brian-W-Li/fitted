@@ -1,6 +1,7 @@
-> **Superseded.** This is a legacy class-project design document. The current canonical direction is
-> `docs/Fitted_Spec_v2.md`; preserved ambition/north-star context lives in
-> `docs/Fitted_Spec_v2_recovered_appendix.md`. Do not use this file as architecture guidance.
+> **ARCHIVE / DO NOT USE FOR FUTURE WORK.** This is a legacy CS148 class-project design document.
+> It describes the old deployed-app architecture, not the current target. The canonical future-looking
+> direction is `docs/Fitted_Spec_v2.md`; preserved ambition/north-star context lives in
+> `docs/Fitted_Spec_v2_recovered_appendix.md`. Read this file only for past-focused archaeology.
 
 ## Design Document
 

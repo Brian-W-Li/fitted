@@ -1,3 +1,7 @@
+> **LEGACY DEPLOYED-APP REFERENCE.** This documents an old recommendation path from the CS148 app.
+> Do not use it as v2 direction. For future work, use `../../docs/Fitted_Spec_v2.md` and
+> `../../ml-system/fitted_core/`; for current deployed behavior, prefer reading the source code.
+
 # What the ML Does (Current Behavior)
 
 This describes the **ML recommendation path** used when the user requests outfit recommendations **without** "Use AI (GPT-4)". The API builds an engine from the user's wardrobe and optional ONNX model, then returns scored top+bottom outfit pairs.

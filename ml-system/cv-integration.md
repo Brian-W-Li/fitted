@@ -1,4 +1,8 @@
-# Computer Vision → ML Integration
+> **LEGACY CV CONTRACT.** This is historical CS148-era CV integration context. It is not the v2
+> ingestion plan. Future ingestion direction lives in `../docs/Fitted_Spec_v2.md` §18 and future W-track
+> plans.
+
+# Computer Vision -> ML Integration
 
 ## What CV needs to provide for now:
 
@@ -63,4 +67,3 @@ Goes on feet? → footwear
 - Common colors: black (#000000), white (#FFFFFF), blue (#0000FF), red (#FF0000)
 
 ---
-

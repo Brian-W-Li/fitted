@@ -19,8 +19,8 @@ This is a monorepo with the Next.js app in a subdirectory, not at root.
 |---|---|
 | `fitted/` | The Next.js 16 + React 19 + Tailwind 4 app. **All web dev happens here.** |
 | `ml-system/` | Python home for the v2 substrate (`fitted_core/`) plus the legacy rule-based demo. **`fitted_core/` is the current portfolio focus.** |
-| `docs/` | Team-facing project docs |
-| `meetings/`, `team/` | Class-project artifacts; don't modify |
+| `docs/` | Mixed active + archive docs. Start with `docs/README.md`; future direction lives in `docs/Fitted_Spec_v2.md`. |
+| `meetings/`, `team/` | CS148 archive artifacts. Do not read for future-looking work unless explicitly asked for provenance/history. |
 | `package.json` (root) | Thin — only delegates `test` to `fitted/`. Don't add deps here. |
 
 ## Run
@@ -71,8 +71,8 @@ fallback arm, not behavioral truth; v2 wins when they disagree.
 | `fitted/app/api/recommend/regenerate/route.ts` | Legacy re-roll variant; folded into the single route at M5 |
 | `fitted/lib/weather.ts` | Legacy weather helper; v2 re-derives weather as the bucketed Lens field |
 | `fitted/models/*.ts` | Mongo schemas: `User`, `WardrobeItem`, `OutfitInteraction`, `PreferenceSummary`, `WardrobeImage` |
-| `fitted/docs/ML_OVERVIEW.md` | Team writeup of the ML/CV design |
-| `fitted/docs/database.md` | Schema docs |
+| `fitted/docs/ML_OVERVIEW.md` | Legacy deployed-app writeup. Prefer source code; v2 wins. |
+| `fitted/docs/database.md` | Deployed-schema reference. Prefer `fitted/models/*.ts`; v2 wins for targets. |
 
 ## Current focus: `ml-system/` rewrite
 
@@ -109,9 +109,13 @@ This is an **overhaul** (Brian, 2026-06-17). The product direction is the **lens
 - `docs/plans/spec-resolutions.md`, `docs/scope-decisions.md` — retired ledgers superseded by `Fitted_Spec_v2.md` (folded in via its Appendix A concordance). Read only when hunting history.
 - `docs/DESIGN.md`, `docs/MANUAL.md`, `docs/RECOMMENDATION_MODEL.md` — earlier design docs, superseded.
 - `meetings/`, `team/` — team artifacts (standups, contribution docs). Not relevant to the refactor.
+- `fitted/docs/ML_OVERVIEW.md`, `fitted/docs/database.md`, `ml-system/cv-integration.md` — deployed/legacy references. For code changes, read the source files; for future targets, read v2.
 - The currently-deployed app's behavior at fitted-outfits.vercel.app — what it does today is not a constraint on what v2 must do.
 
 When uncertain whether to reference a doc: if it's not in the "Authoritative" lists above, don't bring it in unless directly asked.
+For future-looking product/architecture analysis, do **not** read archive docs just because they mention
+"design", "recommendation", "ML", "database", "team", or "meeting"; those names reflect the CS148/deployed
+past, not the v2 target.
 
 ### Doc lifecycle (capacity + truth control)
 
