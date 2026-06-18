@@ -329,8 +329,8 @@ added.
 | # | Step | Does | Milestone |
 |---|------|------|-----------|
 | 0 | **Resolve request** | Build the Lens/RequestContext (§6.3): user, wardrobeVersion, intent, occasion, weather bucket, constraints, active profile snapshot, routine, forced item / base outfit | M5 adapter |
-| 1 | **Pool prep** | Partition by `clothingType`, per-type caps, 70/30 sampling, derive session seed; for `rescue_item` pin the forced item (§12) | M1 sampler |
-| 2 | **GPT generation** | Candidate outfits as role-tagged item lists plus allowed style text/reasons only; no scores, ranks, `optionPath`, or `risk` (§12) | M2 |
+| 1 | **Pool prep** | Partition by `clothingType`, per-type caps, 70/30 sampling, derive session seed; forced-item pinning for `rescue_item` belongs to later rescue/lock machinery (§12/§14) | M1 sampler |
+| 2 | **GPT generation** | Candidate outfits as role-tagged item lists plus allowed `StyleMove` text only in M2; no scores, ranks, `optionPath`, `risk`, or diagnostic reason fields (§12) | M2 |
 | 3 | **Normalize + validate** | Raw → SlotMap; structural validation (§8/§13); compute BaseKey + FullSignature; drop exact FullSignature duplicates in the pass | M0/M2 |
 | 4 | **Cooldown / per-request filters** | Drop candidates whose **BaseKey** is in the dislike cooldown buffer; apply regen locks/contextual dislikes (§14, R9) | M3 |
 | 5 | **Scoring** | `base + behavioral edge signal − dislikePenalty` (§14); humble v1 = additive (R2), evolves to edge/learned scorer (§11) | M3 |
@@ -381,8 +381,9 @@ This section makes the green-shirt promise real and houses the ML dive.
 **A StyleEdge** between two items, under a lens, has exactly two fields:
 - **`compatibility`** — content-based; "do these work together stylistically?" Computed by pure Python
   scoring functions from canonical item attributes, compiled StyleProfile traits, and later embeddings /
-  learned model output. **GPT may provide StyleMove prose or closed-set diagnostic reason candidates, but it
-  never emits the compatibility score.** Available cold, day one. Not stored densely; computed at request
+  learned model output. **In M2, GPT may provide `StyleMove` prose only; future schemas may add closed-set
+  diagnostic reason candidates once their owning milestone consumes them, but GPT never emits the
+  compatibility score.** Available cold, day one. Not stored densely; computed at request
   time.
 - **`behavioralStrength`** — accrued from lived feedback (worn, rated-good, corrected); **sparse** (only
   pairs the user actually touched). *Sign model is tag-dependent (H18):* the `[NOW]`/`[NEXT]` humble layer is
@@ -435,8 +436,8 @@ learned graph scorer is the staged evolution, plugged at the same seam.)*
 
 GPT composes style from structured inputs; it never enforces rules, scores, ranks, or assigns path/risk
 labels. It receives the **bounded sampled pool** + the **Lens** (occasion, weather, constraints, compiled
-StyleProfile traits) + the **intent**, and returns `candidateRequested` outfit drafts in strict JSON:
-role-tagged item lists, allowed `StyleMove` text, and allowed trait/reason fields only.
+StyleProfile traits) + the **intent**, and returns up to `candidateRequested` outfit drafts in strict JSON:
+role-tagged item lists and allowed `StyleMove` text only in M2.
 
 **Hard rules in the system prompt** (carried from v1.2 §16): each outfit is two_piece (1 base_top + 1
 base_bottom) XOR one_piece; 0–1 outer, 0–1 shoes; no duplicate items; use only provided item ids; maximize
@@ -445,10 +446,40 @@ rejection — do not retry autonomously. The prompt/schema explicitly excludes `
 `optionPath`, `risk`, `anchor/bridge/experiment`, and any other ranking label. One JSON-repair attempt on
 invalid output, then fail gracefully.
 
+**M2 GPT response schema.** M2 pins the first strict LLM boundary to the smallest contract; future fields
+are additive only after their owning milestone specs them. The root is an object with exactly
+`{"outfits": [...]}`. `candidateRequested` is an upper-bound request hint, not an exact requirement: M2 may
+validate up to `candidateRequested` candidates when supplied, returning fewer is not invalid, and extra
+candidates beyond the bound may be ignored or rejected with a structured reason but must not affect accepted
+candidates.
+
+Each outfit candidate object may contain exactly:
+- `items` (required): array of item objects.
+- `styleMove` (optional): object.
+
+Each item object may contain exactly:
+- `itemId`: non-empty string.
+- `role`: one of the backend `Role` enum values (`base_top`, `base_bottom`, `one_piece`, `outer_layer`,
+  `shoes`).
+
+`styleMove`, if present, may contain exactly:
+- `moveType`: non-empty string.
+- `changedItemIds`: non-empty array of non-empty strings.
+- `oneSentence`: non-empty string.
+
+Explicitly forbidden in M2 GPT output: `score`, `rank`, `optionPath`, `risk`, graph-role labels
+(`anchor`/`bridge`/`experiment`), edge/compatibility/`behavioralStrength`, freshness/exposure/cooldown/
+fallback fields, `imageUrl`, `warmth`, `matchedTraits`/`missingTraits`, and `diagnosticReason` or diagnostic
+reason candidates. Forced-item / locked-item requirements are out of M2 scope: M2 validates only that
+`itemId` values are present in the sampled pool; rescue / forced-item missing logic belongs to later
+rescue/lock machinery (§14/R9).
+
 **Intent shaping:**
-- `rescue_item` `[NOW]`: the **forced item is pinned into the pool before sampling**; the prompt instructs
-  every outfit to include it; validation rejects any candidate missing it (reuses the lock machinery,
-  §14/R9). **The forced item's `clothingType` determines the valid template(s) (H22):** base_top or
+- `rescue_item` `[NOW]`: M1 currently provides generic pool prep only, and M2 validates only sampled-pool
+  membership. In the Spearhead/rescue layer, the forced item is pinned into the pool before sampling; the
+  prompt instructs every outfit to include it; rescue/lock machinery rejects any candidate missing it
+  (§14/R9). **The
+  forced item's `clothingType` determines the valid template(s) (H22):** base_top or
   base_bottom → two_piece (the engine must find a complementary base of the other kind); dress → one_piece;
   outer or shoes → *either* template (an optional role layered onto any valid base). **Rescue-insufficient
   case:** if no complementary base can build a valid outfit around the forced item (e.g. the orphan is the
@@ -457,14 +488,13 @@ invalid output, then fail gracefully.
   Python ranker later buckets survivors into the three user-facing paths: reliable / bridge / stretch.
 - `outfit_upgrade`/`daily`/`translate`: seed from base outfit / routine / compiled board respectively.
 
-**Allowed GPT output fields:** per draft, GPT may emit role-tagged item ids, a `StyleMove` (§6.5 — style
-reasoning, allowed), and, when a StyleProfile is active, `matchedTraits/missingTraits` or closed-set
-diagnostic reason candidates such as `too_boring`, `too_much`, `not_practical`, or `wrong_context`. Those
-reason candidates are raw explanatory/behavioral signals, not ranking decisions. **`optionPath`
-(reliable/bridge/stretch), `risk` (safe/noticeable/bold), graph role (`anchor/bridge/experiment`), score,
-rank, edge strength, compatibility score, freshness, exposure, and fallback decisions are assigned or
-computed only by pure Python backend functions (H20)**. `imageUrl` is excluded from the GPT payload (token
-cost); `warmth` is stripped too.
+**Allowed GPT output fields:** in M2, GPT may emit only role-tagged item ids and a `StyleMove` (§6.5,
+style reasoning, allowed). Later schemas may add `matchedTraits/missingTraits` or closed-set diagnostic
+reason candidates only when their owning milestone consumes them; M2 explicitly forbids them so the first
+validator cannot invent public behavior. **`optionPath` (reliable/bridge/stretch), `risk`
+(safe/noticeable/bold), graph role (`anchor/bridge/experiment`), score, rank, edge strength, compatibility
+score, freshness, exposure, and fallback decisions are assigned or computed only by pure Python backend
+functions (H20)**. `imageUrl` is excluded from the GPT payload (token cost); `warmth` is stripped too.
 
 **Prompt-vs-board precedence** (resolves C12): hard constraints (dress code / weather / comfort) > prompt
 occasion & formality > active StyleProfile shapes choices *within* the valid context > revealed negative
@@ -477,9 +507,11 @@ Carried from v1.2 §13/§8. Normalize each candidate to a SlotMap (§8); reject 
 Validation is **structural only and never relaxes**, including under the fallback ladder. **GPT-emitted
 `StyleMove` is also boundary-validated (H23, §5 "schema-validate every LLM boundary"):** its `changedItemIds`
 must be a subset of the outfit's items; a StyleMove referencing an item not in the outfit fails validation
-and is dropped (the outfit may still stand if structurally valid). Invalid candidates
-are silently discarded (not repaired — only the one JSON-format retry of §12 is allowed). The `itemId not in
-sampled pool` reject lives here (it needs the pool).
+and is dropped/recorded through a warning channel (the outfit may still stand if structurally valid).
+Schema-invalid candidates are discarded candidate-by-candidate where possible; a malformed root/envelope
+returns no candidates and a structured root-level rejection. Invalid JSON returns `invalidJson` from the M2
+pure parser; the pipeline may attempt the one JSON-format repair allowed by §12, but the pure validator does
+not perform network repair. The `itemId not in sampled pool` reject lives here (it needs the pool).
 
 ## 14. Cooldown, scoring, ranking, diversity, fallback `[NOW]` structure · `[NEXT]` signal
 
@@ -768,7 +800,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H17 | PDF `forceRegenerate=true` disposition undefined, given R1/R9 redefine regenerate as cached re-rank | **OPEN** → DEFERRED-M5 | M5 decides retain/rename/remove; current lean: removed (R9 locks + the `generationIndex` re-roll cover the intent — H7) |
 | H18 | `behavioralStrength` sign: §11 said "signed" but §14/R2 keep affinity non-negative | **RESOLVED-HERE** | `[NOW]`/`[NEXT]` non-negative affinity + separate `dislikePenalty`/cooldown (R2); signed per-edge accumulator is the `[STAGED]` graph evolution (§11/§6.6) |
 | H19 | Repetition-window shown-history has no `[NOW]` storage home (dropped from the old ledger on consolidation) | **OPEN** → DEFERRED-M3/M4 | Ranker takes shown-history as a pure input; storage = `GenerationSnapshot.shownFullSignatures` (§15, `[NEXT]`) or an interim per-user ring buffer until the snapshot lands |
-| H20 | `optionPath`/`risk` were emitted by GPT (violates §5 "GPT never ranks"); cold-start path/risk metrics undefined | **RESOLVED-HERE** (locus) + **OPEN** (metric) → DEFERRED-rescue-spec | Pure Python backend functions assign path/risk/graph-role labels (§11/§12/§14). GPT schemas exclude `optionPath`, `risk`, score, rank, graph role, edge strength, freshness, exposure, and fallback decisions; GPT may emit only candidate item roles, StyleMove text, matched/missing traits, and closed-set diagnostic reason candidates. Cold-start path ≈ compatibility/commonness/trusted-anchor availability; cold-start risk ≈ social visibility/boldness — exact metrics are rescue-spec calls |
+| H20 | `optionPath`/`risk` were emitted by GPT (violates §5 "GPT never ranks"); cold-start path/risk metrics undefined | **RESOLVED-HERE** (locus) + **OPEN** (metric) → DEFERRED-rescue-spec | Pure Python backend functions assign path/risk/graph-role labels (§11/§12/§14). The M2 GPT schema excludes `optionPath`, `risk`, score, rank, graph role, edge strength, freshness, exposure, fallback decisions, matched/missing traits, and diagnostic reason candidates; future schemas may add trait/reason fields only when their owning milestone consumes them (§12). Cold-start path ≈ compatibility/commonness/trusted-anchor availability; cold-start risk ≈ social visibility/boldness — exact metrics are rescue-spec calls |
 | H21 | "Orphan" is edge-defined but no edges exist at cold start | **RESOLVED-HERE** | Cold-start orphan = zero interactions + null/old `lastWornAt` (± `isFavorite`, ± explicit mark); deployed schema already has these fields (§11) |
 | H22 | Rescue forced-item → template logic + insufficient case + minimum starter closet | **RESOLVED-HERE** (template/insufficient) + **OPEN** (min closet) → DEFERRED-rescue-spec | `clothingType`→template rule + rescue `notEnoughItems` (§12); the minimum closet for the hook to function (and sub-threshold UX) is a product CALL |
 | H23 | GPT-emitted `StyleMove` wasn't boundary-validated | **RESOLVED-HERE** | `StyleMove.changedItemIds ⊆ outfit items`, else dropped (§13, §5 LLM-boundary rule) |
