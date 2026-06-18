@@ -1,5 +1,11 @@
 # M0 + M1: Substrate (Contracts, Pure Functions, Sampler)
 
+> **COMPLETED 2026-06-18 — retired from the default reading list (CLAUDE.md doc-lifecycle).**
+> M0 (commit `2e4c8d44`) and M1 (M1-1..M1-5 + the mutation-hardening pass, through commit
+> `501815ff`) are both shipped; **130 pytest green at M1 close.** Forward scope now lives in
+> `Fitted_Spec_v2.md` §20 (build ladder); M2 gets its own `/spec` plan before any code. Read this
+> only when hunting M0/M1 history.
+
 Plan doc for the first implementation chunk. **Canonical spec is `docs/Fitted_Spec_v2.md`**
 (supersedes the v1.2 PDF + retired ledgers; this plan's old R#/§ references forward-resolve through
 v2 Appendix A — e.g. the sampler/seam is v2 §10–§11, the pipeline is v2 §9). Covers **M0** (contracts &
