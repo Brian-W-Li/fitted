@@ -1,8 +1,8 @@
-"""Pool partition + per-type caps — the first half of the M1 shortlister (spec §7.1–7.2).
+"""Pool partition + per-type caps — the first half of the M1 shortlister (v2 §10).
 
 partition() groups a wardrobe by ItemType and establishes the canonical input
 ordering the whole sampler depends on (id-sorted within each type, enum order
-across types — spec-resolutions R4). apply_cap() applies §7.2's per-type
+across types — v2 §10 / Appendix A R4). apply_cap() applies v2 §10's per-type
 ceilings, including the "scarce category fully represented" rule (include all
 when at/below cap).
 
@@ -10,8 +10,8 @@ The over-cap branch delegates to the 70/30 signal sampler (M1-3, not yet built)
 via an injected callback, so this module stays decoupled from the signal seam
 and its TypeSampleResult struct.
 
-Sources: docs/Fitted_Refactor_v1.2_Spec.pdf §7.1/§7.2,
-docs/plans/m0-m1-substrate.md §4 (M1-1/M1-2), docs/plans/spec-resolutions.md R4.
+Sources: docs/Fitted_Spec_v2.md §10 / Appendix A R4,
+docs/plans/m0-m1-substrate.md §4 (M1-1/M1-2).
 """
 
 from typing import Callable, Optional
@@ -25,7 +25,7 @@ from fitted_core.config import (
 )
 from fitted_core.models import ItemType, WardrobeItem
 
-# Per-type pool ceilings (§7.2), keyed by ItemType so the cap lookup iterates the
+# Per-type pool ceilings (v2 §10), keyed by ItemType so the cap lookup iterates the
 # same fixed enum order as partition (R4). These sum to MAX_PROMPT_ITEMS — the
 # regression guard for that sum lives in test_config.py.
 CAP_BY_TYPE: dict[ItemType, int] = {
@@ -42,13 +42,13 @@ SampleFn = Callable[[list[WardrobeItem], int], list[WardrobeItem]]
 
 
 def partition(wardrobe: list[WardrobeItem]) -> dict[ItemType, list[WardrobeItem]]:
-    """Group a wardrobe by type, id-sorted within each type (spec §7.1, R4).
+    """Group a wardrobe by type, id-sorted within each type (v2 §10 / Appendix A R4).
 
     Every ItemType is present as a key in enum order — a type the wardrobe lacks
     maps to an empty list (feeds the §19 no-tops/no-dresses edge cases). Sorting
     by id here is load-bearing, not cosmetic: pre-M6 prod always rides the
     seeded-random fallback path, and random.sample is reproducible only over a
-    fixed input order, so the §3.1 determinism contract is established here,
+    fixed input order, so the v2 §10/§15 determinism contract is established here,
     before any RNG draw touches the data (R4).
 
     Coupling note: this permutation-invariance holds only because M1-5 rejects a
@@ -69,7 +69,7 @@ def apply_cap(
     cap: int,
     sample_fn: Optional[SampleFn] = None,
 ) -> list[WardrobeItem]:
-    """Apply one type's §7.2 cap.
+    """Apply one type's v2 §10 cap.
 
     At/below cap: include every item (scarce categories fully represented),
     preserving the incoming order — partition() already established id order

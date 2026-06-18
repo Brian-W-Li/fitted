@@ -1,3 +1,7 @@
+> **Superseded.** This is a legacy class-project design document. The current canonical direction is
+> `docs/Fitted_Spec_v2.md`; preserved ambition/north-star context lives in
+> `docs/Fitted_Spec_v2_recovered_appendix.md`. Do not use this file as architecture guidance.
+
 ## Design Document
 
 [Google Design Document](https://docs.google.com/document/d/1XsFUzTNdZgI-yt-XzN2jiorWx_H1wOgkCrTTxoEFjFY/edit?usp=sharing)
@@ -132,4 +136,3 @@ For detailed recommendation pipeline design (shortlisting, prompting, validation
     │ 4. Like/Dislike     │
     └─────────────────────┘
 ```
-

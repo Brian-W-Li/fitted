@@ -1,11 +1,11 @@
-"""Core data contracts for the v1.2 substrate (spec §4.1, §6.1–6.3).
+"""Core data contracts for the v2 substrate (§6.1, §8).
 
 Pure data holders — no validation of inter-slot rules lives here. `type` is the
-only enumerated field on a wardrobe item; tags are free strings (spec: "no enum
-enforcement in v1"). SlotMap *validity* (one_piece XOR two_piece, etc.) is
+only enumerated field on a wardrobe item in the current substrate; tags are free strings.
+SlotMap *validity* (one_piece XOR two_piece, etc.) is
 M0-4's job in slotmap.py, deliberately kept off these structs.
 
-Sources: docs/Fitted_Refactor_v1.2_Spec.pdf §4.1/§6, docs/plans/m0-m1-substrate.md §3 (M0-2).
+Sources: docs/Fitted_Spec_v2.md §6.1/§8, docs/plans/m0-m1-substrate.md §3 (M0-2).
 """
 
 from dataclasses import dataclass, field
@@ -14,10 +14,10 @@ from typing import Optional
 
 
 class ItemType(Enum):
-    """The five wardrobe types (spec §4.1).
+    """The five wardrobe types (v2 §6.1).
 
     Member order is load-bearing: M1 iterates types in this fixed order to keep
-    RNG-consumption order stable (spec-resolutions R4). Member *names* equal the
+    RNG-consumption order stable (v2 Appendix A R4). Member *names* equal the
     wire values so the M5 Mongo adapter maps with no translation table.
     """
 
@@ -29,14 +29,14 @@ class ItemType(Enum):
 
 
 class Template(Enum):
-    """Outfit silhouette (spec §6.1): a dress, or a top+bottom pair."""
+    """Outfit silhouette (v2 §8): a dress, or a top+bottom pair."""
 
     one_piece = "one_piece"
     two_piece = "two_piece"
 
 
 class Role(Enum):
-    """Slot a candidate item fills in GPT's role-tagged output (spec §6.2).
+    """Slot a candidate item fills in GPT's role-tagged output (v2 §8).
 
     Consumed by M0-4's normalizer when collapsing an item list into a SlotMap.
     """
@@ -50,11 +50,10 @@ class Role(Enum):
 
 @dataclass
 class WardrobeItem:
-    """A single wardrobe item (spec §4.1).
+    """A single wardrobe item (v2 §6.1).
 
     warmth is a 0–10 weather signal; material/formality are optional CV-derived
-    attributes. Tags default empty because an item legitimately may carry none
-    (no enum enforcement in v1).
+    attributes. Tags default empty because an item legitimately may carry none.
     """
 
     id: str
@@ -73,7 +72,7 @@ class WardrobeItem:
         # wire boundary. Full malformed-wire-value validation (empty ids, warmth=True,
         # bad tag containers, one predictable error channel) is the M5 Mongo adapter's
         # job, where untrusted data enters; M0 is not expanded into schema validation
-        # (spec-resolutions R12). Coerce the one enum field so a raw string `type` from
+        # (v2 §15 / Appendix A R12). Coerce the one enum field so a raw string `type` from
         # the adapter is rejected here; ItemType(...) raises ValueError on an unknown.
         self.type = ItemType(self.type)
         if not 0 <= self.warmth <= 10:
@@ -82,7 +81,7 @@ class WardrobeItem:
 
 @dataclass
 class SlotMap:
-    """Named-slot representation of one outfit (spec §6.3).
+    """Named-slot representation of one outfit (v2 §8).
 
     Each slot holds an itemId or None. A valid SlotMap is exactly one base
     template — a dress (one_piece) XOR a top+bottom pair (two_piece) — with

@@ -1,3 +1,7 @@
+> **Superseded.** This legacy recommendation-design document describes the old GPT/Gemini-era app. The
+> current canonical recommendation architecture is `docs/Fitted_Spec_v2.md`; do not use this file as
+> implementation guidance.
+
 # LLM Outfit Recommendation Model - Design Document
 
 ## Overview

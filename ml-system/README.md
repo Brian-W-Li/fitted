@@ -1,9 +1,9 @@
 # Fitted ML System
 
 > **Two layers live here — don't confuse them:**
-> - **`fitted_core/`** — the **v1.2 substrate** (the current focus). Pure-function contracts +
+> - **`fitted_core/`** — the **v2 substrate** (the current focus). Pure-function contracts +
 >   sampler for the GPT-orchestration refactor, built test-first under `tests/` (pytest).
->   Authoritative design: `docs/plans/m0-m1-substrate.md` + `docs/plans/spec-resolutions.md`.
+>   Authoritative design: `docs/Fitted_Spec_v2.md` + `docs/plans/m0-m1-substrate.md`.
 >   **M0 is complete; M1 (sampler) is next.**
 > - **`outfit_recommender.py`** — the **legacy rule-based demo** (Issue #32, below). Kept as a
 >   runnable reference only; retired at M6 when the trained scorer lands. Not the architecture.
@@ -78,9 +78,10 @@ Outfit(
 
 ---
 
-## Future ML Enhancement
+## Legacy ML Note
 
-Current system uses rules. To add ML later:
+This section describes the old demo seam only. The current v2 ML seam is `fitted_core`'s
+`SignalScorer`; see `docs/Fitted_Spec_v2.md` and `docs/plans/m0-m1-substrate.md`.
 
 ```python
 # Current (rules):
@@ -90,21 +91,19 @@ def _score_outfit(self, top, bottom, shoes, occasion):
         score -= 20
     return score
 
-# Future (ML):
+# Legacy idea (not the v2 plan):
 def _score_outfit(self, top, bottom, shoes, occasion):
     features = self._extract_features(top, bottom, shoes, occasion)
     score = ml_model.predict(features)  # ← Just change this!
     return score
 ```
 
-The interface stays the same, just swap the scoring logic.
+The v2 implementation does not keep this interface; it retires the demo at M6.
 
 ---
 
 ## Files
 
 - `outfit_recommender.py` - Main recommendation engine
-- `CV_INTEGRATION.md` - What CV team provides
+- `cv-integration.md` - What CV team provides
 - `README.md` - This file
-
-

@@ -1,15 +1,16 @@
 # M0 + M1: Substrate (Contracts, Pure Functions, Sampler)
 
-Plan doc for the first implementation chunk of the Fitted Refactor **v1.2** spec
-(`docs/Fitted_Refactor_v1.2_Spec.pdf`). Covers **M0** (contracts & pure functions)
-and **M1** (the sampler / shortlister). No implementation code is written here — this
-is a planning doc only.
+Plan doc for the first implementation chunk. **Canonical spec is `docs/Fitted_Spec_v2.md`**
+(supersedes the v1.2 PDF + retired ledgers; this plan's old R#/§ references forward-resolve through
+v2 Appendix A — e.g. the sampler/seam is v2 §10–§11, the pipeline is v2 §9). Covers **M0** (contracts &
+pure functions) and **M1** (the sampler / shortlister), which survive unchanged as the engine substrate
+under the v2 graph vision. No implementation code is written here — this is a planning doc only.
 
 > **Status:** Interview completed 2026-06-09; all decisions below are **confirmed** (no open
 > `[CONFIRM]` markers — see §1 and §8). The contract bug-fixes that shaped M0/M1 — canonical input
 > ordering, two-stage caching, length-prefix seed framing + `None` sentinel, the normalizer error
 > channel, the integer half-up split, weather bucketing, the `total_base==0` short-circuit — live as
-> trap-guards in `spec-resolutions.md` R1/R4/R5/R6 and the relevant task bodies; they are not
+> trap-guards in `Fitted_Spec_v2.md` Appendix A / §§10, 15 and the relevant task bodies; they are not
 > restated here.
 
 ---
@@ -18,10 +19,10 @@ is a planning doc only.
 
 ### Decision 1 — Read A vs B: **Read B**
 
-**v1.2 is the substrate, not a replacement for the ml-system ML dive.** The trained ML
+**The v2 substrate is not a replacement for the ml-system ML dive.** The trained ML
 shortlister will replace M1's *heuristic* signal scorer in a future **M6 milestone**,
 after M4's `OutfitInteraction` log produces labeled data. So M1's sampler must build the
-30%-signal-based selection slot (spec §7.3) as a clean, replaceable seam — the equivalent
+30%-signal-based selection slot (v2 §10) as a clean, replaceable seam — the equivalent
 of the `_score_outfit` seam in the current Python code.
 
 ### Decision 2 — Hosting: **Fly.io (Brian's own service)**
@@ -54,13 +55,13 @@ Architecture (mirrors the team's Vercel + Python-service pattern, Fly.io as the 
 
 | Milestone | Scope | Status |
 |---|---|---|
-| **M0** | Contracts & pure functions: §3 ids/seed, §4.1 WardrobeItem, §5 keys, §6.3 SlotMap, §18 config constants. No Mongo, no API keys. | ✅ **done** (commit `2e4c8d44`, 2026-06-13; 73 pytest green at M0 close) |
-| **M1** | Sampler / shortlister: §7 pool partition, per-type caps, cold-start, §7.3 70/30 sampling + session seed, §7.4 candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) done (pytest green); M1-3/M1-4/M1-5 next. The M1-2→M1-3 seam contract is **R13**. |
-| M2 | SlotMap validation + strict JSON schema validation of GPT output (§6.3 reject rules, §8.3). In `fitted_core/`. | later |
-| M3 | Ranker: comboBoost, dislike cooldown (BaseKey/FullSignature), variant cap, overuse penalty, dedup (§5.3, §11, appendix B1/B3). In `fitted_core/`. | later |
+| **M0** | Contracts & pure functions: v2 §15 seed, v2 §6.1 WardrobeItem, v2 §7 keys, v2 §8 SlotMap, Appendix B config constants. No Mongo, no API keys. | ✅ **done** (commit `2e4c8d44`, 2026-06-13; 73 pytest green at M0 close) |
+| **M1** | Sampler / shortlister: v2 §10 pool partition, per-type caps, cold-start, 70/30 sampling + session seed, candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) done (pytest green); M1-3/M1-4/M1-5 next. The M1-2→M1-3 seam contract is **R13**. |
+| M2 | SlotMap validation + strict JSON schema validation of GPT output (v2 §8/§13 reject rules, v2 §12 schema). In `fitted_core/`. | later |
+| M3 | Ranker: comboBoost, dislike cooldown (BaseKey/FullSignature), variant cap, overuse penalty, dedup (v2 §7/§14, Appendix B). In `fitted_core/`. | later |
 | M4 | Data-model migration in `fitted/models/*.ts` (add `ItemAffinity`, `wardrobeVersion`, `generation_logs`; see §6) + the interaction data the substrate consumes. Produces the labeled feedback data. | later |
-| M5 | **Deploy `fitted_core` as a Dockerized Python service on Fly.io (always-on).** Wire `fitted/app/api/recommend/route.ts` → service via `fetch()` behind the `USE_ML_SHORTLISTER` feature flag; health check + short timeout + graceful fallback to OpenAI-only. Plus caching, seeds, daily re-seed (§3.3, appendix A4/C1). | later |
-| **M6** | **Trained ML shortlister replaces M1's heuristic signal scorer at the §7.3 seam** (classical or small-DL). Redeploy to Fly; measure lift via online A/B (feature flag) + offline NDCG@k on held-out interactions. The actual ml-system dive. | later |
+| M5 | **Deploy `fitted_core` as a Dockerized Python service on Fly.io (always-on).** Wire `fitted/app/api/recommend/route.ts` → service via `fetch()` behind the `USE_ML_SHORTLISTER` feature flag; health check + short timeout + graceful fallback to OpenAI-only. Plus caching, seeds, daily re-seed (v2 §15 / Appendix A N2-C1). | later |
+| **M6** | **Trained ML shortlister replaces M1's heuristic signal scorer at the v2 §10 seam** (classical or small-DL). Redeploy to Fly; measure lift via online A/B (feature flag) + offline NDCG@k on held-out interactions. The actual ml-system dive. | later |
 
 **Home:** M0–M3 build in `ml-system/fitted_core/` (Python, pytest, no DB, no keys). M4 spans
 both repos — the schema migration lands in `fitted/models/*.ts` (TS), and the substrate
@@ -90,7 +91,7 @@ hook M6 plugs the trained model into. Everything else in M0/M1 is plumbing aroun
    new schema as a pytest fixture, not migrated in place.
 
 3. **Hash / seed — `hashlib.sha256` over a canonical string, seeding `random.Random`.**
-   Why: spec §3.3 explicitly states "no security requirement," but `hash()` (Python's
+   Why: v2 §15 explicitly states "no security requirement," but `hash()` (Python's
    builtin) is **process-salted and non-reproducible across runs** — unusable for a seed
    that must be stable across re-renders. Use
    `int.from_bytes(sha256(canonical.encode()).digest()[:8], "big")` to derive a stable
@@ -101,38 +102,38 @@ hook M6 plugs the trained model into. Everything else in M0/M1 is plumbing aroun
    contain any delimiter (`sessionId` is an opaque string, `= userId` per R8), so the delimiter
    approach is unsafe. Byte length, not char count, so a reproducing runtime (M5 TS adapter)
    agrees on non-BMP text. `date=None` uses a typed sentinel distinct from `"None"`/`""`/absence.
-   See `spec-resolutions.md` R1.
+   See `Fitted_Spec_v2.md` §15 and Appendix A R1.
 
-4. **Daily re-seed (appendix C1) — implement the hook in M0, default OFF.** Why: C1 says
+4. **Daily re-seed (v2 Appendix A N2/C1) — implement the hook in M0, default OFF.** Why: N2/C1 says
    append `date` (YYYY-MM-DD) to the seed for authenticated users. The seed signature is a
    pure function — cheapest to get right once. Implement the seed wrappers (`session_seed`/`tiebreak_seed`, R1) with an optional
-   `date: str | None = None` parameter; when `None`, behaves as §3.3 (no date). M0 wires the
+   `date: str | None = None` parameter; when `None`, behaves as v2 §15 (no date). M0 wires the
    parameter and tests both signatures; the *decision of when to pass a date* (auth users,
    real `date.today()`) is a request-layer concern deferred to **M5**. This avoids a seed
    signature change later. **Confirmed:** build the `date` parameter now (default off).
 
 5. **Config constants — single Python module `ml-system/fitted_core/config.py`.** Why:
-   §18 mandates "all weights and thresholds defined as named constants in one config file."
+   v2 Appendix B mandates "all weights and thresholds defined as named constants in one config file."
    Plain module-level constants (uppercase ints/floats), not JSON/env — env-overridability is
-   not a v1.2 requirement and adds parsing surface. Houses every named constant M0/M1 touch:
+   not a v2 requirement and adds parsing surface. Houses every named constant M0/M1 touch:
    `DEFAULT_K=10`, per-type caps (`CAP_TOPS=35`, `CAP_BOTTOMS=30`, `CAP_DRESSES=25`,
    `CAP_OUTER=20`, `CAP_SHOES=25`), `MAX_PROMPT_ITEMS=135`, `MAX_CANDIDATES=40`,
-   `MIN_SIGNAL_THRESHOLD=5` (appendix B2), plus forward-declared
+   `MIN_SIGNAL_THRESHOLD=5` (Appendix B), plus forward-declared
    constants other milestones own but that belong in one file: `MAX_AFFINITY=20` (A3),
    `OVERUSE_MIN_POOL=15` (B1). Forward-declared constants get a `# used in M3` comment.
    The 70/30 split is **not** a config constant — see **R6**: it lives as the sampler-owned
    `random_count(cap)` helper (`(cap*7+5)//10`), not `RANDOM_FRACTION`.
 
 6. **M1 signal path — stubbed to cold-start (100% random), seam left for M6.** Why: real
-   signal selection (§7.3's 30%) needs `affinityScore` / interaction data that **does not
+   signal selection (v2 §10's 30%) needs `affinityScore` / interaction data that **does not
    exist in the data model today** (no `ItemAffinity` collection — see the §6 data-model
    migration note) and is not produced until M4. The stub contract (§4 / M1-3) is the M6 plug
    point. This is the literal embodiment of the Read B framing.
 
 7. **Testing bar — pytest unit coverage of every pure function, every spec-enumerated
-   branch.** Why: `ml-system/` has no tests yet (CLAUDE.md mandates adding pytest with this
-   work), and M0/M1 are pure functions whose entire value is correctness against the spec's
-   explicit valid/invalid enumerations. Property-based tests (hypothesis) are **optional /
+   branch.** Why: M0 already established the pytest harness; keep expanding it as M1 lands,
+   because these pure functions' entire value is correctness against the spec's explicit
+   valid/invalid enumerations. Property-based tests (hypothesis) are **optional /
    nice-to-have** for the sampler's distribution and the seed's determinism (see §5).
 
 ---
@@ -143,12 +144,12 @@ hook M6 plugs the trained model into. Everything else in M0/M1 is plumbing aroun
 ml-system/
   fitted_core/
     __init__.py
-    config.py            # M0 task 1  — §18 named constants
-    models.py            # M0 task 2  — WardrobeItem, SlotMap, enums (§4.1, §6.2/6.3)
-    keys.py              # M0 task 3  — BaseKey, FullSignature (§5)
-    slotmap.py           # M0 task 4  — normalize_to_slotmap + validity (§6.3)
-    seed.py              # M0 task 5  — _canonical_seed + session_seed/tiebreak_seed (§3.3, §10.4, C1)
-    sampler.py           # M1 tasks   — partition, caps, 70/30 sample, scaling, RequestContext + SignalScorer seam (§7)
+    config.py            # M0 task 1  — Appendix B named constants
+    models.py            # M0 task 2  — WardrobeItem, SlotMap, enums (v2 §6.1, §8)
+    keys.py              # M0 task 3  — BaseKey, FullSignature (v2 §7)
+    slotmap.py           # M0 task 4  — normalize_to_slotmap + validity (v2 §8)
+    seed.py              # M0 task 5  — _canonical_seed + session_seed/tiebreak_seed (v2 §15 / Appendix A R1/N2)
+    sampler.py           # M1 tasks   — partition, caps, 70/30 sample, scaling, RequestContext + SignalScorer seam (v2 §10)
   tests/
     __init__.py
     conftest.py          # shared fixtures (demo wardrobe in new schema)
@@ -171,7 +172,7 @@ undisturbed. **Confirmed:** package name `fitted_core`.
 
 Each task: spec section → contract produced → test file.
 
-### M0-1 — Config constants — §18 (and A3/B1/B2 forward-decls)
+### M0-1 — Config constants — v2 Appendix B
 - **Produces:** `config.py` with every named constant M0/M1 reference (see decision §1.5).
 - **Test (`test_config.py`):** assert exact spec values (`MAX_CANDIDATES == 40`,
   `MAX_PROMPT_ITEMS == 135`, sum of per-type caps `== MAX_PROMPT_ITEMS`, each per-type cap
@@ -181,15 +182,15 @@ Each task: spec section → contract produced → test file.
   `RANDOM_FRACTION` assert — the split is the sampler's `random_count` helper, R6.)
 - **Effort:** ~0.5 hr.
 
-### M0-2 — Data model — §4.1 WardrobeItem, §6.2 roles
+### M0-2 — Data model — v2 §6.1 WardrobeItem, v2 §8 roles
 - **Produces:** `models.py`:
-  - `ItemType` enum: `top, bottom, dress, outer_layer, shoes` (spec §4.1).
+  - `ItemType` enum: `top, bottom, dress, outer_layer, shoes` (v2 §6.1).
   - `WardrobeItem` dataclass: `id, name, type, styleTags, colorTags, occasionTags,
     warmth (0–10), material (opt), formality (opt), imageUrl`. Tags are flexible strings
-    (spec: "no enum enforcement in v1"); `type` is the only enum.
+    (v2 §6.1: no enum enforcement for tags); `type` is the only enum.
   - `Template` enum (`two_piece`, `one_piece`) and `Role` enum (`base_top, base_bottom,
-    one_piece, outer_layer, shoes`) from §6.1/6.2.
-  - `SlotMap` dataclass: `dress, top, bottom, outer, shoes` (each `itemId | None`) — §6.3.
+    one_piece, outer_layer, shoes`) from v2 §8.
+  - `SlotMap` dataclass: `dress, top, bottom, outer, shoes` (each `itemId | None`) — v2 §8.
 - **Test (`test_models.py`):** construction with/without optional fields; `warmth` accepts
   0 and 10; `type` rejects an unknown value; tags accept arbitrary strings.
 - **Wire-value validation is *not* M0's job (R12).** The dataclass keeps only two narrow guards
@@ -198,13 +199,13 @@ Each task: spec section → contract produced → test file.
   adapter**, where untrusted data enters. M0 is deliberately not expanded into schema validation.
 - **Effort:** ~1 hr.
 
-### M0-3 — Canonical keys — §5 BaseKey + FullSignature
+### M0-3 — Canonical keys — v2 §7 BaseKey + FullSignature
 - **Produces:** `keys.py`, computed **from a SlotMap** (spec: "computed from the SlotMap
   after normalization"):
   - `base_key(slotmap) -> str`: one_piece → `dressId`; two_piece → `f"{topId}:{bottomId}"`.
-    Excludes outer_layer and shoes (§5.1).
+    Excludes outer_layer and shoes (v2 §7).
   - `full_signature(slotmap) -> str`:
-    `BaseKey + "|outer=" + (outerId or "none") + "|shoes=" + (shoesId or "none")` (§5.2).
+    `BaseKey + "|outer=" + (outerId or "none") + "|shoes=" + (shoesId or "none")` (v2 §7).
   - **Preconditions (R10) — raise `ValueError`:** (1) **structurally invalid base** (no valid
     one_piece XOR two_piece) — the key functions assume an already-normalized, validated SlotMap
     (spec: "computed from the SlotMap *after normalization*"; §1 pipeline computes keys inside
@@ -212,24 +213,24 @@ Each task: spec section → contract produced → test file.
     `|`, `=`) or equal to the sentinel `"none"`. (2) is an R1-class collision guard: the literal
     key format can't be length-prefixed (it's spec-fixed + tested), so the defense is a
     precondition. Real ObjectId-hex ids never trigger it (zero false-reject risk). See
-    `spec-resolutions.md` **R10**.
+    `Fitted_Spec_v2.md` §7 / Appendix A **R10**.
 - **Test (`test_keys.py`):** exact spec examples —
   - two_piece BaseKey `"abc:def"`; one_piece BaseKey `"ghi"`.
   - FullSig with outer no shoes `"abc:def|outer=ghi|shoes=none"`.
   - bare two_piece `"abc:def|outer=none|shoes=none"`.
   - one_piece full `"ghi|outer=jkl|shoes=mno"`.
-  - **Key-responsibility invariant (§5.3):** same dress + different outer ⇒ same BaseKey,
+  - **Key-responsibility invariant (v2 §7):** same dress + different outer ⇒ same BaseKey,
     different FullSignature. Assert both, since the spec calls conflating them a bug.
   - **R10 preconditions:** `ValueError` on a structurally invalid base (e.g. empty SlotMap, or
     dress+top); `ValueError` on an itemId containing each of `:`, `|`, `=`; `ValueError` on an
     itemId equal to `"none"`.
 - **Effort:** ~1.25 hr.
 
-### M0-4 — SlotMap normalizer + validity — §6.3
+### M0-4 — SlotMap normalizer + validity — v2 §8
 - **Produces:** `slotmap.py`:
   - `normalize_to_slotmap(candidate) -> tuple[SlotMap | None, str | None]`: maps a raw candidate
     into the named-slot SlotMap, **with an error channel** (returns `(None, reason)` on a
-    structurally bad candidate). **Resolved from spec §16:** the candidate is a role-tagged item
+    structurally bad candidate). **Resolved from v2 §12:** the candidate is a role-tagged item
     list — `items: [{itemId, role}]`, exactly GPT's output schema — so the normalizer input
     matches the M2 producer with no adapter.
     - **Owns every reject a single-valued `SlotMap` cannot represent — duplicate role *and*
@@ -241,11 +242,11 @@ Each task: spec section → contract produced → test file.
       with an item erased. The normalizer therefore **rejects a second assignment to any
       role-owned slot, and any unknown/unrecognized role, before constructing the SlotMap.**
       These states are inexpressible once collapsed, so they cannot be caught in
-      `is_valid_slotmap` — they must be caught here. *(Matches spec §13's duplicate-slot reject
+      `is_valid_slotmap` — they must be caught here. *(Matches v2 §13's duplicate-slot reject
       and the legacy route's per-role counts at `fitted/app/api/recommend/route.ts:628-648`,
       which reject >1 bottom / base-top / one-piece / footwear and cap outer at 1 — protection
-      the replacement must not lose. Reject-set authority: §13, see `spec-resolutions.md` N3.)*
-  - `is_valid_slotmap(slotmap) -> tuple[bool, reason]` enforcing §6.3 over the **slot-level**
+      the replacement must not lose. Reject-set authority: `Fitted_Spec_v2.md` §§8, 13 / Appendix A N3.)*
+  - `is_valid_slotmap(slotmap) -> tuple[bool, reason]` enforcing v2 §8 over the **slot-level**
     rules (those a `SlotMap` can express):
     - **Valid:** (dress set, top/bottom null → one_piece) XOR (top+bottom set, dress null →
       two_piece), plus optional outer/shoes.
@@ -263,8 +264,8 @@ Each task: spec section → contract produced → test file.
   correctness surface in M0.
 - **Effort:** ~2 hr.
 
-### M0-5 — Seed derivation — §3.3 (+ C1 hook)
-- **Produces:** `seed.py` (structure per `spec-resolutions.md` R1 — one private primitive,
+### M0-5 — Seed derivation — v2 §15 (+ N2/C1 hook)
+- **Produces:** `seed.py` (structure per `Fitted_Spec_v2.md` §15 / Appendix A R1 — one private primitive,
   two named wrappers, so the session and tie-break seeds cannot drift):
   - `_canonical_seed(...)` **private** primitive: **length-prefix** each field by its
     **UTF-8 byte length** (`f"{len(s.encode('utf-8'))}:{s}"`), join, sha256, first 8 bytes →
@@ -304,7 +305,7 @@ Each task: spec section → contract produced → test file.
 The sampler is the shortlister. It consumes a `list[WardrobeItem]` + request context, emits
 the bounded pool GPT may select from, plus `candidateRequested` and logging flags.
 
-### M1-1 — Partition by type — §7.1
+### M1-1 — Partition by type — v2 §10
 - **Produces:** `sampler.partition(wardrobe) -> dict[ItemType, list[WardrobeItem]]` over the
   5 types (tops, bottoms, dresses, outer_layers, shoes). **Canonical ordering (R4):** sort each
   type's list by `item.id`, and iterate types in fixed `ItemType` enum order downstream.
@@ -316,7 +317,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   wardrobe yields an identically-sorted partition (and, with M1-3, identical samples).
 - **Effort:** ~0.5 hr.
 
-### M1-2 — Per-type caps + "include all if at/below cap" — §7.2, §18
+### M1-2 — Per-type caps + "include all if at/below cap" — v2 §10 / Appendix B
 > **Shipped, with a seam rework pending (R13).** M1-2 landed as `apply_cap(items, cap, sample_fn) ->
 > list[WardrobeItem]` (pytest green). The `(items, cap) -> list` callback shape does **not** match
 > M1-3's `sample_type(...) -> TypeSampleResult`; **R13** resolves it — the per-type outcome becomes a
@@ -325,7 +326,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 > against R13, not the interim signature below.
 - **Produces:** `sampler.apply_cap(items, cap, ...) -> list[WardrobeItem]`. If
   `count <= cap`: include all (spec: scarce categories fully represented). Else: hand off to
-  the 70/30 sampler (M1-3). Surface an estimated prompt item count for logging (§7.2 / §18).
+  the 70/30 sampler (M1-3). Surface an estimated prompt item count for logging (v2 §10 / Appendix B).
   `MAX_PROMPT_ITEMS` (=135) is an **assertion/invariant, not a truncation step**: the per-type
   caps sum to exactly 135, so the ceiling is unreachable by construction — assert it (catches a
   future cap edit that desyncs the sum) but never silently drop items to enforce it, which would
@@ -334,7 +335,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   exactly `cap` items; summed pool never exceeds `MAX_PROMPT_ITEMS` (asserted, not enforced).
 - **Effort:** ~1 hr.
 
-### M1-3 — 70/30 sampling + session seed + cold-start — §7.3, appendix B2 (**the M6 seam**)
+### M1-3 — 70/30 sampling + session seed + cold-start — v2 §10 / Appendix B (**the M6 seam**)
 - **Produces:** `sampler.sample_type(items, cap, rng, scorer, context) -> TypeSampleResult`,
   applied per type only when over cap. **Return is a struct, not a bare list:** a scalar `list[WardrobeItem]` cannot carry the per-type selection-path/fallback
   reason, and R11's "logs never lie about *why* random ran" requires that each type report its
@@ -361,10 +362,8 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   - **Final prompt pool order:** iterate types in `ItemType` enum order (R4); within each type,
     emit the sampled items **sorted by `id`** so the GPT prompt is byte-stable across runs (the
     random *subset* is seeded, but its iteration order must also be pinned).
-  - **`RequestContext` is built by the M5 adapter and passed in, not built by the sampler.**
-    The adapter owns raw→canonical normalization (R5); the entry point receives an
-    already-canonical `RequestContext`. (Resolves the M1-3/M1-5 wording drift — the dataclass is
-    *defined* in the sampler module but *constructed* upstream.)
+  - **`RequestContext` is defined in v2 §6.3 and built by the M5 adapter, not by the sampler.**
+    The adapter owns raw→canonical normalization (R5); the sampler receives an already-canonical context.
   - **Signal-first selection order (R11):** when the signal branch runs, the **30% signal slot
     is picked first** as the deterministic top-`signal_count` by `(score desc, id asc)` over the
     id-sorted list (consumes no RNG); then the **70% random slot** draws `random_count` (R6)
@@ -372,7 +371,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
     M0-5 (R4). Disjoint by construction; total = `cap`. Determinism needs both the seed *and*
     the input order fixed (R4).
   - **30% signal-based** via the **stubbed seam** `scorer` (the `SignalScorer` protocol below).
-  - **Signal-branch gate (§7.3 + B2; R11):** the signal branch runs only when
+  - **Signal-branch gate (v2 §10 + Appendix B; R11):** the signal branch runs only when
     `interaction_count >= MIN_SIGNAL_THRESHOLD` (=5) **AND** `scorer.is_available()`.
     Otherwise the type's signal slot falls back to **100% seeded random over the id-sorted list**
     with one of three **mutually-exclusive, behavior-identical** log reasons (they sample the
@@ -384,31 +383,27 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
       non-finite value (NaN/±inf) → the whole type's signal slot falls back (fail-loud, not
       silent item-dropping bias).
     **Critical (R4):** every fallback uses the **same seeded RNG over the sorted list** — not
-    bare `random.sample` — because pre-M6 prod *always* takes a fallback path, so the §3.1
+    bare `random.sample` — because pre-M6 prod *always* takes a fallback path, so the v2 §10/§15
     determinism promise rides entirely on it. Identical fallback sampling means M4's data
     arrival changes only the log label, never the outfits, until M6 (R11).
 - **M6 seam contract (the most important deliverable in this chunk):**
   ```
-  RequestContext (dataclass, built by the sampler entry point M1-5):
-    occasion: str                  # normalized verbatim user text (R5: trim/lowercase/
-                                   #   collapse-whitespace — NOT a bucket; bucketing aliases
-                                   #   distinct occasions in the cache)
-    weather: str                   # canonical bucket (R5) — raw live weather mutates every
-                                   #   render → seed never stable; M5 adapter buckets it
+  RequestContext (canonical schema lives in v2 §6.3; M1 consumes this subset):
+    occasion: str                  # normalized verbatim user text (R5)
+    weather: str                   # canonical bucket (R5)
     sessionId: str
     wardrobeVersion: int
-    date: str | None = None       # C1 daily re-seed; None until M5 activates it
+    date: str | None = None        # N2/C1 daily re-seed; None until M5 activates it
     interaction_count: int = 0     # this user's interaction count; 0 until M4 exists
-    # M6 may add fields the trained scorer needs (e.g. a per-user signal handle).
-    # Rule: new fields are additive only — never rename or remove the above.
 
   SignalScorer protocol:
     is_available() -> bool                                         # R11: model-presence gate
     score(item: WardrobeItem, context: RequestContext) -> float   # higher = more relevant
   ```
-  The `occasion / weather / sessionId / wardrobeVersion / date` fields are exactly the
-  `session_seed` inputs (M0-5); `interaction_count` is the only addition. The sampler already
-  holds all of them, so building the context is free.
+  The full v2 `RequestContext` may also carry intent, constraints, style profile, routine, forced item,
+  and base outfit fields. M1 does not interpret those fields except where later tasks explicitly add
+  behavior; they are pass-through context for the adapter/ranker/scorer. The seed-relevant subset is
+  `sessionId / wardrobeVersion / occasion / weather / date`; `interaction_count` gates the signal branch.
   - **M1 ships `ColdStartSignalScorer`**: `is_available()` always returns `False`, so the
     sampler always takes a fallback (seeded-random) path and the 30% branch is unreachable until
     M6 plugs in a scorer whose `is_available()` returns `True`.
@@ -442,7 +437,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   - **No duplicates** across the random and signal sub-selections within a type.
 - **Effort:** ~2.5 hr (the load-bearing task).
 
-### M1-4 — Candidate request scaling — §7.4
+### M1-4 — Candidate request scaling — v2 §10
 - **Produces:** `sampler.candidate_requested(sampled_pool) -> int` using **post-cap** counts:
   ```
   two_piece_base = count(sampled_tops) * count(sampled_bottoms)
@@ -455,7 +450,7 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   **`total_base == 0` short-circuit:** tops-but-no-bottoms (or an empty pool) gives
   `total_base = 0 → candidateRequested = 0`. The entry point (M1-5) must return a
   `notEnoughItems` result **before any GPT call** rather than asking for zero candidates and
-  running the pipeline on nothing (§19 edge cases: no tops/bottoms, no dresses).
+  running the pipeline on nothing (v2 §10 / §12 edge cases: no tops/bottoms, no dresses).
 - **Test:** both branches + the zero case —
   - **zero:** tops=5,bottoms=0,dresses=0 → total_base=0 → `notEnoughItems`, no candidate request.
   - tiny: tops=1,bottoms=1,dresses=0 → total_base=1 → 3 (no floor; proportionally fewer).
@@ -464,13 +459,12 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   - one_piece contribution: dresses add to total_base independent of tops*bottoms.
 - **Effort:** ~1 hr.
 
-### M1-5 — Sampler entry point + logging fields — §7, §18
+### M1-5 — Sampler entry point + logging fields — v2 §10 / §15
 - **Produces:** `sampler.build_candidate_pool(wardrobe, request_context, scorer) -> SamplerResult`
   tying M1-1..M1-4 together. **Rejects a wardrobe with duplicate logical item-IDs *before*
   `partition`** (R12 — a duplicate id collapses M2's sampled-pool lookup and breaks key equality;
   M0 can't catch it because it never sees the wardrobe list). `RequestContext` (fields specified
-  in M1-3) is defined here too —
-  it is the request-level input the sampler builds and the `SignalScorer` seam consumes.
+  in v2 §6.3) is accepted here; the real M5 adapter builds it, while M1 tests use fixtures.
   `SamplerResult` carries the bounded per-type pool,
   `candidateRequested`, and best-effort log fields. **Sampling outcomes are keyed by `ItemType`,
   not a single request-level reason:** `SamplerResult` holds the per-type
@@ -478,9 +472,9 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   cold-started while shoes faulted. A flattened request-level reason would falsify the log the
   moment two types diverge (always possible once some types are over cap and others under).
   Also carries the estimated prompt item count. Logging is **return-value data only**
-  here — actual async/best-effort emission (§18) is M5's concern; M1 must not block on it.
+  here — actual async/best-effort emission (v2 §15 / §22) is M5's concern; M1 must not block on it.
 - **Test:** end-to-end on the demo-wardrobe fixture: pool within caps, `candidateRequested`
-  matches §7.4, `coldStartSampling` reason set for the zero-interaction fixture.
+  matches v2 §10, `coldStartSampling` reason set for the zero-interaction fixture.
 - **Effort:** ~1 hr.
 
 **M1 subtotal: ~6 hr** (≈ one session).
@@ -497,21 +491,21 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   (to exercise sampling), plus a zero-interaction context and a `FakeSignalScorer` for the
   30% branch.
 - **Must-cover cases (spec-enumerated):**
-  - **SlotMap (§6.3 / §13):** all valid shapes (one_piece, two_piece, each ± outer/shoes) and
+  - **SlotMap (v2 §8 / §13):** all valid shapes (one_piece, two_piece, each ± outer/shoes) and
     every invalid shape — `is_valid_slotmap`: mixed templates, empty, duplicate itemId;
     `normalize_to_slotmap`: a duplicate of each of the five role-owned slots (base_top,
     base_bottom, one_piece, outer_layer, shoes) and unknown role.
-  - **Keys (§5 / R10):** the four exact FullSignature examples + the two BaseKey examples + the
+  - **Keys (v2 §7 / R10):** the four exact FullSignature examples + the two BaseKey examples + the
     "same dress, different outer" invariant + the R10 preconditions (invalid base raises;
     reserved-char and `"none"` itemId raise).
-  - **Scaling (§7.4):** `total_base <= 5` branch, `> 5` branch, the `== 5` boundary, the
+  - **Scaling (v2 §10):** `total_base <= 5` branch, `> 5` branch, the `== 5` boundary, the
     `MAX_CANDIDATES` ceiling, and a dresses-only (one_piece) case.
-  - **Signal-branch gate + fallback reasons (§7.3 / B2 / R11):** `interaction_count` ∈ {0, 4} →
+  - **Signal-branch gate + fallback reasons (v2 §10 / Appendix B / R11):** `interaction_count` ∈ {0, 4} →
     100% random + `coldStartSampling`; `== 5` with unavailable scorer → `signalUnavailable`;
     `== 5` with available scorer that faults → `signalScorerFault`; `== 5` with available fake
     scorer → split path reachable. The three fallbacks sample identically (same seed → same set).
-  - **Config (§18):** caps sum to `MAX_PROMPT_ITEMS`; exact constant values.
-  - **Seed (§3.3 / C1):** determinism, per-field sensitivity, delimiter-injection guard.
+  - **Config (v2 Appendix B):** caps sum to `MAX_PROMPT_ITEMS`; exact constant values.
+  - **Seed (v2 §15 / Appendix A N2-C1):** determinism, per-field sensitivity, delimiter-injection guard.
 - **Optional property-based (hypothesis) — nice-to-have, not blocking:**
   - Seed: ∀ distinct input tuples, the **canonical framing string** differs (the framing is
     injective). Do **not** assert `session_seed` ints are collision-free — the 64-bit SHA-256
@@ -532,30 +526,31 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   construction until a real scorer exists.
 - **SlotMap *validation as a pipeline stage* and GPT JSON-schema validation → M2.** M0 builds
   `is_valid_slotmap` as a pure function; wiring it as "Step 3 validation before scoring"
-  (§6.3, §8.3, §18 ordering) is M2.
+  (v2 §8, §12, §13, and §9 ordering) is M2.
 - **Ranker: comboBoost, dislike cooldown, BaseKey variant cap, overuse penalty, dedup →
-  M3** (§5.3, §11, appendix B1/B3). `OVERUSE_MIN_POOL=15` (B1) and `MAX_AFFINITY=20` (A3) are
+  M3** (v2 §7, §11, §14, Appendix B). `OVERUSE_MIN_POOL=15` and `MAX_AFFINITY=20` are
   forward-declared in `config.py` but unused until M3.
-- **Data-model migration → M4/M5 — forward migrations to support v1.2 (real, currently unscoped).**
+- **Data-model migration → M4/M5 — forward migrations to support the v2 contracts (real, currently unscoped).**
   The deployed Mongo models (`fitted/models/*.ts`, authoritative for *data shape* per
   CLAUDE.md → *Canonical sources*) are the **starting state the refactor builds from, not
-  constraints to reconcile against** — v1.2 adds the fields/collections below. M0/M1 are
+  constraints to reconcile against** — v2 adds the fields/collections below. M0/M1 are
   unaffected (they build on the spec's clean schema via fixtures), but these must be recorded
   so M4/M5 don't discover them late:
-  - **`ItemAffinity` collection does not exist.** Spec §4.4 invents it; there is no
-    `fitted/models/ItemAffinity.ts`. M4 must create it (or derive `affinityScore` at query
+  - **`ItemAffinity` collection does not exist.** v2 still needs the additive affinity substrate
+    as the humble first behavioral layer (§11/§14); there is no `fitted/models/ItemAffinity.ts`.
+    M4 must create it (or derive `affinityScore` at query
     time from `OutfitInteraction`). Closest existing signal is `PreferenceSummary.feedbackCount`,
     which counts feedback *events*, not per-item affinity.
-  - **`wardrobeVersion` is not on `User`.** Spec §3.2 says it lives on the user record;
+  - **`wardrobeVersion` is not on `User`.** v2 §6.3 requires it in RequestContext;
     `User.ts` has no such field. The seed (M0-5) takes it as a parameter, so M0/M1 are fine,
     but **M5 cannot supply a real `wardrobeVersion` without adding it to `User.ts` and
-    incrementing it whenever the sampler-visible (active) wardrobe changes** (§3.2) — item
+    incrementing it whenever the sampler-visible (active) wardrobe changes** (v2 §18) — item
     activation, deletion of an active item, or an edit to an active item's attributes, **not**
     every raw mutation (a `needs_review` item the sampler can't see must not bump it; reconciles
-    with the W-track activation rule in `spec-resolutions.md` §4).
-  - **No `sessionId` / session concept exists.** The seed and cache key need it (§3.1, §14).
+    with the W-track activation rule in `Fitted_Spec_v2.md` §18).
+  - **No `sessionId` / session concept exists.** The seed and cache key need it (v2 §6.3 / §15).
     Strategy decided: `sessionId = userId` always, anonymous sessions dropped
-    (`scope-decisions.md` R8); M5 implements.
+    (`Fitted_Spec_v2.md` §6.3 / §19; Appendix A R8); M5 implements.
   - **`type` (5-value) is a *consolidation* of the deployed app's de-facto classification, not a
     new capability.** `WardrobeItem.ts:7` is `enum ["top","bottom"]`, but the deployed app already
     handles dresses/jumpsuits/outer/shoes — via **request-time string-matching** over
@@ -565,19 +560,19 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
     `WardrobeItemDocument → fitted_core.WardrobeItem` adapter. Reference the runtime derivation for
     the *mapping logic*, not as a behavioral baseline — and the string-grep path is a deletion-
     license candidate (CLAUDE.md → *Deletion license*; doesn't survive the M5 cutover). See
-    `spec-resolutions.md` §4 for the evidence.
-  - **`generation_logs` collection (§15) is new** — M4/M5 create it; logging stays
+    `Fitted_Spec_v2.md` §6.1 / §19 for the evidence.
+  - **`GenerationSnapshot` / generation-log storage (§15) is new** — M4/M5 create it; logging stays
     best-effort and off the critical path.
 - **Fly.io service + Next.js wiring → M5.** Deploy `fitted_core` as a Dockerized Python
   service on Fly.io (always-on); `fitted/app/api/recommend/route.ts` calls it via `fetch()`
   behind the `USE_ML_SHORTLISTER` feature flag, with a health check + short timeout +
   graceful fallback to the OpenAI-only flow. Also M5: caching, TTL, dislike cache
-  invalidation (A4), daily re-seed activation (C1 — M0 builds the `date` *parameter*; M5
+  invalidation and daily re-seed activation (v2 §15 / Appendix A N2-C1 — M0 builds the `date` *parameter*; M5
   decides *when to pass it*). The Python↔TS boundary is a `fetch()` service call —
   **resolved** (§0 Decision 2), not a deferred port decision.
-  Spec scope: tops, bottoms, dresses, outer, shoes. No mid-layer per v1.2 §6.
+  Spec scope: tops, bottoms, dresses, outer, shoes. No mid-layer per `Fitted_Spec_v2.md` §8 / §22.
 - **Legacy `outfit_recommender.py` retirement → M6.** Untouched this chunk.
-- **Appendix C1 daily re-seed activation, A4 dislike cache invalidation** — hooks noted,
+- **Daily re-seed activation and dislike cache invalidation (v2 §15 / Appendix A N2-C1)** — hooks noted,
   behavior deferred to M5 as above.
 
 ---
@@ -605,7 +600,7 @@ All former `[CONFIRM]` items are now settled; none block starting M0.
 2. **C1 `date` seed parameter (§1.4)** — ✅ build the parameter now, default off; activation
    deferred to M5.
 3. **Raw candidate shape (§3 / M0-4)** — ✅ role-tagged item list `items: [{itemId, role}]`,
-   resolved directly from spec §16 (GPT's output schema).
+   resolved directly from v2 §12 (GPT's output schema).
 4. **70/30 rounding (M1-3)** — ✅ **revised** to integer half-up `random = (cap*7+5)//10`,
    signal = remainder (was `round(cap*0.7)`; banker's rounding split the real caps inconsistently
    and wouldn't survive a TS/numpy reimpl — see M1-3).

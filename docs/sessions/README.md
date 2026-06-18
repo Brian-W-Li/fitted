@@ -22,7 +22,7 @@ What *is*, not how it got there. One line each.
 
 ## Next session: start here
 The first 1–2 things to do when you sit back down. Be specific
-("read `lib/runPersonalizationSummary.ts:42`" beats "look at personalization").
+("read `docs/Fitted_Spec_v2.md:554`" beats "look at feedback semantics").
 
 ## Follow-ups
 *(optional)* Things noticed but deliberately deferred — what, where (file + section), why

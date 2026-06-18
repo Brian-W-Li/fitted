@@ -1,8 +1,7 @@
-"""Deterministic seed derivation (spec §3.3, §10.4, appendix C1).
+"""Deterministic seed derivation (v2 §15 / Appendix A R1).
 
-One private canonical primitive, two named wrappers — so the §3.3 session seed and
-the §10.4 tie-break seed (= session seed + generationIndex) cannot drift
-(spec-resolutions R1).
+One private canonical primitive, two named wrappers — so the session seed and the
+tie-break seed (= session seed + generationIndex) cannot drift (v2 Appendix A R1).
 
 Encoding — **length-prefix each field, by UTF-8 byte length**, then concatenate.
 A bare delimiter join collides (``join(["a", "b\\x1fc"]) == join(["a\\x1fb", "c"])``)
@@ -20,14 +19,15 @@ Uses ``hashlib.sha256`` (stable across processes/runs), never Python's
 process-salted builtin ``hash()``. The first 8 bytes give a 64-bit seed for a
 dedicated ``random.Random`` instance (never the global RNG).
 
-Sources: spec §3.3/§10.4/C1, docs/plans/m0-m1-substrate.md M0-5, spec-resolutions R1.
+Sources: docs/Fitted_Spec_v2.md §15 / Appendix A R1,
+docs/plans/m0-m1-substrate.md M0-5.
 """
 
 import hashlib
 import random
 from typing import Optional, Union
 
-# Canonical input order (spec-resolutions R1):
+# Canonical input order (v2 Appendix A R1):
 #   sessionId, wardrobeVersion, occasion, weather, date, generationIndex
 _Field = Union[str, int, None]
 
@@ -52,7 +52,7 @@ def _canonical_seed(
     """Private primitive — frame all six fields in canonical order, hash, truncate.
 
     Truncating SHA-256 to 64 bits is **not** collision-free (birthday bound); the
-    framing is injective but the hash is not. This is acceptable per spec §3.3 ("no
+    framing is injective but the hash is not. This is acceptable per v2 §15 ("no
     security requirement") — the seed only needs to be stable and well-distributed.
     """
     fields = (session_id, wardrobe_version, occasion, weather, date, generation_index)
@@ -69,12 +69,12 @@ def session_seed(
     weather: str,
     date: Optional[str] = None,
 ) -> int:
-    """§3.3 session seed — no generationIndex. Used by sampling (M1) and the M5 cache key.
+    """Session seed — no generationIndex. Used by sampling (M1) and the M5 cache key.
 
     ``date`` defaults to None (C1 daily re-seed inactive until M5). All args are
     **keyword-only**: ``occasion`` and ``weather`` are both ``str`` and adjacent, so a
     positional swap would silently compute a *wrong but valid* seed — the one error
-    class that corrupts the §3.1 determinism promise with nothing failing. Naming is
+    class that corrupts the v2 §15 determinism promise with nothing failing. Naming is
     enforced; the M5 TS adapter has no keyword-only equivalent, so it must guard the
     same field order by other means.
     """
@@ -97,7 +97,7 @@ def tiebreak_seed(
     date: Optional[str] = None,
     generation_index: int,
 ) -> int:
-    """§10.4 tie-break seed — session inputs + generationIndex (used by the M3 tie-break).
+    """Tie-break seed — session inputs + generationIndex (used by the M3 tie-break).
 
     Keyword-only for the same reason as ``session_seed`` (adjacent same-typed fields).
     """

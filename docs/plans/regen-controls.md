@@ -1,20 +1,20 @@
 # Regeneration controls: locks + contextual dislikes
 
-> Design plan (no code yet). The binding decision is **R9** in `spec-resolutions.md` — this doc
+> Design plan (no code yet). The binding decision is **R9** in `Fitted_Spec_v2.md` §14 / Appendix A — this doc
 > holds execution detail and is consumed by the M3 (ranker) and M5 (wiring) specs. Interview
 > with Brian 2026-06-12.
 
 ## Goal
 
 Carry the legacy regenerate controls — **item locks** ("keep the jeans") and **contextual
-dislikes** ("not this shirt, for this re-roll") — into the v1.2 two-stage-cache architecture,
+dislikes** ("not this shirt, for this re-roll") — into the v2 two-stage-cache architecture,
 where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 `changeTarget` and `feedbackNotes` are dropped (R9).
 
 ## Success criteria
 
-- [x] R9 recorded in `spec-resolutions.md` with pipeline-step assignments (this session).
-- [x] Stale "decide at M3/M5" pointers in `legacy-prospecting.md` §3.1/§5 resolved to R9.
+- [x] R9 folded into `Fitted_Spec_v2.md` §14 / Appendix A with pipeline-step assignments.
+- [x] Stale "decide at M3/M5" pointers in `legacy-prospecting.md` regeneration-routing notes resolved to R9.
 - [ ] M3: pure functions in `fitted_core` with pytest — regen filter, escalation trigger,
       constrained-pool pinning, impossible-lock detection, merge dedup (tests listed below).
 - [ ] M5: single recommend route accepts `lockedItemIds`/`dislikedItemIds` + `generationIndex`;
@@ -26,8 +26,8 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 ## Files touched
 
 **Now (design session, done):**
-- `docs/plans/spec-resolutions.md` — R9 + Step-4 note under the §1 pipeline table.
-- `docs/plans/legacy-prospecting.md` — §3.1 and §5 routing now point to R9.
+- `docs/Fitted_Spec_v2.md` — R9 lives in §14 / Appendix A.
+- `docs/plans/legacy-prospecting.md` — regeneration-routing notes now point to R9.
 - `docs/plans/regen-controls.md` — this doc.
 
 **M3 (build, in `ml-system/fitted_core/`):**
@@ -50,7 +50,7 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 
 Regen controls are **per-request parameters to the Steps 4–6 re-rank**, the same class as
 `generationIndex` and the cooldown buffer — they never enter `session_seed` or the cache key
-(R1 invariant preserved: the cache stores the candidate stage; per-request state shapes what
+(v2 §15 invariant preserved: the cache stores the candidate stage; per-request state shapes what
 survives it).
 
 1. **Contextual dislikes — Step 4 filter.** Drop cached candidates containing any
@@ -85,19 +85,19 @@ via the feedback flow; the free re-rank has no GPT call to consume text).
 |---|---|---|
 | Same id in `lockedItemIds` and `dislikedItemIds` | 400 | Client bug; no sane semantics. |
 | Locked item deleted/`isAvailable === false`/not owned | Drop that lock, proceed, include in `regenNotice` | Wardrobe changed since the outfit was shown; honest partial beats hard failure. |
-| Structurally impossible lock set (one-piece + top/bottom; two of one slot — §13 rules) | Reject **before** any filtering/GPT spend, explicit §19-style message | Escalation can't fix structure; don't pay for guaranteed-invalid candidates. |
+| Structurally impossible lock set (one-piece + top/bottom; two of one slot — v2 §13 rules) | Reject **before** any filtering/GPT spend, explicit §19-style message | Escalation can't fix structure; don't pay for guaranteed-invalid candidates. |
 | Survivors < K after filters | One escalation call, merge, re-run Steps 4–6 | The core mechanism. |
 | Escalation candidates missing locks / failing validation | Dropped by Step 3 + containment check; may land in partial+notice | Backend never repairs GPT output (F4 lesson). |
 | Still < K after escalation | Partial + `regenNotice`; **no second escalation** | Cost bound: max one GPT call per request. |
 | Cache miss on a locked re-roll (TTL expired) | Normal Steps 1–3 rebuild, then same filter→escalate path | Mechanism is identical; no special case. |
-| Cooldown (Step 4) removes lock-satisfying candidates | Counts toward starvation → escalation; cooldown is **not** bypassed | Dislikes retain final authority (E1). |
+| Cooldown (Step 4) removes lock-satisfying candidates | Counts toward starvation → escalation; cooldown is **not** bypassed | Dislikes retain final authority. |
 | Dislikes alone starve the pool (no locks) | Same escalation path, nothing pinned, dislikes excluded from the pool | One mechanism covers both controls. |
 
 ## Out of scope
 
 - `changeTarget` and `feedbackNotes` — dropped from the contract (R9). The dropdown dies at M5.
 - Any new persistent state: locks/dislikes live in the request only; no schema changes.
-- Lock persistence across sessions or "pinned favorites" semantics (that's §3.7 `isFavorite`, M4).
+- Lock persistence across sessions or "pinned favorites" semantics (related to the `isFavorite` cold-start prior in v2 §11, M4).
 - Building any of this before M3 — M0/M1/M2 substrate must exist first.
 - UI redesign beyond the minimal modal edit at M5.
 - Rate limiting of escalation beyond the one-per-request bound (D2 posture unchanged).

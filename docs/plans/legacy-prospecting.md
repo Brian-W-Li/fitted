@@ -1,5 +1,8 @@
 # Legacy Code Prospecting (Step B) — where v1.2 lands, what the old code teaches
 
+> **Historical prospecting note.** Superseded by `docs/Fitted_Spec_v2.md`; keep only as
+> legacy/code archaeology. Do not use this as active implementation guidance.
+
 Read-through of the deployed vertical on 2026-06-11 (Fable session): `recommend/route.ts`,
 `recommend/regenerate/route.ts`, `interactions/route.ts`, `lib/runPersonalizationSummary.ts`,
 `lib/cvToWardrobeForm.ts`, `api/cv/infer/route.ts`, `api/wardrobe/route.ts`,
