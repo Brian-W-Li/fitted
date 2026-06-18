@@ -1,27 +1,28 @@
-"""The M1 shortlister: pool partition, per-type caps, and the 70/30 signal seam (v2 §10/§11).
+"""The M1 shortlister (v2 §10/§11): pool partition → per-type caps/sampling → entry point.
 
 partition() groups a wardrobe by ItemType and establishes the canonical input
 ordering the whole sampler depends on (id-sorted within each type, enum order
-across types — v2 §10 / Appendix A R4). apply_cap() applies v2 §10's per-type
-ceilings, including the "scarce category fully represented" rule (include all
-when at/below cap). sample_type() (M1-3) is the over-cap 70/30 sampler and the
-SignalScorer seam M6 plugs into; it returns the uniform TypeSampleResult (R13).
-candidate_requested() (M1-4) scales how many outfit drafts to ask GPT for from the
-post-cap pool counts.
+across types — v2 §10 / Appendix A R4). sample_type() (M1-3) is the over-cap 70/30
+sampler and the SignalScorer seam M6 plugs into; it returns the uniform
+TypeSampleResult (R13). candidate_requested() (M1-4) scales how many outfit drafts
+to ask GPT for from the post-cap pool counts. build_candidate_pool() (M1-5) is the
+entry point that ties it all together.
 
-The over-cap branch of apply_cap still delegates via an injected callback (the
-M1-2 interim seam); M1-5's per-type loop will call sample_type() directly and
-retire that callback (R13). sample_type() is built standalone here.
+Per-type caps are applied in build_candidate_pool's loop via _sample_one_type:
+at/below cap → an `include_all` TypeSampleResult (scarce categories fully
+represented); over cap → sample_type(). This is the R13 uniform-result model —
+the M1-2 interim `apply_cap(items, cap, sample_fn) -> list` callback seam is
+retired here.
 
-Sources: docs/Fitted_Spec_v2.md §10 / §11 / Appendix A R4/R6/R11/R13,
-docs/plans/m0-m1-substrate.md §4 (M1-1..M1-4).
+Sources: docs/Fitted_Spec_v2.md §10 / §11 / §15 / Appendix A R4/R6/R11/R12/R13,
+docs/plans/m0-m1-substrate.md §4 (M1-1..M1-5).
 """
 
 import math
 import random
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Mapping, Optional, Protocol, Sequence, runtime_checkable
+from typing import Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 from fitted_core.config import (
     CAP_BOTTOMS,
@@ -30,9 +31,11 @@ from fitted_core.config import (
     CAP_SHOES,
     CAP_TOPS,
     MAX_CANDIDATES,
+    MAX_PROMPT_ITEMS,
     MIN_SIGNAL_THRESHOLD,
 )
 from fitted_core.models import ItemType, WardrobeItem
+from fitted_core.seed import seeded_rng, session_seed
 
 # Per-type pool ceilings (v2 §10), keyed by ItemType so the cap lookup iterates the
 # same fixed enum order as partition (R4). These sum to MAX_PROMPT_ITEMS — the
@@ -44,10 +47,6 @@ CAP_BY_TYPE: dict[ItemType, int] = {
     ItemType.outer_layer: CAP_OUTER,
     ItemType.shoes: CAP_SHOES,
 }
-
-# The over-cap sampler seam: (items, cap) -> exactly `cap` items. M1-3 supplies
-# the real 70/30 signal/random implementation; apply_cap only needs the shape.
-SampleFn = Callable[[list[WardrobeItem], int], list[WardrobeItem]]
 
 
 def partition(wardrobe: list[WardrobeItem]) -> dict[ItemType, list[WardrobeItem]]:
@@ -71,43 +70,6 @@ def partition(wardrobe: list[WardrobeItem]) -> dict[ItemType, list[WardrobeItem]
     for items in buckets.values():
         items.sort(key=lambda it: it.id)
     return buckets
-
-
-def apply_cap(
-    items: list[WardrobeItem],
-    cap: int,
-    sample_fn: Optional[SampleFn] = None,
-) -> list[WardrobeItem]:
-    """Apply one type's v2 §10 cap.
-
-    At/below cap: include every item (scarce categories fully represented),
-    preserving the incoming order — partition() already established id order
-    (R4), so this path does not re-sort. Over cap: delegate to `sample_fn` (the
-    M1-3 70/30 sampler), which returns exactly `cap` items. A missing sample_fn
-    on an over-cap list is a wiring error that raises, never a silent truncation.
-
-    MAX_PROMPT_ITEMS is NOT enforced here by dropping items: the per-type caps
-    sum to it by construction, so the prompt ceiling is a cross-type invariant
-    asserted in M1-5, not a per-type item-loss step.
-
-    Interim seam (R13): the `(items, cap) -> list` sample_fn shape does NOT match
-    sample_type(...) -> TypeSampleResult. M1-3 built sample_type() standalone rather
-    than reworking this function; M1-5's per-type loop will call sample_type()
-    directly (over cap) and emit an `include_all` TypeSampleResult (at/below cap),
-    retiring this list+callback seam (R13).
-    """
-    if len(items) <= cap:
-        return list(items)
-    if sample_fn is None:
-        raise ValueError(
-            f"over-cap type ({len(items)} > cap {cap}) requires a sample_fn (M1-3 sampler)"
-        )
-    sampled = sample_fn(items, cap)
-    if len(sampled) != cap:
-        raise ValueError(
-            f"sample_fn returned {len(sampled)} items, expected exactly cap={cap}"
-        )
-    return sampled
 
 
 # ============================================================================
@@ -358,3 +320,152 @@ def candidate_requested(pool: Mapping[ItemType, Sequence[WardrobeItem]]) -> int:
     if total_base <= 5:
         return total_base * 3
     return min(MAX_CANDIDATES, total_base * 3)
+
+
+# ============================================================================
+# M1-5 — sampler entry point (v2 §10/§15, R4/R11/R12)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class SamplerResult:
+    """The bounded candidate pool plus best-effort log data (v2 §10/§15).
+
+    `pool` is the post-sampled per-type item lists (what M2/GPT may select from).
+    `per_type` carries each type's TypeSampleResult — selection path, fallback
+    reason, and slot counts — **keyed by ItemType, not flattened to one
+    request-level reason**: tops may cold-start while shoes fault, and a single
+    reason would falsify the log the moment two types diverge (R11). `not_enough_items`
+    is True exactly when `candidate_requested == 0` (no top+bottom pairing and no
+    dress); the caller (M5) must return before any GPT call in that case.
+    `scorer_available` is the once-per-request availability (R11).
+
+    Logging is return-value data only here — async/best-effort emission (v2 §15/§22)
+    is M5's concern; the sampler never blocks on it.
+    """
+
+    pool: dict[ItemType, list[WardrobeItem]]
+    per_type: dict[ItemType, TypeSampleResult]
+    candidate_requested: int
+    prompt_item_count: int
+    not_enough_items: bool
+    scorer_available: bool
+
+
+def _reject_duplicate_ids(wardrobe: list[WardrobeItem]) -> None:
+    """Raise if any logical item id repeats (R12) — the sampler-entry backstop.
+
+    A duplicate id collapses M2's sampled-pool lookup and breaks key equality (§7),
+    and partition's id-sort is only permutation-invariant under unique ids (R4). M0
+    can't catch this — it never sees the wardrobe list. The M5 wire adapter validates
+    untrusted Mongo data (R12 part 2); this is the in-engine precondition guard.
+    """
+    seen: set[str] = set()
+    for item in wardrobe:
+        if item.id in seen:
+            raise ValueError(
+                f"duplicate logical item id {item.id!r} in wardrobe (R12): "
+                "ids must be unique before partition"
+            )
+        seen.add(item.id)
+
+
+def _resolve_scorer_availability(scorer: SignalScorer) -> bool:
+    """Evaluate ``is_available()`` **once per request** (R11), defensively.
+
+    Model-presence is identical across types, so it is resolved here and the boolean
+    is passed down to every sample_type() call. A misbehaving check — raises, or
+    returns anything that is not literally ``True`` — is treated as **unavailable**:
+    if availability can't be confirmed, the safe state is "no signal," never propagate.
+    """
+    try:
+        return scorer.is_available() is True
+    except Exception:
+        return False
+
+
+def _sample_one_type(
+    items: list[WardrobeItem],
+    cap: int,
+    *,
+    rng: random.Random,
+    scorer: SignalScorer,
+    context: RequestContext,
+    scorer_available: bool,
+) -> TypeSampleResult:
+    """Apply one type's v2 §10 cap, returning the uniform TypeSampleResult (R13).
+
+    At/below cap → ``include_all`` (scarce categories fully represented; preserves the
+    id order partition established, copied so callers may mutate independently). Over
+    cap → sample_type() (the 70/30 seam). This replaces the retired M1-2 ``apply_cap``
+    callback seam.
+    """
+    if len(items) <= cap:
+        return TypeSampleResult(list(items), SelectionKind.include_all, None, 0, 0)
+    return sample_type(
+        items, cap, rng=rng, scorer=scorer, context=context, scorer_available=scorer_available
+    )
+
+
+def build_candidate_pool(
+    wardrobe: list[WardrobeItem],
+    context: RequestContext,
+    scorer: SignalScorer,
+) -> SamplerResult:
+    """The M1 entry point: wardrobe + request context → bounded candidate pool (v2 §10).
+
+    Order (v2 §9 Step 1): reject duplicate ids (R12) → resolve scorer availability
+    **once** (R11) → derive the session seed and **one shared RNG** (R4) → partition
+    → per-type cap/sample in fixed enum order → scale the candidate request (M1-4).
+
+    Determinism (R4): a single ``random.Random`` seeded by ``session_seed`` is shared
+    across all types and consumed in enum order, so the same context yields the same
+    pool. The real M5 adapter builds ``context`` from canonical request inputs (R5);
+    M1 tests pass it directly. GPT-facing work never happens here — when
+    ``candidate_requested == 0`` the result is flagged ``not_enough_items`` so the M5
+    caller short-circuits to notEnoughItems before any GPT call (v2 §10/§12).
+    """
+    _reject_duplicate_ids(wardrobe)  # R12 — before partition
+    scorer_available = _resolve_scorer_availability(scorer)  # once per request (R11)
+
+    seed = session_seed(
+        session_id=context.session_id,
+        wardrobe_version=context.wardrobe_version,
+        occasion=context.occasion,
+        weather=context.weather,
+        date=context.date,
+    )
+    rng = seeded_rng(seed)  # one shared RNG across all types (R4)
+
+    partitioned = partition(wardrobe)
+    per_type: dict[ItemType, TypeSampleResult] = {}
+    for item_type in ItemType:  # fixed enum order — RNG-consumption order (R4)
+        per_type[item_type] = _sample_one_type(
+            partitioned[item_type],
+            CAP_BY_TYPE[item_type],
+            rng=rng,
+            scorer=scorer,
+            context=context,
+            scorer_available=scorer_available,
+        )
+
+    pool = {item_type: result.items for item_type, result in per_type.items()}
+    prompt_item_count = sum(len(items) for items in pool.values())
+    # Cross-type invariant (v2 §10/§22): caps sum to MAX_PROMPT_ITEMS by construction,
+    # so this ceiling is unreachable — a breach means a cap edit desynced the sum, never
+    # a truncation. Guard it loudly rather than silently dropping items.
+    if prompt_item_count > MAX_PROMPT_ITEMS:
+        raise ValueError(
+            f"prompt pool {prompt_item_count} exceeds MAX_PROMPT_ITEMS={MAX_PROMPT_ITEMS} "
+            "— per-type caps have desynced from the sum"
+        )
+
+    requested = candidate_requested(pool)
+    return SamplerResult(
+        pool=pool,
+        per_type=per_type,
+        candidate_requested=requested,
+        prompt_item_count=prompt_item_count,
+        not_enough_items=(requested == 0),
+        scorer_available=scorer_available,
+    )

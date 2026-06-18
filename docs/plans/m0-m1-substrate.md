@@ -56,7 +56,7 @@ Architecture (mirrors the team's Vercel + Python-service pattern, Fly.io as the 
 | Milestone | Scope | Status |
 |---|---|---|
 | **M0** | Contracts & pure functions: v2 §15 seed, v2 §6.1 WardrobeItem, v2 §7 keys, v2 §8 SlotMap, Appendix B config constants. No Mongo, no API keys. | ✅ **done** (commit `2e4c8d44`, 2026-06-13; 73 pytest green at M0 close) |
-| **M1** | Sampler / shortlister: v2 §10 pool partition, per-type caps, cold-start, 70/30 sampling + session seed, candidate scaling. Signal path **stubbed** (cold-start fallback). | **in progress** — M1-1 (partition) + M1-2 (caps) + M1-3 (70/30 sampler + `SignalScorer` seam) + M1-4 (candidate scaling) done (pytest green); M1-5 (entry point) next. The M1-2→M1-3 seam contract is **R13**; `apply_cap`'s interim callback seam is retained until M1-5 absorbs it. |
+| **M1** | Sampler / shortlister: v2 §10 pool partition, per-type caps, cold-start, 70/30 sampling + session seed, candidate scaling. Signal path **stubbed** (cold-start fallback). | ✅ **done** — M1-1..M1-5 (partition, caps, 70/30 + `SignalScorer` seam, candidate scaling, `build_candidate_pool` entry point); pytest green. Signal path stubbed (`ColdStartSignalScorer`) until M6. The R13 interim `apply_cap` callback seam was retired when M1-5 absorbed it into the per-type loop. |
 | M2 | SlotMap validation + strict JSON schema validation of GPT output (v2 §8/§13 reject rules, v2 §12 schema). In `fitted_core/`. | later |
 | M3 | Ranker: comboBoost, dislike cooldown (BaseKey/FullSignature), variant cap, overuse penalty, dedup (v2 §7/§14, Appendix B). In `fitted_core/`. | later |
 | M4 | Data-model migration in `fitted/models/*.ts` (add `ItemAffinity`, `wardrobeVersion`, `generation_logs`; see §6) + the interaction data the substrate consumes. Produces the labeled feedback data. | later |
@@ -322,8 +322,9 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
 > list[WardrobeItem]` (pytest green). The `(items, cap) -> list` callback shape does **not** match
 > M1-3's `sample_type(...) -> TypeSampleResult`; **R13** makes the per-type outcome a uniform
 > `TypeSampleResult` (include-all is a first-class selection path). M1-3 built `sample_type` **standalone**
-> rather than reworking `apply_cap`; M1-5's per-type loop will call `sample_type` (over cap) and emit an
-> `include_all` `TypeSampleResult` (at/below cap), retiring this interim callback seam.
+> rather than reworking `apply_cap`; M1-5's per-type loop (`_sample_one_type`) now calls `sample_type`
+> (over cap) and emits an `include_all` `TypeSampleResult` (at/below cap), and this interim callback seam
+> is **retired**.
 - **Produces:** `sampler.apply_cap(items, cap, ...) -> list[WardrobeItem]`. If
   `count <= cap`: include all (spec: scarce categories fully represented). Else: hand off to
   the 70/30 sampler (M1-3). Surface an estimated prompt item count for logging (v2 §10 / Appendix B).
@@ -473,8 +474,12 @@ the bounded pool GPT may select from, plus `candidateRequested` and logging flag
   moment two types diverge (always possible once some types are over cap and others under).
   Also carries the estimated prompt item count. Logging is **return-value data only**
   here — actual async/best-effort emission (v2 §15 / §22) is M5's concern; M1 must not block on it.
-- **Test:** end-to-end on the demo-wardrobe fixture: pool within caps, `candidateRequested`
-  matches v2 §10, `coldStartSampling` reason set for the zero-interaction fixture.
+- **Test:** end-to-end on the demo-wardrobe fixture (all types **under cap** → every
+  `TypeSampleResult` is `include_all`): pool within caps, `candidateRequested` matches v2 §10.
+  `coldStartSampling` is asserted on the **over-cap** fixture at zero interactions (the demo is
+  under cap, so it never samples — it cannot carry that reason). Plus: duplicate-id reject (R12),
+  `is_available()` evaluated once, raising `is_available()` → unavailable, `candidateRequested == 0`
+  → `notEnoughItems`, determinism, and the retired `apply_cap` seam.
 - **Effort:** ~1 hr.
 
 **M1 subtotal: ~6 hr** (≈ one session).

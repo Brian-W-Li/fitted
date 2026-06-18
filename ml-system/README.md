@@ -4,7 +4,7 @@
 > - **`fitted_core/`** — the **v2 substrate** (the current focus). Pure-function contracts +
 >   sampler for the GPT-orchestration refactor, built test-first under `tests/` (pytest).
 >   Authoritative design: `docs/Fitted_Spec_v2.md` + `docs/plans/m0-m1-substrate.md`.
->   **M0 complete; M1 in progress — partition/caps/70-30 SignalScorer seam + candidate scaling done, entry point (M1-5) next.**
+>   **M0 + M1 complete — sampler substrate (partition, caps, 70/30 `SignalScorer` seam, candidate scaling, `build_candidate_pool` entry point); M2 (validation pipeline stage) next.**
 > - **`outfit_recommender.py`** — the **legacy rule-based demo** (Issue #32, below). Kept as a
 >   runnable reference only; retired at M6 when the trained scorer lands. Not the architecture.
 >

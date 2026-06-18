@@ -18,8 +18,9 @@ from fitted_core.sampler import (
     CAP_BY_TYPE,
     ColdStartSignalScorer,
     RequestContext,
+    SamplerResult,
     SelectionKind,
-    apply_cap,
+    build_candidate_pool,
     candidate_requested,
     partition,
     random_count,
@@ -66,7 +67,9 @@ def test_partition_is_permutation_invariant(over_cap_wardrobe):
     assert partition(shuffled) == partition(over_cap_wardrobe)
 
 
-# --- M1-2: apply_cap (§10) ---
+# --- M1-2: per-type caps + the shared `_items` helper (§10) ---
+# (The M1-2 interim `apply_cap(items, cap, sample_fn)` callback seam was retired at
+# M1-5, R13 — cap behaviour is now covered through build_candidate_pool below.)
 
 
 def _items(type_: ItemType, n: int) -> list[WardrobeItem]:
@@ -74,80 +77,6 @@ def _items(type_: ItemType, n: int) -> list[WardrobeItem]:
         WardrobeItem(id=f"x{i:03d}", name=f"x{i}", type=type_, warmth=5, image_url=f"x{i}.jpg")
         for i in range(n)
     ]
-
-
-def test_apply_cap_below_cap_includes_all_in_order():
-    items = _items(ItemType.top, 3)
-    assert apply_cap(items, cap=10) == items
-
-
-def test_apply_cap_below_cap_returns_a_copy_not_the_input_list():
-    # The include-all path returns list(items), a copy — `==` alone passes even if the
-    # input were aliased. Pin the copy so callers may mutate capped results independently.
-    items = _items(ItemType.top, 3)
-    result = apply_cap(items, cap=10)
-    assert result == items
-    assert result is not items
-
-
-def test_apply_cap_at_cap_includes_all():
-    items = _items(ItemType.top, 10)
-    assert apply_cap(items, cap=10) == items
-
-
-def test_apply_cap_at_cap_does_not_call_sample_fn():
-    # At/below cap must never invoke the sampler — a raising sample_fn proves the
-    # boundary is len <= cap, not len < cap.
-    items = _items(ItemType.top, 10)
-
-    def boom(its, cap):
-        raise AssertionError("sample_fn must not be called at/below cap")
-
-    assert apply_cap(items, cap=10, sample_fn=boom) == items
-
-
-def test_apply_cap_over_cap_delegates_to_sample_fn():
-    items = _items(ItemType.top, 40)
-    take_first = lambda its, cap: its[:cap]
-    result = apply_cap(items, cap=35, sample_fn=take_first)
-    assert len(result) == 35
-    assert result == items[:35]
-
-
-def test_apply_cap_over_cap_without_sample_fn_raises():
-    items = _items(ItemType.top, 40)
-    with pytest.raises(ValueError, match="requires a sample_fn"):
-        apply_cap(items, cap=35)
-
-
-def test_apply_cap_rejects_sample_fn_that_under_returns():
-    items = _items(ItemType.top, 40)
-    short = lambda its, cap: its[: cap - 1]  # one short
-    with pytest.raises(ValueError, match="expected exactly cap"):
-        apply_cap(items, cap=35, sample_fn=short)
-
-
-def test_apply_cap_rejects_sample_fn_that_over_returns():
-    # Over-return is the dangerous case: it would breach the per-type cap and the
-    # MAX_PROMPT_ITEMS ceiling. The len(sampled) != cap guard must catch it too.
-    items = _items(ItemType.top, 40)
-    over = lambda its, cap: its[: cap + 1]  # one too many
-    with pytest.raises(ValueError, match="expected exactly cap"):
-        apply_cap(items, cap=35, sample_fn=over)
-
-
-def test_capped_pool_never_exceeds_max_prompt_items(over_cap_wardrobe):
-    # Every type is over cap here, so the summed capped pool hits exactly the
-    # per-type cap sum == MAX_PROMPT_ITEMS. Asserted as an invariant, never
-    # enforced by truncation (the caps sum to it by construction).
-    buckets = partition(over_cap_wardrobe)
-    take_first = lambda its, cap: its[:cap]
-    total = sum(
-        len(apply_cap(items, CAP_BY_TYPE[t], sample_fn=take_first))
-        for t, items in buckets.items()
-    )
-    assert total == MAX_PROMPT_ITEMS
-    assert total <= MAX_PROMPT_ITEMS
 
 
 def test_cap_by_type_covers_every_type():
@@ -405,3 +334,124 @@ def test_candidate_requested_dresses_contribute_independently():
 def test_candidate_requested_ignores_outer_and_shoes():
     # outer/shoes are optional roles, never a base -> they never change total_base.
     assert candidate_requested(_pool(n_tops=1, n_bottoms=1, n_outer=9, n_shoes=9)) == 3
+
+
+# ============================================================================
+# M1-5: build_candidate_pool — the sampler entry point (§10/§15, R4/R11/R12)
+# ============================================================================
+
+
+class _CountingScorer:
+    """Records is_available() calls; unavailable, so score() is never reached."""
+
+    def __init__(self, available=False):
+        self.availability_checks = 0
+        self._available = available
+
+    def is_available(self):
+        self.availability_checks += 1
+        return self._available
+
+    def score(self, item, context):
+        raise AssertionError("score() must not be called when unavailable")
+
+
+class _AvailabilityRaises:
+    def is_available(self):
+        raise RuntimeError("is_available boom")
+
+    def score(self, item, context):
+        raise AssertionError("score() must not be called")
+
+
+def test_build_pool_happy_path_demo_wardrobe(demo_wardrobe):
+    # All types under cap -> every per_type result is include_all; pool == full wardrobe.
+    res = build_candidate_pool(demo_wardrobe, _ctx(0), ColdStartSignalScorer())
+    assert isinstance(res, SamplerResult)
+    assert set(res.per_type) == set(ItemType)
+    assert all(r.selection_kind is SelectionKind.include_all for r in res.per_type.values())
+    assert all(r.reason is None for r in res.per_type.values())
+    assert res.prompt_item_count == len(demo_wardrobe) == 8
+    assert all(len(res.pool[t]) <= CAP_BY_TYPE[t] for t in ItemType)
+    # candidate_requested: total_base = 3 tops * 3 bottoms + 0 dresses = 9 -> min(40, 27) = 27.
+    assert res.candidate_requested == 27
+    assert res.not_enough_items is False
+    assert res.scorer_available is False  # ColdStartSignalScorer is the default stub
+
+
+def test_build_pool_rejects_duplicate_ids_before_partition():
+    wardrobe = [
+        WardrobeItem("dup", "a", ItemType.top, warmth=5, image_url="a.jpg"),
+        WardrobeItem("dup", "b", ItemType.bottom, warmth=5, image_url="b.jpg"),
+    ]
+    with pytest.raises(ValueError, match="duplicate logical item id"):
+        build_candidate_pool(wardrobe, _ctx(0), ColdStartSignalScorer())
+
+
+def test_build_pool_evaluates_is_available_exactly_once(over_cap_wardrobe):
+    # Five over-cap types, but availability is a per-request property: checked once and
+    # the boolean passed down (R11), never re-evaluated per type.
+    scorer = _CountingScorer(available=False)
+    build_candidate_pool(over_cap_wardrobe, _ctx(0), scorer)
+    assert scorer.availability_checks == 1
+
+
+def test_build_pool_is_available_exception_treated_as_unavailable(over_cap_wardrobe):
+    # A raising is_available() must not propagate; the safe state is "no signal".
+    res = build_candidate_pool(over_cap_wardrobe, _ctx(MIN_SIGNAL_THRESHOLD), _AvailabilityRaises())
+    assert res.scorer_available is False
+    parts = partition(over_cap_wardrobe)
+    over_cap_types = [t for t in ItemType if len(parts[t]) > CAP_BY_TYPE[t]]
+    assert over_cap_types  # guard: the fixture really is over cap
+    # count >= threshold but unavailable -> every over-cap type falls back as signalUnavailable.
+    for t in over_cap_types:
+        assert res.per_type[t].selection_kind is SelectionKind.random
+        assert res.per_type[t].reason == SIGNAL_UNAVAILABLE
+
+
+def test_build_pool_unavailable_scorer_falls_back_in_every_over_cap_type(over_cap_wardrobe):
+    # Default stub path: ColdStartSignalScorer (unavailable) + zero interactions -> every
+    # over-cap type cold-starts (seeded random fallback); the boolean reached every type.
+    res = build_candidate_pool(over_cap_wardrobe, _ctx(0), ColdStartSignalScorer())
+    assert res.scorer_available is False
+    parts = partition(over_cap_wardrobe)
+    for t in ItemType:
+        if len(parts[t]) > CAP_BY_TYPE[t]:
+            assert res.per_type[t].selection_kind is SelectionKind.random
+            assert res.per_type[t].reason == COLD_START_SAMPLING
+            assert len(res.per_type[t].items) == CAP_BY_TYPE[t]
+
+
+def test_build_pool_not_enough_items_short_circuit():
+    # Tops but no bottoms and no dresses -> total_base 0 -> candidate_requested 0 -> flagged
+    # (the signal the M5 caller uses to skip GPT entirely).
+    res = build_candidate_pool(_items(ItemType.top, 3), _ctx(0), ColdStartSignalScorer())
+    assert res.candidate_requested == 0
+    assert res.not_enough_items is True
+
+
+def test_build_pool_prompt_item_count_never_exceeds_max(over_cap_wardrobe):
+    # Every type over cap -> summed pool hits exactly the cap sum == MAX_PROMPT_ITEMS, the
+    # cross-type invariant (caps sum to it; never enforced by truncation).
+    res = build_candidate_pool(over_cap_wardrobe, _ctx(0), ColdStartSignalScorer())
+    assert res.prompt_item_count == MAX_PROMPT_ITEMS
+    assert res.prompt_item_count <= MAX_PROMPT_ITEMS
+
+
+def test_apply_cap_callback_seam_is_retired():
+    # R13: the M1-2 interim apply_cap(items, cap, sample_fn) callback seam no longer
+    # exists, so it cannot control entry-point behaviour — build_candidate_pool's
+    # per-type loop is the only cap path now.
+    import fitted_core.sampler as sampler_mod
+    assert not hasattr(sampler_mod, "apply_cap")
+    assert not hasattr(sampler_mod, "SampleFn")
+
+
+def test_build_pool_deterministic_same_context(over_cap_wardrobe):
+    # Same context -> same session seed -> one shared RNG -> identical sampled pool (R4).
+    ctx = _ctx(0)
+    a = build_candidate_pool(over_cap_wardrobe, ctx, ColdStartSignalScorer())
+    b = build_candidate_pool(over_cap_wardrobe, ctx, ColdStartSignalScorer())
+    for t in ItemType:
+        assert [it.id for it in a.pool[t]] == [it.id for it in b.pool[t]]
+    assert a.candidate_requested == b.candidate_requested
