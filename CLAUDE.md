@@ -144,6 +144,15 @@ The doc set must stay small, current, and internally consistent. Rules:
 - **Compaction backstop.** In-place editing should keep active docs from accreting; if a single
   active spec/plan exceeds roughly **1,500 lines**, or the default reading list exceeds roughly
   **2,000 lines**, spend a dedicated session compacting it.
+- **Critical-usage recovery backstop.** If Claude sees usage/context critically low and likely
+  cannot complete the current request, stop before the next risky edit or long-running task.
+  Bring any document currently being edited to a safe or safe-enough stopping point (finish the
+  current paragraph/table row; do not start a new broad rewrite), then write or overwrite
+  `docs/sessions/RECOVERY.md`. Record: current request, files touched, what is done, what is
+  partial, decisions made, commands/tests run or skipped, whether the stop is safe/safe-enough/
+  unsafe, and the exact next 1-3 steps. Then send a final response with a pointer to that file. The next
+  healthy session folds durable history into a dated session note or commit and clears/replaces
+  the recovery scratch.
 
 ## Deletion license (refactor scope)
 

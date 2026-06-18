@@ -5,6 +5,8 @@ Short end-of-session notes so the next session — likely days apart given the 4
 ## Convention
 
 - One file per session: `YYYY-MM-DD.md`. If multiple sessions in one day, suffix `-1`, `-2`.
+- Exception: `RECOVERY.md` is a temporary crash/critically-low-usage scratch file. Overwrite it
+  when needed; fold durable history into a dated session note later.
 - Keep them short and **future-facing**. Per CLAUDE.md's *past goes to commits; future stays in docs* rule: a session note records **state** (what now exists, what to do next), not the **story** (what changed, why we chose X over Y, review history) — that belongs in the commit message. The point is recovery, not narrative.
 - Most useful field: **Next session: start here**. Don't skip it.
 
