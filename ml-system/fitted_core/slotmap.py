@@ -27,7 +27,7 @@ docs/plans/m0-m1-substrate.md M0-4.
 
 from typing import Mapping, Optional, Sequence
 
-from fitted_core.models import Role, SlotMap, Template
+from fitted_core.models import IssueCode, Role, SlotMap, Template
 
 # Each role owns exactly one SlotMap slot (v2 §8). This mapping is what makes
 # a second item for an already-assigned role a silent-overwrite hazard.
@@ -42,19 +42,22 @@ _ROLE_TO_SLOT = {
 
 def normalize_to_slotmap(
     items: Sequence[Mapping[str, object]],
-) -> tuple[Optional[SlotMap], Optional[str]]:
+) -> tuple[Optional[SlotMap], Optional[IssueCode]]:
     """Collapse a role-tagged item list into a SlotMap, with an error channel.
 
     ``items`` is GPT's outfit ``items`` array: a sequence of ``{itemId, role}``
-    mappings (v2 §12). Returns ``(SlotMap, None)`` on success or ``(None, reason)``
-    when a role is unknown or a role-owned slot would be assigned twice.
+    mappings (v2 §12). Returns ``(SlotMap, None)`` on success or ``(None, code)``
+    when a role is unknown (``unknownRole``) or a role-owned slot would be assigned
+    twice (``duplicateRoleSlot``). The second element is a stable ``IssueCode``, not
+    prose (M2 plan Decision D7 — owner-emits-code): this is the single source of truth
+    for these two structural rejects, consumed directly by the M2 validator.
 
     Scope (M0-narrow): this owns the *pre-collapse* rejects only. **Assumes M2's
     strict JSON-schema pass (v2 §12/§13, pipeline Step 2) has already run**, so each entry
     is a well-formed mapping with present fields — field-presence, non-empty-id, and
     entry-shape validation are M2's job, not here. An empty list is *not* rejected
-    here (it collapses to an empty SlotMap that ``is_valid_slotmap`` rejects as "no
-    base role" — N3 assigns the empty-outfit reject to the slot-level validator).
+    here (it collapses to an empty SlotMap that ``is_valid_slotmap`` rejects as
+    ``emptyBase`` — N3 assigns the empty-outfit reject to the slot-level validator).
     """
     assignments: dict[str, object] = {}
     for entry in items:
@@ -62,45 +65,45 @@ def normalize_to_slotmap(
         try:
             role = Role(role_raw)
         except ValueError:
-            return None, f"unknown or unrecognised role value: {role_raw!r}"
+            return None, IssueCode.unknown_role
         slot = _ROLE_TO_SLOT[role]
         if slot in assignments:
-            return None, (
-                f"duplicate assignment to role-owned slot {slot!r} "
-                f"(role {role.value!r}); the second item would be silently dropped"
-            )
+            # A second item for an already-filled role would be silently overwritten
+            # (last-write-wins) — inexpressible once collapsed, so reject pre-collapse.
+            return None, IssueCode.duplicate_role_slot
         assignments[slot] = entry.get("itemId")
     return SlotMap(**assignments), None
 
 
-def is_valid_slotmap(slotmap: SlotMap) -> tuple[bool, Optional[str]]:
+def is_valid_slotmap(slotmap: SlotMap) -> tuple[bool, Optional[IssueCode]]:
     """Structural validity over the slot-level v2 §8/§13 rules.
 
     Valid: (dress set, top/bottom null → one_piece) XOR (top+bottom set, dress
     null → two_piece), plus optional outer/shoes. Returns ``(True, None)`` or
-    ``(False, reason)``.
+    ``(False, code)`` where ``code`` is the stable structural ``IssueCode`` for the
+    failing rule (M2 plan Decision D7 — owner-emits-code, not prose).
     """
     has_dress = slotmap.dress is not None
     has_top = slotmap.top is not None
     has_bottom = slotmap.bottom is not None
 
     if has_dress and (has_top or has_bottom):
-        return False, "mixed templates: dress combined with top/bottom"
+        return False, IssueCode.mixed_template
     if not (has_dress or has_top or has_bottom):
-        return False, "no base role (empty outfit)"
+        return False, IssueCode.empty_base
     if not has_dress and not (has_top and has_bottom):
-        return False, "incomplete two_piece base (need both top and bottom)"
+        return False, IssueCode.incomplete_two_piece
 
     ids = [v for v in (slotmap.dress, slotmap.top, slotmap.bottom, slotmap.outer, slotmap.shoes)
            if v is not None]
     if len(ids) != len(set(ids)):
-        return False, "duplicate itemId appearing in more than one slot"
+        return False, IssueCode.duplicate_item_id
     return True, None
 
 
 def template_of(slotmap: SlotMap) -> Template:
     """Derive the template of a *valid* SlotMap (v2 §8). Raises on an invalid base."""
-    valid, reason = is_valid_slotmap(slotmap)
+    valid, code = is_valid_slotmap(slotmap)
     if not valid:
-        raise ValueError(f"template_of requires a valid SlotMap: {reason}")
+        raise ValueError(f"template_of requires a valid SlotMap: {code.value}")
     return Template.one_piece if slotmap.dress is not None else Template.two_piece

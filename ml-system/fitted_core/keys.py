@@ -51,9 +51,11 @@ def _guard_id(item_id: str) -> None:
 
 def _require_valid_base(slotmap: SlotMap) -> None:
     """Raise ValueError if ``slotmap`` has no valid base (R10 precondition 1)."""
-    valid, reason = is_valid_slotmap(slotmap)
+    valid, code = is_valid_slotmap(slotmap)
     if not valid:
-        raise ValueError(f"keys require a normalized, valid SlotMap: {reason}")
+        # ``is_valid_slotmap``'s second element is an IssueCode (M2 plan D7); surface
+        # its human-readable .value here. This message is never asserted on.
+        raise ValueError(f"keys require a normalized, valid SlotMap: {code.value}")
 
 
 def base_key(slotmap: SlotMap) -> str:

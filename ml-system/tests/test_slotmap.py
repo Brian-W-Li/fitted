@@ -8,7 +8,7 @@ role-tagged input; the slot-level rejects are tested on SlotMaps directly.
 
 import pytest
 
-from fitted_core.models import SlotMap, Template
+from fitted_core.models import IssueCode, SlotMap, Template
 from fitted_core.slotmap import is_valid_slotmap, normalize_to_slotmap, template_of
 
 
@@ -40,28 +40,28 @@ def test_normalize_two_piece_with_outer_and_shoes():
 ])
 def test_normalize_rejects_duplicate_role(role):
     # A second item for an already-seen role would be silently overwritten — reject.
-    sm, reason = normalize_to_slotmap([
+    sm, code = normalize_to_slotmap([
         {"itemId": "x1", "role": role},
         {"itemId": "x2", "role": role},
     ])
     assert sm is None
-    assert "duplicate assignment to role-owned slot" in reason
+    assert code is IssueCode.duplicate_role_slot
 
 
 def test_normalize_rejects_unknown_role():
-    sm, reason = normalize_to_slotmap([{"itemId": "x1", "role": "mid_layer"}])
+    sm, code = normalize_to_slotmap([{"itemId": "x1", "role": "mid_layer"}])
     assert sm is None
-    assert "unknown or unrecognised role" in reason
+    assert code is IssueCode.unknown_role
 
 
 def test_normalize_empty_list_defers_emptiness_to_is_valid():
     # Boundary contract (N3): the empty-outfit reject belongs to is_valid_slotmap,
     # NOT the normalizer. normalize([]) must succeed with an empty SlotMap so the
     # slot-level validator owns the rejection — pin it so a refactor can't move it.
-    sm, reason = normalize_to_slotmap([])
-    assert reason is None and sm == SlotMap()
-    valid, vreason = is_valid_slotmap(sm)
-    assert not valid and "no base role" in vreason
+    sm, code = normalize_to_slotmap([])
+    assert code is None and sm == SlotMap()
+    valid, vcode = is_valid_slotmap(sm)
+    assert not valid and vcode is IssueCode.empty_base
 
 
 # ============================== is_valid_slotmap ==============================
@@ -85,20 +85,20 @@ def test_is_valid_accepts_valid_shapes(slotmap):
 
 # --- every slot-level invalid shape ---
 
-@pytest.mark.parametrize("slotmap,fragment", [
-    (SlotMap(dress="d1", top="t1"), "mixed templates"),
-    (SlotMap(dress="d1", bottom="b1"), "mixed templates"),
-    (SlotMap(), "no base role"),
-    (SlotMap(outer="o1", shoes="s1"), "no base role"),  # optionals only, no base
-    (SlotMap(top="t1"), "incomplete two_piece"),
-    (SlotMap(bottom="b1"), "incomplete two_piece"),
-    (SlotMap(top="dup", bottom="dup"), "duplicate itemId"),
-    (SlotMap(top="t1", bottom="b1", shoes="t1"), "duplicate itemId"),
+@pytest.mark.parametrize("slotmap,code", [
+    (SlotMap(dress="d1", top="t1"), IssueCode.mixed_template),
+    (SlotMap(dress="d1", bottom="b1"), IssueCode.mixed_template),
+    (SlotMap(), IssueCode.empty_base),
+    (SlotMap(outer="o1", shoes="s1"), IssueCode.empty_base),  # optionals only, no base
+    (SlotMap(top="t1"), IssueCode.incomplete_two_piece),
+    (SlotMap(bottom="b1"), IssueCode.incomplete_two_piece),
+    (SlotMap(top="dup", bottom="dup"), IssueCode.duplicate_item_id),
+    (SlotMap(top="t1", bottom="b1", shoes="t1"), IssueCode.duplicate_item_id),
 ])
-def test_is_valid_rejects_invalid_shapes(slotmap, fragment):
-    valid, reason = is_valid_slotmap(slotmap)
+def test_is_valid_rejects_invalid_shapes(slotmap, code):
+    valid, vcode = is_valid_slotmap(slotmap)
     assert not valid
-    assert fragment in reason
+    assert vcode is code
 
 
 # ================================ template_of ================================

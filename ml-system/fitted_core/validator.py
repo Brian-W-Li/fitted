@@ -8,16 +8,19 @@ a structured issue log. Two public entry points (M2 plan Decision D1/D2):
 - ``validate_gpt_payload(payload, sampled_pool, candidate_requested=None)`` —
   validate an already-parsed payload against the §12 schema.
 
-**Checkpoint scope (C2).** This file currently implements the result model, the
-strict parser, root-envelope validation, and the per-candidate **schema +
-forbidden-field** pass (each candidate is an object with required ``items`` +
-optional ``styleMove``; each item an object with exactly non-empty ``itemId`` +
-string ``role``). SlotMap normalization, sampled-pool membership, key/dedup, and
-StyleMove content validation land at C3–C5 (M2 plan §11). The ``sampled_pool`` and
-``candidate_requested`` parameters are part of the pinned public signature (D1) but
-are not yet consumed. A *schema-valid* candidate does not yet become an accepted
-``ValidatedCandidate`` — that needs the SlotMap + keys built at C3/C4 — so
-``candidates`` is still always empty; only schema rejections are emitted so far.
+**Checkpoint scope (C3).** This file implements the result model, the strict parser,
+root-envelope validation, the per-candidate **schema + forbidden-field** pass (each
+candidate is an object with required ``items`` + optional ``styleMove``; each item an
+object with exactly non-empty ``itemId`` + string ``role``), and — new at C3 —
+**SlotMap normalization, slot-level structural validity, and sampled-pool
+membership** (flow steps 5.3–5.5 + the up-front pool-index build, M2 plan §7). Key
+computation + exact-FullSignature dedup land at C4, StyleMove content validation at
+C5, and ``candidate_requested`` bound semantics at C6 (M2 plan §11). A candidate that
+passes 5.3–5.5 is structurally valid + in-pool but **does not yet become an accepted
+``ValidatedCandidate``** — that needs the keys built at C4 — so ``candidates`` is
+still always empty; C3 emits only structural/pool **rejections** (M2 plan C3/C4
+boundary). ``candidate_requested`` is part of the pinned signature (D1) but not yet
+consumed (C6).
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures go
 to the issue channel (``Issue`` / ``ParseResult`` / ``ValidationResult``);
@@ -39,6 +42,7 @@ from fitted_core.models import (
     Template,
     WardrobeItem,
 )
+from fitted_core.slotmap import is_valid_slotmap, normalize_to_slotmap
 
 
 # ============================ result / issue model ============================
@@ -329,6 +333,60 @@ def _validate_candidate(candidate: object, index: int) -> Optional[Issue]:
     return None
 
 
+def _build_pool_index(sampled_pool: Sequence[WardrobeItem]) -> set[str]:
+    """Flatten the sampled pool to its set of item ids (flow step 2, M2 plan §8).
+
+    The pool is the bounded set GPT was shown; candidate ids are validated against it
+    (never the wider wardrobe). A **duplicate id** is caller-contract misuse →
+    ``ValueError`` (mirrors ``sampler._reject_duplicate_ids``): a duplicate collapses
+    the membership lookup and breaks key equality (§7/R12). A clean M1 path can never
+    produce this, so raising surfaces the upstream bug loudly instead of silently
+    mis-validating. Built up front — before the root envelope — so this caller-contract
+    violation always raises, even for a payload that would itself be rejected.
+    """
+    seen: set[str] = set()
+    for item in sampled_pool:
+        if item.id in seen:
+            raise ValueError(
+                f"duplicate item id {item.id!r} in sampled_pool (R12): ids must be unique"
+            )
+        seen.add(item.id)
+    return seen
+
+
+def _validate_structure(candidate: dict, index: int, pool_ids: set[str]) -> Optional[Issue]:
+    """SlotMap + structural + pool validation of a schema-valid candidate (5.3–5.5).
+
+    Runs only after ``_validate_candidate`` confirmed the candidate is an object whose
+    ``items`` is a list of well-formed ``{itemId, role}`` objects. Returns the first
+    failing check as an ``Issue`` (first-failing-check-wins, M2 plan §7), or ``None``
+    when the candidate is structurally valid and fully in-pool. Even on ``None`` the
+    candidate is **not** accepted here — building a ``ValidatedCandidate`` needs the
+    keys computed at C4 (M2 plan C3/C4 boundary), so C3 emits no accepted candidates.
+
+    Structural codes are *owned* by ``slotmap.py`` (Decision D7), which returns the
+    ``IssueCode`` directly; this wraps it with the candidate index, never re-classifies
+    prose. ``detail`` is ``None`` for those (the code is the contract; the prose is gone
+    with D7); only the validator-owned pool reject carries the offending id as detail.
+    """
+    # 5.3 normalize → SlotMap (owns unknownRole / duplicateRoleSlot, D7).
+    slot_map, norm_code = normalize_to_slotmap(candidate["items"])
+    if norm_code is not None:
+        return Issue(norm_code, index)
+    # 5.4 slot-level structural validity (owns mixed/empty/incomplete/dupId, D7).
+    valid, struct_code = is_valid_slotmap(slot_map)
+    if not valid:
+        return Issue(struct_code, index)
+    # 5.5 sampled-pool membership — every filled slot id must be in the pool. Runs
+    # after structural validity, so a structural reject always precedes a pool reject.
+    for item_id in (slot_map.dress, slot_map.top, slot_map.bottom, slot_map.outer, slot_map.shoes):
+        if item_id is not None and item_id not in pool_ids:
+            return Issue(
+                IssueCode.item_outside_sampled_pool, index, f"itemId {item_id!r} not in sampled pool"
+            )
+    return None
+
+
 def validate_gpt_payload(
     payload: object,
     sampled_pool: Sequence[WardrobeItem],
@@ -336,21 +394,28 @@ def validate_gpt_payload(
 ) -> ValidationResult:
     """Validate an already-parsed GPT payload against the §12 schema (M2 plan §7).
 
-    **C2 scope:** strict root envelope + per-candidate schema/forbidden-field pass.
-    A malformed root returns zero candidates and a single root rejection, and never
-    inspects nested candidates (§13). Otherwise each candidate is schema-validated in
-    order; a bad candidate yields one rejection (first failing check wins, with its
-    ``candidate_index``) and never stops later candidates. SlotMap/pool/keys/dedup/
-    StyleMove validation — and thus building accepted ``ValidatedCandidate``s — land
-    at C3–C5, so ``candidates`` is still always empty here.
+    **C3 scope:** strict root envelope + per-candidate schema/forbidden-field pass +
+    SlotMap normalization + slot-level structural validity + sampled-pool membership
+    (flow steps 2–5.5). A malformed root returns zero candidates and a single root
+    rejection, and never inspects nested candidates (§13). Otherwise each candidate is
+    validated in order through schema (5.1–5.2) then structure/pool (5.3–5.5); a bad
+    candidate yields one rejection (first failing check wins, with its
+    ``candidate_index``) and never stops later candidates. Key computation + dedup
+    (C4), StyleMove validation (C5), and ``candidate_requested`` bound semantics (C6)
+    are not done here — so a candidate that passes 5.3–5.5 is structurally valid +
+    in-pool but is **not** accepted yet (a ``ValidatedCandidate`` needs the C4 keys),
+    and ``candidates`` is still always empty (M2 plan C3/C4 boundary).
 
-    ``sampled_pool`` and ``candidate_requested`` are part of the pinned signature
-    (Decision D1) but are not consumed yet: pool indexing/membership is C3, and the
-    ``candidate_requested`` bound semantics (Decision D6) are C6.
+    ``candidate_requested`` is part of the pinned signature (Decision D1) but not yet
+    consumed — its bound semantics (Decision D6) are C6.
     """
     candidates: list[ValidatedCandidate] = []
     rejections: list[Issue] = []
     warnings: list[Issue] = []
+
+    # Step 2 — build the pool id index up front. A duplicate id is caller-contract
+    # misuse and raises (R12), even when the payload would itself be rejected.
+    pool_ids = _build_pool_index(sampled_pool)
 
     # Step 3 — strict root envelope. On failure: record and return immediately,
     # zero candidates, no nested inspection (§13).
@@ -360,12 +425,14 @@ def validate_gpt_payload(
         return ValidationResult(candidates=candidates, rejections=rejections, warnings=warnings)
 
     # Per-candidate validation (§7 step 5), candidate-by-candidate (§13): a bad
-    # candidate never stops later ones. C2 runs the schema pass (5.1–5.2) only;
-    # SlotMap/pool/keys/dedup/StyleMove (5.3–5.8) — and thus accepting a candidate —
-    # land at C3–C5, so a schema-valid candidate currently yields neither a rejection
-    # nor an accepted candidate.
+    # candidate never stops later ones. C3 runs schema (5.1–5.2) then structure/pool
+    # (5.3–5.5), first-failing-check-wins. Keys/dedup/StyleMove (5.6–5.8) — and thus
+    # accepting a candidate — land at C4–C5, so a candidate that passes 5.3–5.5 yields
+    # neither a rejection nor (yet) an accepted candidate.
     for index, candidate in enumerate(payload["outfits"]):
         candidate_issue = _validate_candidate(candidate, index)
+        if candidate_issue is None:
+            candidate_issue = _validate_structure(candidate, index, pool_ids)
         if candidate_issue is not None:
             _record(candidate_issue, rejections, warnings)
 

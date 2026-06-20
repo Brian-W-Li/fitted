@@ -1,9 +1,11 @@
 """M2 validator contract tests (v2 §12/§13).
 
-Checkpoints C1–C2 (Stages A–B in the M2 plan §10): the strict parser, the
-result/issue model, root-envelope validation, and the per-candidate schema +
+Checkpoints C1–C3 (Stages A–D in the M2 plan §10): the strict parser, the
+result/issue model, root-envelope validation, the per-candidate schema +
 forbidden-field pass (candidate/item shape, items/itemId/role, the §12 forbidden
-fields). SlotMap, pool, keys, dedup, and StyleMove tests land at C3–C5.
+fields), and — at C3 — SlotMap normalization, slot-level structural validity, and
+sampled-pool membership (structural/pool **rejections** only; C3 emits no accepted
+candidates — keys/dedup land at C4). StyleMove tests land at C5.
 
 Assert on ``IssueCode`` (and ``candidate_index`` where useful), **never** on
 ``Issue.detail`` prose (M2 plan §4/§10) — the detail text is a debug aid that may
@@ -384,6 +386,171 @@ def test_style_move_is_allowed_key_but_not_inspected_in_c2():
     }
     assert not (style_codes & set(_codes(result.rejections)))
     assert not (style_codes & set(_codes(result.warnings)))
+
+
+# ============================ SlotMap + sampled-pool (C3) ============================
+
+# A pool spanning all five types so structurally-valid candidates (one/two-piece,
+# ±outer ±shoes) clear sampled-pool membership. Distinct from the module-level POOL.
+POOL_C3 = [
+    WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+    WardrobeItem("t2", "Shirt", ItemType.top, warmth=4, image_url="t2.jpg"),
+    WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg"),
+    WardrobeItem("d1", "Dress", ItemType.dress, warmth=3, image_url="d1.jpg"),
+    WardrobeItem("o1", "Coat", ItemType.outer_layer, warmth=8, image_url="o1.jpg"),
+    WardrobeItem("s1", "Boots", ItemType.shoes, warmth=2, image_url="s1.jpg"),
+]
+
+
+def _validate_pooled(candidate, pool=POOL_C3):
+    """Validate one candidate against a full-type pool (C3 structural/pool tests)."""
+    return validate_gpt_payload({"outfits": [candidate]}, pool)
+
+
+# --- 5.3 normalizer-owned rejects (Decision D7: slotmap.py emits the IssueCode) ---
+
+def test_unknown_role_rejected():
+    # A well-formed but non-existent role string is schema-valid in C2; the normalizer
+    # rejects the value at C3 (Decision D4/D7) as unknownRole.
+    result = _validate_pooled({"items": [{"itemId": "t1", "role": "banana"}]})
+    assert _codes(result.rejections) == [IssueCode.unknown_role]
+    assert result.rejections[0].candidate_index == 0
+    assert result.candidates == []
+
+
+def test_duplicate_role_slot_rejected():
+    # Two items claim the same role slot — last-write-wins would silently drop one, so
+    # the normalizer rejects pre-collapse (mutation guard: NOT a silent overwrite).
+    result = _validate_pooled({"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "t2", "role": "base_top"},
+    ]})
+    assert _codes(result.rejections) == [IssueCode.duplicate_role_slot]
+    assert result.candidates == []
+
+
+# --- 5.4 is_valid_slotmap-owned slot-level structural rejects ---
+
+def test_mixed_template_rejected():
+    result = _validate_pooled({"items": [
+        {"itemId": "d1", "role": "one_piece"},
+        {"itemId": "t1", "role": "base_top"},
+    ]})
+    assert _codes(result.rejections) == [IssueCode.mixed_template]
+    assert result.candidates == []
+
+
+def test_empty_items_rejected_as_empty_base():
+    # items: [] is schema-valid (C2), normalizes to an empty SlotMap, and is rejected
+    # as emptyBase by is_valid_slotmap (N3 owner) — NOT invalidItems (mutation guard).
+    result = _validate_pooled({"items": []})
+    assert _codes(result.rejections) == [IssueCode.empty_base]
+    assert IssueCode.invalid_items not in _codes(result.rejections)
+    assert result.candidates == []
+
+
+def test_optionals_only_rejected_as_empty_base():
+    # Outer + shoes with no base role → emptyBase.
+    result = _validate_pooled({"items": [
+        {"itemId": "o1", "role": "outer_layer"},
+        {"itemId": "s1", "role": "shoes"},
+    ]})
+    assert _codes(result.rejections) == [IssueCode.empty_base]
+    assert result.candidates == []
+
+
+def test_incomplete_two_piece_rejected():
+    result = _validate_pooled({"items": [{"itemId": "t1", "role": "base_top"}]})
+    assert _codes(result.rejections) == [IssueCode.incomplete_two_piece]
+    assert result.candidates == []
+
+
+def test_duplicate_item_id_rejected():
+    # Same itemId in two different role slots (top == bottom). is_valid_slotmap owns
+    # this at 5.4, before pool membership at 5.5 — the id IS in pool, isolating dupId.
+    result = _validate_pooled({"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "t1", "role": "base_bottom"},
+    ]})
+    assert _codes(result.rejections) == [IssueCode.duplicate_item_id]
+    assert result.candidates == []
+
+
+# --- pass-through: structurally valid + in-pool → no rejection/warning, and (the
+#     C3/C4 boundary) NO accepted candidate yet — that needs the C4 keys ---
+
+@pytest.mark.parametrize("items", [
+    [{"itemId": "d1", "role": "one_piece"}],
+    [{"itemId": "d1", "role": "one_piece"}, {"itemId": "o1", "role": "outer_layer"}],
+    [{"itemId": "d1", "role": "one_piece"}, {"itemId": "s1", "role": "shoes"}],
+    [{"itemId": "t1", "role": "base_top"}, {"itemId": "b1", "role": "base_bottom"}],
+    [{"itemId": "t1", "role": "base_top"}, {"itemId": "b1", "role": "base_bottom"},
+     {"itemId": "o1", "role": "outer_layer"}, {"itemId": "s1", "role": "shoes"}],
+])
+def test_structurally_valid_in_pool_passes_through(items):
+    result = _validate_pooled({"items": items})
+    assert result.rejections == []
+    assert result.warnings == []
+    # C3/C4 boundary mutation guard: a valid + in-pool candidate is NOT accepted yet.
+    assert result.candidates == []
+
+
+# --- 5.5 sampled-pool membership (M2 Step-3 owned) ---
+
+def test_item_outside_pool_rejected():
+    # Structurally valid two-piece, but b1 is absent from this single-item pool.
+    pool = [WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg")]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.item_outside_sampled_pool]
+    assert result.rejections[0].candidate_index == 0
+    assert result.candidates == []
+
+
+def test_membership_uses_pool_not_wider_wardrobe():
+    # An id that could be valid "somewhere" but is not in the sampled pool is still
+    # rejected — C3 validates against the bounded pool only (mutation guard).
+    pool = [
+        WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+        WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg"),
+    ]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b_other", "role": "base_bottom"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.item_outside_sampled_pool]
+
+
+def test_structural_reject_precedes_pool_reject():
+    # An out-of-pool id on a structurally INVALID candidate reports the structural code,
+    # not pool — 5.4 runs before 5.5 (mutation guard: don't check pool before structure).
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "ghost", "role": "base_top"},  # not in pool AND incomplete two-piece
+    ]}]}, POOL_C3)
+    assert _codes(result.rejections) == [IssueCode.incomplete_two_piece]
+
+
+def test_duplicate_pool_ids_raise():
+    # Duplicate ids in sampled_pool are caller-contract misuse → ValueError (R12).
+    dup_pool = [
+        WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+        WardrobeItem("t1", "TeeDup", ItemType.top, warmth=4, image_url="t1b.jpg"),
+    ]
+    with pytest.raises(ValueError):
+        validate_gpt_payload({"outfits": []}, dup_pool)
+
+
+def test_duplicate_pool_ids_raise_before_root_validation():
+    # The pool index is built before the root envelope (flow step 2 < step 3), so a
+    # caller-contract dup-id pool raises even for a payload that would itself reject.
+    dup_pool = [
+        WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+        WardrobeItem("t1", "TeeDup", ItemType.top, warmth=4, image_url="t1b.jpg"),
+    ]
+    with pytest.raises(ValueError):
+        validate_gpt_payload("not-an-object", dup_pool)
 
 
 # ============================ result-model / severity contract ============================
