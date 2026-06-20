@@ -503,7 +503,7 @@ signal suppresses bad repeats. A casual board never overrides a "formal intervie
 ## 13. Normalize + validate `[NOW]`
 
 Carried from v1.2 §13/§8. Normalize each candidate to a SlotMap (§8); reject structurally invalid SlotMaps
-(rules in §8); drop exact FullSignature duplicates within the pass; compute BaseKey + FullSignature.
+(rules in §8); compute BaseKey + FullSignature; drop exact FullSignature duplicates within the pass.
 Validation is **structural only and never relaxes**, including under the fallback ladder. **GPT-emitted
 `StyleMove` is also boundary-validated (H23, §5 "schema-validate every LLM boundary"):** its `changedItemIds`
 must be a subset of the outfit's items; a StyleMove referencing an item not in the outfit fails validation
