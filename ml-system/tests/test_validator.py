@@ -606,7 +606,7 @@ def test_one_piece_duplicate_item_id_with_optional_rejected(optional_role):
 def test_c3_failures_isolated_indexes_follow_position():
     # A structural reject, a valid+in-pool candidate, and a pool reject, in that order.
     # Each bad candidate is rejected at its ORIGINAL index, the good one between them is
-    # still processed (isolation), and candidates stays empty (C3 emits none).
+    # still processed (isolation) and accepted at its original index (from C4).
     incomplete = {"items": [{"itemId": "t1", "role": "base_top"}]}           # index 0
     good = {"items": [                                                       # index 1
         {"itemId": "t1", "role": "base_top"},
@@ -854,6 +854,84 @@ def test_candidate_requested_remains_untouched_in_c4():
     result = validate_gpt_payload({"outfits": candidates}, POOL_C3, candidate_requested=1)
     assert len(result.candidates) == 2
     assert IssueCode.extra_candidates_ignored not in _codes(result.warnings)
+
+
+@pytest.mark.parametrize("bad_id", ["none", "o:x"])
+def test_key_precondition_failed_from_optional_outer(bad_id):
+    # A reserved-char / sentinel id in an OPTIONAL outer slot still trips the R10 guard —
+    # full_signature guards outer/shoes too, not just the base — so it surfaces as
+    # keyPreconditionFailed. The bad id is in pool, so 5.5 passes and 5.6 fires.
+    pool = [
+        WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+        WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg"),
+        WardrobeItem(bad_id, "Coat", ItemType.outer_layer, warmth=8, image_url="o.jpg"),
+    ]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+        {"itemId": bad_id, "role": "outer_layer"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.key_precondition_failed]
+    assert result.rejections[0].candidate_index == 0
+    assert result.candidates == []
+
+
+@pytest.mark.parametrize("bad_id", ["none", "s|x"])
+def test_key_precondition_failed_from_optional_shoes(bad_id):
+    # Same as the outer case but for an OPTIONAL shoes slot (one-piece base) — the R10
+    # guard covers every participating itemId, including shoes.
+    pool = [
+        WardrobeItem("d1", "Dress", ItemType.dress, warmth=3, image_url="d1.jpg"),
+        WardrobeItem(bad_id, "Boots", ItemType.shoes, warmth=2, image_url="s.jpg"),
+    ]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "d1", "role": "one_piece"},
+        {"itemId": bad_id, "role": "shoes"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.key_precondition_failed]
+    assert result.rejections[0].candidate_index == 0
+    assert result.candidates == []
+
+
+def test_dedup_is_signature_based_not_array_order():
+    # Same outfit with items listed in a different array order → same normalized SlotMap
+    # → same FullSignature → the second is a duplicate. Proves dedup keys on the SlotMap
+    # signature, not the raw items-array order.
+    a = {"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+        {"itemId": "o1", "role": "outer_layer"},
+    ]}
+    b = {"items": [
+        {"itemId": "o1", "role": "outer_layer"},
+        {"itemId": "b1", "role": "base_bottom"},
+        {"itemId": "t1", "role": "base_top"},
+    ]}
+    result = validate_gpt_payload({"outfits": [a, b]}, POOL_C3)
+    assert len(result.candidates) == 1
+    assert result.candidates[0].source_index == 0
+    assert _codes(result.rejections) == [IssueCode.duplicate_full_signature]
+    assert result.rejections[0].candidate_index == 1
+
+
+def test_one_piece_same_base_key_different_optionals_all_survive():
+    # One-piece mirror of the two-piece same-BaseKey case: the same dress (BaseKey "d1")
+    # with no optional, a different outer, and a different shoes → three distinct
+    # FullSignatures → ALL survive. Never dedup on BaseKey (§7, Decision D9).
+    bare = {"items": [{"itemId": "d1", "role": "one_piece"}]}
+    with_outer = {"items": [
+        {"itemId": "d1", "role": "one_piece"},
+        {"itemId": "o1", "role": "outer_layer"},
+    ]}
+    with_shoes = {"items": [
+        {"itemId": "d1", "role": "one_piece"},
+        {"itemId": "s1", "role": "shoes"},
+    ]}
+    result = validate_gpt_payload({"outfits": [bare, with_outer, with_shoes]}, POOL_C3)
+    assert len(result.candidates) == 3
+    assert {c.base_key for c in result.candidates} == {"d1"}
+    assert len({c.full_signature for c in result.candidates}) == 3
+    assert result.rejections == []
 
 
 # ============================ result-model / severity contract ============================
