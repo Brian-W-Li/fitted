@@ -1,9 +1,10 @@
 # M2: GPT-response validator (parse + schema + SlotMap + keys + dedup + StyleMove)
 
-> **Status: `[NOW]` — C1–C3 implemented and committed; C4 next (2026-06-20).** `validator.py` and
+> **Status: `[NOW]` — C1–C4 implemented and committed; C5 next (2026-06-20).** `validator.py` and
 > `test_validator.py` exist. Landed: strict parser, result/issue model, root-envelope validation, the
-> per-candidate schema + forbidden-field pass, and SlotMap normalization + structural + sampled-pool
-> validation (Decision D7 applied to `slotmap.py`) — **278 pytest green**. Next checkpoint: C4 (keys + dedup).
+> per-candidate schema + forbidden-field pass, SlotMap normalization + structural + sampled-pool
+> validation (Decision D7 applied to `slotmap.py`), and BaseKey/FullSignature computation + exact-FullSignature
+> dedup — the first checkpoint to emit accepted candidates — **294 pytest green**. Next checkpoint: C5 (StyleMove warnings).
 > This plan turns `docs/Fitted_Spec_v2.md` (canonical) + `docs/CODEX_HANDOFF.md` (Codex's historical M2
 > audit) into an unambiguous implementation roadmap. **Canonical spec wins on any conflict;** this doc is
 > implementation guidance, not product truth.
@@ -423,7 +424,7 @@ pinned in tests before behavior, per the handoff).
 | C1 ✅ | result model + parser/root | `IssueCode`, `Issue`, `ParseResult`, `ValidationResult`, `ValidatedCandidate`, `StyleMove`; `parse_gpt_json`; root-envelope validation. Stage A green. **Done (committed).** |
 | C2 ✅ | candidate/item schema | allowed/forbidden field enforcement; `items`/`itemId`/`role` schema; candidate-by-candidate isolation. Stage B green. **Done (committed).** |
 | C3 ✅ | SlotMap + pool | wire `normalize_to_slotmap`/`is_valid_slotmap`; structural codes (Decision D7); pool-membership + duplicate-pool-id guard — structural/pool **rejections only; emits no accepted candidates**. Stages C–D green. **Done (committed).** |
-| C4 | keys + dedup | `base_key`/`full_signature` integration; `keyPreconditionFailed`; exact-FullSignature dedup; first-wins ordering; **first checkpoint to populate `ValidationResult.candidates`**. Stage E green. |
+| C4 ✅ | keys + dedup | `base_key`/`full_signature` integration; `keyPreconditionFailed`; exact-FullSignature dedup; first-wins ordering; **first checkpoint to populate `ValidationResult.candidates`**. Stage E green. **Done (committed).** |
 | C5 | StyleMove warnings | `StyleMove` validation, warning-only drop; missing-styleMove decision. Stage F green. |
 | C6 | boundary + hardening + closeout | `candidate_requested` semantics (Stage G); Stage H mutants; flip `__init__.py` "M0/M1"→"M0–M2"; add `> COMPLETED` banner to this plan. |
 

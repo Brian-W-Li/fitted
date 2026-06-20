@@ -1,11 +1,12 @@
 """M2 validator contract tests (v2 §12/§13).
 
-Checkpoints C1–C3 (Stages A–D in the M2 plan §10): the strict parser, the
+Checkpoints C1–C4 (Stages A–E in the M2 plan §10): the strict parser, the
 result/issue model, root-envelope validation, the per-candidate schema +
 forbidden-field pass (candidate/item shape, items/itemId/role, the §12 forbidden
-fields), and — at C3 — SlotMap normalization, slot-level structural validity, and
-sampled-pool membership (structural/pool **rejections** only; C3 emits no accepted
-candidates — keys/dedup land at C4). StyleMove tests land at C5.
+fields), SlotMap normalization, slot-level structural validity, sampled-pool
+membership, and — at C4 — BaseKey/FullSignature computation and exact-FullSignature
+dedup (the first checkpoint that emits accepted ``ValidatedCandidate``s). StyleMove
+tests land at C5.
 
 Assert on ``IssueCode`` (and ``candidate_index`` where useful), **never** on
 ``Issue.detail`` prose (M2 plan §4/§10) — the detail text is a debug aid that may
@@ -14,7 +15,7 @@ change freely; the codes are the stable contract.
 
 import pytest
 
-from fitted_core.models import IssueCode, ItemType, WardrobeItem
+from fitted_core.models import IssueCode, ItemType, Template, WardrobeItem
 from fitted_core.validator import (
     Issue,
     ParseResult,
@@ -476,8 +477,8 @@ def test_duplicate_item_id_rejected():
     assert result.candidates == []
 
 
-# --- pass-through: structurally valid + in-pool → no rejection/warning, and (the
-#     C3/C4 boundary) NO accepted candidate yet — that needs the C4 keys ---
+# --- structurally valid + in-pool → no rejection/warning, and (from C4) accepted as
+#     a single keyed ValidatedCandidate ---
 
 @pytest.mark.parametrize("items", [
     [{"itemId": "d1", "role": "one_piece"}],
@@ -487,12 +488,13 @@ def test_duplicate_item_id_rejected():
     [{"itemId": "t1", "role": "base_top"}, {"itemId": "b1", "role": "base_bottom"},
      {"itemId": "o1", "role": "outer_layer"}, {"itemId": "s1", "role": "shoes"}],
 ])
-def test_structurally_valid_in_pool_passes_through(items):
+def test_structurally_valid_in_pool_is_accepted(items):
     result = _validate_pooled({"items": items})
     assert result.rejections == []
     assert result.warnings == []
-    # C3/C4 boundary mutation guard: a valid + in-pool candidate is NOT accepted yet.
-    assert result.candidates == []
+    # C4: a valid + in-pool candidate is now keyed and accepted (one ValidatedCandidate).
+    assert len(result.candidates) == 1
+    assert result.candidates[0].source_index == 0
 
 
 # --- 5.5 sampled-pool membership (M2 Step-3 owned) ---
@@ -620,7 +622,8 @@ def test_c3_failures_isolated_indexes_follow_position():
         IssueCode.item_outside_sampled_pool,
     ]
     assert [r.candidate_index for r in result.rejections] == [0, 2]
-    assert result.candidates == []
+    # From C4 the good candidate at index 1 is accepted, keeping its original index.
+    assert [c.source_index for c in result.candidates] == [1]
 
 
 def test_c3_failure_does_not_stop_later_candidate_reversed_order():
@@ -634,7 +637,223 @@ def test_c3_failure_does_not_stop_later_candidate_reversed_order():
     result = validate_gpt_payload({"outfits": [good, bad]}, POOL_C3)
     assert _codes(result.rejections) == [IssueCode.incomplete_two_piece]
     assert result.rejections[0].candidate_index == 1
+    # From C4 the good candidate at index 0 is accepted (the bad one doesn't shift it).
+    assert [c.source_index for c in result.candidates] == [0]
+
+
+# ============================ keys + FullSignature dedup (C4) ============================
+# Stage E (M2 plan §10): the first checkpoint that emits accepted ValidatedCandidates.
+# base_key + full_signature are computed here, so these assert on accepted-candidate
+# fields and on exact-FullSignature dedup. Key formats cross-check v2 §7.
+
+
+def test_accepted_one_piece_candidate():
+    # one_piece base_key is the dress id; full_signature appends none/none for the empty
+    # optional slots (§7). style_move is None — StyleMove validation is C5, not C4.
+    result = _validate_pooled({"items": [{"itemId": "d1", "role": "one_piece"}]})
+    assert result.rejections == []
+    assert result.warnings == []
+    assert len(result.candidates) == 1
+    c = result.candidates[0]
+    assert c.source_index == 0
+    assert c.template is Template.one_piece
+    assert c.base_key == "d1"
+    assert c.full_signature == "d1|outer=none|shoes=none"
+    assert c.slot_map.dress == "d1"
+    assert c.style_move is None
+
+
+def test_accepted_two_piece_candidate_fields():
+    # two_piece base_key is "{top}:{bottom}" (§7); slots carried through on the candidate.
+    result = _validate_pooled({"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]})
+    assert len(result.candidates) == 1
+    c = result.candidates[0]
+    assert c.template is Template.two_piece
+    assert c.base_key == "t1:b1"
+    assert c.full_signature == "t1:b1|outer=none|shoes=none"
+    assert c.slot_map.top == "t1"
+    assert c.slot_map.bottom == "b1"
+    assert c.style_move is None
+
+
+def test_accepted_optional_outer_candidate():
+    # An optional outer shows up in the FullSignature (not the BaseKey) — same base.
+    result = _validate_pooled({"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+        {"itemId": "o1", "role": "outer_layer"},
+    ]})
+    assert len(result.candidates) == 1
+    c = result.candidates[0]
+    assert c.base_key == "t1:b1"
+    assert c.full_signature == "t1:b1|outer=o1|shoes=none"
+
+
+def test_accepted_optional_shoes_candidate():
+    # An optional shoes shows up in the FullSignature shoes field (one-piece base).
+    result = _validate_pooled({"items": [
+        {"itemId": "d1", "role": "one_piece"},
+        {"itemId": "s1", "role": "shoes"},
+    ]})
+    assert len(result.candidates) == 1
+    c = result.candidates[0]
+    assert c.base_key == "d1"
+    assert c.full_signature == "d1|outer=none|shoes=s1"
+
+
+def test_accepted_ordering_after_rejections():
+    # reject, accept, reject, accept — survivors stay in input order carrying their
+    # original source_index; rejections in encounter order.
+    incomplete = {"items": [{"itemId": "t1", "role": "base_top"}]}            # 0 reject
+    good_a = {"items": [                                                      # 1 accept
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    out_of_pool = {"items": [                                                 # 2 reject
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "ghost", "role": "base_bottom"},
+    ]}
+    good_b = {"items": [{"itemId": "d1", "role": "one_piece"}]}               # 3 accept
+    result = validate_gpt_payload(
+        {"outfits": [incomplete, good_a, out_of_pool, good_b]}, POOL_C3
+    )
+    assert [c.source_index for c in result.candidates] == [1, 3]
+    assert _codes(result.rejections) == [
+        IssueCode.incomplete_two_piece,
+        IssueCode.item_outside_sampled_pool,
+    ]
+
+
+def test_rejected_candidate_emits_no_accepted_candidate():
+    # A structural reject yields zero accepted candidates (no half-accept).
+    result = _validate_pooled({"items": [{"itemId": "t1", "role": "base_top"}]})
+    assert _codes(result.rejections) == [IssueCode.incomplete_two_piece]
     assert result.candidates == []
+
+
+def test_exact_full_signature_duplicate_rejects_later():
+    # Two identical outfits → first accepted, later identical dropped as
+    # duplicateFullSignature (first-occurrence-wins, Decision D9).
+    candidate = {"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    result = validate_gpt_payload({"outfits": [candidate, dict(candidate)]}, POOL_C3)
+    assert len(result.candidates) == 1
+    assert result.candidates[0].source_index == 0
+    assert _codes(result.rejections) == [IssueCode.duplicate_full_signature]
+    assert result.rejections[0].candidate_index == 1
+
+
+def test_same_base_key_different_full_signature_both_survive():
+    # Same base pairing, different outer → different FullSignature → BOTH survive. Never
+    # dedup on BaseKey (§7 invariant, Decision D9).
+    bare = {"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    with_outer = {"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+        {"itemId": "o1", "role": "outer_layer"},
+    ]}
+    result = validate_gpt_payload({"outfits": [bare, with_outer]}, POOL_C3)
+    assert len(result.candidates) == 2
+    assert result.candidates[0].base_key == result.candidates[1].base_key == "t1:b1"
+    assert result.candidates[0].full_signature != result.candidates[1].full_signature
+    assert result.rejections == []
+
+
+@pytest.mark.parametrize("bad_id", ["none", "a:b", "a|b", "a=b"])
+def test_key_precondition_failed_wraps_key_value_error(bad_id):
+    # An itemId tripping the R10 key guard (reserved char / "none" sentinel) is in pool
+    # and structurally valid, so it reaches key computation → keyPreconditionFailed, not
+    # an escaping ValueError.
+    pool = [
+        WardrobeItem(bad_id, "Weird", ItemType.top, warmth=4, image_url="n.jpg"),
+        WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg"),
+    ]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": bad_id, "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.key_precondition_failed]
+    assert result.rejections[0].candidate_index == 0
+    assert result.candidates == []
+
+
+def test_key_failure_does_not_stop_later_candidates():
+    # A key-precondition failure at index 0 must not prevent index 1 from being accepted.
+    pool = [
+        WardrobeItem("none", "Weird", ItemType.top, warmth=4, image_url="n.jpg"),
+        WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+        WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg"),
+    ]
+    bad = {"items": [
+        {"itemId": "none", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    good = {"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    result = validate_gpt_payload({"outfits": [bad, good]}, pool)
+    assert _codes(result.rejections) == [IssueCode.key_precondition_failed]
+    assert [c.source_index for c in result.candidates] == [1]
+
+
+def test_structural_or_pool_reject_precedes_key_computation():
+    # An itemId that would trip the R10 key guard but is ALSO out of pool reports the
+    # pool reject — 5.5 (membership) runs before 5.6 (keys). Mutation guard: keys must
+    # not be computed before structural/pool validation.
+    pool = [WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg")]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "a:b", "role": "base_top"},   # reserved char AND not in pool
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.item_outside_sampled_pool]
+    assert IssueCode.key_precondition_failed not in _codes(result.rejections)
+
+
+def test_style_move_present_not_validated_in_c4():
+    # C4/C5 boundary: styleMove is an allowed candidate key but its CONTENTS are not
+    # validated until C5. A valid candidate with a (malformed) styleMove is accepted with
+    # style_move=None and no styleMove issue. (C5 will add the warning.)
+    candidate = {
+        "items": [
+            {"itemId": "t1", "role": "base_top"},
+            {"itemId": "b1", "role": "base_bottom"},
+        ],
+        "styleMove": {"bogus": 1, "moveType": ""},  # malformed; C5 would warn
+    }
+    result = _validate_pooled(candidate)
+    assert len(result.candidates) == 1
+    assert result.candidates[0].style_move is None
+    style_codes = {
+        IssueCode.invalid_style_move_shape,
+        IssueCode.style_move_item_outside_outfit,
+        IssueCode.duplicate_style_move_changed_ids,
+    }
+    assert not (style_codes & set(_codes(result.rejections)))
+    assert not (style_codes & set(_codes(result.warnings)))
+
+
+def test_candidate_requested_remains_untouched_in_c4():
+    # C4/C6 boundary: candidate_requested is still NOT consumed — passing a bound does
+    # not cap candidates and emits no extraCandidatesIgnored warning (that lands at C6).
+    candidates = [
+        {"items": [{"itemId": "d1", "role": "one_piece"}]},
+        {"items": [
+            {"itemId": "t1", "role": "base_top"},
+            {"itemId": "b1", "role": "base_bottom"},
+        ]},
+    ]
+    result = validate_gpt_payload({"outfits": candidates}, POOL_C3, candidate_requested=1)
+    assert len(result.candidates) == 2
+    assert IssueCode.extra_candidates_ignored not in _codes(result.warnings)
 
 
 # ============================ result-model / severity contract ============================

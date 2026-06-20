@@ -8,18 +8,18 @@ a structured issue log. Two public entry points (M2 plan Decision D1/D2):
 - ``validate_gpt_payload(payload, sampled_pool, candidate_requested=None)`` —
   validate an already-parsed payload against the §12 schema.
 
-**Checkpoint scope (C3).** This file implements the result model, the strict parser,
+**Checkpoint scope (C4).** This file implements the result model, the strict parser,
 root-envelope validation, the per-candidate **schema + forbidden-field** pass (each
 candidate is an object with required ``items`` + optional ``styleMove``; each item an
-object with exactly non-empty ``itemId`` + string ``role``), and — new at C3 —
-**SlotMap normalization, slot-level structural validity, and sampled-pool
-membership** (flow steps 5.3–5.5 + the up-front pool-index build, M2 plan §7). Key
-computation + exact-FullSignature dedup land at C4, StyleMove content validation at
-C5, and ``candidate_requested`` bound semantics at C6 (M2 plan §11). A candidate that
-passes 5.3–5.5 is structurally valid + in-pool but **does not yet become an accepted
-``ValidatedCandidate``** — that needs the keys built at C4 — so ``candidates`` is
-still always empty; C3 emits only structural/pool **rejections** (M2 plan C3/C4
-boundary). ``candidate_requested`` is part of the pinned signature (D1) but not yet
+object with exactly non-empty ``itemId`` + string ``role``), **SlotMap normalization,
+slot-level structural validity, and sampled-pool membership** (flow steps 5.3–5.5 +
+the up-front pool-index build), and — new at C4 — **BaseKey/FullSignature computation
+and exact-FullSignature dedup** (flow steps 5.6–5.7, M2 plan §7). C4 is the first
+checkpoint that emits accepted ``ValidatedCandidate``s: a candidate that passes
+5.3–5.7 is keyed and appended to ``candidates`` (in input order; dedup keeps the first
+occurrence), always with ``style_move=None`` — StyleMove content validation lands at
+C5. StyleMove validation (C5) and ``candidate_requested`` bound semantics (C6) are not
+done here; ``candidate_requested`` is part of the pinned signature (D1) but not yet
 consumed (C6).
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures go
@@ -33,8 +33,9 @@ Sources: docs/Fitted_Spec_v2.md §7/§8/§9/§12/§13, docs/plans/m2-validator.m
 import json
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
+from fitted_core.keys import base_key, full_signature
 from fitted_core.models import (
     IssueCode,
     SlotMap,
@@ -42,7 +43,7 @@ from fitted_core.models import (
     Template,
     WardrobeItem,
 )
-from fitted_core.slotmap import is_valid_slotmap, normalize_to_slotmap
+from fitted_core.slotmap import is_valid_slotmap, normalize_to_slotmap, template_of
 
 
 # ============================ result / issue model ============================
@@ -76,9 +77,9 @@ class ValidatedCandidate:
 
     ``source_index`` is its position in the original ``outfits`` array (survivors
     stay in input order). ``style_move`` is present iff a valid StyleMove was
-    supplied; otherwise ``None`` (M2 plan Decision D5). Populated starting at **C4** —
-    the first checkpoint that computes the required ``base_key`` + ``full_signature``;
-    C1–C3 emit none (C3 does SlotMap/pool rejection only — M2 plan C3/C4 boundary).
+    supplied; otherwise ``None`` (M2 plan Decision D5) — at C4 it is always ``None``,
+    because StyleMove validation lands at C5. Emitted from **C4** on, the checkpoint
+    that computes the required ``base_key`` + ``full_signature``.
     """
 
     source_index: int
@@ -354,15 +355,29 @@ def _build_pool_index(sampled_pool: Sequence[WardrobeItem]) -> set[str]:
     return seen
 
 
-def _validate_structure(candidate: dict, index: int, pool_ids: set[str]) -> Optional[Issue]:
+@dataclass(frozen=True)
+class _Structure:
+    """A schema-valid, structurally-valid, in-pool candidate's normalized SlotMap.
+
+    Private carry between ``_validate_structure`` (5.3–5.5) and key computation (5.6):
+    holding the normalized SlotMap means the caller does not re-normalize to build the
+    accepted ``ValidatedCandidate``. Never public (M2 plan Decision D1).
+    """
+
+    slot_map: SlotMap
+
+
+def _validate_structure(
+    candidate: dict, index: int, pool_ids: set[str]
+) -> Union[Issue, _Structure]:
     """SlotMap + structural + pool validation of a schema-valid candidate (5.3–5.5).
 
     Runs only after ``_validate_candidate`` confirmed the candidate is an object whose
     ``items`` is a list of well-formed ``{itemId, role}`` objects. Returns the first
-    failing check as an ``Issue`` (first-failing-check-wins, M2 plan §7), or ``None``
-    when the candidate is structurally valid and fully in-pool. Even on ``None`` the
-    candidate is **not** accepted here — building a ``ValidatedCandidate`` needs the
-    keys computed at C4 (M2 plan C3/C4 boundary), so C3 emits no accepted candidates.
+    failing check as an ``Issue`` (first-failing-check-wins, M2 plan §7), or a
+    ``_Structure`` carrying the normalized SlotMap when the candidate is structurally
+    valid and fully in-pool. It never accepts the candidate itself — the caller computes
+    keys (5.6) from that SlotMap and builds the ``ValidatedCandidate`` (C4).
 
     Structural codes are *owned* by ``slotmap.py`` (Decision D7), which returns the
     ``IssueCode`` directly; this wraps it with the candidate index, never re-classifies
@@ -384,7 +399,24 @@ def _validate_structure(candidate: dict, index: int, pool_ids: set[str]) -> Opti
             return Issue(
                 IssueCode.item_outside_sampled_pool, index, f"itemId {item_id!r} not in sampled pool"
             )
-    return None
+    return _Structure(slot_map=slot_map)
+
+
+def _compute_keys(slot_map: SlotMap, index: int) -> Union[tuple[str, str], Issue]:
+    """Compute ``(base_key, full_signature)`` for a validated SlotMap (flow 5.6).
+
+    Returns the key pair, or wraps the R10 key-precondition ``ValueError`` (a reserved
+    char / the ``"none"`` sentinel in a participating itemId — see keys.py) as a
+    candidate-level ``keyPreconditionFailed`` ``Issue`` so it never escapes (Decision
+    D9). The base is already structurally valid and in-pool by the time this runs, so
+    only the reserved-char/sentinel guard can fire here, not the invalid-base guard.
+    """
+    try:
+        bk = base_key(slot_map)
+        fs = full_signature(slot_map)
+    except ValueError as exc:
+        return Issue(IssueCode.key_precondition_failed, index, str(exc))
+    return bk, fs
 
 
 def validate_gpt_payload(
@@ -394,20 +426,20 @@ def validate_gpt_payload(
 ) -> ValidationResult:
     """Validate an already-parsed GPT payload against the §12 schema (M2 plan §7).
 
-    **C3 scope:** strict root envelope + per-candidate schema/forbidden-field pass +
-    SlotMap normalization + slot-level structural validity + sampled-pool membership
-    (flow steps 2–5.5). A malformed root returns zero candidates and a single root
-    rejection, and never inspects nested candidates (§13). Otherwise each candidate is
-    validated in order through schema (5.1–5.2) then structure/pool (5.3–5.5); a bad
-    candidate yields one rejection (first failing check wins, with its
-    ``candidate_index``) and never stops later candidates. Key computation + dedup
-    (C4), StyleMove validation (C5), and ``candidate_requested`` bound semantics (C6)
-    are not done here — so a candidate that passes 5.3–5.5 is structurally valid +
-    in-pool but is **not** accepted yet (a ``ValidatedCandidate`` needs the C4 keys),
-    and ``candidates`` is still always empty (M2 plan C3/C4 boundary).
+    **C4 scope:** strict root envelope + per-candidate schema/forbidden-field pass +
+    SlotMap normalization + slot-level structural validity + sampled-pool membership +
+    BaseKey/FullSignature computation + exact-FullSignature dedup (flow steps 2–5.7). A
+    malformed root returns zero candidates and a single root rejection, and never
+    inspects nested candidates (§13). Otherwise each candidate is validated in order
+    through schema (5.1–5.2), structure/pool (5.3–5.5), keys (5.6), and dedup (5.7); a
+    bad candidate yields one rejection (first failing check wins, with its
+    ``candidate_index``) and never stops later candidates. A candidate that passes
+    5.3–5.7 is keyed and appended to ``candidates`` (in input order; dedup keeps the
+    first occurrence of a FullSignature), always with ``style_move=None``.
 
-    ``candidate_requested`` is part of the pinned signature (Decision D1) but not yet
-    consumed — its bound semantics (Decision D6) are C6.
+    StyleMove validation (C5) and ``candidate_requested`` bound semantics (C6) are not
+    done here — ``candidate_requested`` is part of the pinned signature (Decision D1)
+    but not yet consumed (Decision D6 is C6).
     """
     candidates: list[ValidatedCandidate] = []
     rejections: list[Issue] = []
@@ -425,15 +457,42 @@ def validate_gpt_payload(
         return ValidationResult(candidates=candidates, rejections=rejections, warnings=warnings)
 
     # Per-candidate validation (§7 step 5), candidate-by-candidate (§13): a bad
-    # candidate never stops later ones. C3 runs schema (5.1–5.2) then structure/pool
-    # (5.3–5.5), first-failing-check-wins. Keys/dedup/StyleMove (5.6–5.8) — and thus
-    # accepting a candidate — land at C4–C5, so a candidate that passes 5.3–5.5 yields
-    # neither a rejection nor (yet) an accepted candidate.
+    # candidate never stops later ones. Each candidate runs schema (5.1–5.2),
+    # structure/pool (5.3–5.5), keys (5.6), then dedup (5.7), first-failing-check-wins;
+    # a survivor is keyed and accepted. StyleMove validation (5.8) lands at C5, so an
+    # accepted candidate's ``style_move`` is always None here.
+    seen_signatures: set[str] = set()
     for index, candidate in enumerate(payload["outfits"]):
         candidate_issue = _validate_candidate(candidate, index)
-        if candidate_issue is None:
-            candidate_issue = _validate_structure(candidate, index, pool_ids)
         if candidate_issue is not None:
             _record(candidate_issue, rejections, warnings)
+            continue
+        # 5.3–5.5 structure + pool; on success carries the normalized SlotMap forward.
+        structure = _validate_structure(candidate, index, pool_ids)
+        if isinstance(structure, Issue):
+            _record(structure, rejections, warnings)
+            continue
+        # 5.6 keys — wrap the R10 ValueError as keyPreconditionFailed (never escapes).
+        key_result = _compute_keys(structure.slot_map, index)
+        if isinstance(key_result, Issue):
+            _record(key_result, rejections, warnings)
+            continue
+        base, full_sig = key_result
+        # 5.7 exact-FullSignature dedup — first occurrence wins (Decision D9); a later
+        # identical signature is dropped, while same BaseKey + different signature both
+        # survive (it never deduplicates on BaseKey).
+        if full_sig in seen_signatures:
+            _record(Issue(IssueCode.duplicate_full_signature, index, full_sig), rejections, warnings)
+            continue
+        seen_signatures.add(full_sig)
+        # Accepted. ``style_move`` stays None until C5 wires StyleMove validation (5.8).
+        candidates.append(ValidatedCandidate(
+            source_index=index,
+            slot_map=structure.slot_map,
+            template=template_of(structure.slot_map),
+            base_key=base,
+            full_signature=full_sig,
+            style_move=None,
+        ))
 
     return ValidationResult(candidates=candidates, rejections=rejections, warnings=warnings)
