@@ -450,7 +450,9 @@ invalid output, then fail gracefully.
 
 **M2 GPT response schema.** M2 pins the first strict LLM boundary to the smallest contract; future fields
 are additive only after their owning milestone specs them. The root is an object with exactly
-`{"outfits": [...]}`. `candidateRequested` is an upper-bound request hint, not an exact requirement: M2 may
+`{"outfits": [...]}`. Strictly valid JSON excludes `NaN`/`Infinity` tokens and duplicate object member names
+at any depth — the validator rejects both as invalid JSON before schema validation; a silently last-won
+duplicate could mask a forbidden or malformed field. `candidateRequested` is an upper-bound request hint, not an exact requirement: M2 may
 validate up to `candidateRequested` candidates when supplied, returning fewer is not invalid, and extra
 candidates beyond the bound may be ignored or rejected with a structured reason but must not affect accepted
 candidates.
