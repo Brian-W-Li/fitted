@@ -253,7 +253,9 @@ The node of the closet graph. Deployed schema is already rich
   ranker tags it with an `optionPath` (reliable|bridge|stretch) and a `risk` (safe|noticeable|bold), plus
   its `StyleMove`. These tags are never GPT-emitted fields.
 - **StyleMove**: `{moveType, changedItemIds, oneSentence, matchedTraits[], missingTraits[]}`. Every
-  StyleMove must reference an actually changed/added item. `matchedTraits/missingTraits` are populated only
+  StyleMove must reference an actually changed/added item — a semantic guarantee where a baseline outfit
+  exists (rescue/upgrade/ranker, §12/§14); the M2 validation boundary checks only the schema and
+  `changedItemIds ⊆ outfit items` (H23, §13). `matchedTraits/missingTraits` are populated only
   once a StyleProfile exists (`[NEXT]`); at `[NOW]` a StyleMove is `{moveType, changedItemIds, oneSentence}`. *(StyleMove reverses the v1.2 §21 non-goal
   "recommendation explanations" — a deliberate, recorded reversal; it is core to v2.)*
 
