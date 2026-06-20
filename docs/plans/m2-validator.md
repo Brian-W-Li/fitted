@@ -73,8 +73,11 @@ Pin the surface narrow (handoff-confirmed). Two public functions:
 
 ```python
 def parse_gpt_json(raw: str) -> ParseResult:
-    """Pure JSON parse. Never raises on bad JSON — returns a ParseResult whose
-    .issue is invalidJson. Does NOT validate the envelope (that is validate_gpt_payload's job)."""
+    """Strict JSON parse. Malformed string *content* → ParseResult.issue = invalidJson
+    (never raises on bad data). A non-`str` `raw` is caller misuse → raises TypeError.
+    Also rejects (as invalidJson) the two non-strict cases json.loads accepts by default:
+    duplicate object keys and NaN/Infinity tokens. Does NOT validate the envelope
+    (that is validate_gpt_payload's job)."""
 
 def validate_gpt_payload(
     payload: object,
@@ -96,13 +99,23 @@ JSON vs malformed object" boundary is testable in isolation and the network/repa
 its **one** §12 JSON-repair between the two. No convenience `validate_gpt_response(raw, …)` wrapper unless a
 caller proves it necessary.
 
+**Decision D2b — strict parse (untrusted-boundary hardening).** `parse_gpt_json` is the first guard on
+adversarial GPT output, so it enforces strict JSON beyond `json.loads`'s defaults: an `object_pairs_hook`
+rejects **duplicate object keys** at any depth (default last-wins could hide a forbidden or malformed member
+before validation sees it), and a `parse_constant` hook rejects **`NaN`/`Infinity`/`-Infinity`** — both →
+`invalidJson` (neither is "strictly valid JSON" per §12). A non-`str` `raw` raises `TypeError`
+(caller-contract, per §6 / the `__init__.py` convention); malformed *string content* returns `invalidJson`
+(data). *(NaN/Infinity already violate §12's "strictly valid JSON only"; a one-line §12 clarification making
+the duplicate-key rule explicit is proposed alongside this plan round.)*
+
 ---
 
 ## 4. Result model & issue-code model
 
 **Decision D3 — explicit dataclasses, codes not prose.** Downstream M3/M5 must depend on stable codes, not
 tuples or human strings. Tests assert on `IssueCode` (and `candidate_index` where useful), **never** on
-`detail` text.
+`detail` text. **`IssueCode` is an append-only contract:** member *values* are exactly the table strings
+below; never rename or repurpose one without a downstream migration (M3/M5 may persist or branch on them).
 
 ```python
 # --- in models.py (lowest shared contract layer; importable by slotmap.py AND validator.py) ---
@@ -184,7 +197,7 @@ table below *is* that mapping; `rejections`/`warnings` membership follows it exa
 | `itemOutsideSampledPool` | rejection | candidate | an itemId ∉ the sampled-pool id set (**M2 Step-3 owned**) |
 | `duplicateFullSignature` | rejection | candidate | this FullSignature already appeared earlier in the pass |
 | `keyPreconditionFailed` | rejection | candidate | `base_key`/`full_signature` raised `ValueError` (R10 reserved char / sentinel / invalid base) |
-| `invalidStyleMoveShape` | **warning** | candidate | `styleMove` present but malformed (non-object, missing/typed-wrong field, unknown/forbidden field) |
+| `invalidStyleMoveShape` | **warning** | candidate | `styleMove` present but malformed: non-object, unknown/forbidden field, or a §12 field violation — `moveType`/`oneSentence` missing/non-string/**empty**, or `changedItemIds` missing/non-array/**empty**/with a non-string or empty-string entry |
 | `styleMoveItemOutsideOutfit` | **warning** | candidate | `changedItemIds ⊄ outfit item ids` (H23) |
 | `duplicateStyleMoveChangedIds` | **warning** | candidate | `changedItemIds` contains duplicates |
 | `extraCandidatesIgnored` | **warning** | aggregate | more candidates supplied than `candidate_requested` (one aggregate warning) |
@@ -246,6 +259,11 @@ guard as type-first, then value:
 **Implementation order:** test `isinstance(x, bool)` **before** the `int` check — `isinstance(True, int)` is
 `True`, so a bool slips through an int-first guard (mirror `_is_finite_score`'s bool short-circuit).
 
+**Production passes the real bound.** A production caller passes `SamplerResult.candidate_requested` (always
+`≤ MAX_CANDIDATES=40` per §10/§22), so the cap is enforced end-to-end. `None` is an **explicit
+unbounded/test mode** — convenient for unit tests, but production M2 must not pass it (an unbounded GPT
+response would bypass the §10/§22 candidate cap).
+
 ---
 
 ## 7. Validation flow (implementation ordering)
@@ -289,6 +307,12 @@ empty SlotMap (5.3), and is rejected as `emptyBase` by `is_valid_slotmap` (5.4) 
 empty-base (pinned by `test_slotmap.py::test_normalize_empty_list_defers_emptiness_to_is_valid`, and
 `normalize_to_slotmap([]) == (SlotMap(), None)`). M2 must **not** pre-empt it as `invalidItems`; that would
 duplicate a reject the SlotMap layer already owns (single-home rule).
+
+**Result ordering (determinism).** `candidates` are in accepted input order (dedup keeps the *first*
+occurrence, so survivors stay in input order). `rejections` and `warnings` are in **encounter order** — each
+candidate's issue is appended as the loop reaches it (5.1–5.8); the single `extraCandidatesIgnored` warning
+is emitted at the bound step (4), so it precedes any per-candidate warning. Stable order keeps the result
+reproducible for downstream snapshots/logging.
 
 ---
 
@@ -336,10 +360,11 @@ Example-based (matches `m0-m1-substrate.md` §5: example-based for M0/M1; revisi
 checkpoint (§11) lands its own green tests:
 
 - **Stage A — parser + root envelope + result model.** Invalid JSON → `invalidJson`. Valid JSON.
-  Root not an object → `malformedRoot`. Extra root key → `malformedRoot`. Missing `outfits` /
-  `outfits` not a list → `invalidOutfits`. **Empty `outfits: []` → valid root, zero candidates, no
-  rejection** (distinct from `invalidOutfits`). Malformed root → **zero candidates, no nested validation**.
-  `ParseResult` / `ValidationResult` shape.
+  **Strict parse:** duplicate object keys → `invalidJson`; `NaN`/`Infinity`/`-Infinity` tokens →
+  `invalidJson`; non-`str` `raw` → `TypeError`. Root not an object → `malformedRoot`. Extra root key →
+  `malformedRoot`. Missing `outfits` / `outfits` not a list → `invalidOutfits`. **Empty `outfits: []` →
+  valid root, zero candidates, no rejection** (distinct from `invalidOutfits`). Malformed root → **zero
+  candidates, no nested validation**. `ParseResult` / `ValidationResult` shape.
 - **Stage B — candidate/item schema + forbidden fields.** Non-object candidate → `invalidCandidateShape`.
   Unknown candidate key → `unknownCandidateField`. **Forbidden fields — table-driven, enumerating every
   §12 forbidden name verbatim** (`score`, `rank`, `optionPath`, `risk`, `anchor`, `bridge`, `experiment`,
@@ -361,9 +386,11 @@ checkpoint (§11) lands its own green tests:
   different FullSignature (e.g. different outer) → **both survive**. Reserved-char / `"none"` itemId →
   `keyPreconditionFailed` (no escaping `ValueError`).
 - **Stage F — StyleMove validation.** Missing styleMove → valid, **no warning**, `style_move=None`. Valid
-  styleMove → attached. Malformed styleMove → `invalidStyleMoveShape` (warning, candidate stands).
-  `changedItemIds ⊄ outfit` → `styleMoveItemOutsideOutfit` (warning). Duplicate changedItemIds →
-  `duplicateStyleMoveChangedIds` (warning). **Invalid styleMove never rejects the candidate.**
+  styleMove → attached. Malformed styleMove → `invalidStyleMoveShape` (warning, candidate stands), including
+  the §12 **non-empty** cases: empty `moveType`/`oneSentence`, empty `changedItemIds: []`, and a
+  non-string/empty-string `changedItemIds` entry. `changedItemIds ⊄ outfit` → `styleMoveItemOutsideOutfit`
+  (warning). Duplicate changedItemIds → `duplicateStyleMoveChangedIds` (warning). **Invalid styleMove never
+  rejects the candidate.**
 - **Stage G — `candidate_requested` boundary.** `None` → all validated. Fewer than bound → valid (not an
   error). Exactly bound. More than bound → first N validated + one `extraCandidatesIgnored`; **extras do not
   affect accepted candidates / dedup state.** `0` → `ValueError`; negative → `ValueError`; `bool` →
