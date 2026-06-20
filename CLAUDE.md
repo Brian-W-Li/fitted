@@ -96,7 +96,7 @@ This is an **overhaul** (Brian, 2026-06-17). The product direction is the **lens
 
 **Authoritative for design:**
 - `docs/Fitted_Spec_v2.md` — **the** canonical spec. Build-ladder tagged (`[NOW]`/`[NEXT]`/`[STAGED]`/`[NORTH-STAR]`); §23 is the live Open Holes Register. When v2 and deployed behavior disagree, v2 wins.
-- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. Active milestone roadmap: `docs/plans/m2-validator.md` (M2 validator). `docs/plans/m0-m1-substrate.md` is completed M0/M1 context.
+- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context. Next active work is M3 ranker planning/spec.
 - `docs/plans/*.md` — per-milestone plans produced by `/spec` or the `planner` subagent. Active execution plans.
 - This `CLAUDE.md` — project conventions and scope.
 
