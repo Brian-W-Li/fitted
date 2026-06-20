@@ -717,13 +717,13 @@ an M0 blocker.
 
 ## 20. Build ladder (milestones)
 
-The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) is partly built; the rest is forward.
+The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M2 complete (contracts, sampler, and the GPT-JSON validation boundary); M3 (the ranker) is next, and the rest is forward.
 
 | Stage | Scope | Status / rung |
 |---|---|---|
 | **M0** | Contracts & pure functions: keys, SlotMap, seed, config, models | ✅ done |
 | **M1** | Sampler: partition, caps, 70/30, the SignalScorer seam (`ColdStartSignalScorer`) | ✅ done (M1-1..M1-5 — partition/caps/70-30 seam/candidate scaling/`build_candidate_pool` entry point per §10/§11; pytest green; signal path stubbed until M6) |
-| **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | `[NOW]` |
+| **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | ✅ done (C1–C6 — parse, strict §12 schema, SlotMap/pool validation, keys + exact-FullSignature dedup, StyleMove, candidate bounds; pytest green) |
 | **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, dedup, fallback, regen controls | `[NOW]` |
 | **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, like/dislike via the existing `OutfitInteraction`. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | `[NOW]` — proves the whole vision |
 | **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `ItemAffinity`/`wardrobeVersion`/`sessionId`, GenerationSnapshot, baseKey/fullSig on interactions, feedback-authenticity gate | `[NEXT]` |

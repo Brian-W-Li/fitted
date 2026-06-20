@@ -14,10 +14,6 @@
 Plan doc only — **no code or tests are written here.** The §13 compute-before-dedup wording was fixed
 in `Fitted_Spec_v2.md` (commit `40f7cb50`) so §9 Step 3 and §13 now agree on the implementable order.
 
-Routing note: `CLAUDE.md` / `docs/README.md` / `ml-system/README.md` still point "current substrate
-plan" at the retired `m0-m1-substrate.md`. That cleanup is **deferred** (prior audit parking lot) and is
-*not* part of M2 — left untouched here on purpose.
-
 ---
 
 ## 1. Status & scope
