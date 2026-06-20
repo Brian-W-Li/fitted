@@ -48,6 +48,60 @@ class Role(Enum):
     shoes = "shoes"
 
 
+class IssueCode(Enum):
+    """Stable, machine-readable codes for every M2 validation outcome (v2 §12/§13).
+
+    Homed here — the lowest shared contract layer — because the structural rejects
+    are *owned* by ``slotmap.py`` (M2 plan Decision D7: ``normalize_to_slotmap`` /
+    ``is_valid_slotmap`` will return these codes), so the enum must sit in a module
+    both ``slotmap.py`` and ``validator.py`` import *down* into. Putting it in
+    ``validator.py`` would force an M0→M2 circular import (M2 plan §4 *Module placement*).
+
+    **Append-only contract.** Member *values* are exactly the M2 plan §4 table
+    strings; downstream M3/M5 may persist or branch on them, so never rename or
+    repurpose a code without a migration. Member *names* are snake_case, values are
+    camelCase log labels — same convention as ``sampler.SelectionKind``.
+
+    Severity (rejection vs warning) is **not** stored here; it is a function of the
+    code, owned by ``validator._SEVERITY`` / ``validator.severity_of`` (single source
+    of truth — M2 plan §4).
+    """
+
+    # --- root / envelope (locus: root) ---
+    invalid_json = "invalidJson"
+    malformed_root = "malformedRoot"
+    invalid_outfits = "invalidOutfits"
+
+    # --- candidate / item schema (locus: candidate) ---
+    invalid_candidate_shape = "invalidCandidateShape"
+    unknown_candidate_field = "unknownCandidateField"
+    forbidden_gpt_field = "forbiddenGptField"
+    invalid_items = "invalidItems"
+    invalid_item_shape = "invalidItemShape"
+    unknown_item_field = "unknownItemField"
+    invalid_item_id = "invalidItemId"
+    invalid_role = "invalidRole"
+
+    # --- SlotMap normalization / structural (owned by slotmap.py, D7) ---
+    unknown_role = "unknownRole"
+    duplicate_role_slot = "duplicateRoleSlot"
+    mixed_template = "mixedTemplate"
+    empty_base = "emptyBase"
+    incomplete_two_piece = "incompleteTwoPiece"
+    duplicate_item_id = "duplicateItemId"
+
+    # --- pool membership / keys / dedup (M2 Step-3 owned) ---
+    item_outside_sampled_pool = "itemOutsideSampledPool"
+    duplicate_full_signature = "duplicateFullSignature"
+    key_precondition_failed = "keyPreconditionFailed"
+
+    # --- StyleMove + aggregate (warning severity) ---
+    invalid_style_move_shape = "invalidStyleMoveShape"
+    style_move_item_outside_outfit = "styleMoveItemOutsideOutfit"
+    duplicate_style_move_changed_ids = "duplicateStyleMoveChangedIds"
+    extra_candidates_ignored = "extraCandidatesIgnored"
+
+
 @dataclass
 class WardrobeItem:
     """A single wardrobe item (v2 §6.1).
@@ -95,3 +149,21 @@ class SlotMap:
     bottom: Optional[str] = None
     outer: Optional[str] = None
     shoes: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class StyleMove:
+    """GPT's optional styling-reasoning annotation on an outfit (v2 §6.5/§12).
+
+    Purely a data holder for a *validated* StyleMove — M2's validator
+    (``validator._validate_style_move``, lands at C5) owns the boundary checks
+    (H23: ``changed_item_ids`` ⊆ outfit items) and only attaches one of these when
+    it passes; an invalid StyleMove is dropped via a warning, never stored here.
+    Homed in ``models.py`` (M2 plan Decision D7b) as a core contract reused by the
+    M3 ranker and M5 response layer. Field names are snake_case; the M5 wire mapping
+    (``moveType``/``changedItemIds``/``oneSentence``) is the adapter's job.
+    """
+
+    move_type: str
+    changed_item_ids: list[str]
+    one_sentence: str
