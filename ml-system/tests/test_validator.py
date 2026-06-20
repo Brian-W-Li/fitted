@@ -553,6 +553,90 @@ def test_duplicate_pool_ids_raise_before_root_validation():
         validate_gpt_payload("not-an-object", dup_pool)
 
 
+# --- 5.5 membership covers OPTIONAL slots too, not just the base ---
+
+def test_optional_outer_outside_pool_rejected():
+    # Base in pool, optional outer NOT in pool → itemOutsideSampledPool. Pins that
+    # membership walks every filled slot, not only the base role.
+    pool = [
+        WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+        WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg"),
+    ]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+        {"itemId": "o_ghost", "role": "outer_layer"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.item_outside_sampled_pool]
+    assert result.rejections[0].candidate_index == 0
+    assert result.candidates == []
+
+
+def test_optional_shoes_outside_pool_rejected():
+    # Base in pool, optional shoes NOT in pool → itemOutsideSampledPool (one-piece).
+    pool = [WardrobeItem("d1", "Dress", ItemType.dress, warmth=3, image_url="d1.jpg")]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "d1", "role": "one_piece"},
+        {"itemId": "s_ghost", "role": "shoes"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.item_outside_sampled_pool]
+    assert result.rejections[0].candidate_index == 0
+    assert result.candidates == []
+
+
+# --- duplicate itemId across a one-piece base + an optional slot (5.4, hardening) ---
+
+@pytest.mark.parametrize("optional_role", ["outer_layer", "shoes"])
+def test_one_piece_duplicate_item_id_with_optional_rejected(optional_role):
+    # A dress id reused in an optional slot collapses to a SlotMap with the same id in
+    # two slots → duplicateItemId (is_valid_slotmap, 5.4). d1 is in pool, so the dup-id
+    # reject (not pool membership) is the governing failure.
+    result = _validate_pooled({"items": [
+        {"itemId": "d1", "role": "one_piece"},
+        {"itemId": "d1", "role": optional_role},
+    ]})
+    assert _codes(result.rejections) == [IssueCode.duplicate_item_id]
+    assert result.candidates == []
+
+
+# --- candidate-by-candidate isolation for C3 structural/pool failures ---
+
+def test_c3_failures_isolated_indexes_follow_position():
+    # A structural reject, a valid+in-pool candidate, and a pool reject, in that order.
+    # Each bad candidate is rejected at its ORIGINAL index, the good one between them is
+    # still processed (isolation), and candidates stays empty (C3 emits none).
+    incomplete = {"items": [{"itemId": "t1", "role": "base_top"}]}           # index 0
+    good = {"items": [                                                       # index 1
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    out_of_pool = {"items": [                                                # index 2
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "ghost", "role": "base_bottom"},
+    ]}
+    result = validate_gpt_payload({"outfits": [incomplete, good, out_of_pool]}, POOL_C3)
+    assert _codes(result.rejections) == [
+        IssueCode.incomplete_two_piece,
+        IssueCode.item_outside_sampled_pool,
+    ]
+    assert [r.candidate_index for r in result.rejections] == [0, 2]
+    assert result.candidates == []
+
+
+def test_c3_failure_does_not_stop_later_candidate_reversed_order():
+    # Reversed: a good candidate first (index 0) then a structurally bad one (index 1).
+    # The index follows position, not encounter count — the good one doesn't shift it.
+    good = {"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    bad = {"items": [{"itemId": "t1", "role": "base_top"}]}  # incomplete two-piece
+    result = validate_gpt_payload({"outfits": [good, bad]}, POOL_C3)
+    assert _codes(result.rejections) == [IssueCode.incomplete_two_piece]
+    assert result.rejections[0].candidate_index == 1
+    assert result.candidates == []
+
+
 # ============================ result-model / severity contract ============================
 
 def test_severity_table_complete_and_classified():

@@ -1,8 +1,9 @@
 # M2: GPT-response validator (parse + schema + SlotMap + keys + dedup + StyleMove)
 
-> **Status: `[NOW]` — C1+C2 implemented and committed; C3 next (2026-06-20).** `validator.py` and
-> `test_validator.py` exist. Landed: strict parser, result/issue model, root-envelope validation, and the
-> per-candidate schema + forbidden-field pass — **255 pytest green**. Next checkpoint: C3 (SlotMap + pool).
+> **Status: `[NOW]` — C1–C3 implemented and committed; C4 next (2026-06-20).** `validator.py` and
+> `test_validator.py` exist. Landed: strict parser, result/issue model, root-envelope validation, the
+> per-candidate schema + forbidden-field pass, and SlotMap normalization + structural + sampled-pool
+> validation (Decision D7 applied to `slotmap.py`) — **278 pytest green**. Next checkpoint: C4 (keys + dedup).
 > This plan turns `docs/Fitted_Spec_v2.md` (canonical) + `docs/CODEX_HANDOFF.md` (Codex's historical M2
 > audit) into an unambiguous implementation roadmap. **Canonical spec wins on any conflict;** this doc is
 > implementation guidance, not product truth.
@@ -421,7 +422,7 @@ pinned in tests before behavior, per the handoff).
 | C0 | *plan/spec only* | **this doc** (no code) |
 | C1 ✅ | result model + parser/root | `IssueCode`, `Issue`, `ParseResult`, `ValidationResult`, `ValidatedCandidate`, `StyleMove`; `parse_gpt_json`; root-envelope validation. Stage A green. **Done (committed).** |
 | C2 ✅ | candidate/item schema | allowed/forbidden field enforcement; `items`/`itemId`/`role` schema; candidate-by-candidate isolation. Stage B green. **Done (committed).** |
-| C3 | SlotMap + pool | wire `normalize_to_slotmap`/`is_valid_slotmap`; structural codes (Decision D7); pool-membership + duplicate-pool-id guard — structural/pool **rejections only; emits no accepted candidates**. Stages C–D green. |
+| C3 ✅ | SlotMap + pool | wire `normalize_to_slotmap`/`is_valid_slotmap`; structural codes (Decision D7); pool-membership + duplicate-pool-id guard — structural/pool **rejections only; emits no accepted candidates**. Stages C–D green. **Done (committed).** |
 | C4 | keys + dedup | `base_key`/`full_signature` integration; `keyPreconditionFailed`; exact-FullSignature dedup; first-wins ordering; **first checkpoint to populate `ValidationResult.candidates`**. Stage E green. |
 | C5 | StyleMove warnings | `StyleMove` validation, warning-only drop; missing-styleMove decision. Stage F green. |
 | C6 | boundary + hardening + closeout | `candidate_requested` semantics (Stage G); Stage H mutants; flip `__init__.py` "M0/M1"→"M0–M2"; add `> COMPLETED` banner to this plan. |
@@ -455,20 +456,20 @@ C4 ~1.5h · C5 ~1h · C6 ~1.5h. **Total ~9h → ~1.5 sessions.**
 
 ## Resolved decisions (D7, D7b) — locked 2026-06-19
 
-Both are **decided**; neither edits code yet. They record the intended implementation choice for when M2
-coding reaches the relevant checkpoint (D7 → C3, D7b → C1).
+Both are **decided** and now **applied** (D7 → C3, D7b → C1). They record the implementation choice each
+checkpoint carried out.
 
 - **Decision D7 — structural-code home: owner-emits-code (LOCKED).** The structural rejects
   (`mixedTemplate` / `emptyBase` / `incompleteTwoPiece` / `duplicateItemId` / `unknownRole` /
   `duplicateRoleSlot`) are *owned* by `slotmap.py` (`normalize_to_slotmap` / `is_valid_slotmap`), which today
   returns a prose `reason` string. **The SlotMap owner will emit/return stable structural `IssueCode`s for
   its own validation failures** — so `validator.py` neither duplicates SlotMap rules nor classifies prose.
-  This is the single source of truth for those codes, and the **one** place M2 reaches into M0. Intended
-  implementation (at C3, **not done now**): `slotmap.py` changes its second return element from `str` to
-  `IssueCode` (the `.value` stays human-readable), and the ~10 existing `test_slotmap.py` substring asserts
-  move to `== IssueCode.x`. Rationale: single-ownership (handoff) + M2 is the first stable-code consumer
-  (handoff parking lot). The rejected alternative (freeze M0, classify in `validator.py`) is **not** taken —
-  it would either duplicate the §8 rules or couple M2 to prose. **`slotmap.py` is not edited in this plan.**
+  This is the single source of truth for those codes, and the **one** place M2 reaches into M0. **Applied at
+  C3** (commit `7094a4b3`): `slotmap.py` changed its second return element from `str` to `IssueCode` (the
+  `.value` stays human-readable), and the existing `test_slotmap.py` substring asserts moved to
+  `is IssueCode.x`. Rationale: single-ownership (handoff) + M2 is the first stable-code consumer
+  (handoff parking lot). The rejected alternative (freeze M0, classify in `validator.py`) was **not** taken —
+  it would either duplicate the §8 rules or couple M2 to prose.
   - **Layering consequence — `IssueCode` lives in `models.py`, not `validator.py`.** Because `slotmap.py`
     must *return* `IssueCode`s, the enum has to sit in a module `slotmap.py` already imports. If it lived in
     `validator.py`, `slotmap.py` would import `validator.py` while `validator.py` imports `slotmap.py` — a
