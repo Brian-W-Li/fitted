@@ -241,6 +241,8 @@ guard as type-first, then value:
 
 `TypeError` for wrong *type*, `ValueError` for wrong *value* — consistent and conventional. These raise
 (they are not data-driven issues); only well-typed payload/candidate problems become `Issue`s.
+**Implementation order:** test `isinstance(x, bool)` **before** the `int` check — `isinstance(True, int)` is
+`True`, so a bool slips through an int-first guard (mirror `_is_finite_score`'s bool short-circuit).
 
 ---
 
@@ -267,12 +269,17 @@ partially validate nested candidates** (§13).
       (must not escape).
    7. **Dedup** — if this `full_signature` was already accepted this pass → `duplicateFullSignature`
       (drop); else record it and keep the candidate.
-   8. **StyleMove** (warning-only, last) — validate shape, `changedItemIds ⊆ outfit ids`, no duplicate
-      changed ids. Valid → attach; invalid → `style_move=None` + warning. **Never affects 5.1–5.7.**
+   8. **StyleMove** (warning-only, last) — validate shape, then `changedItemIds ⊆ outfit ids`, then no
+      duplicate changed ids. Valid → attach; the **first failing check** emits its one warning and drops the
+      StyleMove (`style_move=None`). **Never affects 5.1–5.7** — the candidate still stands.
 6. **Return** `ValidationResult(candidates, rejections, warnings)`.
 
-Any candidate-level rejection in 5.1–5.7 stops *that* candidate and appends its `Issue` (with
-`candidate_index`); the loop continues to the next candidate.
+Any candidate-level rejection in 5.1–5.7 stops *that* candidate (first failing check wins — one `Issue`,
+with `candidate_index`); the loop continues to the next candidate.
+
+**Empty `outfits` is valid.** `{"outfits": []}` passes the root envelope (it *is* a list) → zero candidates,
+**no rejection** (distinct from `invalidOutfits`, which is missing/non-list). M5 owns the zero-candidate
+fallback (out of M2 scope); M2 only reports the empty result.
 
 ---
 
@@ -320,7 +327,8 @@ checkpoint (§11) lands its own green tests:
 
 - **Stage A — parser + root envelope + result model.** Invalid JSON → `invalidJson`. Valid JSON.
   Root not an object → `malformedRoot`. Extra root key → `malformedRoot`. Missing `outfits` /
-  `outfits` not a list → `invalidOutfits`. Malformed root → **zero candidates, no nested validation**.
+  `outfits` not a list → `invalidOutfits`. **Empty `outfits: []` → valid root, zero candidates, no
+  rejection** (distinct from `invalidOutfits`). Malformed root → **zero candidates, no nested validation**.
   `ParseResult` / `ValidationResult` shape.
 - **Stage B — candidate/item schema + forbidden fields.** Non-object candidate → `invalidCandidateShape`.
   Unknown candidate key → `unknownCandidateField`. Forbidden candidate/item field (`score`, `rank`,
