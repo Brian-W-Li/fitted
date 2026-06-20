@@ -1,8 +1,9 @@
 """M2 validator contract tests (v2 §12/§13).
 
-Checkpoint C1 (Stage A in the M2 plan §10): the strict parser, the result/issue
-model, and root-envelope validation. Candidate/item schema, SlotMap, pool, keys,
-dedup, and StyleMove tests land at C2–C5.
+Checkpoints C1–C2 (Stages A–B in the M2 plan §10): the strict parser, the
+result/issue model, root-envelope validation, and the per-candidate schema +
+forbidden-field pass (candidate/item shape, items/itemId/role, the §12 forbidden
+fields). SlotMap, pool, keys, dedup, and StyleMove tests land at C3–C5.
 
 Assert on ``IssueCode`` (and ``candidate_index`` where useful), **never** on
 ``Issue.detail`` prose (M2 plan §4/§10) — the detail text is a debug aid that may
@@ -25,6 +26,28 @@ from fitted_core.validator import (
 
 def _codes(issues):
     return [issue.code for issue in issues]
+
+
+# C1/C2 do not consume sampled_pool; pass an empty pool everywhere.
+EMPTY_POOL: list = []
+
+
+def _validate_one(candidate):
+    """Validate a single candidate inside a well-formed root envelope."""
+    return validate_gpt_payload({"outfits": [candidate]}, EMPTY_POOL)
+
+
+# The §12 forbidden-field enumeration (docs/Fitted_Spec_v2.md §12 / M2 plan §4),
+# pinned here so the candidate/item forbidden-field tests are exhaustive and any
+# drift from the validator's frozenset is caught (test_forbidden_field_set_matches_spec).
+FORBIDDEN_FIELDS = [
+    "score", "rank", "optionPath", "risk",
+    "anchor", "bridge", "experiment",
+    "edge", "compatibility", "behavioralStrength",
+    "freshness", "exposure", "cooldown", "fallback",
+    "imageUrl", "warmth",
+    "matchedTraits", "missingTraits", "diagnosticReason",
+]
 
 
 # ============================ parse_gpt_json (strict parse) ============================
@@ -101,9 +124,6 @@ def test_parse_distinct_keys_ok():
 
 # ============================ root-envelope validation ============================
 
-# C1 ignores sampled_pool; pass an empty pool everywhere.
-EMPTY_POOL: list = []
-
 
 # --- non-object root → malformedRoot ---
 
@@ -172,6 +192,156 @@ def test_valid_empty_outfits():
     result = validate_gpt_payload({"outfits": []}, EMPTY_POOL)
     assert isinstance(result, ValidationResult)
     assert result.candidates == []
+    assert result.rejections == []
+    assert result.warnings == []
+
+
+# ============================ candidate / item schema (C2) ============================
+
+# --- a candidate must be a JSON object ---
+
+@pytest.mark.parametrize("bad", ["x", 5, 1.0, True, [], None])
+def test_non_object_candidate_rejected(bad):
+    result = _validate_one(bad)
+    assert _codes(result.rejections) == [IssueCode.invalid_candidate_shape]
+    assert result.rejections[0].candidate_index == 0
+    assert result.candidates == []
+
+
+# --- items required: missing or non-list → invalidItems ---
+
+def test_candidate_missing_items_rejected():
+    # An object lacking 'items' (even with an allowed 'styleMove') → invalidItems.
+    assert _codes(_validate_one({}).rejections) == [IssueCode.invalid_items]
+    assert _codes(_validate_one({"styleMove": {}}).rejections) == [IssueCode.invalid_items]
+
+
+@pytest.mark.parametrize("items", ["x", 5, True, {}, None])
+def test_candidate_items_non_list_rejected(items):
+    assert _codes(_validate_one({"items": items}).rejections) == [IssueCode.invalid_items]
+
+
+def test_empty_items_is_not_invalid_items():
+    # items: [] is schema-valid here; the empty-base reject is the SlotMap layer's at
+    # C3 (N3). Pin the durable claim: C2 must NOT classify it as invalidItems.
+    result = _validate_one({"items": []})
+    assert IssueCode.invalid_items not in _codes(result.rejections)
+
+
+# --- candidate extra / forbidden fields reject the candidate ---
+
+def test_candidate_unknown_field_rejected():
+    candidate = {"items": [{"itemId": "t1", "role": "base_top"}], "bogus": 1}
+    result = _validate_one(candidate)
+    assert _codes(result.rejections) == [IssueCode.unknown_candidate_field]
+    assert result.rejections[0].candidate_index == 0
+
+
+@pytest.mark.parametrize("field", FORBIDDEN_FIELDS)
+def test_candidate_forbidden_field_rejected(field):
+    candidate = {"items": [{"itemId": "t1", "role": "base_top"}], field: "x"}
+    result = _validate_one(candidate)
+    assert _codes(result.rejections) == [IssueCode.forbidden_gpt_field]
+    assert result.rejections[0].candidate_index == 0
+
+
+def test_forbidden_takes_precedence_over_unknown_candidate_field():
+    # Both an unknown and a forbidden key present → the sharper forbidden code wins.
+    candidate = {"items": [{"itemId": "t1", "role": "base_top"}], "bogus": 1, "score": 5}
+    assert _codes(_validate_one(candidate).rejections) == [IssueCode.forbidden_gpt_field]
+
+
+# --- item schema: each item is an object with exactly itemId + role ---
+
+@pytest.mark.parametrize("bad", ["x", 5, 1.0, True, [], None])
+def test_non_object_item_rejected(bad):
+    result = _validate_one({"items": [bad]})
+    assert _codes(result.rejections) == [IssueCode.invalid_item_shape]
+    assert result.rejections[0].candidate_index == 0
+
+
+def test_item_missing_item_id_rejected():
+    result = _validate_one({"items": [{"role": "base_top"}]})
+    assert _codes(result.rejections) == [IssueCode.invalid_item_id]
+
+
+@pytest.mark.parametrize("item_id", ["", 5, 1.0, True, [], {}, None])
+def test_item_id_non_string_or_empty_rejected(item_id):
+    item = {"itemId": item_id, "role": "base_top"}
+    assert _codes(_validate_one({"items": [item]}).rejections) == [IssueCode.invalid_item_id]
+
+
+def test_item_missing_role_rejected():
+    result = _validate_one({"items": [{"itemId": "t1"}]})
+    assert _codes(result.rejections) == [IssueCode.invalid_role]
+
+
+@pytest.mark.parametrize("role", [5, 1.0, True, [], {}, None])
+def test_role_non_string_rejected(role):
+    item = {"itemId": "t1", "role": role}
+    assert _codes(_validate_one({"items": [item]}).rejections) == [IssueCode.invalid_role]
+
+
+def test_item_unknown_field_rejected():
+    item = {"itemId": "t1", "role": "base_top", "bogus": 1}
+    assert _codes(_validate_one({"items": [item]}).rejections) == [IssueCode.unknown_item_field]
+
+
+@pytest.mark.parametrize("field", FORBIDDEN_FIELDS)
+def test_item_forbidden_field_rejected(field):
+    item = {"itemId": "t1", "role": "base_top", field: "x"}
+    result = _validate_one({"items": [item]})
+    assert _codes(result.rejections) == [IssueCode.forbidden_gpt_field]
+    assert result.rejections[0].candidate_index == 0
+
+
+def test_forbidden_takes_precedence_over_unknown_item_field():
+    # Both an unknown and a forbidden key on an *item* → the sharper forbidden code wins.
+    item = {"itemId": "t1", "role": "base_top", "bogus": 1, "score": 5}
+    assert _codes(_validate_one({"items": [item]}).rejections) == [IssueCode.forbidden_gpt_field]
+
+
+def test_forbidden_field_set_matches_spec():
+    # Drift guard (white-box): the validator's forbidden frozenset must equal the §12
+    # enumeration pinned in this test, in both directions.
+    from fitted_core.validator import _FORBIDDEN_GPT_FIELDS
+
+    assert _FORBIDDEN_GPT_FIELDS == set(FORBIDDEN_FIELDS)
+
+
+# --- C2/C3 boundary: a string role *value* is not membership-checked here ---
+
+def test_c2_does_not_validate_role_value():
+    # A well-formed but non-existent role string is schema-valid in C2; the value check
+    # is the normalizer's at C3 (Decision D4), where "banana" may become unknownRole.
+    # Durable claim: C2 must not flag a *string* role with the schema-level invalidRole
+    # code (don't assert no rejection at all — C3 will add unknownRole here).
+    result = _validate_one({"items": [{"itemId": "t1", "role": "banana"}]})
+    assert IssueCode.invalid_role not in _codes(result.rejections)
+
+
+# --- candidate-by-candidate isolation: a bad candidate never stops later ones ---
+
+def test_bad_candidate_does_not_stop_later_candidates():
+    good = {"items": [{"itemId": "t1", "role": "base_top"}]}
+    bad = {}  # missing items → invalidItems
+    result = validate_gpt_payload({"outfits": [bad, good]}, EMPTY_POOL)
+    assert _codes(result.rejections) == [IssueCode.invalid_items]
+    assert result.rejections[0].candidate_index == 0
+    # good first, bad second → candidate_index follows position, not encounter count
+    result2 = validate_gpt_payload({"outfits": [good, bad]}, EMPTY_POOL)
+    assert _codes(result2.rejections) == [IssueCode.invalid_items]
+    assert result2.rejections[0].candidate_index == 1
+
+
+def test_schema_valid_candidate_emits_no_rejection():
+    # A fully schema-valid two-piece candidate produces no schema rejection/warning.
+    # (It is not yet an accepted candidate — SlotMap/keys at C3/C4 do that.)
+    candidate = {"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    result = _validate_one(candidate)
     assert result.rejections == []
     assert result.warnings == []
 

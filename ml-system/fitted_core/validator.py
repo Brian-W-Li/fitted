@@ -8,13 +8,16 @@ a structured issue log. Two public entry points (M2 plan Decision D1/D2):
 - ``validate_gpt_payload(payload, sampled_pool, candidate_requested=None)`` —
   validate an already-parsed payload against the §12 schema.
 
-**Checkpoint scope (C1).** This file currently implements the result model, the
-strict parser, and **root-envelope validation only**. Candidate/item schema,
-SlotMap normalization, sampled-pool membership, key/dedup, and StyleMove validation
-land at C2–C5 (M2 plan §11). The ``sampled_pool`` and ``candidate_requested``
-parameters are part of the pinned public signature (D1) but are not yet consumed —
-a malformed root short-circuits before any nested work, and a valid root yields zero
-candidates until C2 wires per-candidate validation.
+**Checkpoint scope (C2).** This file currently implements the result model, the
+strict parser, root-envelope validation, and the per-candidate **schema +
+forbidden-field** pass (each candidate is an object with required ``items`` +
+optional ``styleMove``; each item an object with exactly non-empty ``itemId`` +
+string ``role``). SlotMap normalization, sampled-pool membership, key/dedup, and
+StyleMove content validation land at C3–C5 (M2 plan §11). The ``sampled_pool`` and
+``candidate_requested`` parameters are part of the pinned public signature (D1) but
+are not yet consumed. A *schema-valid* candidate does not yet become an accepted
+``ValidatedCandidate`` — that needs the SlotMap + keys built at C3/C4 — so
+``candidates`` is still always empty; only schema rejections are emitted so far.
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures go
 to the issue channel (``Issue`` / ``ParseResult`` / ``ValidationResult``);
@@ -69,8 +72,8 @@ class ValidatedCandidate:
 
     ``source_index`` is its position in the original ``outfits`` array (survivors
     stay in input order). ``style_move`` is present iff a valid StyleMove was
-    supplied; otherwise ``None`` (M2 plan Decision D5). Populated starting at C2/C3;
-    C1 never emits one.
+    supplied; otherwise ``None`` (M2 plan Decision D5). Populated starting at C3/C4;
+    C1 and C2 emit none (a candidate needs its SlotMap + keys, built at C3/C4).
     """
 
     source_index: int
@@ -218,6 +221,22 @@ def parse_gpt_json(raw: str) -> ParseResult:
 
 # ============================ payload validation ============================
 
+# Allowed field sets per the §12 schema (M2 plan §4). `_FORBIDDEN_GPT_FIELDS` is the
+# single §12 enumeration of fields GPT must never emit — path/risk/score/graph-role
+# labels are Python-only (H20). §12 is the home; keep this in sync with
+# docs/Fitted_Spec_v2.md §12.
+_ALLOWED_ROOT_FIELDS = frozenset({"outfits"})
+_ALLOWED_CANDIDATE_FIELDS = frozenset({"items", "styleMove"})
+_ALLOWED_ITEM_FIELDS = frozenset({"itemId", "role"})
+_FORBIDDEN_GPT_FIELDS = frozenset({
+    "score", "rank", "optionPath", "risk",
+    "anchor", "bridge", "experiment",
+    "edge", "compatibility", "behavioralStrength",
+    "freshness", "exposure", "cooldown", "fallback",
+    "imageUrl", "warmth",
+    "matchedTraits", "missingTraits", "diagnosticReason",
+})
+
 
 def _validate_root(payload: object) -> Optional[Issue]:
     """Strict root-envelope check: the root must be exactly ``{"outfits": [...]}``.
@@ -231,13 +250,81 @@ def _validate_root(payload: object) -> Optional[Issue]:
     """
     if not isinstance(payload, dict):
         return Issue(IssueCode.malformed_root, None, "root payload is not a JSON object")
-    extra = sorted(set(payload.keys()) - {"outfits"})
+    extra = sorted(set(payload.keys()) - _ALLOWED_ROOT_FIELDS)
     if extra:
         return Issue(IssueCode.malformed_root, None, f"root has unexpected key(s): {extra}")
     if "outfits" not in payload:
         return Issue(IssueCode.invalid_outfits, None, "root is missing the required 'outfits' key")
     if not isinstance(payload["outfits"], list):
         return Issue(IssueCode.invalid_outfits, None, "'outfits' is present but is not a list")
+    return None
+
+
+def _check_fields(
+    obj: dict,
+    allowed: frozenset,
+    index: int,
+    unknown_code: IssueCode,
+) -> Optional[Issue]:
+    """Reject unexpected keys on a candidate/item object (M2 plan §4).
+
+    A key in the §12 forbidden set yields the sharper ``forbiddenGptField``; any
+    other unexpected key yields ``unknown_code`` (candidate- or item-specific).
+    Forbidden takes precedence over unknown when both are present.
+    """
+    extra = set(obj.keys()) - allowed
+    forbidden = extra & _FORBIDDEN_GPT_FIELDS
+    if forbidden:
+        return Issue(IssueCode.forbidden_gpt_field, index, f"forbidden GPT field(s): {sorted(forbidden)}")
+    if extra:
+        return Issue(unknown_code, index, f"unexpected field(s): {sorted(extra)}")
+    return None
+
+
+def _validate_item(item: object, index: int) -> Optional[Issue]:
+    """Item schema (§12, §7 step 5.2): an object with exactly ``itemId`` + ``role``.
+
+    Owns presence/type only: ``itemId`` a non-empty string, ``role`` a string. The
+    role *value* check (one of the 5 ``Role`` enums) is the normalizer's at C3 — so a
+    well-formed but unknown role string passes here and is rejected as ``unknownRole``
+    later (Decision D4: ``invalidRole`` is schema-level, ``unknownRole`` is C3).
+    """
+    if not isinstance(item, dict):
+        return Issue(IssueCode.invalid_item_shape, index, "item entry is not a JSON object")
+    field_issue = _check_fields(item, _ALLOWED_ITEM_FIELDS, index, IssueCode.unknown_item_field)
+    if field_issue is not None:
+        return field_issue
+    item_id = item.get("itemId")
+    # bool is an int, not a str — isinstance(True, str) is False, so a bool itemId
+    # falls into invalidItemId (mirrors the package's bool-rejection precedents).
+    if not isinstance(item_id, str) or item_id == "":
+        return Issue(IssueCode.invalid_item_id, index, "itemId missing, non-string, or empty")
+    if not isinstance(item.get("role"), str):
+        return Issue(IssueCode.invalid_role, index, "role missing or non-string")
+    return None
+
+
+def _validate_candidate(candidate: object, index: int) -> Optional[Issue]:
+    """Candidate schema (§12, §7 step 5.1): object → fields → ``items`` → each item.
+
+    ``items`` must be a list; an **empty** list passes here and falls through to the
+    SlotMap ``emptyBase`` reject at C3 (N3 — never ``invalidItems``). ``styleMove`` is
+    accepted as an allowed key only; its contents are boundary-validated at C5.
+    Returns the first failing check (one Issue per candidate), or ``None`` when the
+    candidate's schema is well-formed.
+    """
+    if not isinstance(candidate, dict):
+        return Issue(IssueCode.invalid_candidate_shape, index, "candidate entry is not a JSON object")
+    field_issue = _check_fields(candidate, _ALLOWED_CANDIDATE_FIELDS, index, IssueCode.unknown_candidate_field)
+    if field_issue is not None:
+        return field_issue
+    items = candidate.get("items")
+    if not isinstance(items, list):  # missing key → None → not a list → invalidItems
+        return Issue(IssueCode.invalid_items, index, "items missing or not a list")
+    for item in items:
+        item_issue = _validate_item(item, index)
+        if item_issue is not None:
+            return item_issue
     return None
 
 
@@ -248,11 +335,13 @@ def validate_gpt_payload(
 ) -> ValidationResult:
     """Validate an already-parsed GPT payload against the §12 schema (M2 plan §7).
 
-    **C1 scope:** strict root-envelope validation only. A malformed root returns
-    zero candidates and a single root-level rejection, and never inspects nested
-    candidates (§13). A well-formed envelope (including an empty ``{"outfits": []}``)
-    returns zero candidates with no rejection — per-candidate validation
-    (schema/SlotMap/pool/keys/dedup/StyleMove) lands at C2–C5.
+    **C2 scope:** strict root envelope + per-candidate schema/forbidden-field pass.
+    A malformed root returns zero candidates and a single root rejection, and never
+    inspects nested candidates (§13). Otherwise each candidate is schema-validated in
+    order; a bad candidate yields one rejection (first failing check wins, with its
+    ``candidate_index``) and never stops later candidates. SlotMap/pool/keys/dedup/
+    StyleMove validation — and thus building accepted ``ValidatedCandidate``s — land
+    at C3–C5, so ``candidates`` is still always empty here.
 
     ``sampled_pool`` and ``candidate_requested`` are part of the pinned signature
     (Decision D1) but are not consumed yet: pool indexing/membership is C3, and the
@@ -269,6 +358,14 @@ def validate_gpt_payload(
         _record(root_issue, rejections, warnings)
         return ValidationResult(candidates=candidates, rejections=rejections, warnings=warnings)
 
-    # Well-formed envelope. C1 stops here (no per-candidate validation yet); an empty
-    # or non-empty outfits list both yield zero candidates for now.
+    # Per-candidate validation (§7 step 5), candidate-by-candidate (§13): a bad
+    # candidate never stops later ones. C2 runs the schema pass (5.1–5.2) only;
+    # SlotMap/pool/keys/dedup/StyleMove (5.3–5.8) — and thus accepting a candidate —
+    # land at C3–C5, so a schema-valid candidate currently yields neither a rejection
+    # nor an accepted candidate.
+    for index, candidate in enumerate(payload["outfits"]):
+        candidate_issue = _validate_candidate(candidate, index)
+        if candidate_issue is not None:
+            _record(candidate_issue, rejections, warnings)
+
     return ValidationResult(candidates=candidates, rejections=rejections, warnings=warnings)
