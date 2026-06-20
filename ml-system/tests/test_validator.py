@@ -1,12 +1,13 @@
 """M2 validator contract tests (v2 §12/§13).
 
-Checkpoints C1–C4 (Stages A–E in the M2 plan §10): the strict parser, the
+Checkpoints C1–C5 (Stages A–F in the M2 plan §10): the strict parser, the
 result/issue model, root-envelope validation, the per-candidate schema +
 forbidden-field pass (candidate/item shape, items/itemId/role, the §12 forbidden
 fields), SlotMap normalization, slot-level structural validity, sampled-pool
-membership, and — at C4 — BaseKey/FullSignature computation and exact-FullSignature
-dedup (the first checkpoint that emits accepted ``ValidatedCandidate``s). StyleMove
-tests land at C5.
+membership, BaseKey/FullSignature computation and exact-FullSignature dedup (C4 — the
+first checkpoint that emits accepted ``ValidatedCandidate``s), and — at C5 — StyleMove
+boundary validation (flow step 5.8, warning-only). ``candidate_requested`` bound
+semantics land at C6.
 
 Assert on ``IssueCode`` (and ``candidate_index`` where useful), **never** on
 ``Issue.detail`` prose (M2 plan §4/§10) — the detail text is a debug aid that may
@@ -400,7 +401,8 @@ POOL_C3 = [
 
 
 def _validate_pooled(candidate, pool=POOL_C3):
-    """Validate one candidate against a full-type pool (C3 structural/pool tests)."""
+    """Validate one candidate against a full-type pool (C3–C5 structural/pool/key/
+    StyleMove tests — the pool spans all five types so valid candidates clear membership)."""
     return validate_gpt_payload({"outfits": [candidate]}, pool)
 
 
@@ -832,8 +834,8 @@ def test_malformed_style_move_warns_candidate_still_accepted():
     assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
 
 
-def test_candidate_requested_remains_untouched_in_c4():
-    # C4/C6 boundary: candidate_requested is still NOT consumed — passing a bound does
+def test_candidate_requested_remains_untouched_until_c6():
+    # Pre-C6 boundary: candidate_requested is still NOT consumed — passing a bound does
     # not cap candidates and emits no extraCandidatesIgnored warning (that lands at C6).
     candidates = [
         {"items": [{"itemId": "d1", "role": "one_piece"}]},
@@ -1134,6 +1136,95 @@ def test_duplicate_full_signature_rejected_before_style_move_inspection():
     # exactly one styleMove warning (A's); B was never inspected
     assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
     assert result.warnings[0].candidate_index == 0
+
+
+def test_dedup_before_style_move_second_duplicate_invalid_style_move_not_warned():
+    # Symmetric to the test above: A (first) has a VALID styleMove and is accepted; B
+    # (duplicate) has an INVALID styleMove but is rejected by dedup (5.7) before styleMove
+    # (5.8), so B is never inspected → NO styleMove warning is emitted at all.
+    a = {"items": list(_BASE_ITEMS), "styleMove": dict(_VALID_STYLE_MOVE)}  # valid → attached
+    b = {"items": list(_BASE_ITEMS), "styleMove": {"moveType": ""}}         # invalid, but dup
+    result = validate_gpt_payload({"outfits": [a, b]}, POOL_C3)
+    assert [c.source_index for c in result.candidates] == [0]
+    assert isinstance(result.candidates[0].style_move, StyleMove)  # A's valid move attached
+    assert _codes(result.rejections) == [IssueCode.duplicate_full_signature]
+    assert result.rejections[0].candidate_index == 1
+    assert result.warnings == []  # B never styleMove-inspected
+
+
+# --- styleMove (5.8) is reached ONLY for accepted candidates: a candidate rejected at any
+#     earlier stage carries an invalid styleMove that is never inspected (no warning) ---
+
+def test_style_move_not_inspected_when_candidate_schema_rejected():
+    # Missing items → invalidItems (schema 5.1) rejects before acceptance; the malformed
+    # styleMove (would warn if inspected) is never reached.
+    candidate = {"styleMove": {"moveType": ""}}  # no items
+    result = _validate_pooled(candidate)
+    assert _codes(result.rejections) == [IssueCode.invalid_items]
+    assert result.warnings == []
+    assert result.candidates == []
+
+
+def test_style_move_not_inspected_when_structural_rejected():
+    # incompleteTwoPiece (top only, 5.4) rejects before acceptance → no styleMove warning.
+    candidate = {
+        "items": [{"itemId": "t1", "role": "base_top"}],
+        "styleMove": {"moveType": ""},  # would warn if inspected
+    }
+    result = _validate_pooled(candidate)
+    assert _codes(result.rejections) == [IssueCode.incomplete_two_piece]
+    assert result.warnings == []
+    assert result.candidates == []
+
+
+def test_style_move_not_inspected_when_pool_rejected():
+    # A structurally valid two-piece whose bottom is out of pool → itemOutsideSampledPool
+    # (5.5) rejects before acceptance → no styleMove warning. Single-item pool isolates it.
+    pool = [WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg")]
+    candidate = {
+        "items": [
+            {"itemId": "t1", "role": "base_top"},
+            {"itemId": "b1", "role": "base_bottom"},  # not in pool
+        ],
+        "styleMove": {"moveType": ""},
+    }
+    result = validate_gpt_payload({"outfits": [candidate]}, pool)
+    assert _codes(result.rejections) == [IssueCode.item_outside_sampled_pool]
+    assert result.warnings == []
+    assert result.candidates == []
+
+
+def test_style_move_not_inspected_when_key_precondition_failed():
+    # A reserved-sentinel base id trips the R10 key guard → keyPreconditionFailed (5.6)
+    # rejects before acceptance (5.6 < 5.8) → no styleMove warning. The bad id is in pool
+    # so 5.5 passes and 5.6 fires.
+    pool = [
+        WardrobeItem("none", "Weird", ItemType.top, warmth=4, image_url="n.jpg"),
+        WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg"),
+    ]
+    candidate = {
+        "items": [
+            {"itemId": "none", "role": "base_top"},
+            {"itemId": "b1", "role": "base_bottom"},
+        ],
+        "styleMove": {"moveType": ""},
+    }
+    result = validate_gpt_payload({"outfits": [candidate]}, pool)
+    assert _codes(result.rejections) == [IssueCode.key_precondition_failed]
+    assert result.warnings == []
+    assert result.candidates == []
+
+
+@pytest.mark.parametrize("future_field", ["matchedTraits", "missingTraits"])
+def test_future_traits_field_inside_style_move_warns_not_rejects(future_field):
+    # matchedTraits/missingTraits are [NEXT] (§6.5) and candidate-level forbidden, but
+    # INSIDE styleMove they are a shape warning, never a candidate forbidden/unknown reject.
+    sm = {**_VALID_STYLE_MOVE, future_field: ["x"]}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert IssueCode.forbidden_gpt_field not in _codes(result.rejections)
+    assert IssueCode.unknown_candidate_field not in _codes(result.rejections)
+    assert len(result.candidates) == 1
 
 
 # ============================ result-model / severity contract ============================
