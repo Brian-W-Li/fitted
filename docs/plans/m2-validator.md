@@ -105,8 +105,8 @@ rejects **duplicate object keys** at any depth (default last-wins could hide a f
 before validation sees it), and a `parse_constant` hook rejects **`NaN`/`Infinity`/`-Infinity`** — both →
 `invalidJson` (neither is "strictly valid JSON" per §12). A non-`str` `raw` raises `TypeError`
 (caller-contract, per §6 / the `__init__.py` convention); malformed *string content* returns `invalidJson`
-(data). *(NaN/Infinity already violate §12's "strictly valid JSON only"; a one-line §12 clarification making
-the duplicate-key rule explicit is proposed alongside this plan round.)*
+(data). *(Both are canonically homed in §12: `NaN`/`Infinity` violate its "strictly valid JSON only", and
+the duplicate-key rule is now stated there explicitly.)*
 
 ---
 
