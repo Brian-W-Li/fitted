@@ -1,7 +1,7 @@
 # Core (outfit_recommender.py)
 # No extra deps for rule-based recommender
 
-# fitted_core/ substrate (M0/M1) — pure functions + tests
+# fitted_core/ substrate (M0–M2) — pure functions + tests
 pytest>=7.4
 
 # CV / clothing attribute inference (clothing_cv.py)
