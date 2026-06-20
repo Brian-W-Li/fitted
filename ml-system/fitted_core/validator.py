@@ -8,19 +8,19 @@ a structured issue log. Two public entry points (M2 plan Decision D1/D2):
 - ``validate_gpt_payload(payload, sampled_pool, candidate_requested=None)`` —
   validate an already-parsed payload against the §12 schema.
 
-**Checkpoint scope (C4).** This file implements the result model, the strict parser,
+**Checkpoint scope (C5).** This file implements the result model, the strict parser,
 root-envelope validation, the per-candidate **schema + forbidden-field** pass (each
 candidate is an object with required ``items`` + optional ``styleMove``; each item an
 object with exactly non-empty ``itemId`` + string ``role``), **SlotMap normalization,
 slot-level structural validity, and sampled-pool membership** (flow steps 5.3–5.5 +
-the up-front pool-index build), and — new at C4 — **BaseKey/FullSignature computation
-and exact-FullSignature dedup** (flow steps 5.6–5.7, M2 plan §7). C4 is the first
-checkpoint that emits accepted ``ValidatedCandidate``s: a candidate that passes
-5.3–5.7 is keyed and appended to ``candidates`` (in input order; dedup keeps the first
-occurrence), always with ``style_move=None`` — StyleMove content validation lands at
-C5. StyleMove validation (C5) and ``candidate_requested`` bound semantics (C6) are not
-done here; ``candidate_requested`` is part of the pinned signature (D1) but not yet
-consumed (C6).
+the up-front pool-index build), **BaseKey/FullSignature computation and
+exact-FullSignature dedup** (flow steps 5.6–5.7), and — new at C5 — **StyleMove
+boundary validation** (flow step 5.8, warning-only, M2 plan §7). A candidate that
+passes 5.3–5.7 is keyed and appended to ``candidates`` (in input order; dedup keeps the
+first occurrence); its optional ``styleMove`` is then validated (5.8) and attached when
+valid, else dropped via a warning while the candidate still stands (D5, H23).
+``candidate_requested`` bound semantics (C6) are not done here; ``candidate_requested``
+is part of the pinned signature (D1) but not yet consumed (C6).
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures go
 to the issue channel (``Issue`` / ``ParseResult`` / ``ValidationResult``);
@@ -77,9 +77,9 @@ class ValidatedCandidate:
 
     ``source_index`` is its position in the original ``outfits`` array (survivors
     stay in input order). ``style_move`` is present iff a valid StyleMove was
-    supplied; otherwise ``None`` (M2 plan Decision D5) — at C4 it is always ``None``,
-    because StyleMove validation lands at C5. Emitted from **C4** on, the checkpoint
-    that computes the required ``base_key`` + ``full_signature``.
+    supplied; otherwise ``None`` (M2 plan Decision D5 — a present-but-invalid styleMove
+    is dropped via a warning and leaves this ``None``). Emitted from **C4** on, the
+    checkpoint that computes the required ``base_key`` + ``full_signature``.
     """
 
     source_index: int
@@ -234,6 +234,7 @@ def parse_gpt_json(raw: str) -> ParseResult:
 _ALLOWED_ROOT_FIELDS = frozenset({"outfits"})
 _ALLOWED_CANDIDATE_FIELDS = frozenset({"items", "styleMove"})
 _ALLOWED_ITEM_FIELDS = frozenset({"itemId", "role"})
+_ALLOWED_STYLE_MOVE_FIELDS = frozenset({"moveType", "changedItemIds", "oneSentence"})
 _FORBIDDEN_GPT_FIELDS = frozenset({
     "score", "rank", "optionPath", "risk",
     "anchor", "bridge", "experiment",
@@ -315,7 +316,8 @@ def _validate_candidate(candidate: object, index: int) -> Optional[Issue]:
 
     ``items`` must be a list; an **empty** list passes here and falls through to the
     SlotMap ``emptyBase`` reject at C3 (N3 — never ``invalidItems``). ``styleMove`` is
-    accepted as an allowed key only; its contents are boundary-validated at C5.
+    accepted as an allowed key only; its contents are boundary-validated separately at
+    flow step 5.8 (``_validate_style_move``), after the candidate is accepted.
     Returns the first failing check (one Issue per candidate), or ``None`` when the
     candidate's schema is well-formed.
     """
@@ -419,6 +421,76 @@ def _compute_keys(slot_map: SlotMap, index: int) -> Union[tuple[str, str], Issue
     return bk, fs
 
 
+def _validate_style_move(
+    candidate: dict, slot_map: SlotMap, index: int
+) -> tuple[Optional[StyleMove], Optional[Issue]]:
+    """Validate an accepted candidate's optional ``styleMove`` (flow 5.8, §12/H23).
+
+    Warning-only, and runs **only** for candidates that already survived schema,
+    structure, pool, keys, and dedup (§9). Returns ``(StyleMove, None)`` when valid,
+    ``(None, None)`` when the key is absent (D5 — the common, correct case), or
+    ``(None, Issue)`` (a warning) when the key is present but invalid. A present-but-
+    invalid styleMove is dropped via the warning and never rejects the candidate
+    (D5, H23, §13) — the outfit's structural validity is independent of its prose.
+
+    First-failing-check-wins in the §7 order — shape → H23 subset → duplicate ids:
+    - **shape** (``invalidStyleMoveShape``): non-object (incl. ``null``); not exactly the
+      three §12 fields (a forbidden/unknown key here is a *warning*, never a candidate
+      reject — M2 plan §4); ``moveType``/``oneSentence`` non-string or empty;
+      ``changedItemIds`` non-array/empty/with a non-string or empty-string entry.
+    - **subset** (``styleMoveItemOutsideOutfit``): ``changedItemIds`` ⊄ the outfit's
+      filled slot ids (H23 — every slot, incl. optional outer/shoes).
+    - **duplicate** (``duplicateStyleMoveChangedIds``): ``changedItemIds`` has duplicates.
+    """
+    if "styleMove" not in candidate:
+        return None, None  # absent → valid, no warning (D5)
+    raw = candidate["styleMove"]
+
+    # Shape — a present styleMove must be an object with exactly the three §12 fields
+    # (this single check covers null/non-object, missing required fields, and any
+    # unknown/forbidden extra key — all are warnings here, never candidate rejects).
+    if not isinstance(raw, dict) or set(raw) != _ALLOWED_STYLE_MOVE_FIELDS:
+        return None, Issue(
+            IssueCode.invalid_style_move_shape, index,
+            "styleMove must be an object with exactly {moveType, changedItemIds, oneSentence}",
+        )
+    move_type = raw["moveType"]
+    one_sentence = raw["oneSentence"]
+    changed = raw["changedItemIds"]
+    # bool is an int, not a str — isinstance(True, str) is False, so bools fall through
+    # to the shape warning (mirrors the itemId/role bool-rejection precedents).
+    if not isinstance(move_type, str) or move_type == "":
+        return None, Issue(IssueCode.invalid_style_move_shape, index, "moveType must be a non-empty string")
+    if not isinstance(one_sentence, str) or one_sentence == "":
+        return None, Issue(IssueCode.invalid_style_move_shape, index, "oneSentence must be a non-empty string")
+    if not isinstance(changed, list) or len(changed) == 0:
+        return None, Issue(IssueCode.invalid_style_move_shape, index, "changedItemIds must be a non-empty array")
+    for cid in changed:
+        if not isinstance(cid, str) or cid == "":
+            return None, Issue(
+                IssueCode.invalid_style_move_shape, index, "changedItemIds entries must be non-empty strings"
+            )
+
+    # H23 subset — every changed id must be one of the outfit's filled slot ids.
+    outfit_ids = {
+        v for v in (slot_map.dress, slot_map.top, slot_map.bottom, slot_map.outer, slot_map.shoes)
+        if v is not None
+    }
+    outside = sorted(set(changed) - outfit_ids)
+    if outside:
+        return None, Issue(
+            IssueCode.style_move_item_outside_outfit, index, f"changedItemIds outside outfit: {outside}"
+        )
+
+    # Duplicate changed ids (all in-outfit by here).
+    if len(changed) != len(set(changed)):
+        return None, Issue(
+            IssueCode.duplicate_style_move_changed_ids, index, "changedItemIds contains duplicates"
+        )
+
+    return StyleMove(move_type=move_type, changed_item_ids=list(changed), one_sentence=one_sentence), None
+
+
 def validate_gpt_payload(
     payload: object,
     sampled_pool: Sequence[WardrobeItem],
@@ -426,20 +498,21 @@ def validate_gpt_payload(
 ) -> ValidationResult:
     """Validate an already-parsed GPT payload against the §12 schema (M2 plan §7).
 
-    **C4 scope:** strict root envelope + per-candidate schema/forbidden-field pass +
+    **C5 scope:** strict root envelope + per-candidate schema/forbidden-field pass +
     SlotMap normalization + slot-level structural validity + sampled-pool membership +
-    BaseKey/FullSignature computation + exact-FullSignature dedup (flow steps 2–5.7). A
-    malformed root returns zero candidates and a single root rejection, and never
-    inspects nested candidates (§13). Otherwise each candidate is validated in order
-    through schema (5.1–5.2), structure/pool (5.3–5.5), keys (5.6), and dedup (5.7); a
-    bad candidate yields one rejection (first failing check wins, with its
-    ``candidate_index``) and never stops later candidates. A candidate that passes
+    BaseKey/FullSignature computation + exact-FullSignature dedup + StyleMove boundary
+    validation (flow steps 2–5.8). A malformed root returns zero candidates and a single
+    root rejection, and never inspects nested candidates (§13). Otherwise each candidate
+    is validated in order through schema (5.1–5.2), structure/pool (5.3–5.5), keys (5.6),
+    and dedup (5.7); a bad candidate yields one rejection (first failing check wins, with
+    its ``candidate_index``) and never stops later candidates. A candidate that passes
     5.3–5.7 is keyed and appended to ``candidates`` (in input order; dedup keeps the
-    first occurrence of a FullSignature), always with ``style_move=None``.
+    first occurrence of a FullSignature); its optional ``styleMove`` is then validated
+    (5.8, warning-only) and attached when valid, else dropped via a warning with the
+    candidate still accepted (``style_move=None``).
 
-    StyleMove validation (C5) and ``candidate_requested`` bound semantics (C6) are not
-    done here — ``candidate_requested`` is part of the pinned signature (Decision D1)
-    but not yet consumed (Decision D6 is C6).
+    ``candidate_requested`` bound semantics (C6) are not done here — ``candidate_requested``
+    is part of the pinned signature (Decision D1) but not yet consumed (Decision D6 is C6).
     """
     candidates: list[ValidatedCandidate] = []
     rejections: list[Issue] = []
@@ -458,9 +531,9 @@ def validate_gpt_payload(
 
     # Per-candidate validation (§7 step 5), candidate-by-candidate (§13): a bad
     # candidate never stops later ones. Each candidate runs schema (5.1–5.2),
-    # structure/pool (5.3–5.5), keys (5.6), then dedup (5.7), first-failing-check-wins;
-    # a survivor is keyed and accepted. StyleMove validation (5.8) lands at C5, so an
-    # accepted candidate's ``style_move`` is always None here.
+    # structure/pool (5.3–5.5), keys (5.6), dedup (5.7), then — for survivors only —
+    # StyleMove (5.8), first-failing-check-wins. StyleMove is warning-only and never
+    # un-accepts a candidate.
     seen_signatures: set[str] = set()
     for index, candidate in enumerate(payload["outfits"]):
         candidate_issue = _validate_candidate(candidate, index)
@@ -485,14 +558,19 @@ def validate_gpt_payload(
             _record(Issue(IssueCode.duplicate_full_signature, index, full_sig), rejections, warnings)
             continue
         seen_signatures.add(full_sig)
-        # Accepted. ``style_move`` stays None until C5 wires StyleMove validation (5.8).
+        # 5.8 StyleMove (warning-only) — inspected only for accepted candidates, i.e.
+        # after dedup (§9): a duplicate-rejected candidate is never styleMove-inspected.
+        # A present-but-invalid styleMove warns and is dropped; the candidate still stands.
+        style_move, style_issue = _validate_style_move(candidate, structure.slot_map, index)
+        if style_issue is not None:
+            _record(style_issue, rejections, warnings)
         candidates.append(ValidatedCandidate(
             source_index=index,
             slot_map=structure.slot_map,
             template=template_of(structure.slot_map),
             base_key=base,
             full_signature=full_sig,
-            style_move=None,
+            style_move=style_move,
         ))
 
     return ValidationResult(candidates=candidates, rejections=rejections, warnings=warnings)

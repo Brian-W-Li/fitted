@@ -15,7 +15,7 @@ change freely; the codes are the stable contract.
 
 import pytest
 
-from fitted_core.models import IssueCode, ItemType, Template, WardrobeItem
+from fitted_core.models import IssueCode, ItemType, StyleMove, Template, WardrobeItem
 from fitted_core.validator import (
     Issue,
     ParseResult,
@@ -366,27 +366,23 @@ def test_schema_valid_candidate_emits_no_rejection():
     assert result.warnings == []
 
 
-def test_style_move_is_allowed_key_but_not_inspected_in_c2():
-    # C2/C5 boundary: styleMove is an allowed candidate key, so it never triggers
-    # unknownCandidateField (durable). Its *contents* are boundary-validated only at C5,
-    # so a deliberately malformed styleMove produces no styleMove issue in C2. (C5 will
-    # update this to warn; StyleMove validation is NOT implemented yet.)
+def test_style_move_is_allowed_key_not_a_candidate_field_reject():
+    # styleMove is an allowed candidate key, so even a malformed one never triggers a
+    # candidate REJECTION (unknownCandidateField / forbiddenGptField). Its contents are
+    # boundary-validated at C5 as a WARNING only — never a candidate-field rejection.
     candidate = {
         "items": [
             {"itemId": "t1", "role": "base_top"},
             {"itemId": "b1", "role": "base_bottom"},
         ],
-        "styleMove": {"bogus": 1, "moveType": ""},  # malformed; C5 would warn
+        "styleMove": {"bogus": 1, "moveType": ""},  # malformed → warning, not reject
     }
     result = validate_gpt_payload({"outfits": [candidate]}, POOL)
     assert IssueCode.unknown_candidate_field not in _codes(result.rejections)
-    style_codes = {
-        IssueCode.invalid_style_move_shape,
-        IssueCode.style_move_item_outside_outfit,
-        IssueCode.duplicate_style_move_changed_ids,
-    }
-    assert not (style_codes & set(_codes(result.rejections)))
-    assert not (style_codes & set(_codes(result.warnings)))
+    assert IssueCode.forbidden_gpt_field not in _codes(result.rejections)
+    assert result.rejections == []
+    assert len(result.candidates) == 1
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
 
 
 # ============================ SlotMap + sampled-pool (C3) ============================
@@ -818,27 +814,22 @@ def test_structural_or_pool_reject_precedes_key_computation():
     assert IssueCode.key_precondition_failed not in _codes(result.rejections)
 
 
-def test_style_move_present_not_validated_in_c4():
-    # C4/C5 boundary: styleMove is an allowed candidate key but its CONTENTS are not
-    # validated until C5. A valid candidate with a (malformed) styleMove is accepted with
-    # style_move=None and no styleMove issue. (C5 will add the warning.)
+def test_malformed_style_move_warns_candidate_still_accepted():
+    # A valid candidate with a malformed styleMove is accepted with style_move=None and a
+    # single invalid_style_move_shape WARNING (never a rejection) — H23/§13: the outfit's
+    # structural validity is independent of its styling prose.
     candidate = {
         "items": [
             {"itemId": "t1", "role": "base_top"},
             {"itemId": "b1", "role": "base_bottom"},
         ],
-        "styleMove": {"bogus": 1, "moveType": ""},  # malformed; C5 would warn
+        "styleMove": {"bogus": 1, "moveType": ""},  # malformed
     }
     result = _validate_pooled(candidate)
     assert len(result.candidates) == 1
     assert result.candidates[0].style_move is None
-    style_codes = {
-        IssueCode.invalid_style_move_shape,
-        IssueCode.style_move_item_outside_outfit,
-        IssueCode.duplicate_style_move_changed_ids,
-    }
-    assert not (style_codes & set(_codes(result.rejections)))
-    assert not (style_codes & set(_codes(result.warnings)))
+    assert result.rejections == []
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
 
 
 def test_candidate_requested_remains_untouched_in_c4():
@@ -932,6 +923,217 @@ def test_one_piece_same_base_key_different_optionals_all_survive():
     assert {c.base_key for c in result.candidates} == {"d1"}
     assert len({c.full_signature for c in result.candidates}) == 3
     assert result.rejections == []
+
+
+# ============================ StyleMove validation (C5) ============================
+# Stage F (M2 plan §10): styleMove is validated (flow 5.8) ONLY for accepted candidates,
+# warning-only — an invalid/missing styleMove never rejects the candidate (D5, H23, §13).
+# A base two-piece (t1+b1, both in POOL_C3) carries most cases.
+
+_BASE_ITEMS = [
+    {"itemId": "t1", "role": "base_top"},
+    {"itemId": "b1", "role": "base_bottom"},
+]
+_VALID_STYLE_MOVE = {
+    "moveType": "swap",
+    "changedItemIds": ["t1"],
+    "oneSentence": "Wear the tee untucked.",
+}
+
+
+def _with_style_move(style_move, items=None):
+    """A schema-valid two-piece candidate carrying the given styleMove value."""
+    return {"items": list(items or _BASE_ITEMS), "styleMove": style_move}
+
+
+# --- missing styleMove → valid, no warning, style_move=None (D5) ---
+
+def test_missing_style_move_accepted_no_warning():
+    result = _validate_pooled({"items": list(_BASE_ITEMS)})
+    assert len(result.candidates) == 1
+    assert result.candidates[0].style_move is None
+    assert result.warnings == []
+    assert result.rejections == []
+
+
+# --- valid styleMove → attached ---
+
+def test_valid_style_move_attached():
+    result = _validate_pooled(_with_style_move(dict(_VALID_STYLE_MOVE)))
+    assert result.warnings == []
+    assert result.rejections == []
+    assert len(result.candidates) == 1
+    sm = result.candidates[0].style_move
+    assert isinstance(sm, StyleMove)
+    assert sm.move_type == "swap"
+    assert sm.changed_item_ids == ["t1"]
+    assert sm.one_sentence == "Wear the tee untucked."
+
+
+def test_valid_style_move_can_reference_optional_outer_or_shoes():
+    # H23 subset target is ALL filled slots, incl. optionals — a styleMove may reference
+    # the outer/shoes it added. Two-piece + outer o1 + shoes s1, changedItemIds covers both.
+    items = [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+        {"itemId": "o1", "role": "outer_layer"},
+        {"itemId": "s1", "role": "shoes"},
+    ]
+    sm = {"moveType": "layer", "changedItemIds": ["o1", "s1"], "oneSentence": "Add the coat and boots."}
+    result = _validate_pooled(_with_style_move(sm, items))
+    assert result.warnings == []
+    assert len(result.candidates) == 1
+    assert result.candidates[0].style_move.changed_item_ids == ["o1", "s1"]
+
+
+# --- present-but-invalid shape → invalid_style_move_shape (warning), candidate stands ---
+
+@pytest.mark.parametrize("bad", [None, "x", 5, 1.0, True, [], ["x"]])
+def test_non_object_style_move_warns(bad):
+    # null/non-object styleMove is present-but-invalid → invalid_style_move_shape warning.
+    result = _validate_pooled(_with_style_move(bad))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert len(result.candidates) == 1
+    assert result.candidates[0].style_move is None
+    assert result.rejections == []
+
+
+def test_unknown_field_inside_style_move_warns_not_rejects():
+    sm = {**_VALID_STYLE_MOVE, "bogus": 1}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert IssueCode.unknown_candidate_field not in _codes(result.rejections)
+    assert len(result.candidates) == 1
+
+
+@pytest.mark.parametrize("forbidden", ["score", "optionPath", "risk", "imageUrl"])
+def test_forbidden_field_inside_style_move_warns_not_rejects(forbidden):
+    # A §12-forbidden name INSIDE styleMove is a shape warning, NOT a forbiddenGptField
+    # reject (M2 plan §4: forbidden/unknown inside styleMove → invalid_style_move_shape).
+    sm = {**_VALID_STYLE_MOVE, forbidden: 1}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert IssueCode.forbidden_gpt_field not in _codes(result.rejections)
+    assert len(result.candidates) == 1
+
+
+@pytest.mark.parametrize("field", ["moveType", "oneSentence"])
+def test_empty_string_field_warns(field):
+    sm = {**_VALID_STYLE_MOVE, field: ""}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert len(result.candidates) == 1
+
+
+@pytest.mark.parametrize("field", ["moveType", "changedItemIds", "oneSentence"])
+def test_missing_required_field_warns(field):
+    sm = {k: v for k, v in _VALID_STYLE_MOVE.items() if k != field}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert len(result.candidates) == 1
+
+
+@pytest.mark.parametrize("bad", [5, 1.0, True, [], {}, None])
+@pytest.mark.parametrize("field", ["moveType", "oneSentence"])
+def test_non_string_field_warns(field, bad):
+    sm = {**_VALID_STYLE_MOVE, field: bad}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert len(result.candidates) == 1
+
+
+@pytest.mark.parametrize("changed", ["x", 5, True, {}, None, [], [5], [""], ["t1", 5], ["t1", ""]])
+def test_bad_changed_item_ids_warns_shape(changed):
+    # changedItemIds must be a non-empty array of non-empty strings: non-array, empty,
+    # non-string entry, or empty-string entry → invalid_style_move_shape (shape, not subset).
+    sm = {**_VALID_STYLE_MOVE, "changedItemIds": changed}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert len(result.candidates) == 1
+
+
+# --- H23 subset + duplicate (warnings) ---
+
+def test_changed_item_ids_outside_outfit_warns():
+    # Well-shaped changedItemIds but references an id not in the outfit → H23 subset fail.
+    sm = {**_VALID_STYLE_MOVE, "changedItemIds": ["b1", "ghost"]}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.style_move_item_outside_outfit]
+    assert len(result.candidates) == 1
+    assert result.candidates[0].style_move is None
+
+
+def test_duplicate_changed_item_ids_warns():
+    # All ids in outfit but changedItemIds has a duplicate → duplicate_style_move_changed_ids.
+    sm = {**_VALID_STYLE_MOVE, "changedItemIds": ["t1", "t1"]}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.duplicate_style_move_changed_ids]
+    assert len(result.candidates) == 1
+    assert result.candidates[0].style_move is None
+
+
+# --- first-failing-check-wins order: shape → subset → duplicate (plan §7) ---
+
+def test_style_move_first_failure_wins_shape_before_subset():
+    # Malformed shape (empty moveType) AND an out-of-outfit changedItemId → shape wins.
+    sm = {"moveType": "", "changedItemIds": ["ghost"], "oneSentence": "x"}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+
+
+def test_style_move_first_failure_wins_subset_before_duplicate():
+    # Out-of-outfit AND duplicate ("ghost" twice) → subset/outside-outfit wins.
+    sm = {**_VALID_STYLE_MOVE, "changedItemIds": ["ghost", "ghost"]}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.style_move_item_outside_outfit]
+
+
+# --- invalid styleMove never rejects / never stops later candidates; index correctness ---
+
+def test_invalid_style_move_does_not_reject_candidate():
+    sm = {"moveType": "", "changedItemIds": [], "oneSentence": ""}  # multiply malformed
+    result = _validate_pooled(_with_style_move(sm))
+    assert result.rejections == []
+    assert len(result.candidates) == 1
+    assert result.candidates[0].style_move is None
+
+
+def test_invalid_style_move_does_not_stop_later_candidates():
+    bad = _with_style_move({"moveType": ""})                          # index 0, warns
+    good = {"items": [{"itemId": "d1", "role": "one_piece"}]}         # index 1, accepted
+    result = validate_gpt_payload({"outfits": [bad, good]}, POOL_C3)
+    assert [c.source_index for c in result.candidates] == [0, 1]
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert result.warnings[0].candidate_index == 0
+    assert result.rejections == []
+
+
+def test_style_move_warning_index_is_source_index():
+    # A clean candidate at 0, then a candidate with a bad styleMove at 1 → the warning
+    # carries the original source index (1), not an encounter counter.
+    clean = {"items": [{"itemId": "d1", "role": "one_piece"}]}
+    bad = _with_style_move({"moveType": ""})
+    result = validate_gpt_payload({"outfits": [clean, bad]}, POOL_C3)
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert result.warnings[0].candidate_index == 1
+
+
+# --- dedup runs before styleMove (§9) ---
+
+def test_duplicate_full_signature_rejected_before_style_move_inspection():
+    # §9: dedup (5.7) runs before styleMove (5.8). Duplicate A (invalid styleMove) precedes
+    # duplicate B (valid styleMove): A is KEPT (its styleMove dropped with ONE warning), B
+    # is rejected as duplicateFullSignature and is NEVER styleMove-inspected (no 2nd warning).
+    a = {"items": list(_BASE_ITEMS), "styleMove": {"moveType": ""}}          # invalid styleMove
+    b = {"items": list(_BASE_ITEMS), "styleMove": dict(_VALID_STYLE_MOVE)}   # valid styleMove
+    result = validate_gpt_payload({"outfits": [a, b]}, POOL_C3)
+    assert [c.source_index for c in result.candidates] == [0]
+    assert result.candidates[0].style_move is None  # A kept, its styleMove dropped
+    assert _codes(result.rejections) == [IssueCode.duplicate_full_signature]
+    assert result.rejections[0].candidate_index == 1
+    # exactly one styleMove warning (A's); B was never inspected
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert result.warnings[0].candidate_index == 0
 
 
 # ============================ result-model / severity contract ============================
