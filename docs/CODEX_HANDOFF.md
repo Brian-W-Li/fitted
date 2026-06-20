@@ -1,5 +1,14 @@
 # Codex Handoff
 
+> **Status note (2026-06-20): historical context, not the active M2 source of truth.** This file is the
+> retired brainstorm plus the post-M1 / pre-M2 adversarial audit. For **active M2 implementation it is
+> superseded by `docs/plans/m2-validator.md`** (the live checkpoint plan) plus the committed code in
+> `ml-system/fitted_core/validator.py` + `ml-system/tests/test_validator.py`. **C1 and C2 are now
+> implemented and committed** (strict parser, result/issue model, root envelope, candidate/item schema +
+> forbidden fields); the audit text below that says "M2 not implemented / no validator files exist" is out
+> of date. Canonical product truth remains `docs/Fitted_Spec_v2.md`. **Do not treat this file as the C3
+> spec** — read `docs/plans/m2-validator.md` for C3.
+
 <!--
 CODEX INSTRUCTIONS - keep this block, replace everything below it as needed.
 

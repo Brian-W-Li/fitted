@@ -1,9 +1,10 @@
 # M2: GPT-response validator (parse + schema + SlotMap + keys + dedup + StyleMove)
 
-> **Status: `[NOW]` — planned, not implemented (2026-06-19).** M1 sampler substrate is complete
-> (132 pytest green). No `validator.py`, no `test_validator.py` yet. This plan turns
-> `docs/Fitted_Spec_v2.md` (canonical) + `docs/CODEX_HANDOFF.md` (Codex's adversarial M2 audit) into
-> an unambiguous implementation roadmap. **Canonical spec wins on any conflict;** this doc is
+> **Status: `[NOW]` — C1+C2 implemented and committed; C3 next (2026-06-20).** `validator.py` and
+> `test_validator.py` exist. Landed: strict parser, result/issue model, root-envelope validation, and the
+> per-candidate schema + forbidden-field pass — **255 pytest green**. Next checkpoint: C3 (SlotMap + pool).
+> This plan turns `docs/Fitted_Spec_v2.md` (canonical) + `docs/CODEX_HANDOFF.md` (Codex's historical M2
+> audit) into an unambiguous implementation roadmap. **Canonical spec wins on any conflict;** this doc is
 > implementation guidance, not product truth.
 
 Plan doc only — **no code or tests are written here.** The §13 compute-before-dedup wording was fixed
@@ -378,13 +379,16 @@ checkpoint (§11) lands its own green tests:
   (normalizer-owned). `mixedTemplate`, `emptyBase`, `incompleteTwoPiece`, `duplicateItemId`
   (`is_valid_slotmap`-owned). **Empty `items: []` → `emptyBase`** (passes schema, normalizes to an empty
   SlotMap, rejected by `is_valid_slotmap` — the N3 owner; **not** `invalidItems`). Valid one-piece,
-  two-piece, ±outer, ±shoes accepted with correct `template`.
-- **Stage D — sampled-pool membership.** Item ∈ pool accepted; item ∉ pool → `itemOutsideSampledPool`.
-  Validates against the pool, not a wider wardrobe. **Duplicate ids in `sampled_pool` → `ValueError`.**
-- **Stage E — keys + FullSignature dedup.** BaseKey/FullSignature computed correctly (cross-check the §7
-  examples). Exact-FullSignature duplicate → second dropped (`duplicateFullSignature`). Same BaseKey,
-  different FullSignature (e.g. different outer) → **both survive**. Reserved-char / `"none"` itemId →
-  `keyPreconditionFailed` (no escaping `ValueError`).
+  two-piece, ±outer, ±shoes produce **no structural rejection (pass-through)** — accepted-candidate
+  emission (with `template` + keys) is Stage E / C4; C3 emits no `ValidatedCandidate`s.
+- **Stage D — sampled-pool membership.** Item ∈ pool produces **no pool rejection**; item ∉ pool →
+  `itemOutsideSampledPool`. Validates against the pool, not a wider wardrobe. **Duplicate ids in
+  `sampled_pool` → `ValueError`.**
+- **Stage E — keys + FullSignature dedup.** **The first stage that emits accepted `ValidatedCandidate`s**
+  (they require `base_key` + `full_signature`, computed here). BaseKey/FullSignature computed correctly
+  (cross-check the §7 examples). Exact-FullSignature duplicate → second dropped (`duplicateFullSignature`).
+  Same BaseKey, different FullSignature (e.g. different outer) → **both survive**. Reserved-char / `"none"`
+  itemId → `keyPreconditionFailed` (no escaping `ValueError`).
 - **Stage F — StyleMove validation.** Missing styleMove → valid, **no warning**, `style_move=None`. Valid
   styleMove → attached. Malformed styleMove → `invalidStyleMoveShape` (warning, candidate stands), including
   the §12 **non-empty** cases: empty `moveType`/`oneSentence`, empty `changedItemIds: []`, and a
@@ -415,12 +419,18 @@ pinned in tests before behavior, per the handoff).
 | # | Commit | Lands |
 |---|---|---|
 | C0 | *plan/spec only* | **this doc** (no code) |
-| C1 | result model + parser/root | `IssueCode`, `Issue`, `ParseResult`, `ValidationResult`, `ValidatedCandidate`, `StyleMove`; `parse_gpt_json`; root-envelope validation. Stage A green. |
-| C2 | candidate/item schema | allowed/forbidden field enforcement; `items`/`itemId`/`role` schema; candidate-by-candidate isolation. Stage B green. |
-| C3 | SlotMap + pool | wire `normalize_to_slotmap`/`is_valid_slotmap`; structural codes (Decision D7); pool-membership + duplicate-pool-id guard. Stages C–D green. |
-| C4 | keys + dedup | `base_key`/`full_signature` integration; `keyPreconditionFailed`; exact-FullSignature dedup; first-wins ordering. Stage E green. |
+| C1 ✅ | result model + parser/root | `IssueCode`, `Issue`, `ParseResult`, `ValidationResult`, `ValidatedCandidate`, `StyleMove`; `parse_gpt_json`; root-envelope validation. Stage A green. **Done (committed).** |
+| C2 ✅ | candidate/item schema | allowed/forbidden field enforcement; `items`/`itemId`/`role` schema; candidate-by-candidate isolation. Stage B green. **Done (committed).** |
+| C3 | SlotMap + pool | wire `normalize_to_slotmap`/`is_valid_slotmap`; structural codes (Decision D7); pool-membership + duplicate-pool-id guard — structural/pool **rejections only; emits no accepted candidates**. Stages C–D green. |
+| C4 | keys + dedup | `base_key`/`full_signature` integration; `keyPreconditionFailed`; exact-FullSignature dedup; first-wins ordering; **first checkpoint to populate `ValidationResult.candidates`**. Stage E green. |
 | C5 | StyleMove warnings | `StyleMove` validation, warning-only drop; missing-styleMove decision. Stage F green. |
 | C6 | boundary + hardening + closeout | `candidate_requested` semantics (Stage G); Stage H mutants; flip `__init__.py` "M0/M1"→"M0–M2"; add `> COMPLETED` banner to this plan. |
+
+**C3/C4 boundary (locked 2026-06-20).** C3 performs SlotMap normalization, sampled-pool membership, and the
+structural/pool **rejections** only — it emits **no** accepted `ValidatedCandidate`s. **C4 is the first
+checkpoint that populates `ValidationResult.candidates`**, because a `ValidatedCandidate` requires
+`base_key` + `full_signature` (both computed at C4). C3 tests therefore assert candidate **rejections** and
+structural **pass-through (no rejection)**, never accepted-candidate emission.
 
 Effort (4–8 hr/wk cadence): C1 ~1.5h · C2 ~1.5h · C3 ~2h (densest — the structural-code decision) ·
 C4 ~1.5h · C5 ~1h · C6 ~1.5h. **Total ~9h → ~1.5 sessions.**

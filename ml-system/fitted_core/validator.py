@@ -72,8 +72,9 @@ class ValidatedCandidate:
 
     ``source_index`` is its position in the original ``outfits`` array (survivors
     stay in input order). ``style_move`` is present iff a valid StyleMove was
-    supplied; otherwise ``None`` (M2 plan Decision D5). Populated starting at C3/C4;
-    C1 and C2 emit none (a candidate needs its SlotMap + keys, built at C3/C4).
+    supplied; otherwise ``None`` (M2 plan Decision D5). Populated starting at **C4** —
+    the first checkpoint that computes the required ``base_key`` + ``full_signature``;
+    C1–C3 emit none (C3 does SlotMap/pool rejection only — M2 plan C3/C4 boundary).
     """
 
     source_index: int

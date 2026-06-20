@@ -12,7 +12,7 @@ change freely; the codes are the stable contract.
 
 import pytest
 
-from fitted_core.models import IssueCode
+from fitted_core.models import IssueCode, ItemType, WardrobeItem
 from fitted_core.validator import (
     Issue,
     ParseResult,
@@ -28,8 +28,17 @@ def _codes(issues):
     return [issue.code for issue in issues]
 
 
-# C1/C2 do not consume sampled_pool; pass an empty pool everywhere.
+# C1/C2 do not consume sampled_pool; pass an empty pool for the reject-path tests
+# (they fail before the pool is ever consulted, from C3 on).
 EMPTY_POOL: list = []
+
+# A small sampled pool covering the ids used by structurally-valid "good" candidates,
+# so those candidates keep surviving once C3 adds sampled-pool membership — the
+# happy-path no-rejection assertions then stay durable into C3/C4. C1/C2 ignore it.
+POOL = [
+    WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+    WardrobeItem("b1", "Jeans", ItemType.bottom, warmth=5, image_url="b1.jpg"),
+]
 
 
 def _validate_one(candidate):
@@ -323,27 +332,58 @@ def test_c2_does_not_validate_role_value():
 # --- candidate-by-candidate isolation: a bad candidate never stops later ones ---
 
 def test_bad_candidate_does_not_stop_later_candidates():
-    good = {"items": [{"itemId": "t1", "role": "base_top"}]}
+    # `good` is a complete, in-pool two-piece, so it stays non-rejected through C3/C4;
+    # `bad` is missing items. Isolation: only the bad candidate is rejected, at its own
+    # index, and the good candidate is processed independently. Uses POOL so the
+    # good candidate survives C3 sampled-pool membership.
+    good = {"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
     bad = {}  # missing items → invalidItems
-    result = validate_gpt_payload({"outfits": [bad, good]}, EMPTY_POOL)
+    result = validate_gpt_payload({"outfits": [bad, good]}, POOL)
     assert _codes(result.rejections) == [IssueCode.invalid_items]
     assert result.rejections[0].candidate_index == 0
     # good first, bad second → candidate_index follows position, not encounter count
-    result2 = validate_gpt_payload({"outfits": [good, bad]}, EMPTY_POOL)
+    result2 = validate_gpt_payload({"outfits": [good, bad]}, POOL)
     assert _codes(result2.rejections) == [IssueCode.invalid_items]
     assert result2.rejections[0].candidate_index == 1
 
 
 def test_schema_valid_candidate_emits_no_rejection():
-    # A fully schema-valid two-piece candidate produces no schema rejection/warning.
-    # (It is not yet an accepted candidate — SlotMap/keys at C3/C4 do that.)
+    # A fully valid two-piece whose ids are in the sampled pool: no rejection and no
+    # warning. Uses POOL (not EMPTY_POOL) so the claim is durable into C3 (membership
+    # passes) and C4 (where it first becomes an accepted candidate).
     candidate = {"items": [
         {"itemId": "t1", "role": "base_top"},
         {"itemId": "b1", "role": "base_bottom"},
     ]}
-    result = _validate_one(candidate)
+    result = validate_gpt_payload({"outfits": [candidate]}, POOL)
     assert result.rejections == []
     assert result.warnings == []
+
+
+def test_style_move_is_allowed_key_but_not_inspected_in_c2():
+    # C2/C5 boundary: styleMove is an allowed candidate key, so it never triggers
+    # unknownCandidateField (durable). Its *contents* are boundary-validated only at C5,
+    # so a deliberately malformed styleMove produces no styleMove issue in C2. (C5 will
+    # update this to warn; StyleMove validation is NOT implemented yet.)
+    candidate = {
+        "items": [
+            {"itemId": "t1", "role": "base_top"},
+            {"itemId": "b1", "role": "base_bottom"},
+        ],
+        "styleMove": {"bogus": 1, "moveType": ""},  # malformed; C5 would warn
+    }
+    result = validate_gpt_payload({"outfits": [candidate]}, POOL)
+    assert IssueCode.unknown_candidate_field not in _codes(result.rejections)
+    style_codes = {
+        IssueCode.invalid_style_move_shape,
+        IssueCode.style_move_item_outside_outfit,
+        IssueCode.duplicate_style_move_changed_ids,
+    }
+    assert not (style_codes & set(_codes(result.rejections)))
+    assert not (style_codes & set(_codes(result.warnings)))
 
 
 # ============================ result-model / severity contract ============================
