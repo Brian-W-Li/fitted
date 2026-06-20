@@ -7,7 +7,8 @@ read by authority level, not by filename age or folder location.
 
 - `../CLAUDE.md` - repo operating guide and default reading list for AI/code sessions.
 - `Fitted_Spec_v2.md` - canonical product and technical spec. This wins over every older doc.
-- `plans/m0-m1-substrate.md` - current substrate execution plan.
+- `plans/m2-validator.md` - current active milestone plan (M2 validator).
+- `plans/m0-m1-substrate.md` - completed M0/M1 substrate plan; historical context.
 - Other active `plans/*.md` files only when they are the current milestone or are directly referenced by
   `Fitted_Spec_v2.md`.
 - Latest dated file in `sessions/` only when resuming recent work.

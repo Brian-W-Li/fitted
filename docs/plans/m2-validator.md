@@ -475,10 +475,10 @@ checkpoint carried out.
     `validator.py`, `slotmap.py` would import `validator.py` while `validator.py` imports `slotmap.py` — a
     circular import / M0→M2 inversion. `models.py` is the lowest shared contract layer, so both `slotmap.py`
     and `validator.py` import `IssueCode` from it one-way (see §4 *Module placement*).
-- **Decision D7b — `StyleMove` dataclass home: `models.py` (LOCKED).** The `StyleMove` dataclass lands in
-  `ml-system/fitted_core/models.py` when M2 implementation begins (at C1) — a core data contract reused by
-  the M3 ranker and M5 response layer, added as a purely additive new symbol (no change to existing
-  `models.py` contracts). It does **not** live in `validator.py`. **`models.py` is not edited in this plan.**
+- **Decision D7b — `StyleMove` dataclass home: `models.py` (LOCKED).** The `StyleMove` dataclass was added to
+  `ml-system/fitted_core/models.py` at C1 (commit `2f8f4959`) — a core data contract reused by the M3 ranker
+  and M5 response layer, added as a purely additive new symbol (no change to existing `models.py` contracts).
+  It does **not** live in `validator.py`.
 
 No spec contradictions were found that block this plan — the only canonical-doc nit (§13 clause order) was
 already fixed in commit `40f7cb50`.
