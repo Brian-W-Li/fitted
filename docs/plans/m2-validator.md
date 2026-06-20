@@ -156,8 +156,9 @@ Homing it in `models.py` keeps the dependency arrow one-way (`slotmap.py` and `v
 `ValidationResult`) is M2-specific result plumbing in `validator.py`.
 
 **Severity is a function of the code, not a stored field** — one source of truth, no drift between a stored
-severity and which list an issue lands in. The table below *is* the contract; `rejections`/`warnings`
-membership follows it exactly.
+severity and which list an issue lands in. It is exposed through a `severity_of(code)` helper over a
+module-level `_SEVERITY: dict[IssueCode, Severity]` in `validator.py`, **not** persisted on `Issue`. The
+table below *is* that mapping; `rejections`/`warnings` membership follows it exactly.
 
 ### Issue-code table (the stable contract)
 
@@ -169,7 +170,7 @@ membership follows it exactly.
 | `invalidCandidateShape` | rejection | candidate | a candidate entry is not a JSON object |
 | `unknownCandidateField` | rejection | candidate | candidate has a key ∉ `{items, styleMove}` and ∉ forbidden set |
 | `forbiddenGptField` | rejection | candidate | candidate/item carries a §12-forbidden field (score, rank, optionPath, risk, …) |
-| `invalidItems` | rejection | candidate | `items` missing, not a list, or empty |
+| `invalidItems` | rejection | candidate | `items` missing or not a list (an **empty** `items: []` is *not* a schema reject — it normalizes to `emptyBase`, N3) |
 | `invalidItemShape` | rejection | candidate | an item entry is not a JSON object |
 | `unknownItemField` | rejection | candidate | item has a key ∉ `{itemId, role}` and ∉ forbidden set |
 | `invalidItemId` | rejection | candidate | `itemId` missing, not a string, or empty string |
@@ -201,8 +202,9 @@ the "missing/non-string/unknown role" requirement without M2 re-implementing rol
 **Allowed/forbidden field sets** (from §12, pin as module-level frozensets):
 - root: `{"outfits"}` · candidate: `{"items", "styleMove"}` · item: `{"itemId", "role"}` ·
   styleMove: `{"moveType", "changedItemIds", "oneSentence"}`.
-- forbidden: `{score, rank, optionPath, risk, anchor, bridge, experiment, compatibility,
-  behavioralStrength, edgeStrength, freshness, exposure, cooldown, fallback, imageUrl, warmth,
+- forbidden (mirrors §12's enumeration **verbatim** — §12 is the single home, keep in sync):
+  `{score, rank, optionPath, risk, anchor, bridge, experiment, edge, compatibility,
+  behavioralStrength, freshness, exposure, cooldown, fallback, imageUrl, warmth,
   matchedTraits, missingTraits, diagnosticReason}`.
 - **Precedence:** an unexpected key on the forbidden set → `forbiddenGptField` (sharper diagnostic); any
   other unexpected key → `unknownCandidateField` / `unknownItemField`. A forbidden/unknown key *inside
@@ -259,7 +261,8 @@ partially validate nested candidates** (§13).
    candidates and emit **one** `extraCandidatesIgnored` warning. Ignored extras must not affect accepted
    candidates, their warnings/rejections, or dedup state.
 5. **Per candidate** (in order; a bad candidate never stops later candidates — §13):
-   1. **Candidate schema** — object? allowed/forbidden keys? `items` a non-empty list?
+   1. **Candidate schema** — object? allowed/forbidden keys? `items` a list (an **empty** list is allowed
+      here — it falls through to `emptyBase` at 5.4, N3; only missing/non-list → `invalidItems`)?
    2. **Item schema** — each item an object; allowed/forbidden keys; `itemId` non-empty string; `role`
       present + string. (Unknown role *value* deferred to the normalizer in 5.3.)
    3. **Normalize → SlotMap** — `normalize_to_slotmap` (owns `unknownRole`, `duplicateRoleSlot`).
@@ -281,6 +284,12 @@ with `candidate_index`); the loop continues to the next candidate.
 **no rejection** (distinct from `invalidOutfits`, which is missing/non-list). M5 owns the zero-candidate
 fallback (out of M2 scope); M2 only reports the empty result.
 
+**Empty `items` is not a schema reject.** A candidate with `items: []` passes schema (5.1), normalizes to an
+empty SlotMap (5.3), and is rejected as `emptyBase` by `is_valid_slotmap` (5.4) — the §8/N3 owner of
+empty-base (pinned by `test_slotmap.py::test_normalize_empty_list_defers_emptiness_to_is_valid`, and
+`normalize_to_slotmap([]) == (SlotMap(), None)`). M2 must **not** pre-empt it as `invalidItems`; that would
+duplicate a reject the SlotMap layer already owns (single-home rule).
+
 ---
 
 ## 8. `sampled_pool` contract
@@ -295,8 +304,9 @@ fallback (out of M2 scope); M2 only reports the empty result.
   `sampler._reject_duplicate_ids`, R12: a duplicate id collapses the membership lookup and breaks key
   equality). A clean M1 path can never produce this; raising surfaces the upstream bug loudly.
 
-*(Minor variant left to implementation: M2 may instead accept the per-type `Mapping[ItemType,
-Sequence[WardrobeItem]]` and flatten across types. Default to the flat `Sequence` for the minimal contract.)*
+The contract is **flat `Sequence[WardrobeItem]`, no variant** — a caller holding the sampler's per-type
+`SamplerResult.pool` flattens `pool.values()` before calling `validate_gpt_payload`. M2 never accepts the
+per-type mapping; one shape keeps the contract unambiguous.
 
 ---
 
@@ -331,14 +341,19 @@ checkpoint (§11) lands its own green tests:
   rejection** (distinct from `invalidOutfits`). Malformed root → **zero candidates, no nested validation**.
   `ParseResult` / `ValidationResult` shape.
 - **Stage B — candidate/item schema + forbidden fields.** Non-object candidate → `invalidCandidateShape`.
-  Unknown candidate key → `unknownCandidateField`. Forbidden candidate/item field (`score`, `rank`,
-  `optionPath`, `imageUrl`, `warmth`, `matchedTraits`, `diagnosticReason`, …) → `forbiddenGptField`.
-  `items` missing/empty/non-list → `invalidItems`. Non-object item → `invalidItemShape`. Unknown item key →
-  `unknownItemField`. `itemId` missing/non-string/empty → `invalidItemId`. `role` missing/non-string →
-  `invalidRole`. **Candidate-by-candidate:** one bad candidate, one good candidate → good one survives.
+  Unknown candidate key → `unknownCandidateField`. **Forbidden fields — table-driven, enumerating every
+  §12 forbidden name verbatim** (`score`, `rank`, `optionPath`, `risk`, `anchor`, `bridge`, `experiment`,
+  `edge`, `compatibility`, `behavioralStrength`, `freshness`, `exposure`, `cooldown`, `fallback`,
+  `imageUrl`, `warmth`, `matchedTraits`, `missingTraits`, `diagnosticReason`) → each `forbiddenGptField`.
+  `items` missing/non-list → `invalidItems` (**empty `items: []` is NOT here — see Stage C**). Non-object
+  item → `invalidItemShape`. Unknown item key → `unknownItemField`. `itemId` missing/non-string/empty →
+  `invalidItemId`. `role` missing/non-string → `invalidRole`. **Candidate-by-candidate:** one bad candidate,
+  one good candidate → good one survives.
 - **Stage C — SlotMap integration.** `unknownRole` (string but not a `Role`) and `duplicateRoleSlot`
   (normalizer-owned). `mixedTemplate`, `emptyBase`, `incompleteTwoPiece`, `duplicateItemId`
-  (`is_valid_slotmap`-owned). Valid one-piece, two-piece, ±outer, ±shoes accepted with correct `template`.
+  (`is_valid_slotmap`-owned). **Empty `items: []` → `emptyBase`** (passes schema, normalizes to an empty
+  SlotMap, rejected by `is_valid_slotmap` — the N3 owner; **not** `invalidItems`). Valid one-piece,
+  two-piece, ±outer, ±shoes accepted with correct `template`.
 - **Stage D — sampled-pool membership.** Item ∈ pool accepted; item ∉ pool → `itemOutsideSampledPool`.
   Validates against the pool, not a wider wardrobe. **Duplicate ids in `sampled_pool` → `ValueError`.**
 - **Stage E — keys + FullSignature dedup.** BaseKey/FullSignature computed correctly (cross-check the §7
@@ -360,7 +375,8 @@ checkpoint (§11) lands its own green tests:
   membership · checking global ids instead of the pool · throwing on candidate-level bad data instead of
   recording an issue · partially validating a malformed root · computing keys before structural/pool
   validation · letting a key `ValueError` escape · last-write-wins on a duplicate role slot · first-duplicate
-  loses when it has the worse StyleMove.
+  loses when it has the worse StyleMove · classifying empty `items: []` as `invalidItems` instead of routing
+  it through normalization to `emptyBase` at the SlotMap layer.
 
 ---
 
