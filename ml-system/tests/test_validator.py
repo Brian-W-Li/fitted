@@ -1,13 +1,13 @@
 """M2 validator contract tests (v2 §12/§13).
 
-Checkpoints C1–C5 (Stages A–F in the M2 plan §10): the strict parser, the
+Checkpoints C1–C6 (Stages A–H in the M2 plan §10): the strict parser, the
 result/issue model, root-envelope validation, the per-candidate schema +
 forbidden-field pass (candidate/item shape, items/itemId/role, the §12 forbidden
 fields), SlotMap normalization, slot-level structural validity, sampled-pool
 membership, BaseKey/FullSignature computation and exact-FullSignature dedup (C4 — the
-first checkpoint that emits accepted ``ValidatedCandidate``s), and — at C5 — StyleMove
-boundary validation (flow step 5.8, warning-only). ``candidate_requested`` bound
-semantics land at C6.
+first checkpoint that emits accepted ``ValidatedCandidate``s), StyleMove boundary
+validation (C5, flow step 5.8, warning-only), and — at C6 — the ``candidate_requested``
+upper bound (type/value validation + the aggregate ``extraCandidatesIgnored`` warning).
 
 Assert on ``IssueCode`` (and ``candidate_index`` where useful), **never** on
 ``Issue.detail`` prose (M2 plan §4/§10) — the detail text is a debug aid that may
@@ -834,21 +834,6 @@ def test_malformed_style_move_warns_candidate_still_accepted():
     assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
 
 
-def test_candidate_requested_remains_untouched_until_c6():
-    # Pre-C6 boundary: candidate_requested is still NOT consumed — passing a bound does
-    # not cap candidates and emits no extraCandidatesIgnored warning (that lands at C6).
-    candidates = [
-        {"items": [{"itemId": "d1", "role": "one_piece"}]},
-        {"items": [
-            {"itemId": "t1", "role": "base_top"},
-            {"itemId": "b1", "role": "base_bottom"},
-        ]},
-    ]
-    result = validate_gpt_payload({"outfits": candidates}, POOL_C3, candidate_requested=1)
-    assert len(result.candidates) == 2
-    assert IssueCode.extra_candidates_ignored not in _codes(result.warnings)
-
-
 @pytest.mark.parametrize("bad_id", ["none", "o:x"])
 def test_key_precondition_failed_from_optional_outer(bad_id):
     # A reserved-char / sentinel id in an OPTIONAL outer slot still trips the R10 guard —
@@ -1246,3 +1231,206 @@ def test_issue_is_frozen():
     issue = Issue(IssueCode.malformed_root, None)
     with pytest.raises(Exception):
         issue.code = IssueCode.invalid_json  # type: ignore[misc]
+
+
+# ============================ candidate_requested bounds (C6) ============================
+# Stage G (M2 plan §10): candidate_requested is finally consumed as an upper bound, plus the
+# Stage-H mutants unique to this dimension (treating the bound as exact; ignored extras
+# leaking into accepted candidates / dedup / StyleMove). Decision D6 (raise on caller misuse)
+# and the §12 "upper-bound hint" contract. None = unbounded (explicit test mode); a
+# production caller passes the real SamplerResult.candidate_requested.
+
+# Two distinct valid candidates (different FullSignatures → both survive when unbounded).
+_CR_ONE_PIECE = {"items": [{"itemId": "d1", "role": "one_piece"}]}
+_CR_TWO_PIECE = {"items": [
+    {"itemId": "t1", "role": "base_top"},
+    {"itemId": "b1", "role": "base_bottom"},
+]}
+
+
+# --- value/type validation (D6): caller misuse raises, never becomes an Issue ---
+
+def test_candidate_requested_none_validates_all():
+    result = validate_gpt_payload(
+        {"outfits": [_CR_ONE_PIECE, _CR_TWO_PIECE]}, POOL_C3, candidate_requested=None
+    )
+    assert len(result.candidates) == 2
+    assert IssueCode.extra_candidates_ignored not in _codes(result.warnings)
+
+
+def test_candidate_requested_omitted_is_unbounded():
+    # Omitting the arg (signature default None) behaves exactly like an explicit None.
+    result = validate_gpt_payload({"outfits": [_CR_ONE_PIECE, _CR_TWO_PIECE]}, POOL_C3)
+    assert len(result.candidates) == 2
+    assert result.warnings == []
+
+
+def test_candidate_requested_zero_raises_value_error():
+    # 0 is wrong VALUE — the normal flow short-circuits to notEnoughItems before GPT, so a
+    # 0 request here is caller misuse (Decision D6).
+    with pytest.raises(ValueError):
+        validate_gpt_payload({"outfits": []}, POOL_C3, candidate_requested=0)
+
+
+@pytest.mark.parametrize("bound", [-1, -40])
+def test_candidate_requested_negative_raises_value_error(bound):
+    with pytest.raises(ValueError):
+        validate_gpt_payload({"outfits": []}, POOL_C3, candidate_requested=bound)
+
+
+@pytest.mark.parametrize("bound", [True, False])
+def test_candidate_requested_bool_raises_type_error(bound):
+    # bool is an int subclass; it must be rejected as a TYPE error, never silently read as
+    # 1/0 (mutant: an int-first guard would let True through as bound=1).
+    with pytest.raises(TypeError):
+        validate_gpt_payload({"outfits": []}, POOL_C3, candidate_requested=bound)
+
+
+@pytest.mark.parametrize("bound", [1.0, 1.5, "1", [1], {1}, {"n": 1}])
+def test_candidate_requested_non_int_raises_type_error(bound):
+    with pytest.raises(TypeError):
+        validate_gpt_payload({"outfits": []}, POOL_C3, candidate_requested=bound)
+
+
+# --- count behavior: fewer / exact / more than the bound ---
+
+def test_candidate_requested_fewer_than_bound_no_warning():
+    # Returning fewer candidates than requested is valid (§12) — not an error, no warning.
+    result = validate_gpt_payload({"outfits": [_CR_ONE_PIECE]}, POOL_C3, candidate_requested=5)
+    assert len(result.candidates) == 1
+    assert result.warnings == []
+    assert result.rejections == []
+
+
+def test_candidate_requested_exact_count_no_warning():
+    result = validate_gpt_payload(
+        {"outfits": [_CR_ONE_PIECE, _CR_TWO_PIECE]}, POOL_C3, candidate_requested=2
+    )
+    assert len(result.candidates) == 2
+    assert result.warnings == []
+    assert result.rejections == []
+
+
+def test_candidate_requested_more_than_bound_ignores_extras():
+    # Two valid candidates, bound 1 → only the first is validated/accepted; one aggregate
+    # extraCandidatesIgnored warning carrying candidate_index=None.
+    result = validate_gpt_payload(
+        {"outfits": [_CR_ONE_PIECE, _CR_TWO_PIECE]}, POOL_C3, candidate_requested=1
+    )
+    assert [c.source_index for c in result.candidates] == [0]
+    assert _codes(result.warnings) == [IssueCode.extra_candidates_ignored]
+    assert result.warnings[0].candidate_index is None
+    assert result.rejections == []
+
+
+def test_extra_candidates_ignored_fires_even_when_in_bound_rejected():
+    # The warning trigger is raw len(outfits) > bound, independent of acceptance: a rejected
+    # first candidate still warns about the ignored extra.
+    incomplete = {"items": [{"itemId": "t1", "role": "base_top"}]}  # incompleteTwoPiece
+    result = validate_gpt_payload(
+        {"outfits": [incomplete, _CR_ONE_PIECE]}, POOL_C3, candidate_requested=1
+    )
+    assert result.candidates == []
+    assert _codes(result.rejections) == [IssueCode.incomplete_two_piece]
+    assert _codes(result.warnings) == [IssueCode.extra_candidates_ignored]
+
+
+# --- ignored extras are sliced BEFORE validation: they cannot leak into accepted
+#     candidates, rejections, dedup state, or StyleMove warnings (Stage-H mutants) ---
+
+def test_extra_candidates_ignored_does_not_affect_dedup():
+    # bound 1, then an exact duplicate of the accepted candidate. The duplicate is sliced
+    # off, so it never reaches dedup → NO duplicateFullSignature (mutant: validate-all-then-
+    # cap would emit one).
+    result = validate_gpt_payload(
+        {"outfits": [_CR_TWO_PIECE, dict(_CR_TWO_PIECE)]}, POOL_C3, candidate_requested=1
+    )
+    assert len(result.candidates) == 1
+    assert IssueCode.duplicate_full_signature not in _codes(result.rejections)
+    assert _codes(result.warnings) == [IssueCode.extra_candidates_ignored]
+
+
+def test_extra_candidates_ignored_does_not_produce_candidate_issues():
+    # The extra is arbitrarily malformed (non-list items + a forbidden field). Sliced off,
+    # it produces NO schema/structural/forbidden rejection (mutant would reject it).
+    malformed_extra = {"items": "not-a-list", "score": 5}
+    result = validate_gpt_payload(
+        {"outfits": [_CR_ONE_PIECE, malformed_extra]}, POOL_C3, candidate_requested=1
+    )
+    assert len(result.candidates) == 1
+    assert result.rejections == []
+    assert _codes(result.warnings) == [IssueCode.extra_candidates_ignored]
+
+
+def test_extra_candidates_ignored_does_not_affect_style_move_warnings():
+    # The accepted candidate has no styleMove; the ignored extra carries a malformed one.
+    # Only extraCandidatesIgnored is emitted — the extra's styleMove is never inspected.
+    extra_bad_sm = {"items": list(_BASE_ITEMS), "styleMove": {"moveType": ""}}
+    result = validate_gpt_payload(
+        {"outfits": [_CR_ONE_PIECE, extra_bad_sm]}, POOL_C3, candidate_requested=1
+    )
+    assert len(result.candidates) == 1
+    assert result.candidates[0].style_move is None
+    assert _codes(result.warnings) == [IssueCode.extra_candidates_ignored]
+
+
+def test_extra_candidates_ignored_source_index_unaffected():
+    # bound 2 over three valid candidates → the first two accepted keep indices 0 and 1
+    # (a prefix slice preserves original source indexes).
+    third = {"items": [
+        {"itemId": "t2", "role": "base_top"},
+        {"itemId": "b1", "role": "base_bottom"},
+    ]}
+    result = validate_gpt_payload(
+        {"outfits": [_CR_ONE_PIECE, _CR_TWO_PIECE, third]}, POOL_C3, candidate_requested=2
+    )
+    assert [c.source_index for c in result.candidates] == [0, 1]
+    assert _codes(result.warnings) == [IssueCode.extra_candidates_ignored]
+
+
+def test_extra_candidates_ignored_precedes_per_candidate_warnings():
+    # The aggregate warning is recorded at the bound step (4), before the per-candidate loop
+    # (5). An accepted in-bound candidate carrying a bad styleMove emits its warning AFTER
+    # the aggregate one → encounter order [extraCandidatesIgnored, invalidStyleMoveShape].
+    good_bad_sm = {"items": list(_BASE_ITEMS), "styleMove": {"moveType": ""}}
+    result = validate_gpt_payload(
+        {"outfits": [good_bad_sm, _CR_ONE_PIECE]}, POOL_C3, candidate_requested=1
+    )
+    assert len(result.candidates) == 1
+    assert _codes(result.warnings) == [
+        IssueCode.extra_candidates_ignored,
+        IssueCode.invalid_style_move_shape,
+    ]
+    assert result.warnings[0].candidate_index is None
+    assert result.warnings[1].candidate_index == 0
+
+
+# --- precedence: candidate_requested resolution (step 1) precedes pool index (2) and root
+#     envelope (3); the bound step (4) never runs on a malformed root ---
+
+def test_candidate_requested_resolved_before_pool_index():
+    # An invalid bound (bool → TypeError) and a duplicate-id pool (→ ValueError) both fail.
+    # Step 1 < step 2, so the TypeError wins — candidate_requested is resolved first.
+    dup_pool = [
+        WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+        WardrobeItem("t1", "TeeDup", ItemType.top, warmth=4, image_url="t1b.jpg"),
+    ]
+    with pytest.raises(TypeError):
+        validate_gpt_payload({"outfits": []}, dup_pool, candidate_requested=True)
+
+
+def test_candidate_requested_invalid_raises_before_root_validation():
+    # An invalid bound (0 → ValueError) on a malformed root raises rather than returning a
+    # malformedRoot rejection — step 1 precedes step 3.
+    with pytest.raises(ValueError):
+        validate_gpt_payload("not-an-object", POOL_C3, candidate_requested=0)
+
+
+def test_extra_candidates_ignored_not_emitted_on_malformed_root():
+    # A malformed root short-circuits at step 3 (return) before the bound step 4 → only
+    # malformedRoot, no extraCandidatesIgnored, even though surplus candidates were supplied.
+    payload = {"outfits": [_CR_ONE_PIECE, _CR_TWO_PIECE], "extra": 1}
+    result = validate_gpt_payload(payload, POOL_C3, candidate_requested=1)
+    assert _codes(result.rejections) == [IssueCode.malformed_root]
+    assert result.warnings == []
+    assert result.candidates == []

@@ -8,19 +8,19 @@ a structured issue log. Two public entry points (M2 plan Decision D1/D2):
 - ``validate_gpt_payload(payload, sampled_pool, candidate_requested=None)`` —
   validate an already-parsed payload against the §12 schema.
 
-**Checkpoint scope (C5).** This file implements the result model, the strict parser,
-root-envelope validation, the per-candidate **schema + forbidden-field** pass (each
-candidate is an object with required ``items`` + optional ``styleMove``; each item an
-object with exactly non-empty ``itemId`` + string ``role``), **SlotMap normalization,
-slot-level structural validity, and sampled-pool membership** (flow steps 5.3–5.5 +
-the up-front pool-index build), **BaseKey/FullSignature computation and
-exact-FullSignature dedup** (flow steps 5.6–5.7), and — new at C5 — **StyleMove
-boundary validation** (flow step 5.8, warning-only, M2 plan §7). A candidate that
-passes 5.3–5.7 is keyed and appended to ``candidates`` (in input order; dedup keeps the
-first occurrence); its optional ``styleMove`` is then validated (5.8) and attached when
-valid, else dropped via a warning while the candidate still stands (D5, H23).
-``candidate_requested`` bound semantics (C6) are not done here; ``candidate_requested``
-is part of the pinned signature (D1) but not yet consumed (C6).
+**Milestone scope (M2 complete, C1–C6).** This file implements the result model, the
+strict parser, root-envelope validation, the per-candidate **schema + forbidden-field**
+pass (each candidate is an object with required ``items`` + optional ``styleMove``; each
+item an object with exactly non-empty ``itemId`` + string ``role``), **SlotMap
+normalization, slot-level structural validity, and sampled-pool membership** (flow steps
+5.3–5.5 + the up-front pool-index build), **BaseKey/FullSignature computation and
+exact-FullSignature dedup** (flow steps 5.6–5.7), **StyleMove boundary validation** (flow
+step 5.8, warning-only, M2 plan §7), and the **``candidate_requested`` upper bound** (flow
+steps 1 + 4: caller-contract type/value validation, then slicing surplus candidates with
+one aggregate ``extraCandidatesIgnored`` warning). A candidate that passes 5.3–5.7 is keyed
+and appended to ``candidates`` (in input order; dedup keeps the first occurrence); its
+optional ``styleMove`` is then validated (5.8) and attached when valid, else dropped via a
+warning while the candidate still stands (D5, H23).
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures go
 to the issue channel (``Issue`` / ``ParseResult`` / ``ValidationResult``);
@@ -491,6 +491,33 @@ def _validate_style_move(
     return StyleMove(move_type=move_type, changed_item_ids=list(changed), one_sentence=one_sentence), None
 
 
+def _resolve_candidate_requested(candidate_requested: Optional[int]) -> Optional[int]:
+    """Resolve the ``candidate_requested`` upper bound (flow step 1, M2 plan §6/D6).
+
+    Returns ``None`` (unbounded — validate every candidate) or a positive ``int`` upper
+    bound. Caller-contract misuse raises and never becomes an ``Issue`` (package
+    error-model convention): wrong *type* → ``TypeError`` (a ``bool`` — an ``int``
+    subclass, so checked first — or any non-``int``); wrong *value* → ``ValueError``
+    (``0`` or negative; the normal flow short-circuits to ``notEnoughItems`` before GPT,
+    so a ``0`` request here is misuse). Resolved before the pool index is built
+    (step 1 < step 2), so an invalid bound surfaces even for a payload or pool that would
+    itself fail.
+    """
+    if candidate_requested is None:
+        return None
+    # bool is an int subclass — isinstance(True, int) is True — so reject it explicitly
+    # before the int check (mirrors the package's warmth=True / bool-rejection precedents).
+    if isinstance(candidate_requested, bool):
+        raise TypeError("candidate_requested must be an int or None, got bool")
+    if not isinstance(candidate_requested, int):
+        raise TypeError(
+            f"candidate_requested must be an int or None, got {type(candidate_requested).__name__}"
+        )
+    if candidate_requested <= 0:
+        raise ValueError(f"candidate_requested must be positive, got {candidate_requested}")
+    return candidate_requested
+
+
 def validate_gpt_payload(
     payload: object,
     sampled_pool: Sequence[WardrobeItem],
@@ -498,25 +525,32 @@ def validate_gpt_payload(
 ) -> ValidationResult:
     """Validate an already-parsed GPT payload against the §12 schema (M2 plan §7).
 
-    **C5 scope:** strict root envelope + per-candidate schema/forbidden-field pass +
-    SlotMap normalization + slot-level structural validity + sampled-pool membership +
-    BaseKey/FullSignature computation + exact-FullSignature dedup + StyleMove boundary
-    validation (flow steps 2–5.8). A malformed root returns zero candidates and a single
-    root rejection, and never inspects nested candidates (§13). Otherwise each candidate
-    is validated in order through schema (5.1–5.2), structure/pool (5.3–5.5), keys (5.6),
-    and dedup (5.7); a bad candidate yields one rejection (first failing check wins, with
-    its ``candidate_index``) and never stops later candidates. A candidate that passes
-    5.3–5.7 is keyed and appended to ``candidates`` (in input order; dedup keeps the
-    first occurrence of a FullSignature); its optional ``styleMove`` is then validated
-    (5.8, warning-only) and attached when valid, else dropped via a warning with the
-    candidate still accepted (``style_move=None``).
-
-    ``candidate_requested`` bound semantics (C6) are not done here — ``candidate_requested``
-    is part of the pinned signature (Decision D1) but not yet consumed (Decision D6 is C6).
+    **Full M2 flow (steps 1–5.8).** First resolve ``candidate_requested`` (step 1,
+    Decision D6): ``None`` is unbounded (validate all); a positive ``int`` is an upper
+    bound; ``0``/negative raise ``ValueError`` and ``bool``/non-``int`` raise ``TypeError``
+    (caller-contract misuse — raised before the pool index is built). Then build the pool
+    index (step 2) and apply the strict root envelope (step 3) — a malformed root returns
+    zero candidates and a single root rejection, never inspecting nested candidates (§13).
+    When a bound is set and more candidates are supplied than the bound, the surplus is
+    sliced off (step 4) *before* any per-candidate work and one aggregate
+    ``extraCandidatesIgnored`` warning (``candidate_index=None``) is recorded; ignored
+    extras never affect accepted candidates, rejections, warnings, keys, or dedup (§12).
+    Each surviving candidate is then validated in order through schema (5.1–5.2),
+    structure/pool (5.3–5.5), keys (5.6), and dedup (5.7); a bad candidate yields one
+    rejection (first failing check wins, with its ``candidate_index``) and never stops later
+    candidates. A candidate that passes 5.3–5.7 is keyed and appended to ``candidates`` (in
+    input order; dedup keeps the first occurrence of a FullSignature); its optional
+    ``styleMove`` is then validated (5.8, warning-only) and attached when valid, else dropped
+    via a warning with the candidate still accepted (``style_move=None``).
     """
     candidates: list[ValidatedCandidate] = []
     rejections: list[Issue] = []
     warnings: list[Issue] = []
+
+    # Step 1 — resolve the candidate_requested upper bound. Caller-contract misuse raises
+    # (TypeError/ValueError) before the pool index is built, so an invalid bound surfaces
+    # even for a payload or pool that would itself fail (M2 plan §6/§7).
+    bound = _resolve_candidate_requested(candidate_requested)
 
     # Step 2 — build the pool id index up front. A duplicate id is caller-contract
     # misuse and raises (R12), even when the payload would itself be rejected.
@@ -529,13 +563,32 @@ def validate_gpt_payload(
         _record(root_issue, rejections, warnings)
         return ValidationResult(candidates=candidates, rejections=rejections, warnings=warnings)
 
+    # Step 4 — apply the upper bound. When more candidates are supplied than the bound,
+    # slice the surplus off *before* any per-candidate work and record one aggregate
+    # extraCandidatesIgnored warning (candidate_index=None). A prefix slice keeps every
+    # survivor's original source index, and the ignored extras are never schema/structure/
+    # pool/key/dedup/StyleMove inspected — so they cannot affect accepted candidates,
+    # their issues, or dedup state (§12). None bound → no slice, no warning (unbounded).
+    outfits = payload["outfits"]
+    if bound is not None and len(outfits) > bound:
+        _record(
+            Issue(
+                IssueCode.extra_candidates_ignored,
+                None,
+                f"received {len(outfits)} candidates, bound is {bound}; ignored {len(outfits) - bound}",
+            ),
+            rejections,
+            warnings,
+        )
+        outfits = outfits[:bound]
+
     # Per-candidate validation (§7 step 5), candidate-by-candidate (§13): a bad
     # candidate never stops later ones. Each candidate runs schema (5.1–5.2),
     # structure/pool (5.3–5.5), keys (5.6), dedup (5.7), then — for survivors only —
     # StyleMove (5.8), first-failing-check-wins. StyleMove is warning-only and never
     # un-accepts a candidate.
     seen_signatures: set[str] = set()
-    for index, candidate in enumerate(payload["outfits"]):
+    for index, candidate in enumerate(outfits):
         candidate_issue = _validate_candidate(candidate, index)
         if candidate_issue is not None:
             _record(candidate_issue, rejections, warnings)

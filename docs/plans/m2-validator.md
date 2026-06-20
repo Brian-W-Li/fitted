@@ -1,14 +1,15 @@
-# M2: GPT-response validator (parse + schema + SlotMap + keys + dedup + StyleMove)
+# M2: GPT-response validator (parse + schema + SlotMap + keys + dedup + StyleMove + bounds)
 
-> **Status: `[NOW]` — C1–C5 implemented and committed; C6 next (2026-06-20).** `validator.py` and
-> `test_validator.py` exist. Landed: strict parser, result/issue model, root-envelope validation, the
-> per-candidate schema + forbidden-field pass, SlotMap normalization + structural + sampled-pool
+> **COMPLETED 2026-06-20.** All checkpoints C1–C6 implemented, tested, and committed; M2 is done and this
+> plan leaves the default reading list (the next active milestone is M3, the ranker). `validator.py` and
+> `test_validator.py` carry the full boundary: strict parser, result/issue model, root-envelope validation,
+> the per-candidate schema + forbidden-field pass, SlotMap normalization + structural + sampled-pool
 > validation (Decision D7 applied to `slotmap.py`), BaseKey/FullSignature computation + exact-FullSignature
-> dedup — the first checkpoint to emit accepted candidates — and StyleMove boundary validation (5.8,
-> warning-only) — **350 pytest green**. Next checkpoint: C6 (candidate_requested bounds + closeout).
-> This plan turns `docs/Fitted_Spec_v2.md` (canonical) + `docs/CODEX_HANDOFF.md` (Codex's historical M2
-> audit) into an unambiguous implementation roadmap. **Canonical spec wins on any conflict;** this doc is
-> implementation guidance, not product truth.
+> dedup — the first checkpoint to emit accepted candidates — StyleMove boundary validation (5.8,
+> warning-only), and the `candidate_requested` upper bound (type/value validation + the aggregate
+> `extraCandidatesIgnored` warning, C6). This plan turned `docs/Fitted_Spec_v2.md` (canonical) +
+> `docs/CODEX_HANDOFF.md` (Codex's historical M2 audit) into an unambiguous implementation roadmap.
+> **Canonical spec wins on any conflict;** this doc is implementation guidance, not product truth.
 
 Plan doc only — **no code or tests are written here.** The §13 compute-before-dedup wording was fixed
 in `Fitted_Spec_v2.md` (commit `40f7cb50`) so §9 Step 3 and §13 now agree on the implementable order.
@@ -427,7 +428,7 @@ pinned in tests before behavior, per the handoff).
 | C3 ✅ | SlotMap + pool | wire `normalize_to_slotmap`/`is_valid_slotmap`; structural codes (Decision D7); pool-membership + duplicate-pool-id guard — structural/pool **rejections only; emits no accepted candidates**. Stages C–D green. **Done (committed).** |
 | C4 ✅ | keys + dedup | `base_key`/`full_signature` integration; `keyPreconditionFailed`; exact-FullSignature dedup; first-wins ordering; **first checkpoint to populate `ValidationResult.candidates`**. Stage E green. **Done (committed).** |
 | C5 ✅ | StyleMove warnings | `StyleMove` validation, warning-only drop; missing-styleMove decision. Stage F green. **Done (committed).** |
-| C6 | boundary + hardening + closeout | `candidate_requested` semantics (Stage G); Stage H mutants; flip `__init__.py` "M0/M1"→"M0–M2"; add `> COMPLETED` banner to this plan. |
+| C6 ✅ | boundary + hardening + closeout | `candidate_requested` type/value validation + upper bound + aggregate `extraCandidatesIgnored` (Stage G); Stage H mutants (bound-as-exact, extras-leak, bool-as-int); `__init__.py` "M0/M1"→"M0–M2"; `ml-system/README.md` status flip; `> COMPLETED` banner. Stage G/H green. **Done (committed).** |
 
 **C3/C4 boundary (locked 2026-06-20).** C3 performs SlotMap normalization, sampled-pool membership, and the
 structural/pool **rejections** only — it emits **no** accepted `ValidatedCandidate`s. **C4 is the first
