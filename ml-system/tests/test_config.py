@@ -42,8 +42,31 @@ def test_default_k():
     assert config.DEFAULT_K == 10
 
 
-def test_forward_declared_constants():
-    # Owned by M3 but pinned here per v2 §22 (one config file). Without this guard an
-    # accidental edit to either value passes today — no test references them yet.
+def test_m3_ranker_constants():
+    # M3 scoring / diversity / cooldown / window constants (v2 §14 / Appendix B), pinned
+    # here per v2 §22 (one config file). Values are the single source of truth the ranker
+    # and its tests are written against; a silent edit to any would shift ranking behavior.
+    assert config.BASE_SCORE == 1.0
+    assert config.COMBO_BOOST == 2.0
+    assert config.ITEM_BOOST_WEIGHT == 0.1
     assert config.MAX_AFFINITY == 20
+    assert config.DISLIKE_PENALTY == 0.5
+    assert config.COOLDOWN_PENALTY == -2.0  # stored NEGATIVE (S4) — the sign is the contract
+    assert config.BASEKEY_VARIANT_CAP == 2
     assert config.OVERUSE_MIN_POOL == 15
+    assert config.OVERUSE_THRESHOLD == 0.40
+    assert config.OVERUSE_PENALTY == 0.5
+    assert config.REPETITION_PENALTY == 1.0
+    assert config.DISLIKE_WINDOW_SIZE == 20
+    assert config.COOLDOWN_BUFFER_SIZE == 10
+    assert config.REPETITION_WINDOW_SIZE == 10
+
+
+def test_m3_penalty_sign_discipline():
+    # Sign discipline is load-bearing (S4): the penalties the score formula SUBTRACTS are
+    # stored as positive magnitudes; only COOLDOWN_PENALTY is stored negative (added). A
+    # sign-flip mutant on COOLDOWN_PENALTY (positive, or any of the magnitudes negative) fails.
+    assert config.DISLIKE_PENALTY > 0
+    assert config.OVERUSE_PENALTY > 0
+    assert config.REPETITION_PENALTY > 0
+    assert config.COOLDOWN_PENALTY < 0
