@@ -528,10 +528,12 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   affinity; the negative side is the penalty + cooldown, so the two memories never contradict. Stored
   `dislikePenalty` is a positive magnitude; the formula subtracts it (S4). Negative scores are valid (ranking
   is relative).
-- **Ranking & diversity** (Step 6): BaseKey variant cap (max 2 per BaseKey) → overuse penalty (only when
-  pool > `OVERUSE_MIN_POOL=15`, so small wardrobes are not punished, B1) → **repetition-window** soft penalty
-  on FullSignatures shown in the last 10 (rotation/freshness — this is where `[NEXT]` exposure/freshness
-  lives) → fallback ladder if < K → sort by score → tie-break.
+- **Ranking & diversity** (Step 6): BaseKey variant cap (max 2 per BaseKey) → overuse penalty
+  (`OVERUSE_PENALTY=0.5` per item, subtracted, for each of a candidate's items appearing in more than
+  `OVERUSE_THRESHOLD=0.40` of the post-variant-cap candidate survivors; applied only when that survivor pool
+  > `OVERUSE_MIN_POOL=15`, so small pools are not punished, B1) → **repetition-window** soft penalty
+  (`REPETITION_PENALTY=1.0`, flat, subtracted) on FullSignatures shown in the last 10 (rotation/freshness —
+  this is where `[NEXT]` exposure/freshness lives) → fallback ladder if < K → sort by score → tie-break.
 - **Tie-break** (deterministic): higher score → prefer least-represented silhouette so far (R3, reorders
   never excludes) → seeded shuffle via `tiebreak_seed(..., generationIndex)`.
 - **Fallback ladder** (constraint relaxation, strict order; validation §13 never relaxes): normal → relax
@@ -724,7 +726,7 @@ The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M2
 | **M0** | Contracts & pure functions: keys, SlotMap, seed, config, models | ✅ done |
 | **M1** | Sampler: partition, caps, 70/30, the SignalScorer seam (`ColdStartSignalScorer`) | ✅ done (M1-1..M1-5 — partition/caps/70-30 seam/candidate scaling/`build_candidate_pool` entry point per §10/§11; pytest green; signal path stubbed until M6) |
 | **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | ✅ done (C1–C6 — parse, strict §12 schema, SlotMap/pool validation, keys + exact-FullSignature dedup, StyleMove, candidate bounds; pytest green) |
-| **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, dedup, fallback, regen controls | `[NOW]` |
+| **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, repetition, fallback, regen controls (over M2's already-deduped accepted candidates — M3 never re-dedups) | `[NOW]` |
 | **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, like/dislike via the existing `OutfitInteraction`. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | `[NOW]` — proves the whole vision |
 | **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `ItemAffinity`/`wardrobeVersion`/`sessionId`, GenerationSnapshot, baseKey/fullSig on interactions, feedback-authenticity gate | `[NEXT]` |
 | **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (normalization); trust-boundary gates | `[NEXT]` |
@@ -843,9 +845,11 @@ map is their forwarding address.
 
 `DEFAULT_K=10` · per-type caps `TOPS=35, BOTTOMS=30, DRESSES=25, OUTER=20, SHOES=25` ·
 `MAX_PROMPT_ITEMS=135` (= cap sum, asserted) · `MAX_CANDIDATES=40` · `MIN_SIGNAL_THRESHOLD=5` ·
-`MAX_AFFINITY=20` · `OVERUSE_MIN_POOL=15` · `OVERUSE_THRESHOLD=0.40` · `COOLDOWN_PENALTY=-2.0` (stored
+`MAX_AFFINITY=20` · `OVERUSE_MIN_POOL=15` · `OVERUSE_THRESHOLD=0.40` · `OVERUSE_PENALTY=0.5` (magnitude, per
+overused item, subtracted — S4) · `COOLDOWN_PENALTY=-2.0` (stored
 negative, added — S4) · `DISLIKE_PENALTY` magnitude 0.5 (per disliked item, subtracted — S4) ·
 `COMBO_BOOST=+2.0` · `ITEM_BOOST_WEIGHT=+0.1` · `BASE_SCORE=+1.0` ·
-dislike window `M=20` · cooldown buffer 10 (FIFO) · repetition window 10 · cache TTL 15 min. The 70/30 split
+dislike window `M=20` · cooldown buffer 10 (FIFO) · repetition window 10 ·
+`REPETITION_PENALTY=1.0` (flat magnitude on a re-shown FullSignature, subtracted — S4) · cache TTL 15 min. The 70/30 split
 is **not** a constant — it is the sampler-owned `random_count` helper (§10/R6). *(Note: deployed K default is
 5, not 10; v2 sets 10.)*
