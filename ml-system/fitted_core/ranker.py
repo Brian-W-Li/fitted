@@ -7,7 +7,7 @@ deterministic tie-break — emitting a per-outfit signed ``ScoreBreakdown`` plus
 state flags M5 needs. Pure substrate: **no DB, no GPT, no IO, no candidate creation.**
 M3 only drops and reorders.
 
-**Milestone scope (M3 C1–C4).** C1 landed the public surface (``rank`` signature,
+**Milestone scope (M3 C1–C5).** C1 landed the public surface (``rank`` signature,
 ``FallbackStage``, ``ScoreBreakdown``, ``RankedOutfit``, ``RankerResult``, ``RankerContext``),
 the output-immutability snapshot helpers, the ``RankerContext`` construction guards
 (``generation_index`` real-int, ``k``), the reducer-contract guards (window lengths N14 +
@@ -18,10 +18,9 @@ Step-5 additive scoring helper** (``_score_candidate``: signed ``base`` / ``comb
 ``dislike`` / ``cooldown`` deltas summing to ``score``, N4/N10/N13). **C4 adds the Step-6 diversity
 helpers** — BaseKey ``_apply_variant_cap`` (top-2 by pre-penalty score, N5), ``_compute_overuse_set``
 (once over post-cap survivors, gate/threshold strict, N1/N2/Q1), and ``_rescore_with_diversity``
-(signed overuse + flat repetition deltas, Q1/Q2), composed by ``_apply_step6_diversity``. **The
-fallback ladder and tie-break (C5) remain unimplemented**, so ``rank()`` does not yet assemble a
-result — a *non-empty* candidate list still raises ``NotImplementedError`` rather than emit a
-partial ranking.
+(signed overuse + flat repetition deltas, Q1/Q2), composed by ``_apply_step6_diversity``. **C5 wires
+the fallback ladder, final tie-break, truncate-to-k, and defensive ``RankedOutfit`` assembly** for
+public non-empty ``rank()`` calls.
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures return
 a value (the empty/degenerate result is *not* an error); caller-contract violations raise.
@@ -55,6 +54,7 @@ from fitted_core.config import (
     REPETITION_WINDOW_SIZE,
 )
 from fitted_core.models import SlotMap, StyleMove, Template
+from fitted_core.seed import seeded_rng, tiebreak_seed
 from fitted_core.validator import ValidatedCandidate
 
 
@@ -618,6 +618,163 @@ def _apply_step6_diversity(
     return tuple(_rescore_with_diversity(sc, overuse_set, context) for sc in survivors)
 
 
+# ===================== C5 — fallback, tie-break, assembly (§6 steps 6–8) =====================
+
+
+def _drop_overuse_penalty(scored: _ScoredCandidate) -> _ScoredCandidate:
+    """Return ``scored`` with the overuse delta removed, preserving every other term (N2)."""
+    if scored.breakdown.overuse == 0.0:
+        return scored
+    old = scored.breakdown
+    breakdown = ScoreBreakdown(
+        base=old.base,
+        combo=old.combo,
+        item=old.item,
+        dislike=old.dislike,
+        overuse=0.0,
+        repetition=old.repetition,
+        cooldown=old.cooldown,
+    )
+    return _ScoredCandidate(
+        candidate=scored.candidate,
+        score=_breakdown_total(breakdown),
+        breakdown=breakdown,
+    )
+
+
+def _score_without_overuse(
+    scored: _ScoredCandidate,
+    context: RankerContext,
+) -> _ScoredCandidate:
+    """Apply repetition while keeping overuse relaxed (empty overuse set, never recomputed)."""
+    return _rescore_with_diversity(scored, frozenset(), context)
+
+
+def _select_fallback_pool(
+    step4: _Step4Result,
+    context: RankerContext,
+) -> tuple[tuple[_ScoredCandidate, ...], FallbackStage]:
+    """Walk the cumulative fallback ladder and return the pool to order/emit (N11).
+
+    Strict order: normal → overuse_relaxed → variant_cap_relaxed → cooldown_relaxed →
+    insufficient. Relaxation is cumulative: deeper rungs keep earlier relaxations. Validation,
+    locks, and contextual dislikes never relax; cooldown relaxation draws only from
+    ``step4.cooldown_reserve``.
+    """
+    step5_survivors = tuple(_score_candidate(candidate, context) for candidate in step4.survivors)
+
+    normal = _apply_step6_diversity(step5_survivors, context)
+    if len(normal) >= context.k:
+        return normal, FallbackStage.none
+
+    # overuse_relaxed is a **score-only** rung: it drops the overuse penalty over the *same*
+    # post-cap pool, so its count equals `normal`'s — it can never flip the count-based gate that
+    # `normal` just failed, hence is unreachable as a *terminal* stage under the current spec. The
+    # branch stays as explicit ladder scaffolding (and the overuse drop carries forward cumulatively
+    # into the deeper, count-changing rungs below — `_score_without_overuse`).
+    overuse_relaxed = tuple(_drop_overuse_penalty(scored) for scored in normal)
+    if len(overuse_relaxed) >= context.k:
+        return overuse_relaxed, FallbackStage.overuse_relaxed
+
+    variant_cap_relaxed = tuple(
+        _score_without_overuse(scored, context) for scored in step5_survivors
+    )
+    if len(variant_cap_relaxed) >= context.k:
+        return variant_cap_relaxed, FallbackStage.variant_cap_relaxed
+
+    cooldown_relaxed = tuple(
+        _score_without_overuse(
+            _score_candidate(candidate, context, relaxed_cooldown=True),
+            context,
+        )
+        for candidate in step4.cooldown_reserve
+    )
+    cooldown_pool = (*variant_cap_relaxed, *cooldown_relaxed)
+    if len(cooldown_pool) >= context.k:
+        return cooldown_pool, FallbackStage.cooldown_relaxed
+
+    return cooldown_pool, FallbackStage.insufficient
+
+
+def _tiebreak_seeded_rng(context: RankerContext):
+    """The per-request seeded RNG for the tie-break (``tiebreak_seed`` over the context, §15)."""
+    return seeded_rng(
+        tiebreak_seed(
+            session_id=context.session_id,
+            wardrobe_version=context.wardrobe_version,
+            occasion=context.occasion,
+            weather=context.weather,
+            date=context.date,
+            generation_index=context.generation_index,
+        )
+    )
+
+
+def _order_final_candidates(
+    scored: Sequence[_ScoredCandidate],
+    context: RankerContext,
+) -> tuple[_ScoredCandidate, ...]:
+    """Sort by score descending, then greedily resolve equal-score groups (N6/N12)."""
+    rng = _tiebreak_seeded_rng(context)
+    score_sorted = sorted(scored, key=lambda sc: sc.score, reverse=True)
+    emitted_count: dict[str, int] = {}
+    ordered: list[_ScoredCandidate] = []
+
+    index = 0
+    while index < len(score_sorted):
+        score = score_sorted[index].score
+        tie_group: list[_ScoredCandidate] = []
+        while index < len(score_sorted) and score_sorted[index].score == score:
+            tie_group.append(score_sorted[index])
+            index += 1
+
+        group = sorted(tie_group, key=lambda sc: sc.candidate.full_signature)
+        priority = {sc.candidate.full_signature: rng.random() for sc in group}
+        while group:
+            pick = min(
+                group,
+                key=lambda sc: (
+                    emitted_count.get(sc.candidate.base_key, 0),
+                    priority[sc.candidate.full_signature],
+                    sc.candidate.full_signature,
+                ),
+            )
+            ordered.append(pick)
+            base_key = pick.candidate.base_key
+            emitted_count[base_key] = emitted_count.get(base_key, 0) + 1
+            group.remove(pick)
+
+    return tuple(ordered)
+
+
+def _copy_slot_map(slot_map: SlotMap) -> SlotMap:
+    """Defensively copy a mutable SlotMap for RankedOutfit output (§4 immutability)."""
+    return SlotMap(
+        dress=slot_map.dress,
+        top=slot_map.top,
+        bottom=slot_map.bottom,
+        outer=slot_map.outer,
+        shoes=slot_map.shoes,
+    )
+
+
+def _assemble_ranked_outfit(scored: _ScoredCandidate) -> RankedOutfit:
+    """Build the immutable output ``RankedOutfit`` (defensive snapshots; cooldown delta → flag, §4)."""
+    candidate = scored.candidate
+    relaxed_cooldown = scored.breakdown.cooldown == COOLDOWN_PENALTY
+    return RankedOutfit(
+        source_index=candidate.source_index,
+        slot_map=_copy_slot_map(candidate.slot_map),
+        template=candidate.template,
+        base_key=candidate.base_key,
+        full_signature=candidate.full_signature,
+        style_move=_freeze_style_move(candidate.style_move),
+        score=scored.score,
+        breakdown=scored.breakdown,
+        relaxed_cooldown=relaxed_cooldown,
+    )
+
+
 # ============================== public entry point ==============================
 
 
@@ -681,13 +838,10 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
     M5 needs (fallback stage, insufficient-wardrobe, lock-starvation diagnostic). Never
     creates a candidate; never relaxes M2 validation.
 
-    **M3 C1–C4 scope.** ``rank`` itself implements the reducer-contract guards (§6 step 1) and
-    the empty/degenerate short-circuit (§6 step 2). C2 added the Step-4 hard filters
-    (``_apply_step4_filters``); C3 added the Step-5 scoring helper (``_score_candidate``); C4 added
-    the Step-6 diversity helpers (``_apply_step6_diversity`` and its parts) — all verified directly.
-    Assembling a non-empty result still needs the fallback ladder and the tie-break (C5), so a
-    **non-empty** ``candidates`` list raises ``NotImplementedError`` rather than emit a partial
-    ranking.
+    ``rank`` runs the M3 pipeline in order: reducer-contract guards, empty short-circuit, Step-4
+    hard filters, Step-5 scoring, Step-6 diversity/fallback, final deterministic tie-break,
+    truncate-to-k, and defensive ``RankedOutfit`` assembly. Relaxation is cumulative and never
+    creates candidates or relaxes M2 validation / locks / contextual dislikes.
     """
     # Step 1 — reducer-contract guards. Run *before* the empty short-circuit (§6 order), so a
     # malformed signal input surfaces loudly even on the zero-candidate path.
@@ -710,12 +864,18 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
             insufficient_locked_candidates=insufficient_locked,
         )
 
-    # Non-empty output assembly needs the fallback ladder + tie-break (C5). C2 added the Step-4 hard
-    # filters (_apply_step4_filters), C3 the Step-5 scoring helper (_score_candidate), and C4 the
-    # Step-6 diversity helpers (_apply_step6_diversity), but a non-empty candidate list cannot yet be
-    # ordered/assembled, so rank() does not build a result here — raise rather than fabricate one.
-    raise NotImplementedError(
-        "rank() output assembly needs the fallback ladder + tie-break (M3 C5); C2–C4 added the "
-        "Step-4 hard filters (_apply_step4_filters), Step-5 scoring (_score_candidate), and Step-6 "
-        "diversity (_apply_step6_diversity), but rank() cannot yet order or assemble a non-empty list"
+    step4 = _apply_step4_filters(candidates, context)
+    pool, fallback_stage = _select_fallback_pool(step4, context)
+    ordered = _order_final_candidates(pool, context)
+    outfits = tuple(_assemble_ranked_outfit(scored) for scored in ordered[: context.k])
+    insufficient_wardrobe = len(outfits) < context.k
+    relaxed_cooldown_count = sum(1 for outfit in outfits if outfit.relaxed_cooldown)
+
+    return RankerResult(
+        outfits=outfits,
+        fallback_stage=fallback_stage,
+        insufficient_wardrobe=insufficient_wardrobe,
+        relaxed_cooldown_count=relaxed_cooldown_count,
+        locked_survivor_count=step4.locked_survivor_count,
+        insufficient_locked_candidates=step4.insufficient_locked_candidates,
     )

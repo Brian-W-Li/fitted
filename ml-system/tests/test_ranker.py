@@ -17,8 +17,10 @@ dominance cases (§5/§7).
 **Checkpoint C4** — the Step-6 diversity helpers: ``_apply_variant_cap`` (top-2 by pre-penalty
 score, N5), ``_compute_overuse_set`` (once over post-cap survivors, strict gate/threshold,
 N1/N2/Q1), ``_rescore_with_diversity`` (signed overuse + flat repetition, Q1/Q2), and their
-composition ``_apply_step6_diversity``. The fallback ladder / tie-break land in C5 — a non-empty
-candidate list still raises ``NotImplementedError``.
+composition ``_apply_step6_diversity``.
+
+**Checkpoint C5** — public non-empty ``rank()`` assembly: fallback ladder, deterministic
+tie-break, truncate-to-k, output snapshots, and final ``RankerResult`` flags.
 
 Assert on values, flags, and types — never on exception prose.
 """
@@ -86,6 +88,21 @@ def _candidate(
         full_signature=full_signature,
         style_move=None,
     )
+
+
+def _with_style_move(cand: ValidatedCandidate, style_move: StyleMove) -> ValidatedCandidate:
+    return ValidatedCandidate(
+        source_index=cand.source_index,
+        slot_map=cand.slot_map,
+        template=cand.template,
+        base_key=cand.base_key,
+        full_signature=cand.full_signature,
+        style_move=style_move,
+    )
+
+
+def _result_signatures(result: ranker.RankerResult) -> list[str]:
+    return [outfit.full_signature for outfit in result.outfits]
 
 
 # ------------------------------ FallbackStage ------------------------------
@@ -353,14 +370,37 @@ def test_rank_empty_with_locks_sets_lock_starvation_diagnostic():
     assert result.insufficient_wardrobe is True
 
 
-# ------------------------ rank(): non-empty still raises (C2) ------------------------
+# ------------------------ rank(): public non-empty assembly (C5) ------------------------
 
 
-def test_rank_non_empty_raises_not_implemented():
-    # C3 added scoring helpers; non-empty public assembly still waits for C4–C5; a non-empty input
-    # that fully survives the filters must still raise rather than fabricate a ranking.
-    with pytest.raises(NotImplementedError):
-        ranker.rank([_candidate()], _ctx())
+def test_rank_non_empty_returns_sorted_ranker_result():
+    ctx = _ctx(item_affinity={"t1": 20, "t2": 10}, k=2)
+    low = _candidate(source_index=0, top="t0", bottom="b0", base_key="bk0", full_signature="sig-low")
+    high = _candidate(source_index=1, top="t1", bottom="b1", base_key="bk1", full_signature="sig-high")
+    mid = _candidate(source_index=2, top="t2", bottom="b2", base_key="bk2", full_signature="sig-mid")
+
+    result = ranker.rank([low, high, mid], ctx)
+
+    assert _result_signatures(result) == ["sig-high", "sig-mid"]
+    assert len(result.outfits) == ctx.k
+    assert result.fallback_stage is FallbackStage.none
+    assert result.insufficient_wardrobe is False
+    assert result.relaxed_cooldown_count == 0
+    assert result.locked_survivor_count == 3
+    assert result.insufficient_locked_candidates is False
+    assert all(
+        outfit.score
+        == (
+            outfit.breakdown.base
+            + outfit.breakdown.combo
+            + outfit.breakdown.item
+            + outfit.breakdown.dislike
+            + outfit.breakdown.overuse
+            + outfit.breakdown.repetition
+            + outfit.breakdown.cooldown
+        )
+        for outfit in result.outfits
+    )
 
 
 # ------------------------ Step 4 — lock filter (C2, §6 step 3) ------------------------
@@ -498,15 +538,19 @@ def test_insufficient_locked_candidates_false_when_no_locks():
 
 def test_all_filtered_out_non_empty_does_not_collapse_to_empty_path():
     # All candidates cooldown-dropped: non-empty input, zero survivors. This is NOT the
-    # literal-empty case — public rank() still raises (no C5 relaxation yet), and the helper
-    # preserves a distinct cooldown-relax reserve (literal-empty input has no reserve).
+    # literal-empty case — the helper preserves a distinct cooldown-relax reserve (literal-empty
+    # input has no reserve), and C5 may return a cooldown-relaxed fewer-than-k result.
     cand = _candidate(top="t1", bottom="b1")
     ctx = _ctx(recent_disliked_base_keys=("t1:b1",))
-    with pytest.raises(NotImplementedError):
-        ranker.rank([cand], ctx)
     result = ranker._apply_step4_filters([cand], ctx)
     assert result.survivors == ()
     assert result.cooldown_reserve == (cand,)
+
+    ranked = ranker.rank([cand], ctx)
+    assert _result_signatures(ranked) == [cand.full_signature]
+    assert ranked.outfits[0].relaxed_cooldown is True
+    assert ranked.fallback_stage is FallbackStage.insufficient
+    assert ranked.insufficient_wardrobe is True
 
 
 # ============================ Step 5 — additive scoring (C3, §6 step 4) ============================
@@ -1000,10 +1044,11 @@ def test_c4_diversity_does_not_truncate_to_k():
 
 
 def test_c4_helpers_do_not_make_public_rank_assemble():
-    # The C4 diversity helpers are not wired into rank() — a non-empty candidate list still raises
-    # rather than emit a partial ranking (C5 owns assembly).
-    with pytest.raises(NotImplementedError):
-        ranker.rank([_candidate()], _ctx())
+    # The C4 diversity helper remains an internal scored-candidate transform; public RankedOutfit
+    # assembly is owned by rank() in C5.
+    diversified = ranker._apply_step6_diversity([_scored(_candidate())], _ctx())
+    assert len(diversified) == 1
+    assert isinstance(diversified[0], ranker._ScoredCandidate)
 
 
 # ==================== mutation-coverage gaps (pre-C5, C1–C4) ====================
@@ -1084,3 +1129,212 @@ def test_c4_diversity_does_not_globally_sort():
     order = [sc.candidate.full_signature for sc in diversified]
     assert order == ["sig0", "sig1", "sig2"]  # input order preserved — no global score sort (C5's job)
     assert len(diversified) == 3  # not truncated to k=2
+
+
+# ============================ C5 fallback + tie-break + assembly ============================
+
+
+def test_rank_variant_cap_relaxed_re_admits_third_basekey_variant():
+    ctx = _ctx(k=3)
+    c0 = _candidate(source_index=0, top="t1", bottom="b1", outer="o0", base_key="bk", full_signature="sig-a")
+    c1 = _candidate(source_index=1, top="t1", bottom="b1", outer="o1", base_key="bk", full_signature="sig-b")
+    c2 = _candidate(source_index=2, top="t1", bottom="b1", outer="o2", base_key="bk", full_signature="sig-c")
+
+    result = ranker.rank([c0, c1, c2], ctx)
+
+    assert result.fallback_stage is FallbackStage.variant_cap_relaxed
+    assert result.insufficient_wardrobe is False
+    assert set(_result_signatures(result)) == {"sig-a", "sig-b", "sig-c"}
+
+
+def test_rank_variant_cap_relaxation_keeps_overuse_relaxed():
+    # Cumulative fallback: by the time the ladder reaches variant_cap_relaxed, the overuse
+    # penalty has already been dropped and must stay dropped. The post-cap pool is 17 (>15),
+    # with top item "x" in every survivor, so normal diversity would penalize x.
+    ctx = _ctx(k=18)
+    singleton_bases = [
+        _candidate(
+            source_index=i,
+            top="x",
+            bottom=f"b{i}",
+            base_key=f"x:b{i}",
+            full_signature=f"sig-u{i}",
+        )
+        for i in range(15)
+    ]
+    shared_base = [
+        _candidate(
+            source_index=15 + i,
+            top="x",
+            bottom="shared",
+            outer=f"o{i}",
+            base_key="x:shared",
+            full_signature=f"sig-shared-{i}",
+        )
+        for i in range(3)
+    ]
+
+    result = ranker.rank([*singleton_bases, *shared_base], ctx)
+
+    assert result.fallback_stage is FallbackStage.variant_cap_relaxed
+    assert len(result.outfits) == 18
+    assert all(outfit.breakdown.overuse == 0.0 for outfit in result.outfits)
+
+
+def test_rank_cooldown_relaxed_re_admits_only_cooldown_reserve():
+    survivor = _candidate(source_index=0, top="t0", bottom="b0", base_key="safe", full_signature="safe")
+    cooldown_only = _candidate(
+        source_index=1, top="t1", bottom="b1", base_key="cool", full_signature="cool"
+    )
+    contextual_too = _candidate(
+        source_index=2,
+        top="t2",
+        bottom="b2",
+        shoes="bad",
+        base_key="cool-contextual",
+        full_signature="cool-contextual",
+    )
+    ctx = _ctx(
+        k=2,
+        recent_disliked_base_keys=("cool", "cool-contextual"),
+        contextual_disliked_item_ids=frozenset({"bad"}),
+    )
+
+    result = ranker.rank([survivor, cooldown_only, contextual_too], ctx)
+
+    assert result.fallback_stage is FallbackStage.cooldown_relaxed
+    assert _result_signatures(result) == ["safe", "cool"]
+    relaxed = result.outfits[1]
+    assert relaxed.relaxed_cooldown is True
+    assert relaxed.breakdown.cooldown == config.COOLDOWN_PENALTY
+    assert result.relaxed_cooldown_count == 1
+    assert "cool-contextual" not in _result_signatures(result)
+
+
+def test_rank_cooldown_relaxation_never_relaxes_locks():
+    survivor = _candidate(source_index=0, top="lock", bottom="b0", base_key="safe", full_signature="safe")
+    cooldown_only_but_missing_lock = _candidate(
+        source_index=1, top="t1", bottom="b1", base_key="cool", full_signature="cool"
+    )
+    ctx = _ctx(k=2, locked_item_ids=frozenset({"lock"}), recent_disliked_base_keys=("cool",))
+
+    result = ranker.rank([survivor, cooldown_only_but_missing_lock], ctx)
+
+    assert result.fallback_stage is FallbackStage.insufficient
+    assert _result_signatures(result) == ["safe"]
+    assert result.relaxed_cooldown_count == 0
+    assert result.locked_survivor_count == 1
+    assert result.insufficient_locked_candidates is True
+
+
+def test_rank_insufficient_returns_fewer_than_k():
+    result = ranker.rank([_candidate(full_signature="only")], _ctx(k=3))
+
+    assert _result_signatures(result) == ["only"]
+    assert result.fallback_stage is FallbackStage.insufficient
+    assert result.insufficient_wardrobe is True
+    assert result.relaxed_cooldown_count == 0
+
+
+def test_relaxed_cooldown_count_is_post_truncation_emitted_count():
+    survivor = _candidate(source_index=0, top="t0", bottom="b0", base_key="safe", full_signature="safe")
+    cooldowns = [
+        _candidate(
+            source_index=i + 1,
+            top=f"t{i}",
+            bottom=f"b{i}",
+            base_key=f"cool-{i}",
+            full_signature=f"cool-{i}",
+        )
+        for i in range(3)
+    ]
+    ctx = _ctx(k=2, recent_disliked_base_keys=tuple(c.base_key for c in cooldowns))
+
+    result = ranker.rank([survivor, *cooldowns], ctx)
+
+    assert result.fallback_stage is FallbackStage.cooldown_relaxed
+    assert len(result.outfits) == 2
+    assert sum(1 for outfit in result.outfits if outfit.relaxed_cooldown) == 1
+    assert result.relaxed_cooldown_count == 1
+
+
+def test_tiebreak_generation_index_reorders_true_ties_only():
+    cands = [
+        _candidate(source_index=0, top="ta", bottom="ba", base_key="bk-a", full_signature="sig-a"),
+        _candidate(source_index=1, top="tb", bottom="bb", base_key="bk-b", full_signature="sig-b"),
+        _candidate(source_index=2, top="tc", bottom="bc", base_key="bk-c", full_signature="sig-c"),
+    ]
+
+    result0 = ranker.rank(cands, _ctx(generation_index=0, k=3))
+    result1 = ranker.rank(cands, _ctx(generation_index=1, k=3))
+
+    assert _result_signatures(result0) == ["sig-b", "sig-a", "sig-c"]
+    assert _result_signatures(result1) == ["sig-c", "sig-a", "sig-b"]
+
+
+def test_tiebreak_leaves_non_tied_order_stable_across_generation_index():
+    ctx0 = _ctx(generation_index=0, item_affinity={"t-high": 20, "t-mid": 10}, k=3)
+    ctx1 = _ctx(generation_index=1, item_affinity={"t-high": 20, "t-mid": 10}, k=3)
+    cands = [
+        _candidate(source_index=0, top="t-low", bottom="b-low", base_key="bk-low", full_signature="low"),
+        _candidate(source_index=1, top="t-high", bottom="b-high", base_key="bk-high", full_signature="high"),
+        _candidate(source_index=2, top="t-mid", bottom="b-mid", base_key="bk-mid", full_signature="mid"),
+    ]
+
+    assert _result_signatures(ranker.rank(cands, ctx0)) == ["high", "mid", "low"]
+    assert _result_signatures(ranker.rank(cands, ctx1)) == ["high", "mid", "low"]
+
+
+def test_tiebreak_is_permutation_invariant():
+    cands = [
+        _candidate(source_index=0, top="ta", bottom="ba", base_key="bk-a", full_signature="sig-a"),
+        _candidate(source_index=1, top="tb", bottom="bb", base_key="bk-b", full_signature="sig-b"),
+        _candidate(source_index=2, top="tc", bottom="bc", base_key="bk-c", full_signature="sig-c"),
+    ]
+
+    expected = _result_signatures(ranker.rank(cands, _ctx(k=3)))
+    for perm in itertools.permutations(cands):
+        assert _result_signatures(ranker.rank(list(perm), _ctx(k=3))) == expected
+
+
+def test_tiebreak_spreads_basekeys_greedily_within_tie_group():
+    cands = [
+        _candidate(source_index=0, top="t1", bottom="b1", base_key="bk-a", full_signature="sig-a1"),
+        _candidate(source_index=1, top="t2", bottom="b2", base_key="bk-a", full_signature="sig-a2"),
+        _candidate(source_index=2, top="t3", bottom="b3", base_key="bk-b", full_signature="sig-b1"),
+        _candidate(source_index=3, top="t4", bottom="b4", base_key="bk-c", full_signature="sig-c1"),
+    ]
+
+    result = ranker.rank(cands, _ctx(generation_index=0, k=4))
+
+    assert _result_signatures(result) == ["sig-a2", "sig-c1", "sig-b1", "sig-a1"]
+
+
+def test_tiebreak_never_uses_source_index():
+    cands = [
+        _candidate(source_index=0, top="tz", bottom="bz", base_key="bk-z", full_signature="sig-z"),
+        _candidate(source_index=1, top="ta", bottom="ba", base_key="bk-a", full_signature="sig-a"),
+        _candidate(source_index=2, top="tm", bottom="bm", base_key="bk-m", full_signature="sig-m"),
+    ]
+
+    result = ranker.rank(cands, _ctx(generation_index=0, k=3))
+
+    assert _result_signatures(result) == ["sig-m", "sig-a", "sig-z"]
+
+
+def test_rank_output_snapshots_slotmap_and_style_move():
+    move_ids = ["t1"]
+    move = StyleMove(move_type="swap", changed_item_ids=move_ids, one_sentence="Try the sharper tee.")
+    cand = _with_style_move(_candidate(top="t1", bottom="b1", full_signature="sig"), move)
+
+    result = ranker.rank([cand], _ctx(k=1))
+    outfit = result.outfits[0]
+    cand.slot_map.top = "MUTATED"
+    move_ids.append("b1")
+    move.changed_item_ids.append("extra")
+
+    assert outfit.slot_map is not cand.slot_map
+    assert outfit.slot_map.top == "t1"
+    assert outfit.style_move is not None
+    assert outfit.style_move.changed_item_ids == ("t1",)
+    assert isinstance(result.outfits, tuple)
