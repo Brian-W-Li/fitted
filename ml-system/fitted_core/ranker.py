@@ -24,6 +24,7 @@ an empty candidate list returns an insufficient ``RankerResult`` (M2 "empty is v
 Sources: docs/Fitted_Spec_v2.md §7/§9/§11/§14/§15, docs/plans/m3-ranker.md.
 """
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
@@ -285,11 +286,12 @@ def _guard_reducer_inputs(context: RankerContext) -> None:
     Window inputs arrive **already windowed** (the M4/M5 reducer owns windowing); M3 guards
     ``len ≤`` the window constant and **never truncates** — silent truncation would hide an
     upstream reducer bug and make the window size ambiguous across the Python/TS boundary
-    (``sampler.py`` assert precedent). Affinities must be **non-negative** — a negative value
-    is reducer-contract misuse: a dislike lowers score only via ``dislikePenalty`` / cooldown,
-    never a negative ``itemBoost`` (§11/R2). The only affinity transform M3 applies is the
-    *upper* clamp to ``MAX_AFFINITY`` at scoring (C3). Both are caller-contract violations →
-    ``ValueError``.
+    (``sampler.py`` assert precedent). Affinities must be **real, non-``bool``, finite numbers**
+    that are **non-negative** — a ``bool`` or non-numeric value is a reducer type error
+    (``TypeError``); a negative *or non-finite* (NaN/±inf) value is reducer-contract misuse
+    (``ValueError``): a dislike lowers score only via ``dislikePenalty`` / cooldown, never a
+    negative ``itemBoost`` (§11/R2). The only affinity transform M3 applies is the *upper*
+    clamp to ``MAX_AFFINITY`` at scoring (C3). All are caller-contract violations that raise.
     """
     if len(context.shown_full_signatures) > REPETITION_WINDOW_SIZE:
         raise ValueError(
@@ -307,6 +309,23 @@ def _guard_reducer_inputs(context: RankerContext) -> None:
             f"DISLIKE_WINDOW_SIZE={DISLIKE_WINDOW_SIZE} (the reducer owns windowing; M3 never truncates)"
         )
     for item_id, affinity in context.item_affinity.items():
+        # bool is an int subclass — isinstance(True, int) is True — so reject it before the
+        # numeric check (mirrors the package's bool-rejection precedents). The numeric guard
+        # then makes the `< 0` comparison well-defined (a non-number `< 0` would raise an
+        # opaque TypeError; surface a clear one instead).
+        if isinstance(affinity, bool):
+            raise TypeError(f"item_affinity[{item_id!r}] must be a non-bool number, got bool")
+        if not isinstance(affinity, (int, float)):
+            raise TypeError(
+                f"item_affinity[{item_id!r}] must be a non-bool number, got {type(affinity).__name__}"
+            )
+        # NaN / ±inf are numeric but invalid: NaN slips the sign check (`nan < 0` is False)
+        # and inf would survive the C3 upper clamp. Reject before the sign check (ValueError —
+        # numeric-but-invalid value, not a type error).
+        if not math.isfinite(affinity):
+            raise ValueError(
+                f"item_affinity[{item_id!r}]={affinity} is not finite; affinity must be a finite number"
+            )
         if affinity < 0:
             raise ValueError(
                 f"item_affinity[{item_id!r}]={affinity} is negative; affinity is non-negative "

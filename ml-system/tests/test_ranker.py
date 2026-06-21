@@ -251,18 +251,44 @@ def test_dislike_window_over_limit_raises():
 # ------------------------ reducer-contract guards: affinity sign (N10) ------------------------
 
 
+def test_bool_affinity_raises_type_error():
+    # bool is an int subclass; an affinity value must be a real (non-bool) number, so a bool
+    # is a reducer type error, not a "1"/"0" affinity. Rejected before the numeric/sign check.
+    with pytest.raises(TypeError):
+        ranker.rank([], _ctx(item_affinity={"x": True}))
+    with pytest.raises(TypeError):
+        ranker.rank([], _ctx(item_affinity={"x": False}))
+
+
+def test_non_numeric_affinity_raises_type_error():
+    with pytest.raises(TypeError):
+        ranker.rank([], _ctx(item_affinity={"x": "5"}))
+    with pytest.raises(TypeError):
+        ranker.rank([], _ctx(item_affinity={"x": None}))
+
+
+def test_non_finite_affinity_raises_value_error():
+    # NaN / ±inf are numeric but invalid (NaN slips `< 0`, inf survives the C3 clamp) — they
+    # raise ValueError (numeric-but-invalid), not TypeError, and are caught before the sign check.
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError):
+            ranker.rank([], _ctx(item_affinity={"x": bad}))
+
+
 def test_negative_affinity_raises():
-    ctx = _ctx(item_affinity={"x": -1})
+    # A negative *real number* is reducer-contract misuse → ValueError (not a type error);
+    # cover both int and float so the numeric guard passes through to the sign check.
     with pytest.raises(ValueError):
-        ranker.rank([], ctx)
+        ranker.rank([], _ctx(item_affinity={"x": -1}))
+    with pytest.raises(ValueError):
+        ranker.rank([], _ctx(item_affinity={"x": -0.5}))
 
 
 def test_over_max_affinity_accepted_in_c1():
     # The upper clamp to MAX_AFFINITY is applied at scoring (C3), not here — an over-cap
-    # affinity is accepted in C1 and never raises.
-    ctx = _ctx(item_affinity={"x": config.MAX_AFFINITY + 100})
-    result = ranker.rank([], ctx)
-    assert result.insufficient_wardrobe is True
+    # affinity is accepted in C1 and never raises. A positive float is a valid real number.
+    assert ranker.rank([], _ctx(item_affinity={"x": config.MAX_AFFINITY + 100})).insufficient_wardrobe is True
+    assert ranker.rank([], _ctx(item_affinity={"x": 3.5})).insufficient_wardrobe is True
 
 
 # ------------------------ rank(): empty/degenerate short-circuit (N15) ------------------------
