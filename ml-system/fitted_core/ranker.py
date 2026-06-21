@@ -13,9 +13,11 @@ the output-immutability snapshot helpers, the ``RankerContext`` construction gua
 (``generation_index`` real-int, ``k``), the reducer-contract guards (window lengths N14 +
 affinity sign N10), and the literal empty/degenerate short-circuit (N15). **C2 adds the
 Step-4 per-request hard filters** (cooldown / contextual-dislike / lock) and the
-lock-starvation diagnostic as the internal ``_apply_step4_filters`` helper. **Scoring,
-diversity, fallback, and tie-break (C3–C5) remain unimplemented**, so a *non-empty* candidate
-list still raises ``NotImplementedError`` rather than emit a partial ranking.
+lock-starvation diagnostic as the internal ``_apply_step4_filters`` helper. **C3 adds the
+Step-5 additive scoring helper** (``_score_candidate``: signed ``base`` / ``combo`` / ``item`` /
+``dislike`` / ``cooldown`` deltas summing to ``score``, N4/N10/N13). **Diversity, fallback, and
+tie-break (C4–C5) remain unimplemented**, so ``rank()`` does not yet assemble a result — a
+*non-empty* candidate list still raises ``NotImplementedError`` rather than emit a partial ranking.
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures return
 a value (the empty/degenerate result is *not* an error); caller-contract violations raise.
@@ -32,9 +34,15 @@ from types import MappingProxyType
 from typing import Mapping, Optional, Sequence
 
 from fitted_core.config import (
+    BASE_SCORE,
+    COMBO_BOOST,
     COOLDOWN_BUFFER_SIZE,
+    COOLDOWN_PENALTY,
     DEFAULT_K,
+    DISLIKE_PENALTY,
     DISLIKE_WINDOW_SIZE,
+    ITEM_BOOST_WEIGHT,
+    MAX_AFFINITY,
     REPETITION_WINDOW_SIZE,
 )
 from fitted_core.models import SlotMap, StyleMove, Template
@@ -169,7 +177,7 @@ class RankerContext:
     generation_index: int  # REQUIRED, no default (N7/H7) — a real int; guarded below
     k: int = DEFAULT_K  # N16; M5 may override
     # pre-reduced signals (Q4/H19 — never raw OutfitInteraction; already windowed, N14)
-    item_affinity: Mapping[str, int] = field(default_factory=dict)  # itemId → affinityScore
+    item_affinity: Mapping[str, int | float] = field(default_factory=dict)  # itemId → affinityScore
     liked_full_signatures: frozenset[str] = frozenset()  # comboBoost set
     shown_full_signatures: Sequence[str] = ()  # repetition window (≤ REPETITION_WINDOW_SIZE)
     recent_disliked_base_keys: Sequence[str] = ()  # cooldown buffer (≤ COOLDOWN_BUFFER_SIZE)
@@ -356,6 +364,110 @@ def _apply_step4_filters(
     )
 
 
+# ===================== Step 5 — additive scoring (§6 step 4, N4/N10/N13) =====================
+
+
+@dataclass(frozen=True)
+class _ScoredCandidate:
+    """A candidate paired with its Step-5 additive score + signed ``ScoreBreakdown`` (C3 plumbing).
+
+    Internal only — C4 will sort these by ``score`` for the BaseKey variant cap, C5 will
+    assemble them into ``RankedOutfit``s. C3 produces them but never orders, caps, or assembles
+    (that is C4–C5). ``score`` is the exact sum of ``breakdown``'s signed deltas in canonical
+    field order (N4); the Step-6 diversity terms (``overuse`` / ``repetition``) are always 0
+    here, and ``cooldown`` is 0 unless a cooldown-relaxed re-admit is being scored (C5 sets
+    ``relaxed_cooldown=True``).
+    """
+
+    candidate: ValidatedCandidate
+    score: float
+    breakdown: ScoreBreakdown
+
+
+def _breakdown_total(breakdown: ScoreBreakdown) -> float:
+    """Sum the signed ``ScoreBreakdown`` deltas in canonical field order (N4, §7).
+
+    Order ``base → combo → item → dislike → overuse → repetition → cooldown`` is fixed so the
+    total is reproducible bit-for-bit (float addition is not associative). ``_score_candidate``
+    and the ``score == Σ deltas`` property test both sum in this exact order, so they agree to
+    the last ULP.
+    """
+    return (
+        breakdown.base
+        + breakdown.combo
+        + breakdown.item
+        + breakdown.dislike
+        + breakdown.overuse
+        + breakdown.repetition
+        + breakdown.cooldown
+    )
+
+
+def _score_candidate(
+    candidate: ValidatedCandidate,
+    context: RankerContext,
+    *,
+    relaxed_cooldown: bool = False,
+) -> _ScoredCandidate:
+    """Compute the Step-5 additive score + signed ``ScoreBreakdown`` for one candidate (§6 step 4).
+
+    The humble additive layer (R2, §11/§14):
+    ``score = BASE_SCORE + comboBoost + itemBoost − dislikePenalty (+ cooldown)``, every term a
+    signed delta in the ``ScoreBreakdown`` so ``score == Σ deltas`` (N4). Per term:
+
+    - **base** — ``BASE_SCORE`` (+1.0), the floor every candidate starts at.
+    - **combo** — ``COMBO_BOOST`` (+2.0) iff the FullSignature was re-liked (the full-outfit
+      edge, §11), else 0. Keyed on FullSignature (§7), never BaseKey.
+    - **item** — ``ITEM_BOOST_WEIGHT × Σ_slots min(affinity, MAX_AFFINITY)`` over **every filled
+      slot** including optional outer/shoes (N13); an absent item contributes 0; the affinity is
+      clamped to ``MAX_AFFINITY`` **inside M3** (N10 — never trust an over-cap input). The
+      ``rank()``-entry guard already proved affinities non-negative, so ``item ≥ 0``.
+    - **dislike** — ``−DISLIKE_PENALTY × |{filled ids} ∩ set(recent_disliked_item_ids)|``: a flat
+      −0.5 per *distinct* disliked item in the outfit. ``set(window)`` dedups window multiplicity
+      (a single item shown many times counts once — "flat, not accumulated", §14); the count of
+      *distinct disliked items in the outfit* is what scales it (§7 "bounded by item count").
+      Stored as a negative delta.
+    - **overuse / repetition** — always 0 here. They are Step-6 diversity terms (C4) computed
+      over the post-variant-cap survivor pool, not over one isolated candidate.
+    - **cooldown** — ``COOLDOWN_PENALTY`` (already −2.0, the signed delta — *not* negated, S4/N4)
+      iff ``relaxed_cooldown`` (a C5 cooldown-relaxed re-admit); else 0. Normal C3 scoring is 0.
+
+    Pure: no sorting, capping, overuse/repetition, fallback, or tie-break (those are C4–C5).
+    Negative scores are valid — ranking is relative (§14).
+    """
+    filled = _filled_slot_ids(candidate.slot_map)
+
+    base = BASE_SCORE
+    combo = COMBO_BOOST if candidate.full_signature in context.liked_full_signatures else 0.0
+    # itemBoost: per filled slot, clamp the affinity to MAX_AFFINITY (upper clamp inside M3, N10);
+    # an item with no affinity entry contributes 0. Ranges over all filled slots incl. outer/shoes (N13).
+    item = ITEM_BOOST_WEIGHT * sum(
+        min(context.item_affinity.get(item_id, 0), MAX_AFFINITY) for item_id in filled
+    )
+    # dislikePenalty: flat −0.5 per *distinct* disliked item in the outfit. set() on the window
+    # dedups multiplicity; the intersection size is the distinct disliked-item count (§14/§7).
+    disliked_in_outfit = set(filled) & set(context.recent_disliked_item_ids)
+    dislike = -DISLIKE_PENALTY * len(disliked_in_outfit)
+    overuse = 0.0  # Step-6 diversity term (C4) — never scored per isolated candidate.
+    repetition = 0.0  # Step-6 diversity term (C4).
+    cooldown = COOLDOWN_PENALTY if relaxed_cooldown else 0.0  # already negative (S4); never negated.
+
+    breakdown = ScoreBreakdown(
+        base=base,
+        combo=combo,
+        item=item,
+        dislike=dislike,
+        overuse=overuse,
+        repetition=repetition,
+        cooldown=cooldown,
+    )
+    return _ScoredCandidate(
+        candidate=candidate,
+        score=_breakdown_total(breakdown),
+        breakdown=breakdown,
+    )
+
+
 # ============================== public entry point ==============================
 
 
@@ -419,11 +531,12 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
     M5 needs (fallback stage, insufficient-wardrobe, lock-starvation diagnostic). Never
     creates a candidate; never relaxes M2 validation.
 
-    **M3 C1–C2 scope.** ``rank`` itself implements the reducer-contract guards (§6 step 1) and
-    the empty/degenerate short-circuit (§6 step 2). C2 added the Step-4 hard filters as
-    ``_apply_step4_filters`` (verified directly), but assembling a non-empty result needs
-    scoring (C3) and the tie-break (C5), so a **non-empty** ``candidates`` list still raises
-    ``NotImplementedError`` rather than emit a partial ranking.
+    **M3 C1–C3 scope.** ``rank`` itself implements the reducer-contract guards (§6 step 1) and
+    the empty/degenerate short-circuit (§6 step 2). C2 added the Step-4 hard filters
+    (``_apply_step4_filters``); C3 added the Step-5 scoring helper (``_score_candidate``) — both
+    verified directly. Assembling a non-empty result still needs diversity (C4) and the tie-break
+    (C5), so a **non-empty** ``candidates`` list raises ``NotImplementedError`` rather than emit
+    a partial ranking.
     """
     # Step 1 — reducer-contract guards. Run *before* the empty short-circuit (§6 order), so a
     # malformed signal input surfaces loudly even on the zero-candidate path.
@@ -446,11 +559,12 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
             insufficient_locked_candidates=insufficient_locked,
         )
 
-    # Non-empty output assembly needs scoring + tie-break (C3–C5). C2 added the Step-4 hard
-    # filters as _apply_step4_filters, but a non-empty candidate list cannot yet be scored or
-    # ordered, so rank() does not assemble a result here — raise rather than fabricate a ranking.
+    # Non-empty output assembly needs diversity + tie-break (C4–C5). C2 added the Step-4 hard
+    # filters (_apply_step4_filters) and C3 the Step-5 scoring helper (_score_candidate), but a
+    # non-empty candidate list cannot yet be ordered/assembled, so rank() does not build a result
+    # here — raise rather than fabricate a partial ranking.
     raise NotImplementedError(
-        "rank() output assembly needs scoring + diversity + tie-break (M3 C3–C5); C2 added the "
-        "Step-4 hard filters (_apply_step4_filters) but rank() cannot yet score or order a "
-        "non-empty candidate list"
+        "rank() output assembly needs diversity + tie-break (M3 C4–C5); C2 added the Step-4 hard "
+        "filters (_apply_step4_filters) and C3 the Step-5 scoring helper (_score_candidate), but "
+        "rank() cannot yet order or assemble a non-empty candidate list"
     )

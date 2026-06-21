@@ -9,8 +9,8 @@ short-circuit (N15).
 **Checkpoint C2** — the Step-4 per-request hard filters via ``_apply_step4_filters`` (lock /
 contextual-dislike / cooldown), the cooldown-relax reserve vs non-relaxable drops (N3), and the
 lock-starvation diagnostic (``locked_survivor_count`` / ``insufficient_locked_candidates``, N3/N8).
-Scoring / diversity / fallback / tie-break land in C3–C5 — a non-empty candidate list still
-raises ``NotImplementedError``.
+C3 adds scoring helpers; diversity / fallback / tie-break land in C4–C5 — a non-empty candidate
+list still raises ``NotImplementedError``.
 
 Assert on values, flags, and types — never on exception prose.
 """
@@ -54,8 +54,10 @@ def _candidate(
 ) -> ValidatedCandidate:
     """A structurally-valid ValidatedCandidate; override slots/keys by keyword.
 
-    Defaults to a simple two-piece (t1 + b1). ``base_key`` / ``full_signature`` default to the
-    keys.py format derived from the slots but can be pinned directly for filter tests.
+    Defaults to a simple two-piece (t1 + b1). Pass ``dress=...`` (with ``top=None, bottom=None``)
+    for a one-piece — the builder then derives a ``one_piece`` template and a dress BaseKey.
+    ``base_key`` / ``full_signature`` default to the keys.py format derived from the slots but
+    can be pinned directly for filter tests.
     """
     slot_map = SlotMap(dress=dress, top=top, bottom=bottom, outer=outer, shoes=shoes)
     if dress is not None:
@@ -346,8 +348,8 @@ def test_rank_empty_with_locks_sets_lock_starvation_diagnostic():
 
 
 def test_rank_non_empty_raises_not_implemented():
-    # C2 added the Step-4 filters, but scoring/assembly land in C3–C5; a non-empty input that
-    # fully survives the filters must still raise rather than fabricate a ranking.
+    # C3 added scoring helpers; non-empty public assembly still waits for C4–C5; a non-empty input
+    # that fully survives the filters must still raise rather than fabricate a ranking.
     with pytest.raises(NotImplementedError):
         ranker.rank([_candidate()], _ctx())
 
@@ -496,3 +498,208 @@ def test_all_filtered_out_non_empty_does_not_collapse_to_empty_path():
     result = ranker._apply_step4_filters([cand], ctx)
     assert result.survivors == ()
     assert result.cooldown_reserve == (cand,)
+
+
+# ============================ Step 5 — additive scoring (C3, §6 step 4) ============================
+
+
+def test_score_base_only():
+    # No combo, no affinity, no dislike, not relaxed → score is exactly BASE_SCORE; every other
+    # delta is 0.
+    scored = ranker._score_candidate(_candidate(), _ctx())
+    b = scored.breakdown
+    assert b.base == config.BASE_SCORE
+    assert b.combo == 0.0
+    assert b.item == 0.0
+    assert b.dislike == 0.0
+    assert b.overuse == 0.0
+    assert b.repetition == 0.0
+    assert b.cooldown == 0.0
+    assert scored.score == config.BASE_SCORE
+
+
+def test_combo_boost_when_full_signature_liked():
+    cand = _candidate(full_signature="sig-A")
+    scored = ranker._score_candidate(cand, _ctx(liked_full_signatures={"sig-A"}))
+    assert scored.breakdown.combo == config.COMBO_BOOST
+    assert scored.score == config.BASE_SCORE + config.COMBO_BOOST
+
+
+def test_no_combo_boost_when_full_signature_not_liked():
+    cand = _candidate(full_signature="sig-A")
+    scored = ranker._score_candidate(cand, _ctx(liked_full_signatures={"sig-OTHER"}))
+    assert scored.breakdown.combo == 0.0
+    assert scored.score == config.BASE_SCORE
+
+
+def test_item_boost_sums_over_all_filled_slots():
+    cand = _candidate(top="t1", bottom="b1")
+    scored = ranker._score_candidate(cand, _ctx(item_affinity={"t1": 5, "b1": 3}))
+    assert scored.breakdown.item == pytest.approx(config.ITEM_BOOST_WEIGHT * (5 + 3))
+    assert scored.score == pytest.approx(config.BASE_SCORE + config.ITEM_BOOST_WEIGHT * 8)
+
+
+def test_item_boost_includes_optional_outer_and_shoes():
+    # N13 — itemBoost ranges over every filled slot, not just the base top/bottom.
+    cand = _candidate(top="t1", bottom="b1", outer="o1", shoes="s1")
+    ctx = _ctx(item_affinity={"t1": 1, "b1": 2, "o1": 4, "s1": 8})
+    scored = ranker._score_candidate(cand, ctx)
+    assert scored.breakdown.item == pytest.approx(config.ITEM_BOOST_WEIGHT * (1 + 2 + 4 + 8))
+
+
+def test_missing_affinity_contributes_zero():
+    # b1 has no affinity entry → contributes 0; only t1 counts.
+    cand = _candidate(top="t1", bottom="b1")
+    scored = ranker._score_candidate(cand, _ctx(item_affinity={"t1": 7}))
+    assert scored.breakdown.item == pytest.approx(config.ITEM_BOOST_WEIGHT * 7)
+
+
+def test_affinity_over_max_is_clamped():
+    # Over-cap affinity is clamped to MAX_AFFINITY *inside M3* (N10); b1 (no entry) adds 0.
+    cand = _candidate(top="t1", bottom="b1")
+    scored = ranker._score_candidate(
+        cand, _ctx(item_affinity={"t1": config.MAX_AFFINITY + 100})
+    )
+    assert scored.breakdown.item == pytest.approx(config.ITEM_BOOST_WEIGHT * config.MAX_AFFINITY)
+
+
+def test_finite_float_affinity_scores_correctly():
+    # A finite positive float affinity is accepted and scored (item_affinity widened to int|float).
+    cand = _candidate(top="t1", bottom="b1")
+    scored = ranker._score_candidate(cand, _ctx(item_affinity={"t1": 3.5}))
+    assert scored.breakdown.item == pytest.approx(config.ITEM_BOOST_WEIGHT * 3.5)
+
+
+def test_dislike_penalty_per_distinct_disliked_item():
+    # Decision A (plan §6/§7): two distinct disliked items in the outfit → penalty scales,
+    # −DISLIKE_PENALTY each.
+    cand = _candidate(top="t1", bottom="b1")
+    scored = ranker._score_candidate(cand, _ctx(recent_disliked_item_ids=("t1", "b1")))
+    assert scored.breakdown.dislike == pytest.approx(-config.DISLIKE_PENALTY * 2)
+
+
+def test_dislike_penalty_single_disliked_item():
+    cand = _candidate(top="t1", bottom="b1")
+    scored = ranker._score_candidate(cand, _ctx(recent_disliked_item_ids=("t1",)))
+    assert scored.breakdown.dislike == pytest.approx(-config.DISLIKE_PENALTY)
+
+
+def test_dislike_penalty_flat_over_window_duplicates():
+    # A single disliked item repeated across the window counts ONCE — "flat, not accumulated" (§14):
+    # the set() over the window dedups multiplicity.
+    cand = _candidate(top="t1", bottom="b1")
+    scored = ranker._score_candidate(cand, _ctx(recent_disliked_item_ids=("t1", "t1", "t1")))
+    assert scored.breakdown.dislike == pytest.approx(-config.DISLIKE_PENALTY)
+
+
+def test_no_dislike_penalty_when_no_overlap():
+    cand = _candidate(top="t1", bottom="b1")
+    scored = ranker._score_candidate(cand, _ctx(recent_disliked_item_ids=("x9",)))
+    assert scored.breakdown.dislike == 0.0
+
+
+def test_cooldown_zero_for_normal_scoring():
+    scored = ranker._score_candidate(_candidate(), _ctx())
+    assert scored.breakdown.cooldown == 0.0
+
+
+def test_cooldown_is_cooldown_penalty_when_relaxed():
+    # A cooldown-relaxed re-admit carries COOLDOWN_PENALTY as the signed delta — already −2.0
+    # (S4), added not negated.
+    scored = ranker._score_candidate(_candidate(), _ctx(), relaxed_cooldown=True)
+    assert scored.breakdown.cooldown == config.COOLDOWN_PENALTY
+    assert config.COOLDOWN_PENALTY < 0
+    assert scored.score == config.BASE_SCORE + config.COOLDOWN_PENALTY
+
+
+def test_overuse_and_repetition_are_zero_in_c3():
+    # Step-6 diversity terms are not scored per isolated candidate; C3 leaves them 0 even when the
+    # window/affinity inputs C4 will consume are populated.
+    cand = _candidate(top="t1", bottom="b1", full_signature="sig-A")
+    ctx = _ctx(shown_full_signatures=("sig-A",), item_affinity={"t1": 5})
+    scored = ranker._score_candidate(cand, ctx)
+    assert scored.breakdown.overuse == 0.0
+    assert scored.breakdown.repetition == 0.0
+
+
+@pytest.mark.parametrize("relaxed", [False, True])
+def test_score_equals_sum_of_signed_deltas(relaxed):
+    # Property (N4/§7): score == base+combo+item+dislike+overuse+repetition+cooldown, summed in
+    # canonical field order, across a mixed case (combo + clamped affinity + multi-item dislike).
+    cand = _candidate(top="t1", bottom="b1", outer="o1", shoes="s1", full_signature="sig-A")
+    ctx = _ctx(
+        liked_full_signatures={"sig-A"},
+        item_affinity={"t1": config.MAX_AFFINITY + 5, "o1": 3, "s1": 1},  # t1 clamped
+        recent_disliked_item_ids=("b1", "s1"),  # two distinct disliked items
+    )
+    scored = ranker._score_candidate(cand, ctx, relaxed_cooldown=relaxed)
+    b = scored.breakdown
+    assert scored.score == (
+        b.base + b.combo + b.item + b.dislike + b.overuse + b.repetition + b.cooldown
+    )
+    # Signs for this case: positive combo + item, negative dislike, cooldown iff relaxed.
+    assert b.combo > 0 and b.item > 0 and b.dislike < 0
+    assert (b.cooldown < 0) == relaxed
+
+
+def test_one_piece_scoring_uses_dress_slot():
+    # Explicit one-piece: dress set, top/bottom None; itemBoost ranges over dress + shoes (N13).
+    cand = _candidate(dress="d1", top=None, bottom=None, shoes="s1")
+    scored = ranker._score_candidate(cand, _ctx(item_affinity={"d1": 6, "s1": 2}))
+    assert scored.breakdown.item == pytest.approx(config.ITEM_BOOST_WEIGHT * (6 + 2))
+    assert scored.score == pytest.approx(config.BASE_SCORE + config.ITEM_BOOST_WEIGHT * 8)
+
+
+# ---------------- dominance (§5/§7): each term cannot dominate when it should not ----------------
+
+
+def test_combo_alone_does_not_outrank_more_positive_evidence():
+    # A lone comboBoost (+2) must not outrank a candidate with strictly more positive evidence
+    # and no penalties (§7): here B has combo AND item evidence, so B >= A.
+    a = ranker._score_candidate(
+        _candidate(full_signature="A"), _ctx(liked_full_signatures={"A"})
+    )
+    b = ranker._score_candidate(
+        _candidate(top="t1", bottom="b1", full_signature="B"),
+        _ctx(liked_full_signatures={"B"}, item_affinity={"t1": 10}),
+    )
+    assert b.score >= a.score
+
+
+def test_dislike_penalty_is_bounded_by_item_count():
+    # |dislike| can never exceed DISLIKE_PENALTY * (number of filled slots) (§7 "bounded by item count").
+    cand = _candidate(top="t1", bottom="b1", outer="o1", shoes="s1")  # 4 filled slots
+    filled = ranker._filled_slot_ids(cand.slot_map)
+    scored = ranker._score_candidate(cand, _ctx(recent_disliked_item_ids=tuple(filled)))
+    assert scored.breakdown.dislike == pytest.approx(-config.DISLIKE_PENALTY * len(filled))
+    assert abs(scored.breakdown.dislike) <= config.DISLIKE_PENALTY * len(filled)
+
+
+def test_cooldown_sinks_relaxed_outfit_below_unrelaxed_peer():
+    # Identical inputs: the cooldown-relaxed scoring lands exactly COOLDOWN_PENALTY below its
+    # unrelaxed peer (§7 — cooldown sinks a relaxed outfit).
+    cand = _candidate(top="t1", bottom="b1")
+    ctx = _ctx(item_affinity={"t1": 4})
+    unrelaxed = ranker._score_candidate(cand, ctx)
+    relaxed = ranker._score_candidate(cand, ctx, relaxed_cooldown=True)
+    assert relaxed.score == pytest.approx(unrelaxed.score + config.COOLDOWN_PENALTY)
+    assert relaxed.score < unrelaxed.score
+
+
+def test_four_item_item_boost_can_exceed_combo_boost_documented_exception():
+    # DOCUMENTED, eval-tracked exception (§7/§11): at the affinity cap a 4-item itemBoost (~+8)
+    # CAN exceed a lone comboBoost (+2). Pinned visibly here (not hidden by a test pretending it
+    # can't happen) so the offline-eval levers (lower cap / sublinear affinity / averaging) stay
+    # on the radar.
+    combo_only = ranker._score_candidate(
+        _candidate(top="t1", bottom="b1", full_signature="C"),
+        _ctx(liked_full_signatures={"C"}),
+    )
+    four_item_capped = ranker._score_candidate(
+        _candidate(top="t1", bottom="b1", outer="o1", shoes="s1"),
+        _ctx(item_affinity={k: config.MAX_AFFINITY for k in ("t1", "b1", "o1", "s1")}),
+    )
+    assert four_item_capped.breakdown.item == pytest.approx(
+        config.ITEM_BOOST_WEIGHT * config.MAX_AFFINITY * 4
+    )
+    assert four_item_capped.score > combo_only.score
