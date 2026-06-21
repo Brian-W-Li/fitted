@@ -8,7 +8,8 @@
 >
 > Plan doc only — **no code or tests are written here.** The one spec change this change-set carries is the
 > two new constants (`OVERUSE_PENALTY=0.5`, `REPETITION_PENALTY=1.0`) added to `Fitted_Spec_v2.md` §14 +
-> Appendix B (single-home: this plan points to them, never restates the values).
+> Appendix B. **Appendix B is the canonical home for every constant value;** this plan may repeat selected
+> values only as implementation reminders, never as a second source of truth.
 
 ---
 
@@ -77,7 +78,7 @@ activates M5/M6). Shown-history and affinity **storage** stay out (H19/M4) — M
 | **§15** `:555-572` | `tiebreak_seed(…, generationIndex)`; `generationIndex` is the sole re-roll input; the seed/cache contract M3's tie-break rides on. |
 | **§5** `:39-40` | "Every ranking term has a score-breakdown entry and a test proving it cannot dominate when it should not." The `ScoreBreakdown` + dominance-test mandate. |
 | **§20** `:727` | Ladder — M3 = ranker; confirms the boundary M3 must not cross. |
-| **§23 H7/H19/H20** | H7: `generationIndex` lifecycle is M5's (M3 *requires* it, no default). H19: shown-history is a pure input (no M3 storage). H20: path/risk/score are Python-only, assigned at M5 response, not M3. |
+| **§23 H7/H19/H20** | H7: `generationIndex` lifecycle is M5's (M3 *requires* it, no default). H19: shown-history is a pure input (no M3 storage). H20: path/risk/score are all pure-Python (never GPT) — **M3 computes `score` + `ScoreBreakdown`**; M5 only **serializes/displays** them in the response; `optionPath`/`risk` are deferred to later response/rescue work, not M3. |
 | **Appendix B** `:842-851` | Constant home. 10 of M3's 12 constants already live here; this change-set adds the 2 new ones. |
 
 Existing substrate M3 builds on: `models.{SlotMap, Template, StyleMove, WardrobeItem}`,
@@ -146,7 +147,7 @@ class RankerResult:
     outfits: list[RankedOutfit]              # ≤ k, final order
     fallback_stage: FallbackStage            # deepest rung reached (N11)
     insufficient_wardrobe: bool              # final count < k, incl. 0 (N11/N15)
-    relaxed_cooldown_count: int              # per-request aggregate (N4/N11 — distinct from per-outfit bool)
+    relaxed_cooldown_count: int              # count of EMITTED outfits with relaxed_cooldown=True (post-truncation; N4/N11)
     locked_survivor_count: int               # candidates surviving the lock filter (N3)
     insufficient_locked_candidates: bool     # locks requested AND survivor count < k (N3)
 ```
@@ -185,6 +186,22 @@ it explicitly, mirroring M2's `_resolve_candidate_requested` (`validator.py:494-
 `bool` **before** the `int` check (`isinstance(True, int)` is `True`, so a bool slips an int-first guard),
 then require a real `int`. Each → `TypeError`. (Range/lifecycle — lower bound, increment, reset — is M5's,
 H7; M3 only insists on a real int.)
+
+**`k` guard (N16).** `k` defaults to `DEFAULT_K=10` but is caller-supplied, so the same `__post_init__`
+validates it (mirroring M2's `_resolve_candidate_requested`, `validator.py:494-518`): reject `bool` and
+non-`int` with `TypeError` (`bool` checked **before** `int`, since `isinstance(True, int)` is `True`), and
+reject `k <= 0` with `ValueError` (a non-positive request is caller misuse — there is no outfit budget to
+fill). A valid `k` is therefore a real **positive** `int`. (The `item_affinity` non-negativity guard is a
+collection check, homed at `rank()` entry with the window guards — §6 step 1.)
+
+**Output immutability (C1 output contract — N6/N4).** `RankedOutfit` must **not alias mutable input**:
+`models.SlotMap` is a *mutable* dataclass and `StyleMove.changed_item_ids` is a *mutable* `list`, so a caller
+mutating an input after `rank()` returns could otherwise silently rewrite a result. M3 therefore takes
+**defensive snapshots** — it scores over a copied tuple of filled-slot item ids (never a live `SlotMap`
+reference), and each `RankedOutfit` carries a defensive copy of its `SlotMap` and a copied (tuple-backed)
+`changed_item_ids`. Prefer tuple-backed/frozen output structures. **Contract:** mutating any input `SlotMap`
+or `StyleMove.changed_item_ids` after `rank()` returns must not change any field of the `RankerResult`;
+C1 tests assert this by mutating inputs post-call.
 
 **Module placement.** All six types live in **`ranker.py`**, not `models.py` — mirroring M2, which homed its
 result plumbing (`ValidationResult`, `Issue`, …) in `validator.py` and put only the cross-layer-shared
@@ -227,10 +244,15 @@ is stored as a positive magnitude and **subtracted** — the `ScoreBreakdown` th
 
 `rank` runs this exact order. Each candidate-level drop continues the loop; M3 never raises on candidate data.
 
-1. **Window guards (N14).** Assert `len(shown_full_signatures) ≤ REPETITION_WINDOW_SIZE`,
+1. **Reducer-contract guards (N14 + affinity, N10).** Validate the reducer-supplied collection inputs up
+   front. (a) **Window lengths** — `len(shown_full_signatures) ≤ REPETITION_WINDOW_SIZE`,
    `len(recent_disliked_base_keys) ≤ COOLDOWN_BUFFER_SIZE`, `len(recent_disliked_item_ids) ≤
-   DISLIKE_WINDOW_SIZE`. Oversize → `ValueError` (caller-contract: the reducer owns windowing; M3 does no
-   truncation — `sampler.py:457` assert precedent). This is the one place M3 raises on its signal inputs.
+   DISLIKE_WINDOW_SIZE`; oversize → `ValueError` (the reducer owns windowing; M3 does no truncation —
+   `sampler.py:457` assert precedent). (b) **Affinity sign** — every `item_affinity` value must be a
+   **non-negative real number**; a negative value is reducer-contract misuse → `ValueError`. M3 **never**
+   silently turns a negative affinity into a negative `itemBoost` (a dislike lowers score only through
+   `dislikePenalty`/cooldown — §11/R2); the only affinity transform M3 applies is the **upper** clamp to
+   `MAX_AFFINITY` at scoring (step 5). These are the places M3 raises on its signal inputs.
 2. **Empty/degenerate short-circuit (N15).** `candidates == []` → an empty `RankerResult` with `outfits=[]`,
    `fallback_stage=FallbackStage.insufficient`, `insufficient_wardrobe=True`, `relaxed_cooldown_count=0`,
    `locked_survivor_count=0`. The lock diagnostic is **not suppressed on the empty path** (N3): zero
@@ -240,7 +262,11 @@ is stored as a positive magnitude and **subtracted** — the `ScoreBreakdown` th
    precedent).
 3. **Step 4 — per-request hard filters** (each drives its own path — N8; none silently drops a lock — N3):
    - **Cooldown:** drop candidates whose `base_key ∈ recent_disliked_base_keys` (BaseKey, §7 — filters a
-     disliked silhouette across all outer/shoe variants).
+     disliked silhouette across all outer/shoe variants). A candidate dropped **only** by cooldown — still
+     passing locks **and** contextual dislikes — is held in the **cooldown-relax reserve** for the
+     `cooldown_relaxed` rung (step 6); a candidate that *also* fails a lock or contextual-dislike filter is
+     dropped outright and **never** reserved (those filters are non-relaxable — N3). The three predicates are
+     evaluated independently per candidate, so "dropped only by cooldown" is well-defined regardless of order.
    - **Contextual dislike:** drop candidates with any filled-slot item ∈ `contextual_disliked_item_ids`
      (hard filter — N8). Distinct from the soft `recent_disliked_item_ids` (Step 5).
    - **Lock:** if `locked_item_ids` non-empty, keep only candidates whose filled-slot ids ⊇ `locked_item_ids`.
@@ -250,8 +276,9 @@ is stored as a positive magnitude and **subtracted** — the `ScoreBreakdown` th
 4. **Step 5 — scoring** (per surviving candidate; over **all filled slots** dress/top/bottom/outer/shoes — N13):
    - `base = BASE_SCORE` (+1.0).
    - `combo = COMBO_BOOST if full_signature ∈ liked_full_signatures else 0` (full-outfit edge, §11).
-   - `item = Σ_slots ITEM_BOOST_WEIGHT × min(item_affinity.get(id, 0), MAX_AFFINITY)` — absent item → 0;
-     **clamp inside M3** (N10), never trust an over-cap input.
+   - `item = Σ_slots ITEM_BOOST_WEIGHT × min(item_affinity.get(id, 0), MAX_AFFINITY)` — absent item → `0`;
+     `min(…, MAX_AFFINITY)` is the **upper** clamp applied inside M3 (N10), never trusting an over-cap input.
+     Affinities are already guaranteed non-negative by the step-1 guard, so `item ≥ 0` always.
    - `dislike = DISLIKE_PENALTY × |{filled-slot ids} ∩ set(recent_disliked_item_ids)|` — **flat**: each
      disliked item counts once regardless of how many times it appears in the window (§14 "flat, not
      accumulated"). Stored positive, **subtracted**.
@@ -275,19 +302,43 @@ is stored as a positive magnitude and **subtracted** — the `ScoreBreakdown` th
    `none → overuse_relaxed → variant_cap_relaxed → cooldown_relaxed → insufficient`.
    - `overuse_relaxed`: drop the overuse penalty (score-only; the overuse set is never recomputed — N2).
    - `variant_cap_relaxed`: lift the BaseKey cap (re-admit the 3rd+ per BaseKey) — this changes the count.
-   - `cooldown_relaxed`: re-admit cooldown-dropped candidates, setting `ScoreBreakdown.cooldown =
-     COOLDOWN_PENALTY` (already `−2.0`, the signed delta — **not** negated; the deltas must sum exactly to
-     `score`, S4/N4), set their `relaxed_cooldown=True`, and increment `relaxed_cooldown_count` (the
-     per-request aggregate — distinct from the per-outfit bool, N4/N11).
+   - `cooldown_relaxed`: lift **only** the `recent_disliked_base_keys` filter — re-admit from the
+     **cooldown-relax reserve** (step 3), i.e. candidates that fail *solely* cooldown and **still satisfy every
+     non-relaxable filter**: `locked_item_ids` (superset), `contextual_disliked_item_ids` (disjoint), and M2
+     accepted-candidate validity (always true for input). **Locks and contextual dislikes are never relaxed**
+     (N3). Each re-admitted outfit is scored, gets `relaxed_cooldown=True` and `ScoreBreakdown.cooldown =
+     COOLDOWN_PENALTY` (already `−2.0`, the signed delta — **not** negated; deltas must sum exactly to `score`,
+     S4/N4). `relaxed_cooldown_count` is **not** incremented here — it is derived at step 8 from the emitted
+     set (finding 7/N11).
    - Exhausted and still `< k` → `insufficient`, `insufficient_wardrobe=True`, return fewer (N11/N15).
-7. **Sort + tie-break (N6/N12).** Sort by final score **descending**. Break ties greedily:
-   (a) canonical pre-order each equal-score group by `full_signature` (permutation-invariance — N6); then
-   (b) prefer the candidate whose **silhouette = `base_key`** (N12, §7 "core silhouette") is **least-represented
-   in the output so far** (R3 — reorders, never excludes); then
-   (c) seeded shuffle via `seeded_rng(tiebreak_seed(…, generation_index=context.generation_index))`.
-   **Never** `source_index` as a tiebreak (N6 — that would make a re-roll reproduce the same order and kill
-   the `generation_index` variance).
-8. **Truncate to `k`** and build `RankedOutfit`s with their `ScoreBreakdown`. Return `RankerResult`.
+7. **Sort + greedy tie-break (N6/N12).** Sort by final `score` **descending**; resolve each maximal run of
+   equal-`score` candidates (a *tie group*) greedily. The exact, unambiguous procedure:
+
+   ```python
+   rng = seeded_rng(tiebreak_seed(..., generation_index=context.generation_index))  # one per request
+   emitted_count: dict[str, int] = {}   # BaseKey -> how many already emitted (spans the whole output so far)
+   for tie_group in runs_of_equal_score(sorted_desc):          # groups visited in score order (invariant)
+       group = sorted(tie_group, key=lambda c: c.full_signature)    # 1. canonical pre-order -> permutation-invariant
+       priority = {c.full_signature: rng.random() for c in group}   # 2. seeded priority, drawn in canonical order
+       while group:                                                 # 3. greedy emit
+           pick = min(group, key=lambda c: (
+               emitted_count.get(c.base_key, 0),   # (a) lowest current emitted count for this BaseKey (N12 diversity)
+               priority[c.full_signature],         # (b) generation_index-seeded priority
+               c.full_signature,                   # (c) stable canonical fallback
+           ))
+           emit(pick); emitted_count[pick.base_key] = emitted_count.get(pick.base_key, 0) + 1
+           group.remove(pick)
+   ```
+
+   `full_signature` is unique per pass (M2 dedup), so the canonical pre-order is total and the priority draw
+   is permutation-invariant; `emitted_count` spans the whole output so far (diversity is global, R3 reorders,
+   never excludes). **`source_index` is never a key** (N6 — using it would make a re-roll reproduce the same
+   order and kill the `generation_index` variance). Bumping `generation_index` reseeds `rng`, so the priority
+   draws — and thus the order **among true ties only** — change; non-tied order is untouched.
+8. **Truncate to `k`**, build `RankedOutfit`s (with the defensive `SlotMap` / `changed_item_ids` snapshots of
+   §4 *Output immutability*) and their `ScoreBreakdown`, then derive `relaxed_cooldown_count` = the count of
+   the **emitted** (post-truncation) outfits with `relaxed_cooldown=True` (finding 7/N11; any pre-truncation
+   logging would be a separate future field). Return `RankerResult`.
 
 ---
 
@@ -327,7 +378,8 @@ size ambiguous across the Python/TS boundary.
 
 | Trigger | Behavior | Why |
 |---|---|---|
-| `candidates == []` (or all filtered out) | Empty `RankerResult`, `insufficient_wardrobe=True`, `fallback_stage=insufficient`, **no raise**; the lock diagnostic is still set (`locked_survivor_count=0`, `insufficient_locked_candidates=True` when locks requested and `k>0`) (N15/N3) | M2 "empty is valid" precedent; M5 owns the zero-candidate UX, but the lock-starvation signal is never suppressed |
+| Literal empty M2 input (`candidates == []`) | Short-circuit (§6 step 2): empty `RankerResult`, `insufficient_wardrobe=True`, `fallback_stage=insufficient`, **no raise**; lock diagnostic still set (`locked_survivor_count=0`, `insufficient_locked_candidates=True` when locks requested and `k>0`) | M2 "empty is valid" precedent; the lock-starvation signal is never suppressed (N15/N3) |
+| **All** candidates removed by Step-4 filters (non-empty input) | **Not** the empty-input case — M3 distinguishes *why* each was dropped: **cooldown-dropped** candidates (failing *only* cooldown) sit in the cooldown-relax reserve and may be **re-admitted at the `cooldown_relaxed` rung** (with `COOLDOWN_PENALTY`, iff they still pass locks + contextual dislikes); **lock/contextual-dropped** candidates stay filtered. Result may still be fewer-than-`k`/empty with diagnostics set | §14 fallback ladder — only cooldown relaxes; locks/contextual dislikes are non-relaxable (N3) |
 | Survivor pool exactly 15 | Overuse **not** applied (gate is `> OVERUSE_MIN_POOL`, strict) | §14/Q1 — small pools unpenalized (B1); test the 15/16 boundary |
 | An item in exactly 40% of survivors | **No** overuse penalty for it (gate is `> OVERUSE_THRESHOLD`, strict) | §14/Q1 — exactly-40% is not "more than 40%" |
 | Same BaseKey, different FullSignature (dress + different outer) | Both can survive the variant cap (cap is top-2 per BaseKey); they are distinct outfits | §7 — never collapse on BaseKey |
@@ -355,9 +407,20 @@ flags** — never on prose. Staged per checkpoint (§11):
   40%; overuse set computed once and not recomputed across fallback (N2); repetition flat/recency-invariant.
 - **Fallback:** ladder walks `none→overuse→variant_cap→cooldown→insufficient` in order; `relaxed_cooldown`
   + `relaxed_cooldown_count`; `insufficient_wardrobe` incl. 0 (N15); locks/contextual dislikes never relax.
-- **Tie-break/determinism:** permutation-invariant; re-roll reorders ties; `source_index` never a tiebreak;
-  least-represented-BaseKey-so-far is greedy (not a static sort); seeded shuffle reproducible.
-- **Windowing:** oversize window → `ValueError`; at-limit window → OK (N14).
+- **Tie-break/determinism (N6/N12):** (a) **permutation invariance** — shuffling the input `candidates`
+  yields an identical `RankerResult`; (b) **generation-index-sensitive ordering among true ties** — same
+  inputs with a bumped `generation_index` reorders *equal-score* outfits while leaving non-tied order fixed;
+  (c) **greedy BaseKey diversity** — among ties, selection spreads BaseKeys (lowest emitted count so far),
+  not a static sort; `source_index` is never a tiebreak; the seeded draw is reproducible.
+- **Context guards (C1):** `k` is `bool`/non-int → `TypeError`, `k <= 0` → `ValueError`, default `k=DEFAULT_K`;
+  `generation_index` missing/`None`/`bool` → `TypeError`; a negative `item_affinity` value → `ValueError`
+  (never a negative boost); oversize window → `ValueError`, at-limit window → OK (N14).
+- **Cooldown relaxation preserves non-relaxable filters (N3):** a candidate dropped by cooldown **and** a
+  lock/contextual dislike is **not** re-admitted at `cooldown_relaxed`; one dropped by cooldown **alone** is.
+- **`relaxed_cooldown_count` = emitted count (N11):** equals the number of emitted (post-truncation) outfits
+  with `relaxed_cooldown=True`, not the count of candidates re-admitted before truncation.
+- **Output immutability (C1):** mutating an input `SlotMap` or `StyleMove.changed_item_ids` **after** `rank()`
+  returns changes no field of the `RankerResult`.
 
 ---
 
@@ -366,7 +429,7 @@ flags** — never on prose. Staged per checkpoint (§11):
 | # | Commit | Lands |
 |---|---|---|
 | C0 | *plan/spec only* | **this doc** + the two new constants in `Fitted_Spec_v2.md` §14/AppxB (no code) |
-| C1 | config + result/context model | 12 constants in `config.py`; `FallbackStage`, `ScoreBreakdown`, `RankedOutfit`, `RankerResult`, `RankerContext`; `rank` signature + the empty/degenerate short-circuit (N15) + window guards (N14) |
+| C1 | config + result/context model | 12 constants in `config.py`; `FallbackStage`, `ScoreBreakdown`, `RankedOutfit`, `RankerResult`, `RankerContext`; `rank` signature + the empty/degenerate short-circuit (N15); the C1 contract guards — window lengths (N14), `k` (`bool`/non-int→`TypeError`, ≤0→`ValueError`), `generation_index` (real int), non-negative `item_affinity` (N10); **output immutability** (defensive `SlotMap`/`changed_item_ids` snapshots) |
 | C2 | Step-4 filters + lock diagnostic | cooldown / contextual-dislike / lock filters; `locked_survivor_count` + `insufficient_locked_candidates` (N3/N8) |
 | C3 | Step-5 scoring + breakdown | base/combo/itemBoost(clamp)/dislike(flat); signed `ScoreBreakdown`; `score == Σ deltas` + dominance tests (N4/N10/N13/§5) |
 | C4 | Step-6 diversity | variant cap (top-2 pre-penalty, N5); overuse (gate/threshold/once, N1/N2/Q1); repetition (flat, Q2) |
@@ -387,7 +450,12 @@ FullSignature in M3 (M2 already did it — M3 never re-dedups) · relaxing locks
 fallback (N3) · variant cap keeping **bottom**-2 · sign-flip on `COOLDOWN_PENALTY` (positive / subtracted) ·
 **accumulating** (not flat) `dislikePenalty` · diversity tie-break as a **static sort** instead of
 "least-represented-so-far" greedy · clamping affinity *outside* M3 (trusting an over-cap input) · defaulting
-`generation_index` · truncating an oversize window instead of raising.
+`generation_index` · truncating an oversize window instead of raising · accepting `k <= 0` or a `bool` `k` ·
+turning a **negative** affinity into a negative `itemBoost` instead of raising · relaxing locks/contextual
+dislikes (not just cooldown) at the `cooldown_relaxed` rung · counting `relaxed_cooldown_count` from
+pre-truncation re-admissions instead of emitted outfits · **aliasing** an input `SlotMap` / `changed_item_ids`
+in the output so a later input mutation leaks · a tie-break that is not permutation-invariant, or not
+`generation_index`-sensitive among true ties.
 
 ---
 
