@@ -1004,3 +1004,83 @@ def test_c4_helpers_do_not_make_public_rank_assemble():
     # rather than emit a partial ranking (C5 owns assembly).
     with pytest.raises(NotImplementedError):
         ranker.rank([_candidate()], _ctx())
+
+
+# ==================== mutation-coverage gaps (pre-C5, C1–C4) ====================
+#
+# Four focused tests closing mutants the existing suite leaves alive: a lock+cooldown
+# double-failure leaking into the reserve, the variant cap running on post-diversity instead
+# of Step-5 score, _compute_overuse_set ignoring optional slots in its frequency count, and
+# C4 sneaking in a C5-style global sort.
+
+
+def test_lock_failure_with_cooldown_is_not_reserved():
+    # Gap 1 (N3): a candidate failing BOTH lock and cooldown is a non-relaxable drop — the lock
+    # failure dominates, so it must NOT land in the cooldown-relax reserve (only solely-cooldown
+    # drops are relaxable). Distinct from the existing contextual+cooldown non-relaxable test.
+    cand = _candidate(top="t1", bottom="b1")  # base_key "t1:b1", items {t1, b1}; lacks "missing"
+    result = ranker._apply_step4_filters(
+        [cand],
+        _ctx(
+            locked_item_ids=frozenset({"missing"}),  # fails lock (item absent)
+            recent_disliked_base_keys=("t1:b1",),  # also fails cooldown
+        ),
+    )
+    assert result.survivors == ()
+    assert result.cooldown_reserve == ()  # lock failure is non-relaxable, even with cooldown
+    assert result.locked_survivor_count == 0  # never cleared the lock filter
+
+
+def test_variant_cap_uses_step5_score_not_post_diversity_score():
+    # Gap 2 (N5): the cap keeps the top-2 by Step-5 (pre-penalty) score, applied BEFORE repetition.
+    # A,B win on Step-5 (item 2.0) over C (1.5); A,B are also in the shown window, so a mutant that
+    # capped on the post-repetition score (A,B → 1.0, below C's 1.5) would keep C and drop a winner.
+    ctx = _ctx(
+        item_affinity={"oA": 10, "oB": 10, "oC": 5},  # Step-5: A=B=2.0, C=1.5
+        shown_full_signatures=("A", "B"),  # repetition would sink A,B only AFTER the cap
+    )
+    a = _candidate(source_index=0, top="t1", bottom="b1", outer="oA", base_key="bk", full_signature="A")
+    b = _candidate(source_index=1, top="t1", bottom="b1", outer="oB", base_key="bk", full_signature="B")
+    c = _candidate(source_index=2, top="t1", bottom="b1", outer="oC", base_key="bk", full_signature="C")
+    diversified = ranker._apply_step6_diversity([_scored(x, ctx) for x in (a, b, c)], ctx)
+    kept = {sc.candidate.full_signature for sc in diversified}
+    assert kept == {"A", "B"}  # Step-5 winners survive the cap...
+    assert "C" not in kept  # ...the Step-5 loser is dropped (cap precedes repetition)
+
+
+def test_compute_overuse_set_counts_optional_outer_slot():
+    # Gap 3 (N13): _compute_overuse_set's frequency count ranges over every filled slot, so an
+    # optional OUTER item over the threshold is overused. Distinct from the existing test that only
+    # checks an outer/shoe is penalized when already handed to _rescore_with_diversity in the set.
+    ctx = _ctx()
+    pool = []
+    for i in range(20):  # > OVERUSE_MIN_POOL; distinct top/bottom so only the outer can be overused
+        outer = "o" if i < 12 else None  # o in 12/20 = 0.60 > 0.40
+        pool.append(
+            _scored(
+                _candidate(
+                    source_index=i,
+                    top=f"t{i}",
+                    bottom=f"b{i}",
+                    outer=outer,
+                    base_key=f"bk{i}",
+                    full_signature=f"sig{i}",
+                ),
+                ctx,
+            )
+        )
+    assert "o" in ranker._compute_overuse_set(pool)
+
+
+def test_c4_diversity_does_not_globally_sort():
+    # Gap 4: C4 must not start C5's global score sort. Distinct-BaseKey candidates fed in deliberate
+    # non-score order (1.0, 3.0, 2.0) come out in the SAME order — a global descending sort would
+    # yield [sig1, sig2, sig0]. Also pins no truncation to k.
+    ctx = _ctx(item_affinity={"t1": 20, "t2": 10}, k=2)  # scores: c0=1.0, c1=3.0, c2=2.0
+    c0 = _candidate(source_index=0, top="t0", bottom="b0", base_key="bk0", full_signature="sig0")
+    c1 = _candidate(source_index=1, top="t1", bottom="b1", base_key="bk1", full_signature="sig1")
+    c2 = _candidate(source_index=2, top="t2", bottom="b2", base_key="bk2", full_signature="sig2")
+    diversified = ranker._apply_step6_diversity([_scored(x, ctx) for x in (c0, c1, c2)], ctx)
+    order = [sc.candidate.full_signature for sc in diversified]
+    assert order == ["sig0", "sig1", "sig2"]  # input order preserved — no global score sort (C5's job)
+    assert len(diversified) == 3  # not truncated to k=2
