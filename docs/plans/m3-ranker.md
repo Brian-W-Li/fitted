@@ -1,6 +1,6 @@
 # M3: Ranker (cooldown · scoring · variant cap · overuse · repetition · fallback · regen controls)
 
-> **`[NOW]` — drafted 2026-06-20.** Implementation roadmap for pipeline **Steps 4–6** (§9, detailed in §14).
+> **COMPLETED 2026-06-21 — M3 shipped C1–C6 (ranker substrate, mutation hardening, closeout); historical reference, off the default reading list.** Drafted 2026-06-20 as the implementation roadmap for pipeline **Steps 4–6** (§9, detailed in §14).
 > Built from the frozen decision ledger `docs/sessions/2026-06-20-m3-ledger.md` (two spec-readiness passes:
 > Q1–Q4, N1–N16, naming). **Treat the ledger's Q/N rows as locked**; this plan turns them into an
 > unambiguous build order. **`docs/Fitted_Spec_v2.md` is canonical and wins on any conflict**; this doc is
@@ -430,9 +430,9 @@ flags** — never on prose. Staged per checkpoint (§11):
 
 ## 11. Implementation checkpoints (small green-test commits)
 
-**Progress:** C0–C4 complete (substrate + Step-4 filters + Step-5 scoring + Step-6 diversity, with a
-mutation-coverage pass over C1–C4). **C5 is the next checkpoint**, then C6 closeout. `rank()` still
-raises `NotImplementedError` on non-empty input until C5 wires assembly.
+**Progress:** C0–C6 complete — M3 is closed (2026-06-21). C5 wired the fallback ladder, deterministic
+tie-break, truncate-to-k, and defensive `RankedOutfit` assembly; C6 added the §12 mutation-hardening
+coverage and this status closeout. `rank()` returns a full `RankerResult` for non-empty input.
 
 ### Spec Conformance Audit Gate (before C4/C5)
 
@@ -457,8 +457,8 @@ This gate is process-only: it changes no constant, scoring rule, fallback behavi
 | C2 ✅ | Step-4 filters + lock diagnostic | cooldown / contextual-dislike / lock filters; `locked_survivor_count` + `insufficient_locked_candidates` (N3/N8) |
 | C3 ✅ | Step-5 scoring + breakdown | base/combo/itemBoost(clamp)/dislike (per distinct disliked filled item; window dups deduped); signed `ScoreBreakdown`; `score == Σ deltas` + dominance tests (N4/N10/N13/§5) |
 | C4 ✅ | Step-6 diversity | variant cap (top-2 pre-penalty, N5); overuse (gate/threshold/once, N1/N2/Q1); repetition (flat, Q2) |
-| C5 | fallback + tie-break + assembly | ladder + flags (N11); sort + greedy tie-break + seeded shuffle (N6/N12); truncate to k |
-| C6 | hardening + closeout | §12 mutants; `__init__.py` "M0–M2"→"M0–M3"; `README.md` status flip; `> COMPLETED` banner |
+| C5 ✅ | fallback + tie-break + assembly | ladder + flags (N11); sort + greedy tie-break + seeded shuffle (N6/N12); truncate to k |
+| C6 ✅ | hardening + closeout | §12 mutants; `__init__.py` "M0–M2"→"M0–M3"; `README.md` status flip; `> COMPLETED` banner |
 
 Test-first within each checkpoint (the result/context model pinned in tests before behavior). Effort
 (4–8 hr/wk cadence): C1 ~1.5h · C2 ~1.5h · C3 ~2h · C4 ~2h (densest — overuse gate/denominator) ·

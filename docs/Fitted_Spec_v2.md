@@ -719,14 +719,14 @@ an M0 blocker.
 
 ## 20. Build ladder (milestones)
 
-The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M2 complete (contracts, sampler, and the GPT-JSON validation boundary); M3 (the ranker) is in progress, and the rest is forward.
+The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M3 complete (contracts, sampler, the GPT-JSON validation boundary, and the ranker); the rest is forward.
 
 | Stage | Scope | Status / rung |
 |---|---|---|
 | **M0** | Contracts & pure functions: keys, SlotMap, seed, config, models | ✅ done |
 | **M1** | Sampler: partition, caps, 70/30, the SignalScorer seam (`ColdStartSignalScorer`) | ✅ done (M1-1..M1-5 — partition/caps/70-30 seam/candidate scaling/`build_candidate_pool` entry point per §10/§11; pytest green; signal path stubbed until M6) |
 | **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | ✅ done (C1–C6 — parse, strict §12 schema, SlotMap/pool validation, keys + exact-FullSignature dedup, StyleMove, candidate bounds; pytest green) |
-| **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, repetition, fallback, regen controls (over M2's already-deduped accepted candidates — M3 never re-dedups) | `[NOW]` |
+| **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, repetition, fallback, regen controls (over M2's already-deduped accepted candidates — M3 never re-dedups) | ✅ done (C1–C6; §12 mutation-hardened; pytest green) |
 | **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, like/dislike via the existing `OutfitInteraction`. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | `[NOW]` — proves the whole vision |
 | **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `ItemAffinity`/`wardrobeVersion`/`sessionId`, GenerationSnapshot, baseKey/fullSig on interactions, feedback-authenticity gate | `[NEXT]` |
 | **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (normalization); trust-boundary gates | `[NEXT]` |

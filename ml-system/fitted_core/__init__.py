@@ -1,8 +1,8 @@
-"""Fitted v2 recommendation substrate (M0–M2).
+"""Fitted v2 recommendation substrate (M0–M3).
 
 Pure functions and contracts for the sampler/shortlister pipeline. No Mongo, no
-API keys — everything here unit-tests cleanly. See docs/plans/m0-m1-substrate.md
-and docs/plans/m2-validator.md.
+API keys — everything here unit-tests cleanly. See docs/plans/m0-m1-substrate.md,
+docs/plans/m2-validator.md, and docs/plans/m3-ranker.md.
 
 Error-model convention (applies across the package):
   - **Expected, data-driven failures return an error channel** — a

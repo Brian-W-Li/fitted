@@ -22,6 +22,12 @@ composition ``_apply_step6_diversity``.
 **Checkpoint C5** — public non-empty ``rank()`` assembly: fallback ladder, deterministic
 tie-break, truncate-to-k, output snapshots, and final ``RankerResult`` flags.
 
+**Checkpoint C6** — milestone closeout: the one §12 mutant the C1–C5 suite left uncovered
+(M3 must never re-dedup FullSignatures — M2 already did, §9 step 3) plus two end-to-end
+``rank()`` cases the per-helper tests never drove through the public entry point (overuse
+applied at the ``none`` stage; a non-empty pool hard-filtered to zero via the main path,
+distinct from the literal-empty short-circuit, N15).
+
 Assert on values, flags, and types — never on exception prose.
 """
 
@@ -1338,3 +1344,68 @@ def test_rank_output_snapshots_slotmap_and_style_move():
     assert outfit.style_move is not None
     assert outfit.style_move.changed_item_ids == ("t1",)
     assert isinstance(result.outfits, tuple)
+
+
+# ==================== C6 — mutation hardening + closeout coverage ====================
+#
+# Closes the one §12 mutant the C1–C5 suite left uncovered (M3 re-deduping FullSignatures),
+# plus two end-to-end rank() cases the per-helper tests never exercised through the public
+# entry point: overuse applied at the `none` stage, and a non-empty pool hard-filtered to
+# zero through the main path (distinct from the literal-empty short-circuit, N15).
+
+
+def test_rank_does_not_re_dedup_full_signature():
+    # §12 guard: M2 already drops exact-FullSignature duplicates in its pass (§9 step 3); M3
+    # trusts that and must NEVER re-dedup. Two candidates sharing a FullSignature — a
+    # contract-violating input M3 itself never produces, but exactly what a re-dedup mutant
+    # would collapse — must BOTH reach the output. Distinct scores keep them in separate tie
+    # groups, so the assertion is independent of the seeded tie-break.
+    high = _candidate(source_index=0, top="t1", bottom="b1", base_key="bk0", full_signature="dup")
+    low = _candidate(source_index=1, top="t2", bottom="b2", base_key="bk1", full_signature="dup")
+    result = ranker.rank([high, low], _ctx(item_affinity={"t1": 10}, k=2))
+    assert _result_signatures(result) == ["dup", "dup"]  # both survive — no re-dedup
+    assert {outfit.source_index for outfit in result.outfits} == {0, 1}
+
+
+def test_rank_non_empty_all_hard_filtered_returns_zero_via_main_path():
+    # A non-empty candidate list whose only candidate is dropped by a NON-relaxable filter
+    # (contextual dislike) leaves zero survivors AND an empty cooldown reserve, so the fallback
+    # ladder exhausts to an empty pool. This is the main-path zero-output case — distinct from
+    # the literal-empty short-circuit (N15) and from the cooldown-only reserve case (which
+    # re-admits one outfit). rank() must assemble an empty result without raising.
+    cand = _candidate(top="t1", bottom="b1", shoes="bad")
+    result = ranker.rank([cand], _ctx(contextual_disliked_item_ids=frozenset({"bad"})))
+    assert result.outfits == ()
+    assert result.fallback_stage is FallbackStage.insufficient
+    assert result.insufficient_wardrobe is True
+    assert result.relaxed_cooldown_count == 0
+    assert result.insufficient_locked_candidates is False  # no locks were requested
+
+
+def test_rank_overuse_penalty_applied_at_none_stage():
+    # End-to-end overuse through rank() at the `none` stage: a survivor pool just past the gate
+    # (OVERUSE_MIN_POOL + 1, distinct BaseKeys so the variant cap is a no-op) with one item far
+    # over the 40% threshold. With k below the clean-outfit count, the emitted top-k must include
+    # overused outfits carrying a negative overuse delta — and because the penalty is score-only
+    # (never drops a candidate) the stage stays `none`, never relaxing (the overuse_relaxed rung
+    # cannot be reached by an overused-but-full pool).
+    pool_size = config.OVERUSE_MIN_POOL + 1
+    clean = 3  # < k below, so the emitted top-k necessarily includes overused outfits
+    cands = [
+        _candidate(
+            source_index=i,
+            top=("x" if i >= clean else f"clean{i}"),  # x fills (pool_size - clean) of the pool
+            bottom=f"b{i}",
+            base_key=f"bk{i}",
+            full_signature=f"sig{i}",
+        )
+        for i in range(pool_size)
+    ]
+    result = ranker.rank(cands, _ctx(k=5))
+    assert result.fallback_stage is FallbackStage.none  # overuse is score-only, never relaxes
+    assert result.insufficient_wardrobe is False
+    assert len(result.outfits) == 5
+    assert any(
+        outfit.breakdown.overuse == pytest.approx(-config.OVERUSE_PENALTY)
+        for outfit in result.outfits
+    )
