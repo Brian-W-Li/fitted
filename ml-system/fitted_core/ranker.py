@@ -7,7 +7,7 @@ deterministic tie-break — emitting a per-outfit signed ``ScoreBreakdown`` plus
 state flags M5 needs. Pure substrate: **no DB, no GPT, no IO, no candidate creation.**
 M3 only drops and reorders.
 
-**Milestone scope (M3 C1–C2).** C1 landed the public surface (``rank`` signature,
+**Milestone scope (M3 C1–C4).** C1 landed the public surface (``rank`` signature,
 ``FallbackStage``, ``ScoreBreakdown``, ``RankedOutfit``, ``RankerResult``, ``RankerContext``),
 the output-immutability snapshot helpers, the ``RankerContext`` construction guards
 (``generation_index`` real-int, ``k``), the reducer-contract guards (window lengths N14 +
@@ -15,9 +15,13 @@ affinity sign N10), and the literal empty/degenerate short-circuit (N15). **C2 a
 Step-4 per-request hard filters** (cooldown / contextual-dislike / lock) and the
 lock-starvation diagnostic as the internal ``_apply_step4_filters`` helper. **C3 adds the
 Step-5 additive scoring helper** (``_score_candidate``: signed ``base`` / ``combo`` / ``item`` /
-``dislike`` / ``cooldown`` deltas summing to ``score``, N4/N10/N13). **Diversity, fallback, and
-tie-break (C4–C5) remain unimplemented**, so ``rank()`` does not yet assemble a result — a
-*non-empty* candidate list still raises ``NotImplementedError`` rather than emit a partial ranking.
+``dislike`` / ``cooldown`` deltas summing to ``score``, N4/N10/N13). **C4 adds the Step-6 diversity
+helpers** — BaseKey ``_apply_variant_cap`` (top-2 by pre-penalty score, N5), ``_compute_overuse_set``
+(once over post-cap survivors, gate/threshold strict, N1/N2/Q1), and ``_rescore_with_diversity``
+(signed overuse + flat repetition deltas, Q1/Q2), composed by ``_apply_step6_diversity``. **The
+fallback ladder and tie-break (C5) remain unimplemented**, so ``rank()`` does not yet assemble a
+result — a *non-empty* candidate list still raises ``NotImplementedError`` rather than emit a
+partial ranking.
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures return
 a value (the empty/degenerate result is *not* an error); caller-contract violations raise.
@@ -35,6 +39,7 @@ from typing import Mapping, Optional, Sequence
 
 from fitted_core.config import (
     BASE_SCORE,
+    BASEKEY_VARIANT_CAP,
     COMBO_BOOST,
     COOLDOWN_BUFFER_SIZE,
     COOLDOWN_PENALTY,
@@ -43,6 +48,10 @@ from fitted_core.config import (
     DISLIKE_WINDOW_SIZE,
     ITEM_BOOST_WEIGHT,
     MAX_AFFINITY,
+    OVERUSE_MIN_POOL,
+    OVERUSE_PENALTY,
+    OVERUSE_THRESHOLD,
+    REPETITION_PENALTY,
     REPETITION_WINDOW_SIZE,
 )
 from fitted_core.models import SlotMap, StyleMove, Template
@@ -468,6 +477,147 @@ def _score_candidate(
     )
 
 
+# ===================== Step 6 — diversity (§6 step 5, N1/N2/N5/Q1/Q2) =====================
+
+
+def _apply_variant_cap(
+    scored: Sequence[_ScoredCandidate],
+) -> tuple[_ScoredCandidate, ...]:
+    """Keep the top ``BASEKEY_VARIANT_CAP`` candidates per ``base_key`` (N5, §14).
+
+    The first diversity gate: at most ``BASEKEY_VARIANT_CAP`` (2) variants of any one BaseKey
+    survive, so a single silhouette cannot crowd the output across its outer/shoe variants.
+    "Top" is by **Step-5 pre-penalty score** — the C3 ``_ScoredCandidate.score``, *before* the
+    Step-6 overuse/repetition penalties are applied — keeping the *highest*-scoring, not the
+    lowest (N5). The cap runs before those penalties, so ``sc.score`` here is exactly the Step-5
+    score.
+
+    Determinism without ``source_index`` (N6): within a BaseKey group the survivors are the first
+    ``BASEKEY_VARIANT_CAP`` under the canonical order ``(-score, full_signature)`` — score
+    descending, ``full_signature`` ascending as the tie-break. ``full_signature`` is unique per
+    pass (M2 dedup), so the order is total and the surviving *set* is permutation-invariant. This
+    is **not** the C5 seeded tie-break (that resolves the final emission order among true score
+    ties); it is only the local rule for which 2 variants of a BaseKey advance.
+
+    Distinct FullSignatures of one BaseKey both survive up to the cap. Variant-cap-dropped
+    candidates are simply absent from the result — C5 owns any ``variant_cap_relaxed`` re-admission.
+    No overuse/repetition penalty, no global sort, no truncation to ``k`` here.
+    """
+    by_base_key: dict[str, list[_ScoredCandidate]] = {}
+    for sc in scored:
+        by_base_key.setdefault(sc.candidate.base_key, []).append(sc)
+
+    survivors: list[_ScoredCandidate] = []
+    for group in by_base_key.values():
+        # Canonical: highest pre-penalty score first, full_signature ascending as the tie-break
+        # (never source_index — N6). full_signature is unique, so this order is total.
+        group.sort(key=lambda sc: (-sc.score, sc.candidate.full_signature))
+        survivors.extend(group[:BASEKEY_VARIANT_CAP])
+    return tuple(survivors)
+
+
+def _compute_overuse_set(
+    survivors: Sequence[_ScoredCandidate],
+) -> frozenset[str]:
+    """Item ids appearing in **more than** ``OVERUSE_THRESHOLD`` of ``survivors`` (N1/N2/Q1, §14).
+
+    Computed **once** over the **post-variant-cap survivor pool** (N1 — the pool is candidate
+    survivors, never a wardrobe input). Gated (B1): only when the survivor count is **strictly
+    greater than** ``OVERUSE_MIN_POOL`` (15) — a pool of exactly 15 yields the empty set, so small
+    pools are never punished. An item is overused only when its survivor-frequency is **strictly
+    greater than** ``OVERUSE_THRESHOLD`` (0.40); an item in *exactly* 40% of survivors is **not**
+    overused. Frequency counts each survivor once per item it fills, over every filled slot
+    (incl. optional outer/shoes, ``_filled_slot_ids``).
+
+    Returns a single immutable set the caller applies uniformly. M3 never recomputes it: the C5
+    ``overuse_relaxed`` rung *drops* the penalty, it never re-derives the set (N2).
+    """
+    pool_size = len(survivors)
+    if pool_size <= OVERUSE_MIN_POOL:  # strict gate: fire only when pool > OVERUSE_MIN_POOL (B1)
+        return frozenset()
+
+    counts: dict[str, int] = {}
+    for sc in survivors:
+        for item_id in _filled_slot_ids(sc.candidate.slot_map):
+            counts[item_id] = counts.get(item_id, 0) + 1
+    return frozenset(
+        item_id
+        for item_id, count in counts.items()
+        # strict: an item in exactly OVERUSE_THRESHOLD of survivors is not overused.
+        if count / pool_size > OVERUSE_THRESHOLD
+    )
+
+
+def _rescore_with_diversity(
+    scored: _ScoredCandidate,
+    overuse_set: frozenset[str],
+    context: RankerContext,
+) -> _ScoredCandidate:
+    """Apply the Step-6 overuse + repetition penalties to one C3-scored candidate (Q1/Q2, §6 step 5).
+
+    Adds the two Step-6 diversity deltas onto the candidate's existing C3 breakdown, leaving every
+    other term (``base`` / ``combo`` / ``item`` / ``dislike`` / ``cooldown``) untouched — ``cooldown``
+    keeps whatever C3 stored (0 for a normal candidate; only a C5 cooldown-relaxed re-admit carries
+    ``COOLDOWN_PENALTY``). Both new deltas are stored **negative** (the constants are positive
+    magnitudes, S4):
+
+    - **overuse** — ``−OVERUSE_PENALTY × |{filled ids} ∩ overuse_set|``: a flat −0.5 per *overused*
+      item the candidate fills, over every filled slot incl. optional outer/shoes (N13).
+    - **repetition** — ``−REPETITION_PENALTY`` iff the candidate's ``full_signature`` is in
+      ``shown_full_signatures``, else 0. **Flat, once per candidate, recency-invariant** (Q2): a
+      FullSignature shown many times still costs −1.0 once, never per appearance.
+
+    ``score`` is rebuilt as the sum of the signed deltas in canonical order (``_breakdown_total``),
+    so ``score == Σ breakdown`` still holds (N4).
+    """
+    filled = _filled_slot_ids(scored.candidate.slot_map)
+    overused_count = sum(1 for item_id in filled if item_id in overuse_set)
+    overuse = -OVERUSE_PENALTY * overused_count
+    # Flat membership (recency-invariant): present-or-not in the shown window, not a count (Q2).
+    repetition = (
+        -REPETITION_PENALTY
+        if scored.candidate.full_signature in context.shown_full_signatures
+        else 0.0
+    )
+
+    old = scored.breakdown
+    breakdown = ScoreBreakdown(
+        base=old.base,
+        combo=old.combo,
+        item=old.item,
+        dislike=old.dislike,
+        overuse=overuse,
+        repetition=repetition,
+        cooldown=old.cooldown,
+    )
+    return _ScoredCandidate(
+        candidate=scored.candidate,
+        score=_breakdown_total(breakdown),
+        breakdown=breakdown,
+    )
+
+
+def _apply_step6_diversity(
+    scored: Sequence[_ScoredCandidate],
+    context: RankerContext,
+) -> tuple[_ScoredCandidate, ...]:
+    """Run Step-6 diversity over the C3-scored pool (§6 step 5, N1/N2/N5/Q1/Q2).
+
+    Composition, in order: (1) BaseKey **variant cap** (top-2 by pre-penalty score); (2) compute
+    the **overuse set** once over the post-cap survivors; (3/4) apply the **overuse** and
+    **repetition** penalties to each survivor, (5) rebuilding ``score`` so it still equals the sum
+    of the signed breakdown deltas (N4). Returns the diversified, re-scored survivor pool.
+
+    Deliberately **partial** (C4 scope): no fallback ladder, no cooldown re-admission, no global
+    sort, no truncation to ``k``, no ``RankerResult`` assembly, no re-admission of variant-cap-dropped
+    candidates — those are C5. The overuse set is computed *after* the variant cap, so the cap's
+    drops change the denominator (N1).
+    """
+    survivors = _apply_variant_cap(scored)
+    overuse_set = _compute_overuse_set(survivors)
+    return tuple(_rescore_with_diversity(sc, overuse_set, context) for sc in survivors)
+
+
 # ============================== public entry point ==============================
 
 
@@ -531,12 +681,13 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
     M5 needs (fallback stage, insufficient-wardrobe, lock-starvation diagnostic). Never
     creates a candidate; never relaxes M2 validation.
 
-    **M3 C1–C3 scope.** ``rank`` itself implements the reducer-contract guards (§6 step 1) and
+    **M3 C1–C4 scope.** ``rank`` itself implements the reducer-contract guards (§6 step 1) and
     the empty/degenerate short-circuit (§6 step 2). C2 added the Step-4 hard filters
-    (``_apply_step4_filters``); C3 added the Step-5 scoring helper (``_score_candidate``) — both
-    verified directly. Assembling a non-empty result still needs diversity (C4) and the tie-break
-    (C5), so a **non-empty** ``candidates`` list raises ``NotImplementedError`` rather than emit
-    a partial ranking.
+    (``_apply_step4_filters``); C3 added the Step-5 scoring helper (``_score_candidate``); C4 added
+    the Step-6 diversity helpers (``_apply_step6_diversity`` and its parts) — all verified directly.
+    Assembling a non-empty result still needs the fallback ladder and the tie-break (C5), so a
+    **non-empty** ``candidates`` list raises ``NotImplementedError`` rather than emit a partial
+    ranking.
     """
     # Step 1 — reducer-contract guards. Run *before* the empty short-circuit (§6 order), so a
     # malformed signal input surfaces loudly even on the zero-candidate path.
@@ -559,12 +710,12 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
             insufficient_locked_candidates=insufficient_locked,
         )
 
-    # Non-empty output assembly needs diversity + tie-break (C4–C5). C2 added the Step-4 hard
-    # filters (_apply_step4_filters) and C3 the Step-5 scoring helper (_score_candidate), but a
-    # non-empty candidate list cannot yet be ordered/assembled, so rank() does not build a result
-    # here — raise rather than fabricate a partial ranking.
+    # Non-empty output assembly needs the fallback ladder + tie-break (C5). C2 added the Step-4 hard
+    # filters (_apply_step4_filters), C3 the Step-5 scoring helper (_score_candidate), and C4 the
+    # Step-6 diversity helpers (_apply_step6_diversity), but a non-empty candidate list cannot yet be
+    # ordered/assembled, so rank() does not build a result here — raise rather than fabricate one.
     raise NotImplementedError(
-        "rank() output assembly needs diversity + tie-break (M3 C4–C5); C2 added the Step-4 hard "
-        "filters (_apply_step4_filters) and C3 the Step-5 scoring helper (_score_candidate), but "
-        "rank() cannot yet order or assemble a non-empty candidate list"
+        "rank() output assembly needs the fallback ladder + tie-break (M3 C5); C2–C4 added the "
+        "Step-4 hard filters (_apply_step4_filters), Step-5 scoring (_score_candidate), and Step-6 "
+        "diversity (_apply_step6_diversity), but rank() cannot yet order or assemble a non-empty list"
     )

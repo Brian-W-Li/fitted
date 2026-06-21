@@ -9,12 +9,21 @@ short-circuit (N15).
 **Checkpoint C2** — the Step-4 per-request hard filters via ``_apply_step4_filters`` (lock /
 contextual-dislike / cooldown), the cooldown-relax reserve vs non-relaxable drops (N3), and the
 lock-starvation diagnostic (``locked_survivor_count`` / ``insufficient_locked_candidates``, N3/N8).
-C3 adds scoring helpers; diversity / fallback / tie-break land in C4–C5 — a non-empty candidate
-list still raises ``NotImplementedError``.
+
+**Checkpoint C3** — the Step-5 additive scoring helper ``_score_candidate`` (base / combo /
+itemBoost(clamp) / dislike), the signed ``ScoreBreakdown``, ``score == Σ deltas``, and the
+dominance cases (§5/§7).
+
+**Checkpoint C4** — the Step-6 diversity helpers: ``_apply_variant_cap`` (top-2 by pre-penalty
+score, N5), ``_compute_overuse_set`` (once over post-cap survivors, strict gate/threshold,
+N1/N2/Q1), ``_rescore_with_diversity`` (signed overuse + flat repetition, Q1/Q2), and their
+composition ``_apply_step6_diversity``. The fallback ladder / tie-break land in C5 — a non-empty
+candidate list still raises ``NotImplementedError``.
 
 Assert on values, flags, and types — never on exception prose.
 """
 
+import itertools
 from types import MappingProxyType
 
 import pytest
@@ -703,3 +712,295 @@ def test_four_item_item_boost_can_exceed_combo_boost_documented_exception():
         config.ITEM_BOOST_WEIGHT * config.MAX_AFFINITY * 4
     )
     assert four_item_capped.score > combo_only.score
+
+
+# ============================ Step 6 — diversity (C4, §6 step 5) ============================
+#
+# Small builders for diversity pools: each candidate gets a distinct base_key / full_signature
+# (so the variant cap is a no-op) unless a test explicitly shares them.
+
+
+def _scored(cand: ValidatedCandidate, ctx: RankerContext | None = None) -> ranker._ScoredCandidate:
+    """Run C3 scoring on one candidate with a default (or supplied) context."""
+    return ranker._score_candidate(cand, ctx if ctx is not None else _ctx())
+
+
+def _scored_pool_all_with_item(n: int, item: str) -> list[ranker._ScoredCandidate]:
+    """``n`` distinct-BaseKey candidates that all fill ``item`` in the top slot (frequency 100%)."""
+    ctx = _ctx()
+    return [
+        _scored(
+            _candidate(
+                source_index=i, top=item, bottom=f"b{i}", base_key=f"bk{i}", full_signature=f"sig{i}"
+            ),
+            ctx,
+        )
+        for i in range(n)
+    ]
+
+
+def _scored_pool_item_in_k(total: int, k_with_item: int, item: str) -> list[ranker._ScoredCandidate]:
+    """``total`` distinct-BaseKey candidates; the first ``k_with_item`` fill ``item`` in the top slot."""
+    ctx = _ctx()
+    pool = []
+    for i in range(total):
+        top = item if i < k_with_item else f"y{i}"
+        pool.append(
+            _scored(
+                _candidate(
+                    source_index=i, top=top, bottom=f"b{i}", base_key=f"bk{i}", full_signature=f"sig{i}"
+                ),
+                ctx,
+            )
+        )
+    return pool
+
+
+# ------------------------ variant cap (N5/N6) ------------------------
+
+
+def test_variant_cap_keeps_top_two_by_pre_penalty_score():
+    # Three variants of one BaseKey "t1:b1" (distinct outer). Affinity on the outer items sets
+    # distinct Step-5 scores: o1=+1.0, o2=+0.5, o3=0 → keep o1, o2; drop the 3rd (o3).
+    ctx = _ctx(item_affinity={"o1": 10, "o2": 5})  # o3 absent → 0
+    c1 = _candidate(source_index=0, top="t1", bottom="b1", outer="o1")
+    c2 = _candidate(source_index=1, top="t1", bottom="b1", outer="o2")
+    c3 = _candidate(source_index=2, top="t1", bottom="b1", outer="o3")
+    survivors = ranker._apply_variant_cap([_scored(c, ctx) for c in (c1, c2, c3)])
+    kept = {sc.candidate.full_signature for sc in survivors}
+    assert len(survivors) == 2
+    assert kept == {c1.full_signature, c2.full_signature}  # top-2 by score
+    assert c3.full_signature not in kept  # 3rd+ dropped
+
+
+def test_variant_cap_keeps_distinct_full_signatures_within_cap():
+    # Two same-BaseKey variants with distinct FullSignatures, only two of them → both survive
+    # (the cap collapses *count*, never distinct signatures within the cap).
+    c1 = _candidate(source_index=0, top="t1", bottom="b1", outer="o1")
+    c2 = _candidate(source_index=1, top="t1", bottom="b1", outer="o2")
+    survivors = ranker._apply_variant_cap([_scored(c) for c in (c1, c2)])
+    assert len(survivors) == 2
+    assert {sc.candidate.full_signature for sc in survivors} == {c1.full_signature, c2.full_signature}
+
+
+def test_variant_cap_does_not_use_source_index():
+    # Three same-BaseKey, equal scores, FullSignatures whose canonical order (z>m>a) differs from
+    # source order. Canonical full_signature keeps {a, m}; a source_index tie-break would keep the
+    # two lowest indices {z(0), a(1)} — so dropping z proves source_index is not the key.
+    c0 = _candidate(source_index=0, top="t1", bottom="b1", base_key="bk", full_signature="z")
+    c1 = _candidate(source_index=1, top="t1", bottom="b1", base_key="bk", full_signature="a")
+    c2 = _candidate(source_index=2, top="t1", bottom="b1", base_key="bk", full_signature="m")
+    survivors = ranker._apply_variant_cap([_scored(c) for c in (c0, c1, c2)])
+    kept = {sc.candidate.full_signature for sc in survivors}
+    assert kept == {"a", "m"}
+    assert "z" not in kept
+
+
+def test_variant_cap_deterministic_on_equal_scores_via_canonical_order():
+    # Permuting the input order never changes which survive — the canonical (full_signature) order
+    # is total, so the surviving set is permutation-invariant. (No seed is consulted: this is the
+    # C4 canonical helper order, not the C5 seeded tie-break.)
+    cands = [
+        _candidate(source_index=i, top="t1", bottom="b1", base_key="bk", full_signature=fs)
+        for i, fs in enumerate(["z", "a", "m"])
+    ]
+    scored = [_scored(c) for c in cands]
+    for perm in itertools.permutations(scored):
+        survivors = ranker._apply_variant_cap(list(perm))
+        assert {sc.candidate.full_signature for sc in survivors} == {"a", "m"}
+
+
+# ------------------------ overuse set: gate + threshold (N1/N2/Q1) ------------------------
+
+
+def test_overuse_gate_not_applied_at_exactly_min_pool():
+    # Exactly OVERUSE_MIN_POOL survivors, an item in 100% of them → still empty: the gate is a
+    # strict `> OVERUSE_MIN_POOL`, so a pool of exactly the floor is never punished (B1).
+    pool = _scored_pool_all_with_item(config.OVERUSE_MIN_POOL, "x")
+    assert ranker._compute_overuse_set(pool) == frozenset()
+
+
+def test_overuse_gate_applied_one_above_min_pool():
+    # One past the floor (OVERUSE_MIN_POOL + 1), same 100%-frequency item → now overused.
+    pool = _scored_pool_all_with_item(config.OVERUSE_MIN_POOL + 1, "x")
+    assert ranker._compute_overuse_set(pool) == frozenset({"x"})
+
+
+def test_overuse_item_at_exactly_threshold_not_overused():
+    # Pool of 20, item in exactly 8 → 8/20 = 0.40 = OVERUSE_THRESHOLD, not strictly greater → not
+    # overused. (Distinct bottoms each appear once, far below threshold.)
+    pool = _scored_pool_item_in_k(20, 8, "x")
+    assert ranker._compute_overuse_set(pool) == frozenset()
+
+
+def test_overuse_item_above_threshold_overused():
+    # Pool of 20, item in 9 → 9/20 = 0.45 > 0.40 → overused.
+    pool = _scored_pool_item_in_k(20, 9, "x")
+    assert ranker._compute_overuse_set(pool) == frozenset({"x"})
+
+
+def test_overuse_set_collects_all_over_threshold_items_once():
+    # Computed once over the given survivors, the set is exactly every item over the strict
+    # threshold: x in 9/20 (0.45) and z in 11/20 (0.55) overused; w in exactly 8/20 (0.40) is not.
+    ctx = _ctx()
+    pool = []
+    for i in range(20):
+        top = "x" if i < 9 else "z"  # x:9, z:11
+        bottom = "w" if i < 8 else f"b{i}"  # w:8 (==40%)
+        pool.append(
+            _scored(
+                _candidate(
+                    source_index=i, top=top, bottom=bottom, base_key=f"bk{i}", full_signature=f"sig{i}"
+                ),
+                ctx,
+            )
+        )
+    assert ranker._compute_overuse_set(pool) == frozenset({"x", "z"})
+
+
+def test_overuse_pool_is_post_variant_cap_not_pre_cap():
+    # 10 candidates share BaseKey "pop" and item "x"; 14 have distinct BaseKeys without x.
+    # Pre-cap (24 candidates): x in 10/24 (0.42) → overused. After the variant cap, "pop" collapses
+    # to 2, so x is in only 2/16 (0.125) of the 16-survivor pool → NOT overused. The composition
+    # must use the post-cap denominator, so no survivor carries an overuse penalty for x.
+    ctx = _ctx()
+    popular = [
+        _candidate(source_index=i, top="x", bottom=f"pb{i}", base_key="pop", full_signature=f"pop{i}")
+        for i in range(10)
+    ]
+    unique = [
+        _candidate(
+            source_index=10 + i, top=f"ut{i}", bottom=f"ub{i}", base_key=f"u{i}", full_signature=f"u{i}sig"
+        )
+        for i in range(14)
+    ]
+    scored = [_scored(c, ctx) for c in (*popular, *unique)]
+
+    # Pre-cap x is overused; post-cap (still a >15 pool) it is not — isolating the denominator.
+    assert "x" in ranker._compute_overuse_set(scored)
+    survivors = ranker._apply_variant_cap(scored)
+    assert len(survivors) == 16
+    assert "x" not in ranker._compute_overuse_set(survivors)
+
+    diversified = ranker._apply_step6_diversity(scored, ctx)
+    assert all(sc.breakdown.overuse == 0.0 for sc in diversified)
+
+
+# ------------------------ overuse penalty application (Q1, N13) ------------------------
+
+
+def test_overuse_penalty_per_overused_filled_item():
+    # Two of the candidate's filled items are in the overuse set → −OVERUSE_PENALTY each; an item
+    # not in the set (s1) is not counted.
+    scored = _scored(_candidate(top="t1", bottom="b1", shoes="s1"))
+    rescored = ranker._rescore_with_diversity(scored, frozenset({"t1", "b1"}), _ctx())
+    assert rescored.breakdown.overuse == pytest.approx(-config.OVERUSE_PENALTY * 2)
+
+
+def test_overuse_counts_optional_outer_and_shoes():
+    # N13 — overuse frequency ranges over every filled slot, including optional outer + shoes.
+    scored = _scored(_candidate(top="t1", bottom="b1", outer="o1", shoes="s1"))
+    rescored = ranker._rescore_with_diversity(scored, frozenset({"o1", "s1"}), _ctx())
+    assert rescored.breakdown.overuse == pytest.approx(-config.OVERUSE_PENALTY * 2)
+
+
+def test_no_overuse_penalty_when_no_overlap():
+    scored = _scored(_candidate(top="t1", bottom="b1"))
+    rescored = ranker._rescore_with_diversity(scored, frozenset({"x9"}), _ctx())
+    assert rescored.breakdown.overuse == 0.0
+
+
+# ------------------------ repetition penalty (Q2) ------------------------
+
+
+def test_repetition_penalty_when_full_signature_shown():
+    scored = _scored(_candidate(full_signature="sig-A"))
+    rescored = ranker._rescore_with_diversity(
+        scored, frozenset(), _ctx(shown_full_signatures=("sig-A",))
+    )
+    assert rescored.breakdown.repetition == -config.REPETITION_PENALTY
+
+
+def test_repetition_penalty_flat_over_shown_duplicates():
+    # A FullSignature shown several times still costs the flat penalty once — recency-invariant (Q2).
+    scored = _scored(_candidate(full_signature="sig-A"))
+    rescored = ranker._rescore_with_diversity(
+        scored, frozenset(), _ctx(shown_full_signatures=("sig-A", "sig-A", "sig-A"))
+    )
+    assert rescored.breakdown.repetition == -config.REPETITION_PENALTY
+
+
+def test_no_repetition_penalty_when_not_shown():
+    scored = _scored(_candidate(full_signature="sig-A"))
+    rescored = ranker._rescore_with_diversity(
+        scored, frozenset(), _ctx(shown_full_signatures=("sig-OTHER",))
+    )
+    assert rescored.breakdown.repetition == 0.0
+
+
+# ------------------------ signed-delta bookkeeping (N4) ------------------------
+
+
+def test_combo_plus_repetition_nets_through_signed_deltas():
+    # A re-liked FullSignature that was also recently shown: combo (+2) and repetition (−1) both
+    # land as signed deltas; the net stays positive (Q2): base(1) + combo(2) − repetition(1) = 2.
+    cand = _candidate(full_signature="sig-A")
+    ctx = _ctx(liked_full_signatures={"sig-A"}, shown_full_signatures=("sig-A",))
+    rescored = ranker._rescore_with_diversity(_scored(cand, ctx), frozenset(), ctx)
+    b = rescored.breakdown
+    assert b.combo == config.COMBO_BOOST
+    assert b.repetition == -config.REPETITION_PENALTY
+    assert rescored.score == pytest.approx(
+        config.BASE_SCORE + config.COMBO_BOOST - config.REPETITION_PENALTY
+    )
+    assert rescored.score > 0
+
+
+def test_c4_score_equals_sum_of_signed_deltas():
+    # After Step-6 penalties the property holds: score == Σ signed breakdown deltas, and the C3
+    # terms (base/combo/item/dislike/cooldown) are preserved while overuse + repetition are added.
+    cand = _candidate(top="t1", bottom="b1", outer="o1", full_signature="sig-A")
+    ctx = _ctx(item_affinity={"t1": 5}, shown_full_signatures=("sig-A",))
+    rescored = ranker._rescore_with_diversity(_scored(cand, ctx), frozenset({"o1"}), ctx)
+    b = rescored.breakdown
+    assert rescored.score == (
+        b.base + b.combo + b.item + b.dislike + b.overuse + b.repetition + b.cooldown
+    )
+    assert b.overuse == -config.OVERUSE_PENALTY  # o1 overused → 1 item
+    assert b.repetition == -config.REPETITION_PENALTY
+    assert b.item == pytest.approx(config.ITEM_BOOST_WEIGHT * 5)  # C3 term preserved
+
+
+def test_rescore_preserves_cooldown_delta_from_c3():
+    # A cooldown-relaxed C3 score keeps its COOLDOWN_PENALTY delta through Step-6 rescoring; a
+    # normal candidate keeps cooldown 0.
+    cand = _candidate(top="t1", bottom="b1")
+    relaxed = ranker._score_candidate(cand, _ctx(), relaxed_cooldown=True)
+    rescored = ranker._rescore_with_diversity(relaxed, frozenset(), _ctx())
+    assert rescored.breakdown.cooldown == config.COOLDOWN_PENALTY
+
+    normal = _scored(cand)
+    assert ranker._rescore_with_diversity(normal, frozenset(), _ctx()).breakdown.cooldown == 0.0
+
+
+# ------------------------ C4 stays inside its scope (no C5) ------------------------
+
+
+def test_c4_diversity_does_not_truncate_to_k():
+    # Six distinct-BaseKey candidates all survive the variant cap; the diversified pool is NOT
+    # truncated to k (C5 owns truncate-to-k) and yields _ScoredCandidate, not assembled output.
+    ctx = _ctx(k=2)
+    cands = [
+        _candidate(source_index=i, top=f"t{i}", bottom=f"b{i}", base_key=f"bk{i}", full_signature=f"sig{i}")
+        for i in range(6)
+    ]
+    diversified = ranker._apply_step6_diversity([_scored(c, ctx) for c in cands], ctx)
+    assert len(diversified) == 6
+    assert all(isinstance(sc, ranker._ScoredCandidate) for sc in diversified)
+
+
+def test_c4_helpers_do_not_make_public_rank_assemble():
+    # The C4 diversity helpers are not wired into rank() — a non-empty candidate list still raises
+    # rather than emit a partial ranking (C5 owns assembly).
+    with pytest.raises(NotImplementedError):
+        ranker.rank([_candidate()], _ctx())
