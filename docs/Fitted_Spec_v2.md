@@ -719,7 +719,7 @@ an M0 blocker.
 
 ## 20. Build ladder (milestones)
 
-The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M2 complete (contracts, sampler, and the GPT-JSON validation boundary); M3 (the ranker) is next, and the rest is forward.
+The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M2 complete (contracts, sampler, and the GPT-JSON validation boundary); M3 (the ranker) is in progress, and the rest is forward.
 
 | Stage | Scope | Status / rung |
 |---|---|---|

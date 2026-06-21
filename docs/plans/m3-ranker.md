@@ -430,6 +430,10 @@ flags** — never on prose. Staged per checkpoint (§11):
 
 ## 11. Implementation checkpoints (small green-test commits)
 
+**Progress:** C0–C4 complete (substrate + Step-4 filters + Step-5 scoring + Step-6 diversity, with a
+mutation-coverage pass over C1–C4). **C5 is the next checkpoint**, then C6 closeout. `rank()` still
+raises `NotImplementedError` on non-empty input until C5 wires assembly.
+
 ### Spec Conformance Audit Gate (before C4/C5)
 
 A prompt/spec mismatch on `DISLIKE_PENALTY` was caught during C3 planning (a prompt proposed one flat penalty
@@ -448,11 +452,11 @@ This gate is process-only: it changes no constant, scoring rule, fallback behavi
 
 | # | Commit | Lands |
 |---|---|---|
-| C0 | *plan/spec only* | **this doc** + the two new constants in `Fitted_Spec_v2.md` §14/AppxB (no code) |
-| C1 | config + result/context model | 12 constants in `config.py`; `FallbackStage`, `ScoreBreakdown`, `RankedOutfit`, `RankerResult`, `RankerContext`; `rank` signature + the empty/degenerate short-circuit (N15); the C1 contract guards — window lengths (N14), `k` (`bool`/non-int→`TypeError`, ≤0→`ValueError`), `generation_index` (real int), non-negative `item_affinity` (N10); **output immutability** (defensive `SlotMap`/`changed_item_ids` snapshots) |
-| C2 | Step-4 filters + lock diagnostic | cooldown / contextual-dislike / lock filters; `locked_survivor_count` + `insufficient_locked_candidates` (N3/N8) |
-| C3 | Step-5 scoring + breakdown | base/combo/itemBoost(clamp)/dislike (per distinct disliked filled item; window dups deduped); signed `ScoreBreakdown`; `score == Σ deltas` + dominance tests (N4/N10/N13/§5) |
-| C4 | Step-6 diversity | variant cap (top-2 pre-penalty, N5); overuse (gate/threshold/once, N1/N2/Q1); repetition (flat, Q2) |
+| C0 ✅ | *plan/spec only* | **this doc** + the two new constants in `Fitted_Spec_v2.md` §14/AppxB (no code) |
+| C1 ✅ | config + result/context model | 12 constants in `config.py`; `FallbackStage`, `ScoreBreakdown`, `RankedOutfit`, `RankerResult`, `RankerContext`; `rank` signature + the empty/degenerate short-circuit (N15); the C1 contract guards — window lengths (N14), `k` (`bool`/non-int→`TypeError`, ≤0→`ValueError`), `generation_index` (real int), non-negative `item_affinity` (N10); **output immutability** (defensive `SlotMap`/`changed_item_ids` snapshots) |
+| C2 ✅ | Step-4 filters + lock diagnostic | cooldown / contextual-dislike / lock filters; `locked_survivor_count` + `insufficient_locked_candidates` (N3/N8) |
+| C3 ✅ | Step-5 scoring + breakdown | base/combo/itemBoost(clamp)/dislike (per distinct disliked filled item; window dups deduped); signed `ScoreBreakdown`; `score == Σ deltas` + dominance tests (N4/N10/N13/§5) |
+| C4 ✅ | Step-6 diversity | variant cap (top-2 pre-penalty, N5); overuse (gate/threshold/once, N1/N2/Q1); repetition (flat, Q2) |
 | C5 | fallback + tie-break + assembly | ladder + flags (N11); sort + greedy tie-break + seeded shuffle (N6/N12); truncate to k |
 | C6 | hardening + closeout | §12 mutants; `__init__.py` "M0–M2"→"M0–M3"; `README.md` status flip; `> COMPLETED` banner |
 
@@ -508,19 +512,19 @@ match, folded into the `OVERUSE_PENALTY` semantics. Recorded here as settled, no
 
 ## 15. Known non-blocking spec/documentation seams
 
-Wording mismatches and deferred-issue seams in the canonical spec / this plan that C1 will brush against.
-**None of these reopens M3 scope or changes an M3 contract.** They are recorded so C1 reads stale or broad
-spec wording correctly and does **not** accidentally "fix" a deferred, out-of-scope, or already-owned issue.
-**Items 1–6 are not C1 implementation tasks** — read-through only (act on the boundary, not the wording).
-**Item 7 is C1 guidance**, resolving an existing plan-internal ambiguity in favor of the §4 immutability
-contract. Do not edit `Fitted_Spec_v2.md` for these as part of C1.
+Wording mismatches and deferred-issue seams in the canonical spec / this plan that implementation may brush
+against. **None of these reopens M3 scope or changes an M3 contract.** They are recorded so implementers read
+broad spec wording correctly and do **not** accidentally "fix" a deferred, out-of-scope, or already-owned issue.
+**Items 1–6 are not implementation tasks** — read-through only (act on the boundary, not the wording).
+**Item 7 records the C1 immutability interpretation**, resolving a plan-internal ambiguity in favor of the §4
+immutability contract.
 
-| # | Seam (spec/plan wording) | Intended reading / boundary for C1 |
+| # | Seam (spec/plan wording) | Intended reading / boundary |
 |---|---|---|
-| 1 | §20 ladder (`Fitted_Spec_v2.md:722`) still says "**M3 (the ranker) is next**." | Status drift, not a contract: M3 is now the **active** milestone and **C1 is the next implementation checkpoint**. No code or contract follows from the old "next" phrasing. |
+| 1 | §20 ladder status wording is milestone-level, not checkpoint-level. | M3 is the **active** milestone; checkpoint status lives in §11. No code or contract follows from old notes that called M3 "next." |
 | 2 | Spec uses "**backend ranker assigns**" `optionPath`/`risk` broadly (`:414`; also §6.5 `:252`, §9 Step 7 `:340`, §15 `:554`). | **M3 must not implement `optionPath`/`risk`.** Later backend response / rescue work owns those metrics (M5 + rescue-spec, H20). Already pinned in §1/§2/§13; this row just flags the spec's loose "backend ranker" umbrella so C1 doesn't read itself into it. |
-| 3 | `scoreBreakdown` is described as "**computed at response time**" (`:764`; also §6.5 `:250`, §15 `:555`). | Boundary: **M3 computes `score` + `ScoreBreakdown` per request** (§4/§7). **M5 serializes/displays** the response fields and does **not persist** `scoreBreakdown`. C1 builds the in-memory `ScoreBreakdown`; nothing about storage. |
+| 3 | `scoreBreakdown` is described as "**computed at response time**" (`:764`; also §6.5 `:250`, §15 `:555`). | Boundary: **M3 computes `score` + `ScoreBreakdown` per request** (§4/§7). **M5 serializes/displays** the response fields and does **not persist** `scoreBreakdown`. |
 | 4 | StyleMove "must **reference an actually changed/added item**" (§6.5 `:255-259`). | Boundary: **M3 does not prove "actually changed/added item."** M2 already boundary-validates the StyleMove subset (H23: `changedItemIds ⊆ outfit items`, `:812`). **M3 carries a valid StyleMove forward unchanged** — no re-validation, no semantic proof. |
-| 5 | H19 status label = "**DEFERRED-M3/M4**" (`:808`). | Boundary: **M3 receives shown-history / cooldown / repetition as pure pre-reduced inputs** (Q4/§4 `RankerContext`). **M4/M5 own** storage, lifecycle, and the reducer that windows them. C1 adds no storage and no reducer. |
-| 6 | "**daily re-seed (C1)**" wording in the spec (`:231`; Appendix A "N2/C1" `:840`). | That "C1" is the **historical seed-checkpoint label**, unrelated to this plan's C1. Read it as seed/`+date` provenance, **not** an M3 C1 task. |
-| 7 | This plan's §4 result sketch shows list-style shapes — raw `StyleMove` via `Optional[StyleMove]` (whose `changed_item_ids` is a mutable `list`), and `outfits: list[RankedOutfit]`. | The **controlling C1 contract is §4 "Output immutability"**, which wins over the earlier sketch: use **`FrozenStyleMove | None`** plus **tuple-backed / frozen outputs** (e.g. `RankerResult.outfits: tuple[RankedOutfit, ...]`), and snapshot `changed_item_ids` to a `tuple`. This is the one item here that is C1 *guidance* (resolving a plan-internal ambiguity), not a deferred-issue flag. |
+| 5 | H19 status label = "**DEFERRED-M3/M4**" (`:808`). | Boundary: **M3 receives shown-history / cooldown / repetition as pure pre-reduced inputs** (Q4/§4 `RankerContext`). **M4/M5 own** storage, lifecycle, and the reducer that windows them. M3 adds no storage and no reducer. |
+| 6 | "**daily re-seed (C1)**" wording in the spec (`:231`; Appendix A "N2/C1" `:840`). | That "C1" is the **historical seed-checkpoint label**, unrelated to this plan's checkpoint names. Read it as seed/`+date` provenance, **not** an M3 task. |
+| 7 | This plan's §4 result sketch shows list-style shapes — raw `StyleMove` via `Optional[StyleMove]` (whose `changed_item_ids` is a mutable `list`), and `outfits: list[RankedOutfit]`. | The **controlling contract is §4 "Output immutability"**, which wins over the earlier sketch: use **`FrozenStyleMove | None`** plus **tuple-backed / frozen outputs** (e.g. `RankerResult.outfits: tuple[RankedOutfit, ...]`), and snapshot `changed_item_ids` to a `tuple`. |
