@@ -499,10 +499,12 @@ H7). No request adapter / normalization / API lifecycle (M5). No UI. No legacy `
 
 ## 14. Open questions
 
-**None block drafting** (ledger §4). One item carried forward for the implementation review:
+**None block drafting** (ledger §4). One item was carried forward for the implementation review; it is now
+resolved:
 
-1. **N14 alternative** — "M3 truncates its own windows" vs the pinned "reducer windows + M3 guards"; pinned
-   to the latter, flippable at review (§8).
+1. **N14 alternative** — "M3 truncates its own windows" vs the pinned "reducer windows + M3 guards".
+   **RESOLVED (C6): the pinned default held — M3 guards `len ≤ window constant` and never truncates
+   (`_guard_reducer_inputs`), covered by the at-limit/over-limit window tests; the alternative was not taken.**
 
 **Not open — locked (N1).** The overuse pool is **post-variant-cap candidate survivors, no wardrobe input**.
 This change-set already tightened §14's overuse clause from "small **wardrobes**" to "small **pools**" to
@@ -517,14 +519,16 @@ against. **None of these reopens M3 scope or changes an M3 contract.** They are 
 broad spec wording correctly and do **not** accidentally "fix" a deferred, out-of-scope, or already-owned issue.
 **Items 1–6 are not implementation tasks** — read-through only (act on the boundary, not the wording).
 **Item 7 records the C1 immutability interpretation**, resolving a plan-internal ambiguity in favor of the §4
-immutability contract.
+immutability contract. **Item 8 records the C6 finding that the `overuse_relaxed` rung is unreachable as a
+terminal fallback stage.**
 
 | # | Seam (spec/plan wording) | Intended reading / boundary |
 |---|---|---|
-| 1 | §20 ladder status wording is milestone-level, not checkpoint-level. | M3 is the **active** milestone; checkpoint status lives in §11. No code or contract follows from old notes that called M3 "next." |
+| 1 | §20 ladder status wording is milestone-level, not checkpoint-level. | M3 is **complete** (closed 2026-06-21); per-checkpoint status lives in §11. No code or contract follows from old notes that called M3 "next" or "active." |
 | 2 | Spec uses "**backend ranker assigns**" `optionPath`/`risk` broadly (`:414`; also §6.5 `:252`, §9 Step 7 `:340`, §15 `:554`). | **M3 must not implement `optionPath`/`risk`.** Later backend response / rescue work owns those metrics (M5 + rescue-spec, H20). Already pinned in §1/§2/§13; this row just flags the spec's loose "backend ranker" umbrella so C1 doesn't read itself into it. |
 | 3 | `scoreBreakdown` is described as "**computed at response time**" (`:764`; also §6.5 `:250`, §15 `:555`). | Boundary: **M3 computes `score` + `ScoreBreakdown` per request** (§4/§7). **M5 serializes/displays** the response fields and does **not persist** `scoreBreakdown`. |
 | 4 | StyleMove "must **reference an actually changed/added item**" (§6.5 `:255-259`). | Boundary: **M3 does not prove "actually changed/added item."** M2 already boundary-validates the StyleMove subset (H23: `changedItemIds ⊆ outfit items`, `:812`). **M3 carries a valid StyleMove forward unchanged** — no re-validation, no semantic proof. |
 | 5 | H19 status label = "**DEFERRED-M3/M4**" (`:808`). | Boundary: **M3 receives shown-history / cooldown / repetition as pure pre-reduced inputs** (Q4/§4 `RankerContext`). **M4/M5 own** storage, lifecycle, and the reducer that windows them. M3 adds no storage and no reducer. |
 | 6 | "**daily re-seed (C1)**" wording in the spec (`:231`; Appendix A "N2/C1" `:840`). | That "C1" is the **historical seed-checkpoint label**, unrelated to this plan's checkpoint names. Read it as seed/`+date` provenance, **not** an M3 task. |
 | 7 | This plan's §4 result sketch shows list-style shapes — raw `StyleMove` via `Optional[StyleMove]` (whose `changed_item_ids` is a mutable `list`), and `outfits: list[RankedOutfit]`. | The **controlling contract is §4 "Output immutability"**, which wins over the earlier sketch: use **`FrozenStyleMove | None`** plus **tuple-backed / frozen outputs** (e.g. `RankerResult.outfits: tuple[RankedOutfit, ...]`), and snapshot `changed_item_ids` to a `tuple`. |
+| 8 | §14 / §6 step 6 list `overuse_relaxed` as a fallback rung between `none` and `variant_cap_relaxed`. | **`overuse_relaxed` is score-only** — dropping the overuse penalty changes scores, never the candidate count, so it can never satisfy the count-based gate (`< k`) that `none` just failed. It is therefore **unreachable as a terminal `fallback_stage`**: the ladder always skips to the count-changing `variant_cap_relaxed`. The relaxation still applies **cumulatively** (the overuse drop carries into deeper rungs), and the branch stays as explicit scaffolding (`ranker.py` `_select_fallback_pool`). Not a bug — faithful to spec; recorded so no one writes a test expecting that stage (C6 finding). |
