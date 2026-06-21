@@ -279,9 +279,12 @@ is stored as a positive magnitude and **subtracted** — the `ScoreBreakdown` th
    - `item = Σ_slots ITEM_BOOST_WEIGHT × min(item_affinity.get(id, 0), MAX_AFFINITY)` — absent item → `0`;
      `min(…, MAX_AFFINITY)` is the **upper** clamp applied inside M3 (N10), never trusting an over-cap input.
      Affinities are already guaranteed non-negative by the step-1 guard, so `item ≥ 0` always.
-   - `dislike = DISLIKE_PENALTY × |{filled-slot ids} ∩ set(recent_disliked_item_ids)|` — **flat**: each
-     disliked item counts once regardless of how many times it appears in the window (§14 "flat, not
-     accumulated"). Stored positive, **subtracted**.
+   - `dislike = DISLIKE_PENALTY × |{filled-slot ids} ∩ set(recent_disliked_item_ids)|` — applied **per
+     distinct filled item id that overlaps `recent_disliked_item_ids`**. Repeated appearances of the same id
+     in the recent-dislike window are deduped (`set(...)`) and do **not** stack; multiple *distinct* disliked
+     items in one outfit **do** stack (the intersection size scales the penalty). "Flat" means **not
+     accumulated per repeated window entry** (§14 "flat, not accumulated") — it does **not** mean one flat
+     penalty per candidate. Stored positive, **subtracted**.
    - Step-5 score = `base + combo + item − dislike`. Negative scores are valid (ranking is relative, §14).
 5. **Step 6 — diversity.**
    - **Variant cap (N5):** per `base_key`, keep the **top-`BASEKEY_VARIANT_CAP`(2)** candidates by **Step-5
@@ -401,7 +404,8 @@ flags** — never on prose. Staged per checkpoint (§11):
 
 - **Filters:** cooldown drops by BaseKey (across variants); contextual dislike drops by item; locks keep only
   superset outfits; lock-starvation diagnostic set correctly; the three disliked inputs never conflate (N8).
-- **Scoring:** base/combo/itemBoost(clamped, over all slots)/dislike(flat) each verified; `score == Σ
+- **Scoring:** base/combo/itemBoost(clamped, over all slots)/dislike (per distinct disliked filled item;
+  repeated window entries deduped, distinct disliked items stack) each verified; `score == Σ
   breakdown deltas` property test (N4); dominance tests (§5) + the eval-tracked 4-item exception.
 - **Diversity:** variant cap keeps **top-2** (not bottom-2); overuse gate at 15/16 and threshold at exactly
   40%; overuse set computed once and not recomputed across fallback (N2); repetition flat/recency-invariant.
@@ -426,12 +430,28 @@ flags** — never on prose. Staged per checkpoint (§11):
 
 ## 11. Implementation checkpoints (small green-test commits)
 
+### Spec Conformance Audit Gate (before C4/C5)
+
+A prompt/spec mismatch on `DISLIKE_PENALTY` was caught during C3 planning (a prompt proposed one flat penalty
+per candidate; the canonical rule is **per distinct disliked filled item** — §6 step 4 / §14). To stop that
+class of drift, **before starting C4 and C5** every implementation prompt or review must:
+
+1. **Verify behavior against the canonical set**, in this precedence order: (1) `docs/Fitted_Spec_v2.md`,
+   (2) `docs/plans/m3-ranker.md`, (3) `docs/sessions/2026-06-20-m3-ledger.md`, (4) the current code/tests.
+2. **Canonical docs beat prompts/summaries.** If a prompt or a conversational summary conflicts with the
+   spec/plan/ledger, the canonical docs win.
+3. **Stop for clarification — do not implement —** whenever a prompt conflicts with the spec or plan.
+4. **Explicitly scan for prompt-induced drift and ambiguous wording** (e.g. "flat", "per item") *before*
+   writing code, and pin the unambiguous reading first.
+
+This gate is process-only: it changes no constant, scoring rule, fallback behavior, or checkpoint scope.
+
 | # | Commit | Lands |
 |---|---|---|
 | C0 | *plan/spec only* | **this doc** + the two new constants in `Fitted_Spec_v2.md` §14/AppxB (no code) |
 | C1 | config + result/context model | 12 constants in `config.py`; `FallbackStage`, `ScoreBreakdown`, `RankedOutfit`, `RankerResult`, `RankerContext`; `rank` signature + the empty/degenerate short-circuit (N15); the C1 contract guards — window lengths (N14), `k` (`bool`/non-int→`TypeError`, ≤0→`ValueError`), `generation_index` (real int), non-negative `item_affinity` (N10); **output immutability** (defensive `SlotMap`/`changed_item_ids` snapshots) |
 | C2 | Step-4 filters + lock diagnostic | cooldown / contextual-dislike / lock filters; `locked_survivor_count` + `insufficient_locked_candidates` (N3/N8) |
-| C3 | Step-5 scoring + breakdown | base/combo/itemBoost(clamp)/dislike(flat); signed `ScoreBreakdown`; `score == Σ deltas` + dominance tests (N4/N10/N13/§5) |
+| C3 | Step-5 scoring + breakdown | base/combo/itemBoost(clamp)/dislike (per distinct disliked filled item; window dups deduped); signed `ScoreBreakdown`; `score == Σ deltas` + dominance tests (N4/N10/N13/§5) |
 | C4 | Step-6 diversity | variant cap (top-2 pre-penalty, N5); overuse (gate/threshold/once, N1/N2/Q1); repetition (flat, Q2) |
 | C5 | fallback + tie-break + assembly | ladder + flags (N11); sort + greedy tie-break + seeded shuffle (N6/N12); truncate to k |
 | C6 | hardening + closeout | §12 mutants; `__init__.py` "M0–M2"→"M0–M3"; `README.md` status flip; `> COMPLETED` banner |
@@ -448,7 +468,9 @@ C5 ~2h (tie-break determinism) · C6 ~1.5h. **Total ~10.5h → ~2 sessions.**
 tiebreak (kills re-roll) · recomputing the overuse set after a fallback relax (N2) · re-deduping
 FullSignature in M3 (M2 already did it — M3 never re-dedups) · relaxing locks or contextual dislikes under
 fallback (N3) · variant cap keeping **bottom**-2 · sign-flip on `COOLDOWN_PENALTY` (positive / subtracted) ·
-**accumulating** (not flat) `dislikePenalty` · diversity tie-break as a **static sort** instead of
+a `dislikePenalty` that **stacks per repeated window entry** (must dedup per distinct disliked item) — *or*
+collapses multiple **distinct** disliked items in one outfit to a single per-candidate penalty (both wrong;
+the count is distinct filled ids ∩ window) · diversity tie-break as a **static sort** instead of
 "least-represented-so-far" greedy · clamping affinity *outside* M3 (trusting an over-cap input) · defaulting
 `generation_index` · truncating an oversize window instead of raising · accepting `k <= 0` or a `bool` `k` ·
 turning a **negative** affinity into a negative `itemBoost` instead of raising · relaxing locks/contextual
