@@ -7,14 +7,15 @@ deterministic tie-break — emitting a per-outfit signed ``ScoreBreakdown`` plus
 state flags M5 needs. Pure substrate: **no DB, no GPT, no IO, no candidate creation.**
 M3 only drops and reorders.
 
-**Milestone scope (M3 C1 — config + result/context model).** This checkpoint lands the
-public surface (``rank`` signature, ``FallbackStage``, ``ScoreBreakdown``,
-``RankedOutfit``, ``RankerResult``, ``RankerContext``), the output-immutability snapshot
-helpers, the ``RankerContext`` construction guards (``generation_index`` real-int, ``k``),
-the reducer-contract guards (window lengths N14 + affinity sign N10), and the literal
-empty/degenerate short-circuit (N15). **Steps 4–6 themselves — filters, scoring,
-diversity, fallback, tie-break — land in C2–C5**, so a *non-empty* candidate list raises
-``NotImplementedError`` rather than emit a partial ranking.
+**Milestone scope (M3 C1–C2).** C1 landed the public surface (``rank`` signature,
+``FallbackStage``, ``ScoreBreakdown``, ``RankedOutfit``, ``RankerResult``, ``RankerContext``),
+the output-immutability snapshot helpers, the ``RankerContext`` construction guards
+(``generation_index`` real-int, ``k``), the reducer-contract guards (window lengths N14 +
+affinity sign N10), and the literal empty/degenerate short-circuit (N15). **C2 adds the
+Step-4 per-request hard filters** (cooldown / contextual-dislike / lock) and the
+lock-starvation diagnostic as the internal ``_apply_step4_filters`` helper. **Scoring,
+diversity, fallback, and tie-break (C3–C5) remain unimplemented**, so a *non-empty* candidate
+list still raises ``NotImplementedError`` rather than emit a partial ranking.
 
 Error-model convention (package ``__init__.py``): expected, data-driven failures return
 a value (the empty/degenerate result is *not* an error); caller-contract violations raise.
@@ -277,6 +278,84 @@ def _filled_slot_ids(slot_map: SlotMap) -> tuple[str, ...]:
     )
 
 
+# ================= Step 4 — per-request hard filters (§6 step 3, N3/N8) =================
+
+
+@dataclass(frozen=True)
+class _Step4Result:
+    """The Step-4 hard-filter outcome (C2 — internal plumbing toward C3/C5).
+
+    Three independent per-candidate predicates partition the input (§6 step 3): ``survivors``
+    pass lock **and** contextual-dislike **and** cooldown; ``cooldown_reserve`` are candidates
+    dropped **solely** by cooldown (still passing lock + contextual) — the re-admission pool
+    the C5 ``cooldown_relaxed`` rung draws from (N3). A candidate failing a lock or contextual
+    dislike is a **non-relaxable** drop and appears in *neither* tuple (those filters never
+    relax — N3). ``locked_survivor_count`` / ``insufficient_locked_candidates`` are the
+    lock-starvation diagnostic, measured **after the lock filter alone** — before contextual /
+    cooldown removal — so a candidate that clears the lock but is later contextual/cooldown
+    dropped still counts (M3 reports; M5 owns the constrained re-entry).
+    """
+
+    survivors: tuple[ValidatedCandidate, ...]
+    cooldown_reserve: tuple[ValidatedCandidate, ...]
+    locked_survivor_count: int
+    insufficient_locked_candidates: bool
+
+
+def _apply_step4_filters(
+    candidates: Sequence[ValidatedCandidate], context: RankerContext
+) -> _Step4Result:
+    """Apply the Step-4 per-request hard filters (§6 step 3, N3/N8).
+
+    Classify each candidate by **three independent predicates** (evaluation order is
+    irrelevant — the classification is set-based):
+
+    - **lock** — its filled-slot ids ⊇ ``locked_item_ids`` (trivially true with no locks);
+    - **contextual** — its filled-slot ids are disjoint from ``contextual_disliked_item_ids``
+      (the *hard* dislike filter — distinct from the soft ``recent_disliked_item_ids`` of C3);
+    - **cooldown** — its ``base_key`` is not in ``recent_disliked_base_keys`` (BaseKey, §7 —
+      filters a disliked silhouette across *all* its outer/shoe variants).
+
+    Filled-slot ids span every filled slot, **including optional outer/shoes**
+    (``_filled_slot_ids``). A candidate passing lock + contextual is a **survivor** when it
+    also passes cooldown, else it is held in the cooldown-relax **reserve** (dropped *solely*
+    by cooldown — re-admittable at the C5 ``cooldown_relaxed`` rung). A candidate failing lock
+    or contextual is a non-relaxable drop, reserved nowhere. ``locked_survivor_count`` counts
+    candidates passing the lock filter **alone** (before contextual/cooldown); locks never
+    silently drop — M3 only reports, M5 owns the constrained re-entry (N3).
+
+    **No scoring, sorting, variant cap, penalty, or fallback here** — that is C3–C5. C2 never
+    re-admits the reserve; it only preserves it so C5 can relax without reworking C2.
+    """
+    locked = context.locked_item_ids
+    contextual = context.contextual_disliked_item_ids
+    cooldown_keys = set(context.recent_disliked_base_keys)  # membership only; order irrelevant
+
+    survivors: list[ValidatedCandidate] = []
+    cooldown_reserve: list[ValidatedCandidate] = []
+    locked_survivor_count = 0
+    for candidate in candidates:
+        filled = set(_filled_slot_ids(candidate.slot_map))
+        passes_lock = locked <= filled  # frozenset ⊆ set; empty locked ⊆ anything (no-op filter)
+        passes_contextual = filled.isdisjoint(contextual)
+        passes_cooldown = candidate.base_key not in cooldown_keys
+
+        if passes_lock:
+            locked_survivor_count += 1
+        if passes_lock and passes_contextual:
+            # Solely-cooldown drops are relaxable (reserve); everything else here is a survivor.
+            (survivors if passes_cooldown else cooldown_reserve).append(candidate)
+        # Failing lock or contextual → non-relaxable drop: reserved nowhere (N3).
+
+    insufficient_locked = bool(locked) and locked_survivor_count < context.k
+    return _Step4Result(
+        survivors=tuple(survivors),
+        cooldown_reserve=tuple(cooldown_reserve),
+        locked_survivor_count=locked_survivor_count,
+        insufficient_locked_candidates=insufficient_locked,
+    )
+
+
 # ============================== public entry point ==============================
 
 
@@ -340,9 +419,10 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
     M5 needs (fallback stage, insufficient-wardrobe, lock-starvation diagnostic). Never
     creates a candidate; never relaxes M2 validation.
 
-    **M3 C1 scope.** Implements the reducer-contract guards (§6 step 1) and the
-    empty/degenerate short-circuit (§6 step 2) only. Steps 4–6 (filters / scoring / diversity
-    / fallback / tie-break) land in C2–C5, so a **non-empty** ``candidates`` list raises
+    **M3 C1–C2 scope.** ``rank`` itself implements the reducer-contract guards (§6 step 1) and
+    the empty/degenerate short-circuit (§6 step 2). C2 added the Step-4 hard filters as
+    ``_apply_step4_filters`` (verified directly), but assembling a non-empty result needs
+    scoring (C3) and the tie-break (C5), so a **non-empty** ``candidates`` list still raises
     ``NotImplementedError`` rather than emit a partial ranking.
     """
     # Step 1 — reducer-contract guards. Run *before* the empty short-circuit (§6 order), so a
@@ -366,8 +446,11 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
             insufficient_locked_candidates=insufficient_locked,
         )
 
-    # Steps 4–6 (C2–C5) — not yet implemented. Raise rather than fabricate a ranking.
+    # Non-empty output assembly needs scoring + tie-break (C3–C5). C2 added the Step-4 hard
+    # filters as _apply_step4_filters, but a non-empty candidate list cannot yet be scored or
+    # ordered, so rank() does not assemble a result here — raise rather than fabricate a ranking.
     raise NotImplementedError(
-        "rank() Steps 4–6 (filters/scoring/diversity/fallback/tie-break) land in M3 C2–C5; "
-        "C1 implements only the reducer-contract guards and the empty/degenerate short-circuit"
+        "rank() output assembly needs scoring + diversity + tie-break (M3 C3–C5); C2 added the "
+        "Step-4 hard filters (_apply_step4_filters) but rank() cannot yet score or order a "
+        "non-empty candidate list"
     )

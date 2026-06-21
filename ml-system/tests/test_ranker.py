@@ -1,12 +1,16 @@
 """M3 ranker contract tests (v2 §14/§9, docs/plans/m3-ranker.md).
 
-**Checkpoint C1 — config + result/context model.** Covers the public surface
-(``FallbackStage`` values, the result/context shapes), the output-immutability snapshot
-helpers (``_freeze_style_move`` / ``_filled_slot_ids``), the ``RankerContext`` construction
-guards (``generation_index`` real-int, ``k`` type/value), the reducer-contract guards
-(window lengths N14, affinity sign N10), and the empty/degenerate short-circuit (N15).
-The Steps 4–6 behavior (filters / scoring / diversity / fallback / tie-break) lands in
-C2–C5 — here, a non-empty candidate list must raise ``NotImplementedError``.
+**Checkpoint C1** — the public surface (``FallbackStage`` values, the result/context shapes),
+the output-immutability snapshot helpers (``_freeze_style_move`` / ``_filled_slot_ids``), the
+``RankerContext`` construction guards (``generation_index`` real-int, ``k`` type/value), the
+reducer-contract guards (window lengths N14, affinity sign N10), and the empty/degenerate
+short-circuit (N15).
+
+**Checkpoint C2** — the Step-4 per-request hard filters via ``_apply_step4_filters`` (lock /
+contextual-dislike / cooldown), the cooldown-relax reserve vs non-relaxable drops (N3), and the
+lock-starvation diagnostic (``locked_survivor_count`` / ``insufficient_locked_candidates``, N3/N8).
+Scoring / diversity / fallback / tie-break land in C3–C5 — a non-empty candidate list still
+raises ``NotImplementedError``.
 
 Assert on values, flags, and types — never on exception prose.
 """
@@ -37,14 +41,38 @@ def _ctx(**overrides) -> RankerContext:
     return RankerContext(**base)
 
 
-def _candidate(source_index: int = 0) -> ValidatedCandidate:
-    """A minimal structurally-valid two-piece ValidatedCandidate."""
+def _candidate(
+    *,
+    source_index: int = 0,
+    top: str | None = "t1",
+    bottom: str | None = "b1",
+    dress: str | None = None,
+    outer: str | None = None,
+    shoes: str | None = None,
+    base_key: str | None = None,
+    full_signature: str | None = None,
+) -> ValidatedCandidate:
+    """A structurally-valid ValidatedCandidate; override slots/keys by keyword.
+
+    Defaults to a simple two-piece (t1 + b1). ``base_key`` / ``full_signature`` default to the
+    keys.py format derived from the slots but can be pinned directly for filter tests.
+    """
+    slot_map = SlotMap(dress=dress, top=top, bottom=bottom, outer=outer, shoes=shoes)
+    if dress is not None:
+        derived_base, template = dress, Template.one_piece
+    else:
+        derived_base, template = f"{top}:{bottom}", Template.two_piece
+    bk = base_key if base_key is not None else derived_base
+    if full_signature is None:
+        out = outer if outer is not None else "none"
+        sho = shoes if shoes is not None else "none"
+        full_signature = f"{bk}|outer={out}|shoes={sho}"
     return ValidatedCandidate(
         source_index=source_index,
-        slot_map=SlotMap(top="t1", bottom="b1"),
-        template=Template.two_piece,
-        base_key="t1:b1",
-        full_signature="t1:b1|outer=none|shoes=none",
+        slot_map=slot_map,
+        template=template,
+        base_key=bk,
+        full_signature=full_signature,
         style_move=None,
     )
 
@@ -314,10 +342,157 @@ def test_rank_empty_with_locks_sets_lock_starvation_diagnostic():
     assert result.insufficient_wardrobe is True
 
 
-# ------------------------ rank(): non-empty raises in C1 ------------------------
+# ------------------------ rank(): non-empty still raises (C2) ------------------------
 
 
-def test_rank_non_empty_raises_not_implemented_in_c1():
-    # Steps 4–6 land in C2–C5; a non-empty input must raise rather than fabricate a ranking.
+def test_rank_non_empty_raises_not_implemented():
+    # C2 added the Step-4 filters, but scoring/assembly land in C3–C5; a non-empty input that
+    # fully survives the filters must still raise rather than fabricate a ranking.
     with pytest.raises(NotImplementedError):
         ranker.rank([_candidate()], _ctx())
+
+
+# ------------------------ Step 4 — lock filter (C2, §6 step 3) ------------------------
+
+
+def test_lock_filter_requires_all_locked_ids():
+    has_both = _candidate(source_index=0, top="t1", bottom="b1")  # {t1, b1}
+    missing = _candidate(source_index=1, top="t2", bottom="b1")  # missing t1
+    result = ranker._apply_step4_filters(
+        [has_both, missing], _ctx(locked_item_ids=frozenset({"t1", "b1"}))
+    )
+    assert result.survivors == (has_both,)
+    assert result.locked_survivor_count == 1
+
+
+def test_lock_filter_multiple_locks_partial_match_excluded():
+    full = _candidate(source_index=0, top="t1", bottom="b1", outer="o1")  # {t1, b1, o1}
+    partial = _candidate(source_index=1, top="t1", bottom="b1")  # {t1, b1} — no o1
+    result = ranker._apply_step4_filters(
+        [full, partial], _ctx(locked_item_ids=frozenset({"t1", "o1"}))
+    )
+    assert result.survivors == (full,)
+    assert result.locked_survivor_count == 1
+
+
+def test_lock_filter_counts_optional_outer_and_shoes():
+    cand = _candidate(top="t1", bottom="b1", outer="o1", shoes="s1")
+    # A lock on the optional outer + shoes ids matches because filled-slot ids include them.
+    kept = ranker._apply_step4_filters([cand], _ctx(locked_item_ids=frozenset({"o1", "s1"})))
+    assert kept.survivors == (cand,)
+    assert kept.locked_survivor_count == 1
+    # A lock on an id the candidate lacks excludes it.
+    dropped = ranker._apply_step4_filters([cand], _ctx(locked_item_ids=frozenset({"s2"})))
+    assert dropped.survivors == ()
+    assert dropped.locked_survivor_count == 0
+
+
+# ------------------------ Step 4 — contextual dislike (C2, §6 step 3) ------------------------
+
+
+def test_contextual_dislike_removes_candidate_with_disliked_item():
+    clean = _candidate(source_index=0, top="t1", bottom="b1")
+    dirty = _candidate(source_index=1, top="t1", bottom="b2", shoes="s9")  # contains s9
+    result = ranker._apply_step4_filters(
+        [clean, dirty], _ctx(contextual_disliked_item_ids=frozenset({"s9"}))
+    )
+    assert result.survivors == (clean,)
+    # A contextual drop is non-relaxable — never held in the cooldown-relax reserve (N3).
+    assert dirty not in result.cooldown_reserve
+    assert result.cooldown_reserve == ()
+
+
+def test_contextual_drop_is_non_relaxable_even_if_also_cooldown():
+    # Fails BOTH contextual and cooldown → non-relaxable (contextual dominates); must NOT be
+    # reserved, since only solely-cooldown drops are relaxable (N3).
+    cand = _candidate(top="t1", bottom="b1", shoes="s9")
+    result = ranker._apply_step4_filters(
+        [cand],
+        _ctx(
+            contextual_disliked_item_ids=frozenset({"s9"}),
+            recent_disliked_base_keys=("t1:b1",),
+        ),
+    )
+    assert result.survivors == ()
+    assert result.cooldown_reserve == ()
+
+
+# ------------------------ Step 4 — cooldown (C2, §6 step 3, §7) ------------------------
+
+
+def test_cooldown_removes_all_variants_of_disliked_base_key():
+    # Two variants share base_key "t1:b1" (different outer); cooldown filters by BaseKey, so
+    # both go — across all outer/shoe variants (§7) — while a different silhouette survives.
+    v1 = _candidate(source_index=0, top="t1", bottom="b1", outer="o1")
+    v2 = _candidate(source_index=1, top="t1", bottom="b1", outer="o2")
+    other = _candidate(source_index=2, top="t3", bottom="b3")
+    result = ranker._apply_step4_filters(
+        [v1, v2, other], _ctx(recent_disliked_base_keys=("t1:b1",))
+    )
+    assert result.survivors == (other,)
+    # Cooldown-only drops are tracked as relaxable for C5, but NOT re-admitted in C2.
+    assert result.cooldown_reserve == (v1, v2)
+
+
+# ------------------------ Step 4 — lock-starvation diagnostic (C2, N3/N8) ------------------------
+
+
+def test_locked_survivor_count_is_after_lock_before_contextual_and_cooldown():
+    # The candidate clears the lock filter but is then dropped by a contextual dislike — it
+    # still counts toward locked_survivor_count (measured after the lock filter alone).
+    cand = _candidate(top="t1", bottom="b1", shoes="s9")
+    result = ranker._apply_step4_filters(
+        [cand],
+        _ctx(locked_item_ids=frozenset({"t1"}), contextual_disliked_item_ids=frozenset({"s9"})),
+    )
+    assert result.locked_survivor_count == 1
+    assert result.survivors == ()
+    assert result.cooldown_reserve == ()  # contextual drop is non-relaxable
+
+
+def test_locked_survivor_count_includes_cooldown_dropped_candidate():
+    # Clears the lock filter, dropped only by cooldown → counts toward the lock survivors AND
+    # is held in the relaxable reserve.
+    cand = _candidate(top="t1", bottom="b1")
+    result = ranker._apply_step4_filters(
+        [cand], _ctx(locked_item_ids=frozenset({"t1"}), recent_disliked_base_keys=("t1:b1",))
+    )
+    assert result.locked_survivor_count == 1
+    assert result.survivors == ()
+    assert result.cooldown_reserve == (cand,)
+
+
+def test_insufficient_locked_candidates_true_when_lock_survivors_below_k():
+    cand = _candidate(top="t1", bottom="b1")
+    result = ranker._apply_step4_filters([cand], _ctx(locked_item_ids=frozenset({"t1"}), k=5))
+    assert result.locked_survivor_count == 1
+    assert result.insufficient_locked_candidates is True  # 1 < 5
+
+
+def test_insufficient_locked_candidates_false_when_enough_lock_survivors():
+    cands = [_candidate(source_index=i, top="t1", bottom=f"b{i}") for i in range(3)]
+    result = ranker._apply_step4_filters([*cands], _ctx(locked_item_ids=frozenset({"t1"}), k=2))
+    assert result.locked_survivor_count == 3
+    assert result.insufficient_locked_candidates is False  # 3 >= 2
+
+
+def test_insufficient_locked_candidates_false_when_no_locks():
+    cand = _candidate(top="t1", bottom="b1")
+    result = ranker._apply_step4_filters([cand], _ctx(k=5))  # no locks requested
+    assert result.insufficient_locked_candidates is False
+
+
+# ------------------------ Step 4 — all-filtered-out vs literal-empty (C2, N15/N3) ------------------------
+
+
+def test_all_filtered_out_non_empty_does_not_collapse_to_empty_path():
+    # All candidates cooldown-dropped: non-empty input, zero survivors. This is NOT the
+    # literal-empty case — public rank() still raises (no C5 relaxation yet), and the helper
+    # preserves a distinct cooldown-relax reserve (literal-empty input has no reserve).
+    cand = _candidate(top="t1", bottom="b1")
+    ctx = _ctx(recent_disliked_base_keys=("t1:b1",))
+    with pytest.raises(NotImplementedError):
+        ranker.rank([cand], ctx)
+    result = ranker._apply_step4_filters([cand], ctx)
+    assert result.survivors == ()
+    assert result.cooldown_reserve == (cand,)
