@@ -1,8 +1,10 @@
 # Regeneration controls: locks + contextual dislikes
 
-> Design plan (no code yet). The binding decision is **R9** in `Fitted_Spec_v2.md` §14 / Appendix A — this doc
-> holds execution detail and is consumed by the M3 (ranker) and M5 (wiring) specs. Interview
-> with Brian 2026-06-12.
+> Design note. The binding decision is **R9** in `Fitted_Spec_v2.md` §14 / Appendix A. This doc
+> preserves the regeneration-control design and M5 wiring expectations. The completed M3 ranker
+> plan supersedes the old M3 execution notes here: M3 filters/ranks cached candidates and reports
+> starvation; M5 owns any constrained Steps 1-3 re-entry, lock pinning, prompt wording, and
+> cache/session-pool merge. Interview with Brian 2026-06-12.
 
 ## Goal
 
@@ -15,11 +17,12 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 
 - [x] R9 folded into `Fitted_Spec_v2.md` §14 / Appendix A with pipeline-step assignments.
 - [x] Stale "decide at M3/M5" pointers in `legacy-prospecting.md` regeneration-routing notes resolved to R9.
-- [ ] M3: pure functions in `fitted_core` with pytest — regen filter, escalation trigger,
-      constrained-pool pinning, impossible-lock detection, merge dedup (tests listed below).
+- [x] M3: completed in the ranker as request-scoped filters/diagnostics over already-built
+      candidates; no constrained re-entry, pinning, or merge lives in M3
+      (`docs/plans/m3-ranker.md` is authoritative).
 - [ ] M5: single recommend route accepts `lockedItemIds`/`dislikedItemIds` + `generationIndex`;
-      legacy `regenerate/route.ts` retired; dashboard modal keeps lock checkboxes and per-item
-      dislikes, drops the changeTarget dropdown.
+      orchestrates any constrained re-entry/pinning/merge; legacy `regenerate/route.ts` retired;
+      dashboard modal keeps lock checkboxes and per-item dislikes, drops the changeTarget dropdown.
 - [ ] Observable behavior: a locked re-roll returns K outfits all containing every locked item,
       or fewer plus an explicit notice — never silently fewer (F14 guard).
 
@@ -30,15 +33,18 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 - `docs/plans/legacy-prospecting.md` — regeneration-routing notes now point to R9.
 - `docs/plans/regen-controls.md` — this doc.
 
-**M3 (build, in `ml-system/fitted_core/`):**
-- `ranker.py` (new at M3; module name set by the M3 spec) — `apply_regen_filters`, `needs_escalation`.
-- `sampler.py` — `build_constrained_pool` (pin variant of M1-5's `build_candidate_pool`).
-- `slotmap.py` (M0-4 home) — `contains_locks(slotmap, locked_ids)` containment check.
-- `tests/test_regen_controls.py` — new.
+**M3 (completed; see `docs/plans/m3-ranker.md`):**
+- `ranker.py` — request-scoped lock/contextual-dislike filters, lock-starvation diagnostics,
+  fallback over existing candidates, and score/rank/diversity behavior.
+- No constrained-pool builder, GPT re-entry, prompt pinning, or cache merge. M3 reports the
+  need; M5 decides and orchestrates re-entry.
 
 **M5 (wiring):**
 - `fitted/app/api/recommend/route.ts` — accept the two arrays; escalation orchestration;
   `regenNotice` in the response.
+- M5 service/adapter boundary — if escalation is used, run the constrained Steps 1-3 re-entry,
+  keep locked items pinned, exclude contextual dislikes, and merge valid additions back into
+  the candidate/session pool without changing the cache key.
 - `fitted/app/api/recommend/regenerate/route.ts` — **deleted** (deletion license; fails the
   M5-cutover survival test; decision recorded here per CLAUDE.md threshold).
 - `fitted/app/(app)/dashboard/page.tsx` — regenerate modal: changeTarget dropdown removed;
@@ -57,17 +63,19 @@ survives it).
    `dislikedItemIds`. Request-scoped only; the persistent per-item labels are already written
    by `POST /api/interactions` (`perItemFeedback`), so no new label plumbing. (Verified in
    `dashboard/page.tsx:817–890` + `interactions/route.ts:118–162`.)
-2. **Locks — Step 4 filter + escalation.** Keep only candidates containing **all**
-   `lockedItemIds`. If survivors `< DEFAULT_K` after both filters, **escalate once**: a
-   constrained re-entry of Steps 1–3 — locked items **pinned into the pool before sampling**
+2. **Locks — Step 4 filter + diagnostic.** M3 keeps only candidates containing **all**
+   `lockedItemIds`. If survivors `< DEFAULT_K` after filters, M3 reports starvation; it does
+   not fabricate a locked outfit, silently drop a lock, or re-enter Steps 1-3.
+3. **Escalation — M5-owned.** If M5 chooses to escalate, it does so at most once with a
+   constrained re-entry of Steps 1-3 — locked items **pinned into the pool before sampling**
    (the F14 fix), disliked items excluded, a must-include instruction in the GPT prompt,
    normal Step-3 validation **plus** lock-containment check. Sizing reuses M1-4
-   `candidate_requested` / `MAX_CANDIDATES` unchanged.
-3. **Merge into the session pool.** Escalation output is appended to the cached candidate
-   pool, deduped by FullSignature. One cache entry per session, key unchanged; repeat re-rolls
-   with the same lock are then free, and unconstrained re-rolls gain variety. At most one
-   escalation per request; growth is bounded by dedup + cache TTL.
-4. **Failure = partial + explicit notice.** If escalation still yields `< K` lock-satisfying
+   `candidate_requested` / `MAX_CANDIDATES` unchanged unless the M5 spec changes it.
+4. **Merge into the session pool — M5-owned.** Escalation output is appended to the cached
+   candidate pool, deduped by FullSignature. One cache entry per session, key unchanged;
+   repeat re-rolls with the same lock are then free, and unconstrained re-rolls gain variety.
+   Growth is bounded by dedup + cache TTL.
+5. **Failure = partial + explicit notice.** If escalation still yields `< K` lock-satisfying
    outfits, return what exists with a `regenNotice` ("we couldn't keep [item] in every
    outfit"). Locks are never silently dropped.
 
@@ -86,7 +94,7 @@ via the feedback flow; the free re-rank has no GPT call to consume text).
 | Same id in `lockedItemIds` and `dislikedItemIds` | 400 | Client bug; no sane semantics. |
 | Locked item deleted/`isAvailable === false`/not owned | Drop that lock, proceed, include in `regenNotice` | Wardrobe changed since the outfit was shown; honest partial beats hard failure. |
 | Structurally impossible lock set (one-piece + top/bottom; two of one slot — v2 §13 rules) | Reject **before** any filtering/GPT spend, explicit §19-style message | Escalation can't fix structure; don't pay for guaranteed-invalid candidates. |
-| Survivors < K after filters | One escalation call, merge, re-run Steps 4–6 | The core mechanism. |
+| Survivors < K after filters | M3 reports starvation; M5 may make one escalation call, merge, then re-run Steps 4–6 | M3 reports, M5 owns re-entry. |
 | Escalation candidates missing locks / failing validation | Dropped by Step 3 + containment check; may land in partial+notice | Backend never repairs GPT output (F4 lesson). |
 | Still < K after escalation | Partial + `regenNotice`; **no second escalation** | Cost bound: max one GPT call per request. |
 | Cache miss on a locked re-roll (TTL expired) | Normal Steps 1–3 rebuild, then same filter→escalate path | Mechanism is identical; no special case. |
@@ -96,30 +104,27 @@ via the feedback flow; the free re-rank has no GPT call to consume text).
 ## Out of scope
 
 - `changeTarget` and `feedbackNotes` — dropped from the contract (R9). The dropdown dies at M5.
-- Any new persistent state: locks/dislikes live in the request only; no schema changes.
+- Any new persistent state for locks/dislikes: they live in the request only; no schema changes.
 - Lock persistence across sessions or "pinned favorites" semantics (related to the `isFavorite` cold-start prior in v2 §11, M4).
-- Building any of this before M3 — M0/M1/M2 substrate must exist first.
+- Reopening completed M3 scope: new escalation/pinning/merge behavior belongs to M5 wiring, not the ranker.
 - UI redesign beyond the minimal modal edit at M5.
 - Rate limiting of escalation beyond the one-per-request bound (D2 posture unchanged).
 
 ## Verification plan
 
-**M3 (pytest, `ml-system/`):**
-- `apply_regen_filters`: dislike removal, all-locks containment, combined; determinism
-  (pure function, no RNG).
-- `needs_escalation`: boundary at `DEFAULT_K` (K-1 → True, K → False).
-- `build_constrained_pool`: pinned items present regardless of caps/sampling (the F14
-  regression test: a locked item that would lose the sampling lottery still appears);
-  disliked items absent; remaining slots respect M1 caps.
-- Impossible-lock detection: one-piece + bottom → rejected pre-GPT.
-- Merge: FullSignature dedup; pool size monotone non-decreasing; no duplicate signatures.
+**M3 (completed; `ml-system/`):**
+- Request filters: dislike removal, all-locks containment, combined behavior, determinism.
+- Starvation diagnostics: boundary at `DEFAULT_K` (K-1 → flagged, K → not flagged).
+- Non-relaxable controls: locks/contextual dislikes are never silently dropped in fallback.
+- M3 has no constrained-pool, GPT re-entry, or merge tests because those behaviors are M5-owned.
 
 **M5 (manual + jest):** locked re-roll on a real wardrobe → all returned outfits contain the
-lock or a `regenNotice` is present; regenerate route returns 410/removed; modal exercises the
-single route. Command: `cd ml-system && pytest` / `cd fitted && npm test`.
+lock or a `regenNotice` is present; constrained re-entry pins locked items and excludes
+contextual dislikes; merge dedups by FullSignature; regenerate route returns 410/removed;
+modal exercises the single route. Command: `cd ml-system && pytest` / `cd fitted && npm test`.
 
 ## Open questions
 
 None blocking. Deferred to their owners: exact `regenNotice` copy (M5, §19 messaging pass),
-must-include prompt wording (M2 prompt design), whether escalation reuses the full
-`candidate_requested` count or a smaller constant (M3, default = reuse unchanged).
+must-include prompt wording (M5 constrained re-entry spec), whether escalation reuses the full
+`candidate_requested` count or a smaller constant (M5, default = reuse unchanged).

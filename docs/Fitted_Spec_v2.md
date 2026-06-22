@@ -551,7 +551,7 @@ validator cannot invent public behavior. **`optionPath` (reliable/bridge/stretch
 score, freshness, exposure, and fallback decisions are assigned or computed only by pure Python backend
 functions (H20)**. `imageUrl` is excluded from the GPT payload (token cost — a **deferral, not a principled closure**: a vision-capable generator that sees actual garments stays open for a later milestone, §23-H33); `warmth` is stripped too.
 
-**Prompt-vs-board precedence** (resolves C12): hard constraints (dress code / weather / comfort) > prompt
+**Prompt-vs-board precedence**: hard constraints (dress code / weather / comfort) > prompt
 occasion & formality > active StyleProfile shapes choices *within* the valid context > revealed negative
 signal suppresses bad repeats. A casual board never overrides a "formal interview" occasion.
 
@@ -680,7 +680,7 @@ v2 activates those unused values and additively extends the enum for `planned/pa
 
 - **Text boards first** `[NOW]`: a board from style words / phrases compiles to the typed StyleProfile (§6.2).
   Visual boards (image → VLM/embedding) reuse the same compiler at `[STAGED]`.
-- **Board edits change recommendations, gracefully** (resolves C6): an edit mints a new
+- **Board edits change recommendations, gracefully**: an edit mints a new
   `styleProfileVersion` (reproducibility) but preserves *semantic identity* for memory continuity. A graded
   promise: major change (palette/silhouette/formality) refreshes strongly; minor change (a keyword tweak)
   preserves more of the candidate pool. *(The major/minor threshold is OPEN — §23-H5 — default: any
