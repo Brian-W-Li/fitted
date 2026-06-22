@@ -191,6 +191,23 @@ same moment. *(Seam caveat: "no other code change" holds only if the seam is the
 The deployed Mongo schemas (`fitted/models/*.ts`) are the **starting state**, not a constraint. v2 enriches
 them. Migration notes mark what changes. Everything below is the target.
 
+**Data-model posture** (governs every `[NEXT]`/`[STAGED]` shape below). These three rules make most
+"closed-set" foreclosures **reversible by default**, so they need *not* be hunted exhaustively — a specific
+instance is decided at its owning milestone against these rules, and stragglers are caught on sight in §23:
+
+1. **Additive & raw-preserving.** Every user-facing enum / closed set / bucket (constraints, weather,
+   feedback reasons, board & routine status, learning scopes…) is **additive**, and **no single field
+   conflates two concepts** (rating ≠ reason; temperature ≠ environment). Store the **raw/declared** signal
+   beside any derived bucket — the derived value is replaceable, the raw is not.
+2. **Inferences are drafts.** Anything inferred or auto-derived (routine, board, scope generalization,
+   profile) is **suggested/draft** until explicit confirmation or repeated support; it never silently steers.
+3. **Events are append-only with lineage.** Feedback/intent events are append-only and linked by id (target
+   outfit, `plannedFor`, derived-from); copies/derivations carry provenance so they don't overtrain.
+
+*(This posture subsumes §23-H29/H34/H35/H36/H37 and the recurring "a closed set could be richer" finding
+class. The irreversible foreclosures — discarding raw data, or breaking a stored identity/format — are the
+only kind worth pre-empting, and are guarded by rule 1 + the key/snapshot holes, §7/§15/§23-H29/H30.)*
+
 ### 6.1 WardrobeItem `[NOW]`
 The node of the closet graph. Deployed schema is already rich
 (`category`, `subCategory`, `pattern`, `colors[]`, `seasons[]`, `occasions[]`, `layerRole`, `brand`, `fit`,
@@ -847,7 +864,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H21 | "Orphan" is edge-defined but no edges exist at cold start | **RESOLVED-HERE** | Cold-start orphan = zero interactions + null/old `lastWornAt` (± `isFavorite`, ± explicit mark); deployed schema already has these fields (§11) |
 | H22 | Rescue forced-item → template logic + insufficient case + minimum starter closet | **RESOLVED-HERE** (template/insufficient) + **OPEN** (min closet) → DEFERRED-rescue-spec | `clothingType`→template rule + rescue `notEnoughItems` (§12); the minimum closet for the hook to function (and sub-threshold UX) is a product CALL |
 | H23 | GPT-emitted `StyleMove` wasn't boundary-validated | **RESOLVED-HERE** | `StyleMove.changedItemIds ⊆ outfit items`, else dropped (§13, §5 LLM-boundary rule) |
-| H24 | Feedback scope undefined when no board/routine is active (`[NOW]`) | **RESOLVED-HERE** | item-dislike → `global`, path/look → `outfit`; board/routine scopes arrive with B-track (§16) |
+| H24 | Feedback scope undefined when no board/routine is active (`[NOW]`) | **RESOLVED-HERE** | path/look → `outfit`; an item-dislike defaults to the **implicit/default-lens** scope and is promoted to `global` only on **repeated support/confirmation** — one tap never yanks the global profile (anti-capture §3, posture rule 2; refines P11); board/routine scopes arrive with B-track (§16) |
 | H25 | Compatibility/item representation is attribute-only; embeddings are `[STAGED]`; the §18 review gate excludes unreviewable features | **RESOLVED-HERE** → reflect at M4/W-track | Item representation is **extensible** (tags now → embeddings later); scoring consumes a representation, never a fixed tag list. Learned features (per-item embedding) are a **usable scorer class** distinct from human-reviewable canonical fields (§11/§18) |
 | H26 | §11 "never shared-catalog" / §22 "cross-user out of scope" would also bar a universal compatibility model | **RESOLVED-HERE** | Split: **behavioral/collaborative** cross-user stays out (privacy); a **universal *content*-compatibility model** trained on **public outfit corpora** is in-scope (clothes, not people) and is what makes the trained scorer feasible at portfolio scale — within-user behavior personalizes it (§11/§22). **Load-bearing for the dive's feasibility** |
 | H27 | §22 body/color non-goal would bar a body-type styling signal | **RESOLVED-HERE** | Non-goal = no prescriptive quiz/scan + no objective "fashionability" score. An **optional, declared, coarse body-proportion archetype** as a refinable cold-start styling prior is **in-scope** (behavior reinforces current defaults; a prior enables better-than-default advice); measurements stay optional/out (sizing only) (§22) |
@@ -857,9 +874,9 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H31 | §22 "real-time online training" non-goal could be read to bar exploration | **RESOLVED-HERE** | Out = continuous real-time gradient training. **In-scope**: a serving-time **exploration** policy (sometimes surface an orphan to learn its edges) + **periodic batch** retraining — how orphan-learning + anti-capture work; enables off-policy eval (§21/§22) |
 | H32 | The 30% signal slot caps the learned model's influence on *generation* | **RESOLVED-HERE** | The 70/30 split is a deliberate generation-influence ceiling, **not a law**; the trained scorer also scores the ranker, so total influence is not capped at 30% (§10) |
 | H33 | §12 strips `imageUrl` from GPT input ("token cost") | **RESOLVED-HERE** (framing) → DEFERRED | The strip is a **cost deferral, not a principled closure**: a vision-capable **generator** (sees garments, not just tags) stays open for a later milestone (§12) |
-| H34 | §16/§6.6 make structured `FeedbackReason` the *only* trainable why-channel; freeform is "display/debug only" | **RESOLVED-HERE** | Structured reasons stay the **labels**; **persist optional raw/corrected user rationale with provenance** (user explanations are high-trust), **excluded from training** until reviewed/compiled — so future reason-category discovery isn't foreclosed (§16/§6.6) |
-| H35 | §17 promises dormant boards "sleep, not decay," but §6.2 board status is only `active\|archived` | **OPEN** → DEFERRED-B-track | Give boards `active\|dormant\|archived` (or a `DormantBoardState` carrying freshness/exposure reset + revival summary) so dormancy has a data home distinct from archive (§6.2/§17) |
-| H36 | `ConstraintSet` is a fixed closed set (§6.3) | **RESOLVED-HERE** → reflect at M4 | `ConstraintSet` is **additive + raw-preserving**: optional user-declared constraint text/provenance so respectful constraints (modesty, sensory, body-confidence, uniforms, budget…) aren't squeezed into `dress_code`/`not_practical` (§6.3) |
+| H34 | Freeform feedback excluded as a trainable channel (§16/§6.6) | **RESOLVED in §16/§6.6** | Posture rule 1/3: structured reasons stay the labels; raw/corrected rationale is persisted with provenance, excluded from training until reviewed |
+| H35 | Dormant boards (§17) have no data home in `active\|archived` (§6.2) | **RESOLVED-seam in §6.2** → DEFERRED-B-track (impl) | Posture rule 1: board status gains `dormant` (or a `DormantBoardState`) |
+| H36 | `ConstraintSet` is a fixed closed set (§6.3) | **RESOLVED in §6.3** | Posture rule 1: additive + raw-preserving (optional user-declared constraint text/provenance) |
 | H37 | §16 anomaly scoping promises soft exceptions, but the scope vocab is only `outfit/board/routine/global` | **OPEN** → DEFERRED-M4 | Add first-class **`lens`** and **`exception`/`anomaly`** scopes (or split `scopeTarget` + `learningDisposition`) so noisy periods can be quarantined, reviewed, and promoted without rewriting board/routine memory (§16) |
 | H38 | "one global active profile in v1" (§6.2) could collapse the lens out of stored memory | **RESOLVED-HERE** | The global active profile is the **v1 default selection only**; every request/feedback snapshot may still carry `boardId`/`styleProfileId`/immutable version/confidence when present, so "which version of me" isn't lost (§6.2/§6.3/§15) |
 | H39 | The "remembers it as a personal style rule" loop (appendix C.8) has no rule object | **OPEN** → DEFERRED-`[STAGED]` | Add a deferred **`PersonalStyleRule`/`MemoryLesson`** artifact compiled from repeated scoped feedback (source events + scope), so Progress/Debugger surfaces don't scrape raw interactions (§16/§6.6) |
