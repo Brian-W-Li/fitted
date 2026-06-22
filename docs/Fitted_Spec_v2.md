@@ -94,7 +94,8 @@ All four are **modes of one engine**: input → variants → StyleMove → scope
 seeds the candidate pool (a forced item, a base outfit, a routine, a board), not in the pipeline.
 
 **Onboarding — hook first, board second** `[NOW]`. A brand-new user has a half-uploaded closet and no
-boards. We do **not** force board/routine setup first. The first screen is a one-tap hook —
+boards. We do **not** force board/routine setup first (hook-first is the *default*, not a ban — a user who
+already knows their lens may optionally pick a board/routine before the first recommendation; §23-H41). The first screen is a one-tap hook —
 *"rescue an item you never wear"* / *"upgrade today's fit"* — using an **implicit default lens** (just a
 light context the user can set: occasion + constraints). Board creation is offered as step 2, once there is
 a closet to ground it. Rationale: fastest first value; matches the green-shirt resonance; a board is
@@ -103,7 +104,9 @@ meaningless against an empty closet. *(Resolves the onboarding fork; see §17 fo
 **Cards primary, graph as the reveal** `[NOW]`. The default interface is always outfit cards. The literal
 closet-graph visualization is a progressive-disclosure "your closet is coming alive" moment, never the
 first screen and never the interface. A graph as the UI loses trust; the metaphor must not become the
-product. *(Firm spec rule, not a leaning.)*
+product. *(Firm spec rule, not a leaning.)* The rule bars the graph as the **primary dressing interface**,
+not as a **secondary** inspection/correction/progress surface — a graph preview, a progress view, or
+`[NORTH-STAR]` graph editing may exist behind progressive disclosure (§23-H41).
 
 ## 3. Users & the experience ladder
 
@@ -175,6 +178,14 @@ expose a `SignalScorer` seam (§10, §11). Today it is a content/heuristic score
 swaps in at `[STAGED]` with no other code change. This seam is the single most important structural
 deliverable.
 
+**What the engine is *today* vs. the destination** (read this before "style graph" misleads). At `[NOW]`
+the engine is a **closet-grounded GPT stylist with structured memory**: GPT composes outfits fenced to the
+wardrobe + Lens, the deterministic ranker filters/diversifies/buckets them, and scoped feedback is
+remembered. Believability rides on **GPT's styling judgment fenced by the closet** — *not* a learned graph
+yet. The **personal style graph** is the brand, the metaphor, and the `[STAGED]` payoff: accumulated feedback
++ a learned compatibility model (§11) is what the data *grows into*. Same engine, different rungs — not the
+same moment. *(Seam caveat: "no other code change" holds only if the seam is the right shape — see §23-H28.)*
+
 ## 6. Data model
 
 The deployed Mongo schemas (`fitted/models/*.ts`) are the **starting state**, not a constraint. v2 enriches
@@ -209,6 +220,12 @@ The node of the closet graph. Deployed schema is already rich
   done until two compilers produce the same schema and the engine consumes only that schema.)*
 - **StyleProfileSnapshot**: the immutable copy taken at request time and stored in the GenerationSnapshot.
 - *Active-profile semantics:* one global active profile in v1; routine-attached profiles are `[NORTH-STAR]`.
+  The single active profile is only the **v1 default selection** — every request/feedback snapshot may still
+  carry `boardId`/`styleProfileId`/immutable version/confidence when present, so "which version of me" is
+  never lost (§23-H38).
+- *Board status:* `active | archived` today; a third **`dormant`** state (or a `DormantBoardState` carrying
+  freshness/exposure reset + revival summary) is the seam for §17 seasonal revival — distinct from archive
+  (§23-H35).
 
 ### 6.3 Routine & Lens `[NOW]` explicit · `[STAGED]` inferred
 - **Routine**: `{id, userId, name, source: explicit|calendar|inferred, confidence, schedule?,
@@ -224,6 +241,9 @@ The node of the closet graph. Deployed schema is already rich
     occasion: str                  # normalized verbatim user text (trim/lowercase/collapse-ws) — NOT bucketed
     weather: str                   # canonical bucket from a closed set: hot|mild|cold|indoor|outdoor
     constraints: ConstraintSet     # walking, rain, presentable_later, low_effort, comfortable_shoes, no_buy, dress_code
+                                   # ADDITIVE + raw-preserving: respectful constraints (modesty, sensory,
+                                   # body-confidence, uniform, budget) get their own value + optional
+                                   # user-declared text/provenance, never squeezed into dress_code (§23-H36)
     styleProfileVersion: int|None  # active compiled profile version; None until boards exist
     routineId: str|None            # explicit routine; None in the implicit default lens
     forcedItemId: str|None         # rescue_item: the orphan to include (§12); None otherwise
@@ -266,8 +286,9 @@ The node of the closet graph. Deployed schema is already rich
   today.** v2 uses existing `saved/worn/rated` actions and additively extends the enum for
   `planned/packed/corrected` scoped-feedback events (§16). It also adds the
   **lens snapshot + baseKey/fullSig + server-issued outfit id** to each row. Trainable "why" is captured
-  only by the structured `FeedbackReason` set (§16); no unstructured feedback explanation blurb is part of
-  v2 feedback.
+  only by the structured `FeedbackReason` set (§16); no unstructured blurb is a **training label** — raw /
+  corrected user rationale is nonetheless **persisted with provenance** and excluded from training until
+  deliberately reviewed/compiled (§23-H34).
 - **StyleEdge memory** (§11): `compatibility` (content, derived) + `behavioralStrength` (sparse;
   non-negative in the `[NOW]`/`[NEXT]` layer, signed at `[STAGED]` — H18).
   *The deployed/ v1.2 additive memory (`ItemAffinity`, comboBoost/itemBoost) is **demoted** to the humble
@@ -285,6 +306,10 @@ Two keys, never conflated (carried from v1.2 §5; trap-guard R10 inline).
   outer and shoes. Used for: dislike cooldown, BaseKey variant cap.
 - **FullSignature**: `BaseKey + "|outer=" + (outerId|"none") + "|shoes=" + (shoesId|"none")`. Used for:
   dedup within a generation pass, comboBoost/edge matching. Same base + different outer = different outfit.
+- **Forward-compat slot rule (§23-H30):** a future optional garment role (accessory/bag/hat/mid-layer —
+  §6.1/§8) appends to the FullSignature **only when present**, in fixed canonical order, so existing keys stay
+  valid (no migration). BaseKey stays **base-only** for `[NOW]` cooldown/variant-cap; making outer/shoe-defined
+  looks a distinct identity is a registered **future** redefinition, not a `[NOW]` behavior.
 - **Computed from the SlotMap after normalization** (§8), exactly once per outfit at generation.
 - **R10 precondition (trap-guard — do not remove):** keys cannot be length-prefix-encoded (the literal
   format is spec-fixed and tested), so they enforce two preconditions, raising on violation: (1) a valid
@@ -357,7 +382,9 @@ The sampler is the shortlister: `list[WardrobeItem]` + RequestContext → bounde
 - **70/30 split over cap** (R6 trap-guard): `random_count = (cap*7 + 5)//10`, `signal_count = remainder`.
   **Integer half-up, float-free — NOT `round(cap*0.7)`** (banker's rounding splits the real caps in opposite
   directions and any TS/numpy reimpl that rounds halves up disagrees with prod). It is a **sampler-owned
-  helper, never a config constant.** Value table (all five caps): 35→25, 30→21, 25→18, 20→14, and shoes
+  helper, never a config constant.** (The 30% signal share is a deliberate generation-influence ceiling,
+  **not a law** — the trained scorer also scores the ranker, so its total influence is not capped at 30%;
+  §23-H32.) Value table (all five caps): 35→25, 30→21, 25→18, 20→14, and shoes
   25→18 (dresses and shoes share cap 25).
 - **The SignalScorer seam** (the ML plug, R11/R13): the 30% signal slot runs only when
   `interaction_count ≥ MIN_SIGNAL_THRESHOLD (=5)` **AND** `scorer.is_available()`. Otherwise the type's
@@ -430,8 +457,12 @@ same `SignalScorer` protocol (§5/§10) — `is_available()` true once loaded �
 Offline eval: NDCG@k / hit@k on accepted outfits, profile- and routine-conditioned (§21). **Eligibility
 gate (before the dive):** the scorer only changes behavior when a request has both ≥5 interactions *and* ≥1
 type over cap; if prevalence is low, give the model a second surface (candidate ordering or ranker scoring).
-Item-to-item similarity is **within-user / content-based**, never Amazon-style shared-catalog (private,
-unique wardrobes). *(Resolves H3: graph vs additive scoring — additive is the humble behavioral layer; the
+Item-to-item *behavioral/collaborative* similarity is **within-user**, never Amazon-style shared-catalog (private,
+unique wardrobes). **A universal *content*-compatibility model** ("does a denim jacket go with a white tee?")
+may instead be learned from **public/external outfit corpora** — it is about clothes, not people, so it is
+privacy-safe and *not* a cross-user signal, and it is what makes the trained scorer feasible at portfolio
+scale (one closet is far too small to learn from), with within-user behavior personalizing that universal
+baseline (§23-H26). *(Resolves H3: graph vs additive scoring — additive is the humble behavioral layer; the
 learned graph scorer is the staged evolution, plugged at the same seam.)*
 
 ## 12. GPT generation & prompt contract `[NOW]`
@@ -498,7 +529,7 @@ reason candidates only when their owning milestone consumes them; M2 explicitly 
 validator cannot invent public behavior. **`optionPath` (reliable/bridge/stretch), `risk`
 (safe/noticeable/bold), graph role (`anchor/bridge/experiment`), score, rank, edge strength, compatibility
 score, freshness, exposure, and fallback decisions are assigned or computed only by pure Python backend
-functions (H20)**. `imageUrl` is excluded from the GPT payload (token cost); `warmth` is stripped too.
+functions (H20)**. `imageUrl` is excluded from the GPT payload (token cost — a **deferral, not a principled closure**: a vision-capable generator that sees actual garments stays open for a later milestone, §23-H33); `warmth` is stripped too.
 
 **Prompt-vs-board precedence** (resolves C12): hard constraints (dress code / weather / comfort) > prompt
 occasion & formality > active StyleProfile shapes choices *within* the valid context > revealed negative
@@ -607,7 +638,7 @@ v2 activates those unused values and additively extends the enum for `planned/pa
 - **Feedback reasons** (separate from events): `good/neutral/bad`, `too_boring`, `too_much`,
   `not_practical`, `not_me`, `wrong_context`, `weather_forced`, `necessity`, `too_repetitive`.
   `not_practical` is first-class. These structured reasons are the sole trainable "why" channel for
-  feedback; free-form explanation blurbs are display/debug text only and must not become labels.
+  feedback; free-form explanation blurbs are not training labels by default — but raw/corrected user rationale is **persisted with provenance** (user explanations are high-trust) and may be compiled into reasons **only after deliberate review** (§23-H34).
 - **Scoped memory** `[NEXT]`/`[STAGED]`: feedback attaches to a scope — `outfit` / `board` / `routine` /
   `global`. A dislike under a "minimal workwear" board is not a global dislike. **Default scope in the
   `[NOW]` implicit lens (no board/routine active, H24):** an item dislike ("not me") is `global`; a path/look
@@ -666,7 +697,9 @@ synchronous per-item CV via `cv/infer` → external HF Space (`CV_SERVICE_URL`),
   attribute set + per-field confidence + an image **embedding** for similarity/cold-start; same
   backend-validates-structure philosophy as the GPT pipeline). Fallback: rehost a CV model on the service
   box. **User correction always overrides model output; the sampler consumes only reviewed/active canonical
-  fields**, never raw model guesses.
+  fields**, never raw model guesses. *(This gate governs **human-reviewable** fields; machine-learned
+  features such as the per-item **embedding** are a separate class the scorer may consume directly — they
+  are not human-correctable, so review does not apply to them, §23-H25.)*
 - New ingestion **writes the 5-value `clothingType` natively** (the delivery vehicle for the §6.1
   consolidation; backfill covers historical rows).
 
@@ -766,15 +799,19 @@ at response time, not persisted; graceful degradation through the fallback ladde
 
 **Non-goals (still out of scope for the near term — reframed from v1.2 §21):** virtual try-on / avatars
 (platform-owned; `[NORTH-STAR]` at most); social wardrobes / community feeds; shopping marketplace /
-affiliate (no-buy is the default trust posture; gap diagnosis is diagnosis-only and `[STAGED]`); body /
-color / "fashionability" analysis (non-prescriptive by design); real-time online training; full event
+affiliate (no-buy is the default trust posture; gap diagnosis is diagnosis-only and `[STAGED]`); prescriptive body /
+color *quizzes* + objective "fashionability" scoring (non-prescriptive by design — this does **not** bar an
+*optional, declared, coarse* body-proportion archetype as a refinable styling prior, nor learned color
+*compatibility*; §23-H27); real-time online *training* (continuous gradient updates — a serving-time
+**exploration** policy + periodic **batch** retraining is in-scope, §23-H31); full event
 sourcing; distributed-systems infrastructure (copy the contracts — candidate/ranking split, durable
 snapshots, cache-as-derived — not the machinery). *Reversed from v1.2 non-goals and now in scope:* StyleMove
 explanations, attribute-level StyleProfile traits, routine/occasion context — all deliberate, all here.
 
 **Privacy** `[STAGED]` (C7/C10): boards, routines, calendar, wardrobe photos, and interaction logs are
 sensitive. Before calendar integration or visual boards: define data minimization, deletion behavior, and
-private-by-default. Cross-user collaborative signals require item canonicalization + consent — out of scope.
+private-by-default. Cross-user **collaborative/behavioral** signals require item canonicalization + consent — out of scope; this
+bars collaborative signals, **not** a universal content-compatibility model trained on public outfit data (§23-H26).
 
 **Doc lifecycle (carried from CLAUDE.md):** this file is living — edit stale content in place, no
 "superseded by" narrative, no amendment history (git is the archive). Keep **trap-guards** (rationale that
@@ -811,6 +848,23 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H22 | Rescue forced-item → template logic + insufficient case + minimum starter closet | **RESOLVED-HERE** (template/insufficient) + **OPEN** (min closet) → DEFERRED-rescue-spec | `clothingType`→template rule + rescue `notEnoughItems` (§12); the minimum closet for the hook to function (and sub-threshold UX) is a product CALL |
 | H23 | GPT-emitted `StyleMove` wasn't boundary-validated | **RESOLVED-HERE** | `StyleMove.changedItemIds ⊆ outfit items`, else dropped (§13, §5 LLM-boundary rule) |
 | H24 | Feedback scope undefined when no board/routine is active (`[NOW]`) | **RESOLVED-HERE** | item-dislike → `global`, path/look → `outfit`; board/routine scopes arrive with B-track (§16) |
+| H25 | Compatibility/item representation is attribute-only; embeddings are `[STAGED]`; the §18 review gate excludes unreviewable features | **RESOLVED-HERE** → reflect at M4/W-track | Item representation is **extensible** (tags now → embeddings later); scoring consumes a representation, never a fixed tag list. Learned features (per-item embedding) are a **usable scorer class** distinct from human-reviewable canonical fields (§11/§18) |
+| H26 | §11 "never shared-catalog" / §22 "cross-user out of scope" would also bar a universal compatibility model | **RESOLVED-HERE** | Split: **behavioral/collaborative** cross-user stays out (privacy); a **universal *content*-compatibility model** trained on **public outfit corpora** is in-scope (clothes, not people) and is what makes the trained scorer feasible at portfolio scale — within-user behavior personalizes it (§11/§22). **Load-bearing for the dive's feasibility** |
+| H27 | §22 body/color non-goal would bar a body-type styling signal | **RESOLVED-HERE** | Non-goal = no prescriptive quiz/scan + no objective "fashionability" score. An **optional, declared, coarse body-proportion archetype** as a refinable cold-start styling prior is **in-scope** (behavior reinforces current defaults; a prior enables better-than-default advice); measurements stay optional/out (sizing only) (§22) |
+| H28 | The `SignalScorer` seam is item-level (`score(item, context)`) — wrong shape for outfit/pairwise compatibility | **OPEN** → DEFERRED-M5/M6 | Reserve a **second seam shape**: an **outfit/pairwise-level scoring hook on the ranker** (scores a SlotMap / a pair), distinct from the item-level sampler slot. A summed per-item score cannot represent "these clash"; the compatibility dive needs the outfit-level hook to land (§5/§11/§14) |
+| H29 | GenerationSnapshot may store only validated/shown candidates + text features (selection-biased, label-only, attribute-only) | **OPEN** → DEFERRED-M4 | Snapshot must persist (a) **continuous** path/risk/compatibility **scores**, not just the 3-way buckets; (b) **rejected + low-ranked** candidates + reasons (negative signal); (c) the **visual** (image ref/embedding), not just text attributes — else the rich-representation + off-policy paths die (§15/§21). Guard the image-replacement data-loss (H14) |
+| H30 | `FullSignature` format is spec-locked; new garment roles would force a key migration; BaseKey identity is base-only | **RESOLVED-HERE** (rule) + **OPEN** (identity) | Extension rule: a new optional slot appends **only when present**, fixed canonical order, so existing keys stay valid. BaseKey stays **base-only** for `[NOW]` cooldown/variant-cap; outer/shoe-defined identity is a registered **future** redefinition (§7/§8) |
+| H31 | §22 "real-time online training" non-goal could be read to bar exploration | **RESOLVED-HERE** | Out = continuous real-time gradient training. **In-scope**: a serving-time **exploration** policy (sometimes surface an orphan to learn its edges) + **periodic batch** retraining — how orphan-learning + anti-capture work; enables off-policy eval (§21/§22) |
+| H32 | The 30% signal slot caps the learned model's influence on *generation* | **RESOLVED-HERE** | The 70/30 split is a deliberate generation-influence ceiling, **not a law**; the trained scorer also scores the ranker, so total influence is not capped at 30% (§10) |
+| H33 | §12 strips `imageUrl` from GPT input ("token cost") | **RESOLVED-HERE** (framing) → DEFERRED | The strip is a **cost deferral, not a principled closure**: a vision-capable **generator** (sees garments, not just tags) stays open for a later milestone (§12) |
+| H34 | §16/§6.6 make structured `FeedbackReason` the *only* trainable why-channel; freeform is "display/debug only" | **RESOLVED-HERE** | Structured reasons stay the **labels**; **persist optional raw/corrected user rationale with provenance** (user explanations are high-trust), **excluded from training** until reviewed/compiled — so future reason-category discovery isn't foreclosed (§16/§6.6) |
+| H35 | §17 promises dormant boards "sleep, not decay," but §6.2 board status is only `active\|archived` | **OPEN** → DEFERRED-B-track | Give boards `active\|dormant\|archived` (or a `DormantBoardState` carrying freshness/exposure reset + revival summary) so dormancy has a data home distinct from archive (§6.2/§17) |
+| H36 | `ConstraintSet` is a fixed closed set (§6.3) | **RESOLVED-HERE** → reflect at M4 | `ConstraintSet` is **additive + raw-preserving**: optional user-declared constraint text/provenance so respectful constraints (modesty, sensory, body-confidence, uniforms, budget…) aren't squeezed into `dress_code`/`not_practical` (§6.3) |
+| H37 | §16 anomaly scoping promises soft exceptions, but the scope vocab is only `outfit/board/routine/global` | **OPEN** → DEFERRED-M4 | Add first-class **`lens`** and **`exception`/`anomaly`** scopes (or split `scopeTarget` + `learningDisposition`) so noisy periods can be quarantined, reviewed, and promoted without rewriting board/routine memory (§16) |
+| H38 | "one global active profile in v1" (§6.2) could collapse the lens out of stored memory | **RESOLVED-HERE** | The global active profile is the **v1 default selection only**; every request/feedback snapshot may still carry `boardId`/`styleProfileId`/immutable version/confidence when present, so "which version of me" isn't lost (§6.2/§6.3/§15) |
+| H39 | The "remembers it as a personal style rule" loop (appendix C.8) has no rule object | **OPEN** → DEFERRED-`[STAGED]` | Add a deferred **`PersonalStyleRule`/`MemoryLesson`** artifact compiled from repeated scoped feedback (source events + scope), so Progress/Debugger surfaces don't scrape raw interactions (§16/§6.6) |
+| H40 | The `[NOW]` product *assumes* GPT styles believably from **text attributes only** (images stripped, §12) — unvalidated | **OPEN** → validate pre-M5 | The `[NOW]` viability bet. Validate empirically on golden wardrobes (believability judged) before relying on text-only generation; if it underdelivers, promote vision-input-to-generator (H33) from deferred to near-term (§12/§21) |
+| H41 | §2 "graph never the interface" + "hook first" could harden into bans | **RESOLVED-HERE** | Cards are the **default dressing interface**; a **secondary** graph/progress/`[NORTH-STAR]`-editing surface may exist behind progressive disclosure. Hook-first is the **default**, not a ban on optional lens-first board/routine selection (§2) |
 
 ---
 
