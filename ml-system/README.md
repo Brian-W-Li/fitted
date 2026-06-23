@@ -4,7 +4,7 @@
 > - **`fitted_core/`** — the **v2 substrate** (the current focus). Pure-function contracts +
 >   sampler for the GPT-orchestration refactor, built test-first under `tests/` (pytest).
 >   Authoritative design: `docs/Fitted_Spec_v2.md` + `docs/plans/m0-m1-substrate.md` (M0/M1, completed) + `docs/plans/m2-validator.md` (M2, completed) + `docs/plans/m3-ranker.md` (M3, completed).
->   **M0–M3 complete — sampler substrate (partition, caps, 70/30 `SignalScorer` seam, candidate scaling, `build_candidate_pool` entry point), the M2 GPT-response validator (parse, strict schema, SlotMap/pool validation, keys + dedup, StyleMove, candidate bounds), and the M3 ranker (Step-4 filters, additive scoring, diversity, fallback ladder, deterministic tie-break). Next: the post-M3 fork — Spearhead vs M4 (`docs/Fitted_Spec_v2.md` §20).**
+>   **M0–M3 complete — sampler substrate (partition, caps, 70/30 `SignalScorer` seam, candidate scaling, `build_candidate_pool` entry point), the M2 GPT-response validator (parse, strict schema, SlotMap/pool validation, keys + dedup, StyleMove, candidate bounds), and the M3 ranker (Step-4 filters, additive scoring, diversity, fallback ladder, deterministic tie-break). Next active work: Spearhead orphan-item rescue (`docs/plans/spearhead.md`), then M4 data migration (`docs/Fitted_Spec_v2.md` §20).**
 > - **`outfit_recommender.py`** — the **legacy rule-based demo** (Issue #32, below). Kept as a
 >   runnable reference only; retired at M6 when the trained scorer lands. Not the architecture.
 >

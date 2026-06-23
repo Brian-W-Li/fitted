@@ -82,9 +82,9 @@ Maps to team issues **#84** (Brian's own: *"LLM prompts make it better"*) and **
 
 Sketch of the arc:
 
-1. Finish `fitted_core` M1-M3: sampler, validation boundary, ranker, regen controls, and deterministic tests.
-2. M4/M5: migrate data shape, add GenerationSnapshot / feedback authenticity, deploy the Python service, and wire the Next app behind `USE_ML_SHORTLISTER`.
-3. Build the orphan-item rescue spearhead on the v2 pipeline.
+1. ✅ `fitted_core` M0-M3: sampler, validation boundary, ranker, regen controls, deterministic tests (486 pytest green; closed).
+2. Spearhead: orphan-item rescue end-to-end on the v2 pipeline — the resolved post-M3 next step, specced in `docs/plans/spearhead.md` (C1–C6 ladder). Runs on the existing substrate; defers feedback storage to M4.
+3. M4/M5: migrate data shape, add GenerationSnapshot / feedback authenticity, deploy the Python service, and wire the Next app behind `USE_ML_SHORTLISTER`.
 4. M6: train the style-graph scorer at the `SignalScorer` seam; evaluate with GenerationSnapshots + feedback.
 5. Writeup: architecture diagram, methodology, before/after numbers.
 
@@ -92,11 +92,11 @@ The old `_score_outfit` interface in `ml-system/outfit_recommender.py` is legacy
 
 ## Canonical sources
 
-This is an **overhaul** (Brian, 2026-06-17). The product direction is the **lens-first personal style graph**: turning a scattered closet into a graph where boards + routines reveal wearable connections between owned clothes (the "green-shirt" problem). The earlier v1.2 PDF is now the *engine substrate* underneath that vision, not the whole target. The single canonical, **editable** spec is `docs/Fitted_Spec_v2.md` — it supersedes the v1.2 PDF, `spec-resolutions.md`, and `scope-decisions.md` (all retired; their R#/S#/N# map forward via v2 Appendix A). Edit v2 in place; the old addendum-against-a-PDF pattern is dead.
+This is an **overhaul**. The product direction is the **lens-first personal style graph**: turning a scattered closet into a graph where boards + routines reveal wearable connections between owned clothes (the "green-shirt" problem). The earlier v1.2 PDF is now the *engine substrate* underneath that vision, not the whole target. The single canonical, **editable** spec is `docs/Fitted_Spec_v2.md` — it supersedes the v1.2 PDF, `spec-resolutions.md`, and `scope-decisions.md` (all retired; their R#/S#/N# map forward via v2 Appendix A). Edit v2 in place; the old addendum-against-a-PDF pattern is dead.
 
 **Authoritative for design:**
 - `docs/Fitted_Spec_v2.md` — **the** canonical spec. Build-ladder tagged (`[NOW]`/`[NEXT]`/`[STAGED]`/`[NORTH-STAR]`); §23 is the live Open Holes Register. When v2 and deployed behavior disagree, v2 wins.
-- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; milestone closed 2026-06-21 — per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context. **Next active work is the post-M3 fork — Spearhead (orphan-item rescue) vs M4 (data migration), per `docs/Fitted_Spec_v2.md` §20; `/spec` before building.**
+- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context. **Next active work is the Spearhead milestone (orphan-item rescue) — the resolved post-M3 next step (chosen over M4-first), specced in `docs/plans/spearhead.md` (C1–C6 ladder); implement per that plan. M4 (data migration) follows.**
 - `docs/plans/*.md` — per-milestone plans produced by `/spec` or the `planner` subagent. Active execution plans.
 - This `CLAUDE.md` — project conventions and scope.
 
@@ -183,7 +183,7 @@ This is a **license, not a default.** Measure before cutting. Guardrails:
 - **Public launch / user growth.** Teammates' framing; Brian has explicitly scoped to portfolio + technical depth. Don't suggest deploy / marketing / scaling work unless asked.
 - **Visual try-on** (issues #82, #87–92). v2 candidate at most; diffusion-model territory; not the current dive.
 - **Frontend redesign.** UX changes only if they're needed to demo the `ml-system/` work.
-  **Exception (Brian, 2026-06-11): the wardrobe *ingestion* surface is in-scope** — it's the
+  **Exception: the wardrobe *ingestion* surface is in-scope** — it's the
   data faucet for M4/M6 (CV reliability, async/batch upload, review form). Tracked as the
   **W-track** in `docs/Fitted_Spec_v2.md` §18; sequenced adjacent to M4/M5, `/spec`
   before building.
@@ -196,6 +196,6 @@ This is a **license, not a default.** Measure before cutting. Guardrails:
 - For ml-system work, prefer source-grounded reasoning (datasets, eval methodology, citations to specific papers/issues) over vibes.
 - Tests: `fitted/tests/` uses jest. `ml-system/tests/` uses pytest for `fitted_core`; add coverage as the rewrite lands.
 - **Spec-first for non-trivial work.** For any task spanning more than 1–2 files or with unclear scope, prefer `/spec <slug>` (interview + write `docs/plans/<slug>.md`) or the `planner` subagent before coding. Spec-first beats code-first when sessions are days apart and context recovery matters.
-- **Promise-driven decisions.** For non-trivial design calls: reason from the user-facing promise the decision serves (determinism/consistency, speed + convenience), teach the mechanics from first principles before deciding, and get a Fable review (`Agent` with `model: "fable"`) on the important ones. Record current resolutions in `docs/Fitted_Spec_v2.md` or the active milestone plan, not in retired ledgers. **Fable is currently unavailable (2026-06-15):** in its place, a thorough dual read substitutes for the important-call review — a deep first-principles code+doc review in-session plus an independent second pass, with both converging before the call is locked. Note the substitute review basis in the resolution.
+- **Promise-driven decisions.** For non-trivial design calls: reason from the user-facing promise the decision serves (determinism/consistency, speed + convenience), teach the mechanics from first principles before deciding, and get a Fable review (`Agent` with `model: "fable"`) on the important ones. Record current resolutions in `docs/Fitted_Spec_v2.md` or the active milestone plan, not in retired ledgers. When Fable is unavailable, a thorough dual read substitutes for the important-call review — a deep first-principles code+doc review in-session plus an independent second pass, with both converging before the call is locked. Note the substitute review basis in the resolution.
 - **Short sessions; externalize state.** Keep sessions short — long context is the main usage cost. Push durable state into `docs/plans/`, `docs/sessions/`, and memory so each session starts from a small reading list, not full history. `/clear` between unrelated tasks.
 - **Past goes to commits; future stays in docs.** When writing or pruning a doc, sort content by orientation. **Past-oriented** content — what changed, when, why we picked X over Y, review history, fold-in narratives, "reviewed on date Z" annotations — belongs in the commit message, not the doc; delete it. **Future-oriented** content — how it works, the contract, what's planned, what a resolution *is* (not how we got there) — stays, living in exactly one place. The rule is **not** "delete past tense": past rationale that stops a future mistake (a *trap-guard*) stays, reframed as a forward warning. Example: R6's resolution text (the integer half-up split + the value table) is future and stays; the "Fable-reviewed, Brian pushed back" review history is past and belongs in the commit that landed R6 — but R6's banker's-rounding warning stays, because it stops a re-implementer from reintroducing the bug. When a sentence is genuinely both, keep it.

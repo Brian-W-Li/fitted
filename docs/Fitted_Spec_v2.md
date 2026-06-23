@@ -131,7 +131,7 @@ globally?", "your recent likes are narrowing things — keep exploring?" — but
 **Neglect modes to design against:** ignoring comfort/mobility/weather/dress-code; assuming the goal is
 always boldness; impractical shoes; repeating dirty/unavailable items; turning every gap into a shopping
 nudge; over-explaining; narrowing on one dislike; failing partial/sparse/non-standard closets. Concrete
-responses: explicit constraints (§6 Lens), backend-assigned path/risk labels (§14), `not_practical` as a
+responses: explicit constraints (§6 Lens), backend-assigned path/risk labels (§11, response-layer), `not_practical` as a
 first-class signal (§16), scoped feedback (§16).
 
 ## 4. Canonical vocabulary
@@ -179,12 +179,14 @@ swaps in at `[STAGED]` with no other code change. This seam is the single most i
 deliverable.
 
 **What the engine is *today* vs. the destination** (read this before "style graph" misleads). At `[NOW]`
-the engine is a **closet-grounded GPT stylist with structured memory**: GPT composes outfits fenced to the
-wardrobe + Lens, the deterministic ranker filters/diversifies/buckets them, and scoped feedback is
-remembered. Believability rides on **GPT's styling judgment fenced by the closet** — *not* a learned graph
-yet. The **personal style graph** is the brand, the metaphor, and the `[STAGED]` payoff: accumulated feedback
-+ a learned compatibility model (§11) is what the data *grows into*. Same engine, different rungs — not the
-same moment. *(Seam caveat: "no other code change" holds only if the seam is the right shape — see §23-H28.)*
+the engine is a **closet-grounded GPT stylist with structured outputs and stable feedback keys**: GPT
+composes outfits fenced to the wardrobe + Lens, the deterministic ranker filters/diversifies them (the
+response layer buckets them into path/risk), and the response carries `baseKey`/`fullSignature` so M4 can
+bind feedback later. Believability rides on **GPT's styling judgment fenced by the closet** — *not* a
+learned graph yet. The **personal style graph** is the brand, the metaphor, and the `[STAGED]` payoff:
+accumulated feedback + a learned compatibility model (§11) is what the data *grows into*. Same engine,
+different rungs — not the same moment. *(Seam caveat: "no other code change" holds only if the seam is the
+right shape — see §23-H28.)*
 
 ## 6. Data model
 
@@ -289,9 +291,12 @@ The node of the closet graph. Deployed schema is already rich
 - **Outfit** (API response object): `{id, templateType: two_piece|one_piece, items: [{itemId, role}],
   score, scoreBreakdown}`. Items ordered base-roles-first, then outer, then shoes; optional roles omitted
   (no null fields). `templateType` is explicit; the UI never infers it.
-- **OutfitVariant**: response-layer wrapper around a validated outfit after Python ranking. The backend
-  ranker tags it with an `optionPath` (reliable|bridge|stretch) and a `risk` (safe|noticeable|bold), plus
-  its `StyleMove`. These tags are never GPT-emitted fields.
+- **OutfitVariant**: response-layer wrapper around a validated, ranked outfit. The backend **response
+  layer** (post-rank, *not* the closed ranker itself) assigns an `optionPath` (reliable|bridge|stretch)
+  and a `risk` (safe|noticeable|bold), and carries the outfit's `StyleMove`, `score`/`scoreBreakdown`, and
+  `baseKey`/`fullSignature`. At cold start it also carries the two `[0,1]` content scores it bucketed
+  path/risk from — `compatibility` and `visibility` (internal eval / the M6 seam, see §11). None of these
+  are GPT-emitted fields.
 - **StyleMove**: `{moveType, changedItemIds, oneSentence, matchedTraits[], missingTraits[]}`. Every
   StyleMove must reference an actually changed/added item — a semantic guarantee where a baseline outfit
   exists (rescue/upgrade/ranker, §12/§14); the M2 validation boundary checks only the schema and
@@ -376,16 +381,20 @@ added.
 | # | Step | Does | Milestone |
 |---|------|------|-----------|
 | 0 | **Resolve request** | Build the Lens/RequestContext (§6.3): user, wardrobeVersion, intent, occasion, weather bucket, constraints, active profile snapshot, routine, forced item / base outfit | M5 adapter |
-| 1 | **Pool prep** | Partition by `clothingType`, per-type caps, 70/30 sampling, derive session seed; forced-item pinning for `rescue_item` belongs to later rescue/lock machinery (§12/§14) | M1 sampler |
-| 2 | **GPT generation** | Candidate outfits as role-tagged item lists plus allowed `StyleMove` text only in M2; no scores, ranks, `optionPath`, `risk`, or diagnostic reason fields (§12) | M2 |
+| 1 | **Pool prep** | Partition by `clothingType`, per-type caps, 70/30 sampling, derive session seed; intent-specific forced/lock scoping happens outside the closed sampler (§12/§14) | M1 sampler |
+| 2 | **GPT generation** | Candidate outfits as role-tagged item lists plus allowed `StyleMove` text only in M2; no scores, ranks, `optionPath`, `risk`, or diagnostic reason fields (§12) | M2 contract · Spearhead call |
 | 3 | **Normalize + validate** | Raw → SlotMap; structural validation (§8/§13); compute BaseKey + FullSignature; drop exact FullSignature duplicates in the pass | M0/M2 |
 | 4 | **Cooldown / per-request filters** | Drop candidates whose **BaseKey** is in the dislike cooldown buffer; apply regen locks/contextual dislikes (§14, R9) | M3 |
 | 5 | **Scoring** | `base + behavioral edge signal − dislikePenalty` (§14); humble v1 = additive (R2), evolves to edge/learned scorer (§11) | M3 |
 | 6 | **Ranking & diversity** | BaseKey variant cap → overuse penalty → repetition-window (FullSignature) → fallback ladder if < K → sort by score → tie-break | M3 |
-| 7 | **Response + StyleMove** | Outfits[] + backend-assigned `optionPath`/`risk` + StyleMove + scoreBreakdown; cache the candidate stage; write GenerationSnapshot; async log | M5 |
+| 7 | **Response + StyleMove** | Outfits[] + backend-assigned `optionPath`/`risk` + StyleMove + scoreBreakdown; cache the candidate stage; write GenerationSnapshot; async log | Spearhead labels · M5 cache/snapshot |
 
 Regen controls (locks + contextual dislikes) are per-request **Step 4** filters with a one-shot constrained
 re-entry of Steps 1–3 on starvation (§14, R9).
+
+Step 2's generation *call* and Step 7's path/risk *labelling* land at the Spearhead milestone
+(`docs/plans/spearhead.md`); M2 fixed only the generation *contract* (the validation boundary), and M5
+adds Step 7's caching/snapshot/logging plus the service deploy.
 
 ## 10. Pool preparation / the sampler `[NOW]`
 
@@ -447,21 +456,23 @@ This section makes the green-shirt promise real and houses the ML dive.
 
 **Cold start (why rescue works on a new account):** a new user has zero behavioral edges. GPT proposes
 believable candidate completions for the forced item from the bounded pool; pure Python compatibility /
-risk scoring ranks and buckets the surviving drafts. No trained model, no feedback required. The user wears
-one → a behavioral edge forms → the item de-orphans. *That growth is the visible payoff.*
+risk scoring ranks and buckets the surviving drafts. No trained model, no feedback required. Spearhead
+emits `baseKey`/`fullSignature` so M4 can bind the later wear/like to the exact outfit; once M4 lands, that
+feedback forms behavioral edges and the item de-orphans. *That growth is the visible payoff.*
 
 **Detecting orphans at cold start (H21):** with no behavioral edges yet, "items you never wear" cannot be
 edge-defined. The `[NOW]` rescue entry surfaces candidates from signals the deployed schema already has:
 zero interactions **and** null/old `lastWornAt`, optionally `isFavorite` (liked-but-unworn = the sharpest
-orphan), or an explicit "rarely wear this" mark during onboarding. The exact blend is a rescue-spec tuning
-detail; the signal set is fixed here so rescue is never blocked on the graph already existing.
+orphan), or an explicit "rarely wear this" mark during onboarding. The exact blend is a detection-tuning
+detail (deferred with orphan auto-detection, H21 — the Spearhead vertical takes the forced item as
+given); the signal set is fixed here so rescue is never blocked on the graph already existing.
 
 **Graph roles (UI labels, derived):** `anchor` = high compatibility + high behavioralStrength (trusted);
 `bridge` = one trusted side + one new; `experiment` = compatible but unproven. These map to the user-facing
-option paths `reliable / bridge / stretch`, which the **backend ranker assigns** from a graph/path score.
+option paths `reliable / bridge / stretch`, which the **backend response layer assigns** (post-rank, not the closed ranker) from a graph/path score.
 `risk` (`safe / noticeable / bold`) is assigned separately from social-visibility features. At cold start,
 before behavioral edges exist, option path ≈ compatibility/commonness/trusted-anchor availability, while
-risk ≈ visibility/boldness of the styling move. The exact cold-start metrics are rescue-spec calls (H20).
+risk ≈ visibility/boldness of the styling move. The exact cold-start metric shape is fixed in the rescue spec (`docs/plans/spearhead.md` §G); numeric thresholds are tuned there (H20).
 **GPT never assigns the path or risk** (§5: GPT does not rank).
 
 **The humble-first behavioral mechanism** `[NEXT]`: the v1.2 additive scorer **is** the first
@@ -531,8 +542,9 @@ rescue/lock machinery (§14/R9).
 
 **Intent shaping:**
 - `rescue_item` `[NOW]`: M1 currently provides generic pool prep only, and M2 validates only sampled-pool
-  membership. In the Spearhead/rescue layer, the forced item is pinned into the pool before sampling; the
-  prompt instructs every outfit to include it; rescue/lock machinery rejects any candidate missing it
+  membership. In the Spearhead/rescue layer, after the generic sampled pool is built, the pool is scoped
+  around the forced item before prompting/validation; the prompt instructs every outfit to include it;
+  rescue/lock machinery rejects any candidate missing it
   (§14/R9). **The
   forced item's `clothingType` determines the valid template(s) (H22):** base_top or
   base_bottom → two_piece (the engine must find a complementary base of the other kind); dress → one_piece;
@@ -540,7 +552,7 @@ rescue/lock machinery (§14/R9).
   case:** if no complementary base can build a valid outfit around the forced item (e.g. the orphan is the
   user's only top and there are no bottoms), return `notEnoughItems` scoped to the rescue (a sharper §10
   zero-case) — never silently drop the forced item. GPT still returns unranked candidate drafts only; the
-  Python ranker later buckets survivors into the three user-facing paths: reliable / bridge / stretch.
+  backend **response layer** (post-rank) buckets survivors into the three user-facing paths: reliable / bridge / stretch.
 - `outfit_upgrade`/`daily`/`translate`: seed from base outfit / routine / compiled board respectively.
 
 **Allowed GPT output fields:** in M2, GPT may emit only role-tagged item ids and a `StyleMove` (§6.5,
@@ -593,9 +605,11 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   two are distinct, both kept); prefer silhouette diversity) → return fewer + `insufficientWardrobe` + user
   message.
 - **Regen controls** (R9): `dislikedItemIds` and `lockedItemIds` are **Step-4 per-request filters** over
-  cached candidates; if locked survivors < K, **one** constrained re-entry of Steps 1–3 (locks pinned into
-  the pool before sampling, dislikes excluded), merged into the cached pool (dedup by FullSignature, key
-  unchanged). Failure = partial + explicit notice, never a silently dropped lock. **Dropped from the legacy
+  cached candidates; if locked survivors < K, **one** constrained re-entry of Steps 1–3 is allowed, but
+  locks are enforced by orchestration-scoped pools plus validation/filtering outside the closed sampler
+  (dislikes excluded), then merged into the cached pool (dedup by FullSignature, key unchanged). M5 owns the
+  exact lock-scoping shape; invariant: no M0–M3 module reopens. Failure = partial + explicit notice, never
+  a silently dropped lock. **Dropped from the legacy
   regen contract:** `changeTarget` and `feedbackNotes` (the deployed `regenerate/route.ts:349-358` has them;
   locks express the intent, notes persist via the feedback flow). The legacy `regenerate/route.ts` is
   deleted at cutover (§19).
@@ -618,8 +632,9 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   — this prevents cache-key explosion (C3). **This candidate key is a *superset* of the session-seed
   inputs: v2 deliberately retires the v1.2 `cache_key ≡ seed` invariant (N1) — `intent`, `forcedItemId`,
   and `styleProfileVersion` change what GPT generates, so they must key the candidate cache, but they need
-  not enter the sampler seed (the forced item is pinned deterministically; the seed governs the random
-  draw within a given intent/profile context). New invariant: `cache key ⊇ seed inputs`. See §23-H16.**
+  not enter the sampler seed (the forced item is applied deterministically by rescue pool scoping after
+  the generic sampled draw; the seed governs that draw within a given intent/profile context). New
+  invariant: `cache key ⊇ seed inputs`. See §23-H16.**
   `generationIndex` is deliberately barred from the key so a
   re-roll re-ranks the *same* cached candidates with a new tie-break (cheap and genuinely different). A new
   dislike vanishes via the Step-4 cooldown on the very next render even on a cache hit; a like re-scores via
@@ -780,7 +795,7 @@ The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M3
 | **M1** | Sampler: partition, caps, 70/30, the SignalScorer seam (`ColdStartSignalScorer`) | ✅ done (M1-1..M1-5 — partition/caps/70-30 seam/candidate scaling/`build_candidate_pool` entry point per §10/§11; pytest green; signal path stubbed until M6) |
 | **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | ✅ done (C1–C6 — parse, strict §12 schema, SlotMap/pool validation, keys + exact-FullSignature dedup, StyleMove, candidate bounds; pytest green) |
 | **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, repetition, fallback, regen controls (over M2's already-deduped accepted candidates — M3 never re-dedups) | ✅ done (C1–C6; §12 mutation-hardened; pytest green) |
-| **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, like/dislike via the existing `OutfitInteraction`. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | `[NOW]` — proves the whole vision |
+| **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, and `baseKey`/`fullSignature` emitted for later feedback binding. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | `[NOW]` — proves the whole vision |
 | **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `ItemAffinity`/`wardrobeVersion`/`sessionId`, GenerationSnapshot, baseKey/fullSig on interactions, feedback-authenticity gate | `[NEXT]` |
 | **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (normalization); trust-boundary gates | `[NEXT]` |
 | **W-track** | Async CV queue + item states + review surface + VLM extraction/embeddings (§18) | `[NEXT]`/`[STAGED]` |
@@ -863,9 +878,9 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H17 | PDF `forceRegenerate=true` disposition undefined, given R1/R9 redefine regenerate as cached re-rank | **OPEN** → DEFERRED-M5 | M5 decides retain/rename/remove; current lean: removed (R9 locks + the `generationIndex` re-roll cover the intent — H7) |
 | H18 | `behavioralStrength` sign: §11 said "signed" but §14/R2 keep affinity non-negative | **RESOLVED-HERE** | `[NOW]`/`[NEXT]` non-negative affinity + separate `dislikePenalty`/cooldown (R2); signed per-edge accumulator is the `[STAGED]` graph evolution (§11/§6.6) |
 | H19 | Repetition-window shown-history has no `[NOW]` storage home (dropped from the old ledger on consolidation) | **OPEN** → DEFERRED-M4 | M3 consumes shown-history as a pure input (shipped); only the storage home remains — `GenerationSnapshot.shownFullSignatures` (§15, `[NEXT]`) or an interim per-user ring buffer until the snapshot lands |
-| H20 | `optionPath`/`risk` were emitted by GPT (violates §5 "GPT never ranks"); cold-start path/risk metrics undefined | **RESOLVED-HERE** (locus) + **OPEN** (metric) → DEFERRED-rescue-spec | Pure Python backend functions assign path/risk/graph-role labels (§11/§12/§14). The M2 GPT schema excludes `optionPath`, `risk`, score, rank, graph role, edge strength, freshness, exposure, fallback decisions, matched/missing traits, and diagnostic reason candidates; future schemas may add trait/reason fields only when their owning milestone consumes them (§12). Cold-start path ≈ compatibility/commonness/trusted-anchor availability; cold-start risk ≈ social visibility/boldness — exact metrics are rescue-spec calls |
+| H20 | `optionPath`/`risk` were emitted by GPT (violates §5 "GPT never ranks"); cold-start path/risk metrics undefined | **RESOLVED-HERE** (locus) + **shape fixed in Spearhead** (metric) | Pure Python backend functions assign path/risk/graph-role labels (§11/§12/§14). The M2 GPT schema excludes `optionPath`, `risk`, score, rank, graph role, edge strength, freshness, exposure, fallback decisions, matched/missing traits, and diagnostic reason candidates; future schemas may add trait/reason fields only when their owning milestone consumes them (§12). Cold-start path ≈ compatibility/commonness/trusted-anchor availability; cold-start risk ≈ social visibility/boldness — the feature set + 2-D (path×risk) bucketing shape are now fixed in the rescue spec (`docs/plans/spearhead.md` §G); numeric config constants live in Appendix B and are tuned against golden wardrobes at Spearhead C6 |
 | H21 | "Orphan" is edge-defined but no edges exist at cold start | **RESOLVED-HERE** | Cold-start orphan = zero interactions + null/old `lastWornAt` (± `isFavorite`, ± explicit mark); deployed schema already has these fields (§11) |
-| H22 | Rescue forced-item → template logic + insufficient case + minimum starter closet | **RESOLVED-HERE** (template/insufficient) + **OPEN** (min closet) → DEFERRED-rescue-spec | `clothingType`→template rule + rescue `notEnoughItems` (§12); the minimum closet for the hook to function (and sub-threshold UX) is a product CALL |
+| H22 | Rescue forced-item → template logic + insufficient case + minimum starter closet | **RESOLVED-HERE** (template/insufficient) + **min-closet fixed in Spearhead** | `clothingType`→template rule + rescue `notEnoughItems` (§12); the minimum starter closet = the rescue insufficiency check itself (`docs/plans/spearhead.md` §G step 2): the forced item plus enough to build one valid outfit under its template; sub-threshold returns `notEnoughItems` + an add-a-{type} hint |
 | H23 | GPT-emitted `StyleMove` wasn't boundary-validated | **RESOLVED-HERE** | `StyleMove.changedItemIds ⊆ outfit items`, else dropped (§13, §5 LLM-boundary rule) |
 | H24 | Feedback scope undefined when no board/routine is active (`[NOW]`) | **RESOLVED-HERE** | path/look → `outfit`; an item-dislike defaults to the **implicit/default-lens** scope and is promoted to `global` only on **repeated support/confirmation** — one tap never yanks the global profile (anti-capture §3, posture rule 2); board/routine scopes arrive with B-track (§16) |
 | H25 | Compatibility/item representation is attribute-only; embeddings are `[STAGED]`; the §18 review gate excludes unreviewable features | **RESOLVED-HERE** → reflect at M4/W-track | Item representation is **extensible** (tags now → embeddings later); scoring consumes a representation, never a fixed tag list. Learned features (per-item embedding) are a **usable scorer class** distinct from human-reviewable canonical fields (§11/§18) |
@@ -885,6 +900,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H39 | The "remembers it as a personal style rule" loop (appendix C.8) has no rule object | **OPEN** → DEFERRED-`[STAGED]` | Add a deferred **`PersonalStyleRule`/`MemoryLesson`** artifact compiled from repeated scoped feedback (source events + scope), so Progress/Debugger surfaces don't scrape raw interactions (§16/§6.6) |
 | H40 | The `[NOW]` product *assumes* GPT styles believably from **text attributes only** (images stripped, §12) — unvalidated | **OPEN** → validate pre-M5 | The `[NOW]` viability bet. Validate empirically on golden wardrobes (believability judged) before relying on text-only generation; if it underdelivers, promote vision-input-to-generator (H33) from deferred to near-term (§12/§21) |
 | H41 | §2 "graph never the interface" + "hook first" could harden into bans | **RESOLVED-HERE** | Cards are the **default dressing interface**; a **secondary** graph/progress/`[NORTH-STAR]`-editing surface may exist behind progressive disclosure. Hook-first is the **default**, not a ban on optional lens-first board/routine selection (§2) |
+| H42 | The forced/rescue item is in 100% of rescue candidates, so the ranker's overuse mechanic (§14) flags it in every rescue outfit | **RESOLVED-HERE** (accepted) → DEFERRED (exemption) | Uniform across all rescue candidates → relative ranking unaffected, so accepted as harmless. A forced-item *exemption* signal on the ranker is a future refinement, deferred (would reopen the closed M3 contract); see `docs/plans/spearhead.md` §G |
 
 ---
 
@@ -927,3 +943,50 @@ dislike window `M=20` · cooldown buffer 10 (FIFO) · repetition window 10 ·
 `REPETITION_PENALTY=1.0` (flat magnitude on a re-shown FullSignature, subtracted — S4) · cache TTL 15 min. The 70/30 split
 is **not** a constant — it is the sampler-owned `random_count` helper (§10/R6). *(Note: deployed K default is
 5, not 10; v2 sets 10.)*
+
+**Spearhead rescue constants** (cold-start response layer; provisional C6 tuning inputs, not universal
+fashion law):
+
+```
+N_SURFACED = 3
+MIN_RESCUE_CANDIDATES = 6
+NEUTRAL_COLORS = frozenset({"black", "white", "gray", "grey", "navy", "beige", "cream", "tan", "khaki", "denim"})
+BOLD_STYLE_TAGS = frozenset({"bold", "statement", "bright", "graphic", "print", "pattern", "neon", "sequin"})
+COLOR_FAMILIES = {
+    "warm": frozenset({"red", "orange", "yellow", "coral", "peach", "gold", "mustard", "burgundy", "maroon", "rust", "brown"}),
+    "cool": frozenset({"blue", "green", "teal", "cyan", "purple", "violet", "lavender", "mint", "olive"}),
+    "pink": frozenset({"pink", "magenta", "fuchsia", "rose", "salmon"}),
+}
+FORMALITY_RANK = {
+    "loungewear": 0,
+    "lounge": 0,
+    "casual": 1,
+    "smart casual": 2,
+    "business casual": 2,
+    "business": 3,
+    "workwear": 3,
+    "formal": 4,
+    "cocktail": 4,
+    "black tie": 5,
+}
+MAX_FORMALITY_SPREAD = 5
+W_NEUTRAL_ANCHOR = 0.25
+W_COLOR_FAMILY = 0.25
+W_FORMALITY_COHERENCE = 0.25
+W_OCCASION_OVERLAP = 0.25
+W_CONTRAST = 0.4
+W_STATEMENT_TAGS = 0.4
+W_FORMALITY_DISTANCE = 0.2
+PATH_RELIABLE_MIN = 0.66
+PATH_STRETCH_MAX = 0.40
+RISK_BOLD_MIN = 0.66
+RISK_SAFE_MAX = 0.33
+WEATHER_WARMTH_BAND = {"hot": (0, 3), "mild": (3, 6), "cold": (6, 10)}
+WEATHER_TARGET_BAND = {"hot": 0, "mild": 1, "cold": 2}
+WEATHER_MISMATCH_PENALTY = 0.5
+```
+
+Free-string lookups for the Spearhead constants use the response-layer `_norm_label` helper: trim,
+lowercase, convert hyphens/underscores to spaces, and collapse internal whitespace before exact lookup.
+Unknown formality is unranked; unmatched non-neutral colors map to `"other"`; no cold-start score filters a
+candidate (§11/H20).
