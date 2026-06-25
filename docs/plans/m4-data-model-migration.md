@@ -1,6 +1,6 @@
 # M4 — Data-model migration (planning conductor)
 
-> ACTIVE PLANNING — multi-session arc, Session 3 of ~11 **CLOSED** (GenerationSnapshot schema + writer-contract *design* locked 2026-06-25; the narrow second pass confirmed the reconciliation fold — §8.10/§8.11). S3 closes the design only; implementation waits on the S9/M5 checkpoints (§8.11 S9-obligations). Next: draft spec §15.1 from §8.2/§8.3, then S4. This is the **in-repo conductor** for
+> ACTIVE PLANNING — multi-session arc, Session 3 of ~11 **CLOSED** (GenerationSnapshot schema + writer-contract *design* locked 2026-06-25; the narrow second pass confirmed the reconciliation fold — §8.10/§8.11). S3 closes the design only; implementation waits on the S9/M5 checkpoints (§8.11 S9-obligations). Canonical contract now lives in spec **§15.1** (drafted + committed). **Next: S4 — persisted identity & binding.** This is the **in-repo conductor** for
 > M4 planning: the session map, the locked framing decisions, the hole map, and the open-questions log.
 > It supersedes the throwaway `~/Downloads/m4-session-plan-DRAFT.md`; from Session 2 on, the conductor
 > lives here and the Downloads file can be dropped.
