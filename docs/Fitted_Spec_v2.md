@@ -219,13 +219,22 @@ The node of the closet graph. Deployed schema is already rich
 (`category`, `subCategory`, `pattern`, `colors[]`, `seasons[]`, `occasions[]`, `layerRole`, `brand`, `fit`,
 `size`, `isAvailable`, `isFavorite`, `lastWornAt`, `tags[]`). v2 adds/normalizes:
 
-- **`clothingType` extended from `["top","bottom"]` → `["top","bottom","dress","outer_layer","shoes"]`.**
+- **`clothingType` extended from `["top","bottom"]` → `["top","bottom","dress","outer_layer","shoes"]`** (exact
+  underscore wire values = `fitted_core` `ItemType` member names, no translation table).
   *Migration:* the field already exists (`WardrobeItem.ts:7`, default `"top"`, indexed) but is **never read
   by the recommend routes** — one-piece/outer/shoes are string-matched at request time over
-  `category`/`name`/`subCategory` (`recommend/route.ts:241,550,etc.`). v2 makes `clothingType` first-class,
-  **backfills** existing rows from the string-match logic, and the engine reads `clothingType` directly.
-  The string-grep path is deleted at cutover (§19). This is a **consolidation, not a new capability** —
-  the deployed app already handles dresses, just not via the enum. *(Build note: the engine reads
+  `category`/`name`/`subCategory` by **two divergent classifiers** (`recommend/route.ts:231` and `:543`, which
+  disagree on the fallback — default-top vs `unknown` — and on a `mid_layer` bucket that has no v2 type). v2
+  makes `clothingType` first-class, **backfills** existing rows via a **single canonical classifier** that
+  consolidates the two sites, and the engine reads `clothingType` directly. The classifier **re-derives from
+  raw** `category`/`name`/`subCategory`/`layerRole` — never the existing `clothingType`, which defaults to
+  `"top"` on every row and is therefore not evidence — so the backfill is idempotent + raw-preserving.
+  **Unmatched (out-of-ontology) rows default to `top`** (deployed parity, always a valid sampler partition;
+  posture rule 2: the guess is surfaced in the backfill report, never silently laundered; durable per-field
+  review/confidence is the W-track's `needs_review` seam, §18). Mid-layer knits collapse to `top` unless an
+  explicit `layerRole=="outer"` wins. The string-grep path is deleted at cutover (§19). This is a
+  **consolidation, not a new capability** — the deployed app already handles dresses, just not via the enum.
+  Mapping table + rationale: `docs/plans/m4-data-model-migration.md` §10. *(Build note: the engine reads
   `clothingType` at `[NOW]`, but rows are reliably populated only after the M4 backfill `[NEXT]`; until then
   the adapter falls back to the string-match logic it will replace.)*
 - **Richer style ontology** `[STAGED]`: `silhouette`, `formality`, `material/texture`, `garmentRole`
@@ -996,7 +1005,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H3 | Graph vs the v1.2 additive scorer — two parallel systems? | **RESOLVED-HERE** | Additive scorer = the humble first `behavioralStrength`; learned graph scorer is the staged evolution at the same seam (§11/§14) |
 | H4 | Within-day cache stability vs GPT stochasticity (temp>0) — a mid-day cache expiry reruns GPT and yields different candidates | **OPEN** → DEFERRED-M5 | Pick one: promise stability only for the candidate-cache lifetime; persist the candidate stage across the seed-day; or make GPT generation reproducible (seed/snapshot per seed-day). Default lean: candidate-cache lifetime. |
 | H5 | Board edit major/minor threshold (graded refresh) **and** the semantic-identity key that carries behavioral memory across `styleProfileVersion`s | **OPEN** → DEFERRED-B-track | Threshold default: any palette/silhouette/formality change = major (strong refresh); keyword-only = minor (preserve pool). The identity-continuity mechanism (the stable key memory binds to, separate from the version) is specced at B-track |
-| H6 | The single `wardrobeVersion`-bumping item transition isn't named | **OPEN** → DEFERRED-W-track | The W-track `/spec` must name the one transition meaning "now sampler-visible (active)"; that transition is the only bump. Reconcile `isAvailable` vs `needs_review` vs active. |
+| H6 | The single `wardrobeVersion`-bumping item transition isn't named | **OPEN** → DEFERRED-W-track | The W-track `/spec` must name the one transition meaning "now sampler-visible (active)"; that transition is the only bump. Reconcile `isAvailable` vs `needs_review` vs active. **M4/S5 adds the persisted `wardrobeVersion` field** (home = `User`, default 0, monotonic; `docs/plans/m4-data-model-migration.md` §10.4) — value constant until this transition is named; the bump itself stays W-track. |
 | H7 | `generationIndex` lifecycle (ownership, range, increment, reset) undefined — it is the sole input distinguishing a re-roll | **OPEN** → DEFERRED-M5 | M5 defines it; load-bearing for the two-stage cache |
 | H8 | Daily-reseed `date` timezone (server-UTC vs user-local) undefined | **OPEN** → DEFERRED-M5 | Must be identical across the Next adapter and the service or seed/cache desync at the day boundary. Default: UTC |
 | H9 | M6 eligibility prevalence unknown (needs both ≥5 interactions AND ≥1 type over cap) | **OPEN** → DEFERRED-pre-M6 | Measure % of requests meeting both; if low, give the model a second surface (candidate ordering / ranker) |

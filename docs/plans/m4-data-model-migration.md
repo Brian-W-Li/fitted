@@ -1,6 +1,6 @@
 # M4 — Data-model migration (planning conductor)
 
-> ACTIVE PLANNING — multi-session arc, Session 4 of ~11 **CLOSED** (persisted identity & binding contract locked 2026-06-25 — §9). S3 (GenerationSnapshot schema/writer-contract) + S4 (OutfitInteraction binding fields, the de-orphan loop, the H19 reducer contract) close the *design*; implementation waits on the S9/M5 checkpoints (§8.11 S9-obligations). Canonical contracts live in spec **§15.1** (snapshot) + **§6.6/§16/Appendix B** (interaction binding + reducer constants). **Next: S5 — `clothingType` migration + additive field-adds (LIGHT, detachable).** This is the **in-repo conductor** for
+> ACTIVE PLANNING — multi-session arc, Session 5 of ~11 **CLOSED** (`clothingType`→5 backfill classifier + additive field-adds locked 2026-06-25 — §10; the detachable light island, §7.4). S3 (GenerationSnapshot schema/writer-contract) + S4 (OutfitInteraction binding fields, the de-orphan loop, the H19 reducer contract) + S5 (`clothingType` consolidation) close the *design*; implementation waits on the S9/M5 checkpoints (§8.11 + §9.8 + §10.6 S9-obligations). Canonical contracts live in spec **§15.1** (snapshot) + **§6.6/§16/Appendix B** (interaction binding + reducer constants) + **§6.1** (`clothingType` consolidation). **Next: S6 — feedback authenticity + the full authenticity contract (MEDIUM; runs after S3/S4).** This is the **in-repo conductor** for
 > M4 planning: the session map, the locked framing decisions, the hole map, and the open-questions log.
 > It supersedes the throwaway `~/Downloads/m4-session-plan-DRAFT.md`; from Session 2 on, the conductor
 > lives here and the Downloads file can be dropped.
@@ -54,7 +54,7 @@ Count is downstream of the reversibility principle, not a target. Sessions are n
 | **2** | **Boundaries + reversibility classification.** ✅ DONE — §7 below (in/out scope, the foreclosure cluster, OQ2 resolved, session weights). | Decided the **ItemAffinity scope** (OQ2 → §7.3: rebuildable projection, compute-live default); weights set respecting the S3↔S4↔S6 coupling (§7.4). |
 | **3** | **GenerationSnapshot schema — THE one-way door. ✅ CLOSED §8** (design locked 2026-06-25; narrow second pass CONFIRMED the fold — §8.10/§8.11; implementation → S9/M5). Rejected/low-ranked candidates + reasons, continuous path/risk/compatibility *scores* (not buckets), visual ref/embedding (not text-only), immutability + embedded StyleProfileSnapshot, H10 interaction-time feature snapshots, `schemaVersion`. Read side: M6 training reads, de-orphan reads, feedback-binding lookups + the Mongo **index** plan. Dual-read review (Codex × substitute-Fable) + narrow second pass. | **Now also owns the M4 *writer contract*** (Decision 2 — the 10 deliverables). **Reserve a deletion/redaction seam** (Decision 4 / H43). **Revalidate payload size** before finalizing TS-writes-vs-Python-direct (Decision 2 open tension). Rejected/low-ranked payload is **server-side Python→TS only**, not client-returned. |
 | **4** | **Persisted identity & binding. ✅ CLOSED §9** (2026-06-25). `baseKey`/`fullSignature` + `{snapshotId,candidateId}` additive on interaction rows; the de-orphan binding loop (server re-reads the snapshot candidate, never the echo); the **H19 reducer contract** (count-based snapshot window → dedup → truncate to the shipped `REPETITION_WINDOW_SIZE` → ordered `Sequence[str]`); `shownBaseKeys` dropped; `shownPosition`/`generationIndex` not row-stored (derive from snapshot); OQ4 M4/M5 split confirmed. | Coupled to S3 (stored identity/format/home) **and** S6 (membership + H11 dup-feedback dedup). |
-| **5** | **`clothingType` migration + additive field-adds — LIGHT (forward-design).** Decide the **ambiguous-row classifier fallback** for the dresses string-matching debt (§6.1/§19): default / null+downstream / flag-for-review. Batch the cheap additive field-adds (`wardrobeVersion`; `sessionId` remains derived). | Keep idempotent + additive, **and** keep a **lightweight dry-run/report/verify mode** (Decision 3) — the classifier defines *future* behavior M5 depends on. **Do NOT batch ItemAffinity here** unless S7 overturns the S2 projection decision with evidence (D6/OQ2). |
+| **5** | **`clothingType`→5 migration + additive field-adds. ✅ CLOSED §10** (2026-06-25). Fallback = **default-to-top** (deployed parity; guesses surfaced in the D3 report; durable review = W-track `needs_review`, §18) — null+downstream and a new M4 review-field both rejected (§10.2). Found + resolved: the dresses debt is **two divergent string-match sites** (`route.ts:231`/`:543`), reconciled into **one canonical classifier** (§10.1/§10.3). `wardrobeVersion` field added (home = `User`; bump = W-track/H6); `sessionId` stays derived (=userId, Finding E). | Idempotent + additive; raw never discarded (re-derives from raw, ignores the default-laden `clothingType`); dry-run/report mode (D3). **No ItemAffinity** (OQ2). action-enum is **S6**, not batched here. |
 | **6** | **Feedback authenticity + the full authenticity contract.** Define the **full** authenticity contract here (existence + ownership + outfit-membership + bind-to-identity), even though implementation **splits M4/M5** (Finding A). Action-enum extension; H37 scope vocab (`lens`/`exception`, field additive; behavior `[STAGED]`); **H11 forward write-path concurrency** (duplicate feedback, concurrent affinity updates — real for deployed M5, distinct from the now-trivial backfill idempotency). | Weight set by S2, **not** pre-assumed light. The membership check reads shown-history → coupled to S4/S3. |
 | **7** | **Reconcile with reality.** `fitted/models/*.ts`, deployed schema, what the M5 request adapter needs, M4↔M5 deploy sequencing, migrate-vs-delete seams (deletion license is M5/M6, not M4). | **PreferenceSummary** migrate-vs-delete (D3 — spec is silent on it). **Final ItemAffinity placement** (D6). **OQ5 `engineVisible` adapter-mapping gap** — the deployed→`fitted_core` mapping table (§4). |
 | **8** | **Adversarial falsification.** *Distinct muscle from alignment.* Attack (a) runtime flows — edited item mid-session, deleted item with prior feedback, concurrent/duplicate feedback, re-roll, day-boundary (H10/H11); (b) the classifier on fixtures — ambiguous/null rows, the dresses-debt cases. | — |
@@ -321,7 +321,7 @@ no cluster dependency; may sequence first).
 |---|---|---|
 | **S3** | **HEAVY** (may spill to 2) | the gravity well: the foreclosure + writer contract (10 deliverables) + OQ1 payload revalidation + H19's richest form + Fable review |
 | **S4** | **MEDIUM-HEAVY** | runs **after/with S3**; `baseKey`/`fullSig` fields are additive (light), but the bind-to-exact-shown-outfit de-orphan loop + H19 home is real. Trap-guard F: don't reopen the §7 key format |
-| **S5** | **LIGHT — detachable** | only real design = the classifier fallback + dry-run/verify mode; off the critical path; **no affinity collection to create** (§7.3) |
+| **S5** | **LIGHT — ✅ CLOSED §10** | classifier fallback (default-to-top, §10.2) + the two-site reconciliation (§10.1) + dry-run/report; off the critical path; no affinity collection (§7.3) |
 | **S6** | **MEDIUM** (not pre-assumed light) | runs **after S3/S4**; full authenticity contract + action-enum + H37 field + H11 forward concurrency. No foreclosure, mostly `[STAGED]`, but the contract + concurrency are real |
 | **S7** | **MEDIUM** | reconcile: OQ3 PreferenceSummary, OQ2 placement residue, M4↔M5 sequencing, migrate-vs-delete seams |
 | **S8** | **MEDIUM** | adversarial falsification — distinct muscle; depends on all prior design |
@@ -1144,5 +1144,156 @@ planning→implementation handoff cannot lose them (exactly as §8.11 does for S
 
 Reconciled and internally consistent with §15.1, the deployed `OutfitInteraction`, and the spec. One conflict
 found+fixed (§6.6), five scope items resolved, OQ4 confirmed, trap-guards honored, deferreds routed. **S4
-closes the *design*; implementation is the S9 ladder + M5.** Next: **S5** (clothingType migration + additive
-field-adds — LIGHT, detachable).
+closes the *design*; implementation is the S9 ladder + M5.** Next: **S5** ✅ CLOSED — see §10.
+
+---
+
+## 10. Session 5 outputs — `clothingType`→5 migration + additive field-adds (CLOSED 2026-06-25)
+
+Signed off 2026-06-25. S5 is the **detachable light island** (§7.4): additive, reversible, off the
+S3→S4→S6 critical path. No one-way door → **no Fable review** (the classifier fallback is re-runnable
+forward-design, §7.2/D3); decision basis = a first-principles read of the two deployed string-match sites
+against the closed substrate's 5-value `ItemType`, reasoned from the determinism/consistency promise. The
+canonical decision is single-homed into spec **§6.1**; this section holds the classifier mechanics, the
+two-site divergence evidence, and the S9 obligations.
+
+**Scope confirmation (Brian, 2026-06-25):** the migration target is **dev/seed/test data, not precious
+production history** (this fork has no real users — D3). So S5: align the persisted schema to the 5-type
+engine, keep it simple + reversible, and move on. No null/typeless behavior, no new M4 review/confidence
+fields, no rollback/live-data ceremony — durable review/confidence belongs to the W-track if/when it matters.
+
+### 10.0 Inbound audit (open bookend) — clean
+
+No S1–S4 landing conflicts with S5's surface:
+- **§15.1 already assumes 5-value `clothingType`** (`engineVisible.clothingType: String enum[5]`, §8.3); S5
+  catches the *persisted* `WardrobeItem` up to the snapshot contract — consistent, not conflicting.
+- **§15.1 stores `wardrobeVersion: int (required)`**; S5 adds the persisted field, bump stays W-track/H6 —
+  the "field now, bump later" split holds (the value is just constant until W-track wires the bump).
+- **S4 interaction binding / key fields** — untouched (trap-guard F intact).
+- **OQ5** reads `clothingType` as an adapter *source*; S5 populating it 5-valued *feeds* OQ5, no collision.
+- **Wire-value precision:** the deployed enum extension is exactly `["top","bottom","dress","outer_layer","shoes"]`
+  (underscore `outer_layer`) so it matches `models.py` member-name = wire-value (no translation table);
+  §6.1 already specifies this.
+
+### 10.1 The dresses-debt finding — two divergent classifiers, not one
+
+The conductor (§5/§7.2) and spec §6.1 framed the backfill as mirroring "the string-match logic" — singular.
+There are **two**, and they diverge materially:
+
+| | `route.ts:231` (`byCategory` shortlist) | `route.ts:543` (`inferItemType` footwear-inject) |
+|---|---|---|
+| Cascade order | outer → bottom → one-piece → footwear → top | one-piece → bottom → footwear → outer → **mid** → top |
+| Signals read | `category`, `name`, `layerRole` | `category`, `name`, `subCategory`, `layerRole` |
+| Cardigan/hoodie | → **outer** | → **`mid_layer`** (no v2 type) |
+| Sweater/fleece/vest | sweater → **top** (others unlisted) | → **`mid_layer`** (no v2 type) |
+| **Fallback** | **default → top** (`:248`) | **`"unknown"`** (`:580`) |
+
+Two consequences the "mirror the string-match" framing hid: (1) the sites already chose **different
+fallbacks** (top vs unknown) — exactly S5's design call; (2) site #2's `mid_layer` bucket **has no v2
+`ItemType`** (the 5-enum has no `mid`), so the backfill must *collapse* it. The backfill therefore can't
+mirror either site — it must define **one canonical classifier** (§10.3).
+
+### 10.2 THE design call — ambiguous-row fallback = **default-to-top** (locked)
+
+When the canonical classifier matches none of the 5 buckets (a genuinely out-of-ontology row — scarf, belt,
+empty/garbage `category`), the backfill writes **`clothingType = "top"`**.
+
+**Reasoned from the promise (determinism/consistency) + first principles.** `clothingType` is the sampler's
+partition key (the closed M1 sampler partitions the wardrobe into the 5 `ItemType` buckets; the validator's
+template rules depend on it). The three candidate fallbacks fail differently:
+- **default-to-top (CHOSEN):** every row always carries a valid `ItemType` → zero impact on the closed
+  sampler; deployed parity (site #1); deterministic. The guess is **not laundered into apparent truth** — the
+  mandated D3 dry-run/report lists every default-branch row, so it is inspectable (posture rule 2: a draft,
+  surfaced); raw is preserved → re-run fixes it; durable per-field review is the W-track's existing
+  `needs_review` + per-field-confidence seam (§18), not an M4 field. An out-of-ontology item is at worst a
+  provisional, reported, reversible "top."
+- **null + downstream (rejected):** "honest," but the closed M1 sampler partitions on the 5-value enum with
+  **no null member** → forces a closed-contract change or a new adapter path (heavier than S5-LIGHT,
+  trap-guard territory), and a null item is **silently dropped from candidacy** (upload it, it never appears)
+  — a worse rule-2 violation than a reported guess.
+- **new M4 review-flag field (rejected):** durable, but **redundant** — §18 already owns `needs_review` +
+  per-field confidence, new ingestion writes `clothingType` natively with confidence, and historical rows are
+  re-derivable (raw preserved). The only consumer is W-track → minting it in M4 buys nothing re-derivation
+  doesn't.
+
+default-to-top **strictly dominates** null on the promise (always-valid partition, no closed-contract reopen,
+no silent drop) and dominates the new-field option on leanness (the report + the W-track seam already deliver
+the inspectability/durability).
+
+### 10.3 The canonical backfill classifier (deliverable 2)
+
+One ordered first-match cascade, reconciling both sites; reads the **superset** of signals (`category` +
+`name` + `subCategory`, plus `layerRole` for the outer short-circuit). Keyword lists are the **union** of the
+two deployed sites (superset recall), **provisional + S9-tunable over fixtures**:
+
+| Order | Bucket (`ItemType`) | Match (any of) |
+|---|---|---|
+| 1 | `dress` | `category=="one piece"` · `{dress, jumpsuit, romper}` in cat/name/subCat |
+| 2 | `bottom` | `category∈{bottom,bottoms}` · `{pants, jeans, shorts, skirt, trousers, chinos, leggings}` |
+| 3 | `shoes` | `category=="footwear"` · `{shoes, sneakers, boots, sandals, loafers, heels, flats}` |
+| 4 | `outer_layer` | **`layerRole=="outer"`** · `{jacket, coat, blazer, parka, puffer, windbreaker, trench, overcoat}` |
+| 5 | `top` | `category∈{top,tops}` · `{shirt, tee, t-shirt, blouse, polo, tank, sweater, henley, button-down, oxford, cardigan, hoodie, fleece, vest, sweatshirt, knit}` |
+| 6 | **default → `top`** | none matched → `top`, **listed in the report** (§10.2) |
+
+**The `mid_layer` collapse (the in-ontology decision the divergence forced):** cardigan/hoodie/sweater/fleece/
+vest have no v2 type. Rule: **explicit `layerRole=="outer"` wins** (row 4 short-circuits → `outer_layer`);
+otherwise the knit collapses to **`top`** (row 5 lists them by name) — a knit worn as the only upper layer is
+a valid base top, and `outer_layer` is an *optional* slot, so a misfiled true-outer still yields valid
+outfits. This is a deterministic classification rule, not a "fallback."
+
+**Trap-guard — re-derive from raw, never trust the stored `clothingType`.** `WardrobeItem.ts:7` defaults
+**every** existing row to `"top"`, so a stored `"top"` is the schema default, not evidence. The classifier
+re-derives purely from raw `category`/`name`/`subCategory`/`layerRole`; the only legacy non-default value
+possible (`"bottom"`, the sole other enum member) is consistent with re-derivation anyway. This makes the
+backfill **idempotent** (pure function of raw → same output on re-run) and **raw-preserving** (never writes
+over `category`/`name`/`subCategory`). The dry-run/report/verify mode (D3) emits per-bucket counts + the
+default-branch row list so the output is inspectable on fixtures.
+
+### 10.4 Additive field-adds (deliverable 3)
+
+- **`wardrobeVersion`** — persisted **field only**, home = **`User.wardrobeVersion: int` (default 0,
+  monotonic)** (a per-user active-wardrobe counter; `User.ts` has none today). The snapshot reads it at
+  request time (§15.1); the M5 adapter supplies it to the Lens (§6.3). **The bump trigger / activation
+  transition stays W-track/H6** — S5 must not be mistaken for naming it (§7.5-F).
+- **`sessionId`** — stays **derived** (`= userId` always, §6.3/Finding E); **no new field** (the §0
+  "sessionId storage" item is degenerate).
+- **action-enum (`planned/packed/corrected`)** — **NOT S5.** It is S6's (the feedback-authenticity session,
+  §1/§7.1); not batched here.
+- **No new review/confidence field** (Brian; §10.2). **No `fitted/models/ItemAffinity.ts`** (trap-guard /
+  OQ2 — affinity is a rebuildable projection, §7.3).
+
+### 10.5 Holes touched
+
+- **H6** (wardrobeVersion bump): S5 adds the *field*; bump stays **DEFERRED-W-track**. §23 H6 updated to
+  record the field-add so it is never mistaken for the bump.
+- **H25** (extensible representation): **not reopened** — `clothingType` is a discrete partition key,
+  orthogonal to the extensible *feature* representation (tags→embeddings) already seam-reserved in §15.1.
+- **No new hole.** The `mid_layer→top/outer` collapse is a *resolved* deterministic rule (§10.3) with a named
+  W-track refiner (native `clothingType` + per-field confidence, §18) and is subsumed by the §6.1 `[STAGED]`
+  `garmentRole` (which carries `mid`); minting a §23 entry for an already-owned staged gap would bloat the
+  register.
+
+### 10.6 S5 → S9 implementation obligations (carry into the C1–Cn ladder)
+
+Recorded so the planning→implementation handoff cannot lose them (as §8.11/§9.8 do for S3/S4). All additive +
+reversible over fixtures:
+1. **Enum extension:** `WardrobeItem.ts:7` `clothingType` enum `["top","bottom"]` →
+   `["top","bottom","dress","outer_layer","shoes"]` (exact underscore wire values); keep `default:"top"`
+   (deployed parity / always-valid partition). jest: enum accepts the 3 new values; rejects a non-member.
+2. **Canonical classifier** as a pure function (the rule §10.3); pytest cases: each of dress/jumpsuit/romper,
+   a `mid_layer` knit with `layerRole=="outer"` → `outer_layer` vs without → `top`, an out-of-ontology row →
+   default `top`, and the "stored `top` ignored, re-derived from raw" case. **Idempotency test** (re-run =
+   same output).
+3. **Dry-run / report / verify mode** (D3): per-bucket counts + the default-branch row list; inspectable on
+   the seed/fixture wardrobe; no live-Mongo ceremony.
+4. **`wardrobeVersion` field** on `User.ts` (int, default 0); jest: present, default 0; **no bump logic**
+   (W-track).
+
+### S5 verdict — CLOSED 2026-06-25
+
+Reconciled with §15.1, the deployed `WardrobeItem`/`User`, the closed substrate's `ItemType`, and the spec
+posture. One finding surfaced + resolved (the two-site classifier divergence → one canonical classifier); the
+one hard decision locked (fallback = default-to-top); deliverables 2–3 designed; trap-guards honored (no
+ItemAffinity, no key reopen, no wardrobeVersion bump, no action-enum); H6 field-add recorded. **S5 closes the
+*design*; implementation is the §10.6 ladder + S9.** Next: **S6** (feedback authenticity + the full
+authenticity contract — MEDIUM, runs after S3/S4).
