@@ -1223,8 +1223,10 @@ the inspectability/durability).
 ### 10.3 The canonical backfill classifier (deliverable 2)
 
 One ordered first-match cascade, reconciling both sites; reads the **superset** of signals (`category` +
-`name` + `subCategory`, plus `layerRole` for the outer short-circuit). Keyword lists are the **union** of the
-two deployed sites (superset recall), **provisional + S9-tunable over fixtures**:
+`name` + `subCategory`, plus `layerRole` for the outer short-circuit). Keyword lists are **seeded from the
+union of the two deployed sites**, with one deliberate adjustment — the mid-layer knits (cardigan/hoodie/
+fleece/vest) are routed to `top`, **not** `outer_layer`, per the collapse rule below (so `outer_layer` drops
+cardigan/hoodie that site #1 had, and `top` gains them) — and are **provisional + S9-tunable over fixtures**:
 
 | Order | Bucket (`ItemType`) | Match (any of) |
 |---|---|---|
@@ -1232,7 +1234,7 @@ two deployed sites (superset recall), **provisional + S9-tunable over fixtures**
 | 2 | `bottom` | `category∈{bottom,bottoms}` · `{pants, jeans, shorts, skirt, trousers, chinos, leggings}` |
 | 3 | `shoes` | `category=="footwear"` · `{shoes, sneakers, boots, sandals, loafers, heels, flats}` |
 | 4 | `outer_layer` | **`layerRole=="outer"`** · `{jacket, coat, blazer, parka, puffer, windbreaker, trench, overcoat}` |
-| 5 | `top` | `category∈{top,tops}` · `{shirt, tee, t-shirt, blouse, polo, tank, sweater, henley, button-down, oxford, cardigan, hoodie, fleece, vest, sweatshirt, knit}` |
+| 5 | `top` | `category∈{top,tops}` · `{shirt, tee, t-shirt, blouse, polo, tank, sweater, henley, button-down, oxford}` + the mid-collapse knits `{cardigan, hoodie, fleece, vest}` |
 | 6 | **default → `top`** | none matched → `top`, **listed in the report** (§10.2) |
 
 **The `mid_layer` collapse (the in-ontology decision the divergence forced):** cardigan/hoodie/sweater/fleece/
