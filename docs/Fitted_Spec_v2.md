@@ -325,9 +325,12 @@ The node of the closet graph. Deployed schema is already rich
   `action ∈ {generated,accepted,rejected,saved,worn,rated}`, `rating`, `perItemFeedback:[{itemId,disliked,
   notes}]`, `context:{weather,temperatureF,location,occasion}`. **Only `accepted`/`rejected` are written
   today.** v2 uses existing `saved/worn/rated` actions and additively extends the enum for
-  `planned/packed/corrected` scoped-feedback events (§16). It also adds the **`{snapshotId, candidateId}`
+  `planned/packed/corrected` scoped-feedback events (§16) — **additive only: existing actions are never
+  renamed or removed** (posture rule 1). It also adds the **`{snapshotId, candidateId}`
   binding** + **server-re-read `baseKey`/`fullSignature`** to each row (all nullable — present iff
-  snapshot-bound; pre-M5 legacy rows have none). The immutable lens + item-feature snapshot lives **only** in
+  snapshot-bound; pre-M5 legacy rows have none), plus the additive nullable **scope-vocab fields**
+  `scopeTarget?` / `learningDisposition?` (the feedback event's attach-point and its disposition; vocab +
+  semantics in §16, behavior `[STAGED]`). The immutable lens + item-feature snapshot lives **only** in
   the referenced `GenerationSnapshot` (§15.1), never duplicated on the row; on snapshot-bound feedback the
   server re-reads the candidate from the snapshot and never trusts client-echoed content (S4). Trainable "why" is captured
   only by the structured `FeedbackReason` set (§16); no unstructured blurb is a **training label** — raw /
@@ -813,18 +816,38 @@ v2 activates those unused values and additively extends the enum for `planned/pa
   `not_practical`, `not_me`, `wrong_context`, `weather_forced`, `necessity`, `too_repetitive`.
   `not_practical` is first-class. These structured reasons are the sole trainable "why" channel for
   feedback; free-form explanation blurbs are not training labels by default — but raw/corrected user rationale is **persisted with provenance** (user explanations are high-trust) and may be compiled into reasons **only after deliberate review** (§23-H34).
-- **Scoped memory** `[NEXT]`/`[STAGED]`: feedback attaches to a scope — `outfit` / `board` / `routine` /
-  `global`. A dislike under a "minimal workwear" board is not a global dislike. **Default scope in the
-  `[NOW]` implicit lens (no board/routine active, H24):** a path/look reaction is `outfit`-scoped; an item
-  dislike ("not me") attaches to the **implicit/default-lens** scope and is promoted to `global` only on
-  **repeated support/confirmation** — one tap never yanks the global profile (anti-capture §3, posture rule 2;
-  **S6 hardens the promotion threshold**). Those are the only scopes until B-track introduces boards. Hierarchy for sparse data
-  (C2): global prior → profile memory if enough support → routine memory only with explicit/high support →
-  content/board similarity fallback. Every scoped score carries a `supportCount`; low-support memory never
-  outranks basic quality. Corrections — "right outfit, wrong board/routine" — **move** an edge's scope
-  rather than delete it.
-- **Anomaly scoping** `[STAGED]`: weather-forced / laundry / travel / illness create a **soft exception** by
-  default (do not rewrite a board); suppressible and promotable. `do not learn from this` is an early control.
+- **Scoped memory** `[NEXT]`/`[STAGED]`: a feedback event records two additive fields (M4 reserves the
+  fields, S6/H37; behavior `[STAGED]`) — **`scopeTarget`** ∈ `outfit` / `board` / `routine` / `global` /
+  `lens` (where the feedback attaches) and **`learningDisposition`** ∈ `normal` / `exception` / `do_not_learn`
+  (how it is treated). Splitting the two axes is deliberate: a weather-forced dislike is `scopeTarget=outfit`
+  **and** `learningDisposition=exception` — a single merged enum could not represent both. A dislike under a
+  "minimal workwear" board is not a global dislike. **Default scope in the `[NOW]` implicit lens (no
+  board/routine active, H24):** a path/look reaction is `outfit`-scoped; an item dislike ("not me") attaches
+  to the implicit/default `lens` scope and is promoted to `global` only on **repeated support/confirmation**.
+  **S6 hardens the promotion *rule*** — support-gated and monotonic: promotion requires `supportCount` over a
+  threshold, **one tap never yanks the global profile** (anti-capture §3, posture rule 2); the **numeric**
+  threshold is `[NEXT]`, set when scoped memory is implemented. `board`/`routine` scopes activate with B-track.
+  Hierarchy for sparse data (C2): global prior → profile memory if enough support → routine memory only with
+  explicit/high support → content/board similarity fallback. Every scoped score carries a `supportCount`;
+  low-support memory never outranks basic quality. Corrections — "right outfit, wrong board/routine" —
+  **move** an edge's scope (`scopeTarget`) rather than delete it.
+- **Anomaly scoping** `[STAGED]`: weather-forced / laundry / travel / illness set
+  `learningDisposition=exception` by default (a **soft exception** — do not rewrite a board); suppressible and
+  promotable. `do not learn from this` sets `learningDisposition=do_not_learn`, an early control. The **field**
+  is reserved now (S6/H37); the quarantine/promote **behavior** is `[STAGED]`.
+- **Duplicate-feedback dedup (H11 forward write-path rule; M5 implements the projection)** — feedback rows
+  are **append-only** (every tap persisted with `createdAt`, full lineage, posture rule 3); the write path
+  never rejects or upserts duplicates. Affinity is a **compute-live projection** (no stored counter — OQ2),
+  so concurrent feedback is two independent inserts with **no read-modify-write to race**. Dedup is a
+  **read-time reducer** concern, applied where it matters: the set/recency projections
+  (`liked_full_signatures`, the cooldown buffer) are **idempotent under duplication** and need none; the
+  **counted** projection (`item_affinity`) collapses rows sharing the dedup key
+  **`{snapshotId, candidateId, action}`** within a `FEEDBACK_DEDUP_WINDOW` (Appendix B; M5-tunable) to a
+  single counted event — so an accidental double-tap/retry counts once, while genuine repeat-events outside
+  the window (wore-it-again days later; a distinct `saved` vs `worn`) each count. M4 fixes the
+  rule/key/read-time locus; M5 owns the window's form (a client idempotency token is the precise mechanism, a
+  bounded time-window the zero-client-contract fallback) and its numeric tuning. Distinct from the (trivial,
+  no-live-data) backfill idempotency. Rationale: plan §11.1.
 - **Feedback-authenticity gate (must precede training)** — confirmed real: `POST /api/interactions`
   (`interactions/route.ts:106-230`) authenticates the caller but persists client-supplied `items` and
   `perItemFeedback.itemId` with **no existence/ownership/outfit-membership check** (`:157-163`). Tolerable
@@ -1016,7 +1039,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H8 | Daily-reseed `date` timezone (server-UTC vs user-local) undefined | **OPEN** → DEFERRED-M5 | Must be identical across the Next adapter and the service or seed/cache desync at the day boundary. Default: UTC |
 | H9 | M6 eligibility prevalence unknown (needs both ≥5 interactions AND ≥1 type over cap) | **OPEN** → DEFERRED-pre-M6 | Measure % of requests meeting both; if low, give the model a second surface (candidate ordering / ranker) |
 | H10 | M4 interaction-time feature snapshots not yet built; mutable wardrobe refs rewrite old feedback's meaning | **RESOLVED-DESIGN** → PENDING-M4/M5-IMPLEMENTATION | GenerationSnapshot (§15.1) persists immutable feature snapshots before interactions become labels; add history tests for edited/deleted items. Visual hash/versioning remains W-track-dependent (H14/H33). |
-| H11 | M4 idempotency/transaction rules (duplicate feedback, affinity updates, concurrent caps, `wardrobeVersion` races) | **OPEN** → DEFERRED-S6 | Backfill idempotency trivial (no live data). Forward write-path concurrency — incl. **duplicate feedback on a `{snapshotId, candidateId}` binding** — routes to **S6**; S4 makes the binding the natural dedup key (plan §9.6) but defers the dedup/concurrency rule. |
+| H11 | M4 idempotency/transaction rules (duplicate feedback, affinity updates, concurrent caps, `wardrobeVersion` races) | **RESOLVED-DESIGN (S6)** → PENDING-M5-IMPLEMENTATION | Backfill idempotency trivial (no live data). Forward write-path rule (S6, §16/plan §11.1): feedback rows are **append-only**; dedup is a **read-time reducer** concern in the compute-live affinity projection (no stored counter to race — OQ2). Set/recency projections (`liked_full_signatures`, cooldown) are idempotent under duplication; the **counted** `item_affinity` collapses rows sharing **`{snapshotId, candidateId, action}`** within `FEEDBACK_DEDUP_WINDOW` (Appendix B, M5-tunable) — accidental retry counts once, genuine repeat-events each count. Write-path unique-index/upsert **rejected** (forecloses append-only events; repeats the §8.8 unique-index trap; flattens repeat-wears). M5 implements the reducer + tunes the window. |
 | H12 | M5 graceful-fallback failure semantics under-pinned | **OPEN** → DEFERRED-M5 | Pin: numeric timeout budget; full trigger set (unreachable OR timeout OR schema-invalid/empty); decide whether each fallback writes a minimal GenerationSnapshot with empty shown arrays + diagnostics or returns a legacy response explicitly marked non-bindable; add an anti-rot smoke test exercising the fallback arm. |
 | H13 | Pre-M5 CI / runtime reproducibility (no CI workflow, no runtime pins, `requirements.txt` lower-bounds only) | **OPEN** → DEFERRED-pre-M5 | Cross-runtime CI before M5 integration so serialization/auth/timeout/fallback can't drift between Next and the service |
 | H14 | Retained-host cleanup bugs: clear-wardrobe/user-cascade omit some cleanup; image **replacement deletes the old image before the replacement commits** (data-loss ordering) | **OPEN** → DEFERRED-W-track | Fix when the W-track or trust-boundary gate touches these routes |
@@ -1029,7 +1052,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H21 | "Orphan" is edge-defined but no edges exist at cold start | **RESOLVED-HERE** | Cold-start orphan = zero interactions + null/old `lastWornAt` (± `isFavorite`, ± explicit mark); deployed schema already has these fields (§11) |
 | H22 | Rescue forced-item → template logic + insufficient case + minimum starter closet | **RESOLVED-HERE** (template/insufficient) + **IMPLEMENTED in Spearhead** (min-closet) | `clothingType`→template rule + rescue `notEnoughItems` (§12); the minimum starter closet = the rescue insufficiency check itself, built in `fitted_core/rescue.py` (`_resolve_shape` + `_check_sufficiency`, `docs/plans/spearhead.md` §G steps 1–2): the forced item plus enough to build one valid outfit under its template; sub-threshold returns `not_enough_items` (PRE-GPT, no generation) + an add-a-{type} hint |
 | H23 | GPT-emitted `StyleMove` wasn't boundary-validated | **RESOLVED-HERE** | `StyleMove.changedItemIds ⊆ outfit items`, else dropped (§13, §5 LLM-boundary rule) |
-| H24 | Feedback scope undefined when no board/routine is active (`[NOW]`) | **RESOLVED-HERE** | path/look → `outfit`; an item-dislike defaults to the **implicit/default-lens** scope and is promoted to `global` only on **repeated support/confirmation** — one tap never yanks the global profile (anti-capture §3, posture rule 2); board/routine scopes arrive with B-track (§16) |
+| H24 | Feedback scope undefined when no board/routine is active (`[NOW]`) | **RESOLVED-HERE** | path/look → `outfit`; an item-dislike defaults to the **implicit/default-lens** scope (the `lens` `scopeTarget` value, H37) and is promoted to `global` only on **repeated support/confirmation** — one tap never yanks the global profile (anti-capture §3, posture rule 2; S6 hardened the support-gated promotion **rule**, numeric threshold `[NEXT]`); board/routine scopes arrive with B-track (§16) |
 | H25 | Compatibility/item representation is attribute-only; embeddings are `[STAGED]`; the §18 review gate excludes unreviewable features | **RESOLVED-HERE** → reflect at M4/W-track | Item representation is **extensible** (tags now → embeddings later); scoring consumes a representation, never a fixed tag list. Learned features (per-item embedding) are a **usable scorer class** distinct from human-reviewable canonical fields (§11/§18) |
 | H26 | §11 "never shared-catalog" / §22 "cross-user out of scope" would also bar a universal compatibility model | **RESOLVED-HERE** | Split: **behavioral/collaborative** cross-user stays out (privacy); a **universal *content*-compatibility model** trained on **public outfit corpora** is in-scope (clothes, not people) and is what makes the trained scorer feasible at portfolio scale — within-user behavior personalizes it (§11/§22). **Load-bearing for the dive's feasibility** |
 | H27 | §22 body/color non-goal would bar a body-type styling signal | **RESOLVED-HERE** | Non-goal = no prescriptive quiz/scan + no objective "fashionability" score. An **optional, declared, coarse body-proportion archetype** as a refinable cold-start styling prior is **in-scope** (behavior reinforces current defaults; a prior enables better-than-default advice); measurements stay optional/out (sizing only) (§22) |
@@ -1042,7 +1065,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H34 | Freeform feedback excluded as a trainable channel (§16/§6.6) | **RESOLVED in §16/§6.6** | Posture rule 1/3: structured reasons stay the labels; raw/corrected rationale is persisted with provenance, excluded from training until reviewed |
 | H35 | Dormant boards (§17) have no data home in `active\|archived` (§6.2) | **RESOLVED-seam in §6.2** → DEFERRED-B-track (impl) | Posture rule 1: board status gains `dormant` (or a `DormantBoardState`) |
 | H36 | `ConstraintSet` is a fixed closed set (§6.3) | **RESOLVED in §6.3** | Posture rule 1: additive + raw-preserving (optional user-declared constraint text/provenance) |
-| H37 | §16 anomaly scoping promises soft exceptions, but the scope vocab is only `outfit/board/routine/global` | **OPEN** → DEFERRED-M4 | Add first-class **`lens`** and **`exception`/`anomaly`** scopes (or split `scopeTarget` + `learningDisposition`) so noisy periods can be quarantined, reviewed, and promoted without rewriting board/routine memory (§16). Scope: M4 adds the scope-vocab **field** additively (posture rule 1); the anomaly-scoping **behavior** stays `[STAGED]` (§16) |
+| H37 | §16 anomaly scoping promises soft exceptions, but the scope vocab is only `outfit/board/routine/global` | **RESOLVED-DESIGN (S6)** → PENDING-S9-IMPLEMENTATION | **Split** chosen (S6, §16/§6.6/plan §11.4): two additive nullable fields on `OutfitInteraction` — **`scopeTarget`** ∈ `outfit/board/routine/global/lens` (the `lens` value also carries H24's implicit/default-lens default) + **`learningDisposition`** ∈ `normal/exception/do_not_learn`. The split is load-bearing: a weather-forced dislike is `scopeTarget=outfit` **and** `learningDisposition=exception` — a merged enum can't represent both. **Field additive only (posture rule 1); anomaly-scoping behavior stays `[STAGED]`.** S9 adds the fields. |
 | H38 | "one global active profile in v1" (§6.2) could collapse the lens out of stored memory | **RESOLVED-HERE** | The global active profile is the **v1 default selection only**; every request/feedback snapshot may still carry `boardId`/`styleProfileId`/immutable version/confidence when present, so "which version of me" isn't lost (§6.2/§6.3/§15) |
 | H39 | The "remembers it as a personal style rule" loop (appendix C.8) has no rule object | **OPEN** → DEFERRED-`[STAGED]` | Add a deferred **`PersonalStyleRule`/`MemoryLesson`** artifact compiled from repeated scoped feedback (source events + scope), so Progress/Debugger surfaces don't scrape raw interactions (§16/§6.6) |
 | H40 | The `[NOW]` product *assumes* GPT styles believably from **text attributes only** (images stripped, §12) — unvalidated | **VALIDATED-mechanical (Spearhead C6)** / believability descriptive | The `[NOW]` viability bet, measured at Spearhead C6 on the golden corpus (gpt-4o, `--runs 5`, 55 generations): 100% JSON-parse, 100% forced-item inclusion, 100% StyleMove presence, 0 hallucinated ids, 0 schema failures (full results + cost/latency baseline in `docs/plans/spearhead.md` §E). Text-only generation held mechanically, so vision-input-to-generator (H33) was **not** promoted. Human believability stays **descriptive** (the §E rubric, never a gate); a larger believability read remains worthwhile pre-M5 if the rescue surface ships (§12/§21) |
@@ -1090,6 +1113,9 @@ negative, added — S4) · `DISLIKE_PENALTY` magnitude 0.5 (per disliked item, s
 dislike window `M=20` · cooldown buffer 10 (FIFO) · `REPETITION_WINDOW_SIZE=10` (sig cap on the ranker's
 `shown_full_signatures`) · `REPETITION_WINDOW_SNAPSHOTS=20` (S4: recent-snapshot read window for the H19
 reducer; provisional, M5-tunable — §15.1) ·
+`FEEDBACK_DEDUP_WINDOW` (S6: read-time window collapsing same-`{snapshotId,candidateId,action}` feedback rows
+in the compute-live affinity projection — accidental retry counts once, repeat-events outside it each count;
+provisional, M5-tunable — §16/H11) ·
 `REPETITION_PENALTY=1.0` (flat magnitude on a re-shown FullSignature, subtracted — S4) · cache TTL 15 min. The 70/30 split
 is **not** a constant — it is the sampler-owned `random_count` helper (§10/R6). *(Note: deployed K default is
 5, not 10; v2 sets 10.)*
