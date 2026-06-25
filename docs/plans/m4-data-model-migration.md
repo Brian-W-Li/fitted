@@ -343,254 +343,152 @@ no cluster dependency; may sequence first).
 
 ## 8. Session 3 outputs — GenerationSnapshot schema + writer contract (CLOSED 2026-06-25)
 
-Drafted 2026-06-25; **reconciled 2026-06-25** against two adversarial reviews — a Codex
-implementation/runtime review and a substitute-Fable architecture/spec/training review (the CLAUDE.md
-dual-read substitute for the one-way-door call) — then **CLOSED 2026-06-25** after the narrow second pass.
-This is the **one-way door** (§0/§7.2). Per D1 the canonical contract lands in spec **§15.1**; with S3 now
-closed, the canonical contract now lives in spec §15.1. Status verdict in §8.10.
+The **one-way door** (§0/§7.2): the GenerationSnapshot schema + identity binding. Designed, dual-reviewed
+(Codex impl + substitute-Fable arch — the CLAUDE.md dual-read), and narrow-second-pass-confirmed against
+source, 2026-06-25. Per D1 the **canonical contract lives in spec §15.1**; this section holds the design
+derivation, the Mongoose proposal (§8.3) + index plan (§8.8) §15.1 points back to, and the S9 implementation
+obligations (§8.11). **§15.1 wins on any disagreement** — fix on sight.
 
-> **S3 verdict: CLOSED — schema + writer-contract design locked.** The reconciliation fold corrected the
-> two corpus-foreclosure surfaces the dual review found — (a) the **provenance-falsifying flat/Option-B item
-> authorship** → the C+D `engineVisible`/`evidence` split, and (b) only **one of three** substrate
-> signal-discard sites named → the full three-site funnel-capture obligation. The narrow second pass
-> (§8.11 prompt) **CONFIRMED all four shape-changing items against source** and locked the one item the fold
-> left open (the trace-surface mechanism → additive sibling APIs, Option B; §8.4). **S3 closes the *design*
-> only** — implementation waits on the S9/M5 checkpoints (§8.11 S9-obligations block).
+> **S3 verdict: CLOSED — schema + writer-contract design locked; nothing built.** The dual review found, and
+> the fold corrected, two corpus-foreclosure traps: (a) a **flat item-copy** falsifies provenance → the C+D
+> `engineVisible`/`evidence` split (§8.2-D); (b) only **one of three** substrate signal-discard sites was
+> named → the three-site funnel-capture obligation via additive trace siblings (Option B, §8.4). The narrow
+> second pass confirmed all four shape-changing items against source. Implementation waits on S9/M5 (§8.11).
 
-### 8.1 Snapshot purpose & lifecycle
+### 8.1 Snapshot purpose, granularity, authorship
 
-**What one GenerationSnapshot represents.** The immutable, self-contained record of **one rendered
-recommendation response** — its resolved Lens inputs, the version/provenance of every component that shaped
-it, an immutable feature-copy of every wardrobe item that participated, the **full candidate funnel**
-(generated → validated → rejected → ranked → shown) with continuous scores and dispositions, and the shown
-set with positions. It is **training truth** (§15/§21) and the **binding target** for later feedback (§16).
+**One GenerationSnapshot = one rendered response** (canonical: §15.1) — immutable training truth (§15/§21)
+and the binding target for feedback (§16): resolved Lens inputs, component provenance, an immutable
+feature-copy of every participating item, the full candidate funnel (generated→validated→rejected→ranked→
+shown) with continuous scores + dispositions, and the shown set with positions.
 
-**Granularity decision — one snapshot per render (per `generationIndex`), not per candidate-cache pass.**
-The two-stage cache (§15) shares the *expensive candidate stage* across re-rolls, but each re-roll re-runs
-Steps 4–6 and shows a **different ordered set**. For exposure-bias correction (§21) and feedback binding,
-what the user *saw* is per-render. Rather than appending render-events to a shared mutable doc (which breaks
-immutability and invites the H11 append race), each render writes its **own complete, write-once** snapshot.
-Re-roll siblings share a `candidateCacheKey` (queryable as a group) but are independently complete. The
-candidate-stage duplication this implies is **provably cheap** (§8.6 OQ1: worst-case ~120 KB, <1% of
-Mongo's 16 MB doc limit; a typical rescue is single-digit KB) and buys clean immutability + no cross-doc
-redaction dangling. *Escape hatch (not now, evidence-gated like OQ2): if measured re-roll volume ever makes
-the duplication hurt, a `candidatePoolRef` dedup is an additive future optimization.*
+- **Granularity — one snapshot per render (per `generationIndex`), not per candidate-cache pass.** Re-rolls
+  share the expensive candidate stage but re-run Steps 4–6 and show a **different ordered set**; what the
+  user *saw* is per-render (exposure-bias §21 + feedback binding). Each render writes its **own write-once**
+  snapshot (siblings share a `candidateCacheKey`); appending render-events to a shared mutable doc would break
+  immutability and invite the H11 append race. The candidate-stage duplication is provably cheap (§8.6); a
+  `candidatePoolRef` dedup is a deferred, evidence-gated optimization.
+- **Immutable after insert** — feedback writes `OutfitInteraction` rows that *reference* it; the only
+  post-insert write is the reserved H43 redaction marker (§8.2-K), never content rewriting.
+- **Authorship split (the C+D hybrid, §8.4):** Python produces everything the pipeline computes (keys,
+  scores, candidate identity + dispositions, shown set, diagnostics — the §7/H15 drift-hazard content TS must
+  not recompute) **and** the `itemSnapshot.engineVisible` projection; **TS** adds `itemSnapshot.evidence` and
+  **persists the merged doc verbatim** via `GenerationSnapshot.ts`. **No post-Python refetch** — both layers
+  derive from the single captured request context (a refetch could snapshot a mutated doc).
+- **Id authorship (pinned):** `snapshotId` is **TS-issued, pre-allocated before the browser response** (so
+  each shown variant carries `(snapshotId, candidateId)`); `candidateId` is **Python-issued** over the
+  deterministic funnel order. M5 joins `snapshotId` onto Python's payload + clientResponse before persist.
+- **M4 owns** (contract, not wiring): schema/subdoc shapes/enums/indexes/required-vs-nullable, the provenance
+  boundary (§8.2-D), the content-preservation invariant (§8.2-F), the full-funnel capture obligation (§8.4),
+  the client-echo contract, validation/trainability rules, the Python payload dataclass contract, and the M5
+  writer acceptance criteria (the D2 10 deliverables, §2). **M5 implements** the live route/insert, the
+  additive trace surface, the `{snapshotId,candidateId}` binding, and the membership check (OQ4 holds — §8.7/
+  §9.5). The surfaced `OutfitVariant`s (§6.5) are the `shown` candidates; the server re-reads snapshot
+  content on feedback, never trusts the echo.
 
-**Lifecycle:**
-- **Created** at Step 7 (§9) on every rendered response — **M5's live write**; M4 defines the shape/contract only.
-- **Immutable** after insert — feedback never mutates it (feedback writes `OutfitInteraction` rows that
-  *reference* it). The **only** post-insert write is the reserved H43 redaction marker (§8.2-K), a
-  deliberate lineage-preserving exception, never content rewriting.
-- **Authorship is split, and the split is load-bearing (the C+D hybrid — §8.4):** Python produces
-  everything the pipeline computes (keys, scores, candidate identity + dispositions, shown set, diagnostics —
-  the drift-hazard content §7/H15 forbids TS from recomputing) **and** the `itemSnapshot.engineVisible`
-  projection (the exact lossy `fitted_core.WardrobeItem` view the engine conditioned on). **TS** owns
-  `itemSnapshot.evidence` (the storage-only deployed-doc fields the engine never saw) and **persists the
-  merged document verbatim** via the `GenerationSnapshot.ts` model. **No post-Python refetch** — both layers
-  derive from the **single captured request context** TS already loaded (Codex finding 2); a refetch could
-  snapshot a mutated doc.
-- **Id authorship (pinned — Codex finding 3 / Fable §8):** **`snapshotId` is TS-issued and *pre-allocated*
-  before the browser response is sent** (mint the `ObjectId` up front), so each shown variant can carry
-  `(snapshotId, candidateId)` in the client response. **`candidateId` is Python-issued** — Python owns the
-  deterministic funnel order, so it stamps the ordinal id. M5 joins the TS `snapshotId` onto Python's
-  payload + clientResponse before persisting/returning.
-- **M4 defines:** schema, subdocument shapes, enums, indexes, required-vs-nullable, the **provenance boundary**
-  (engineVisible vs evidence) + the **content-preservation invariant** (§8.2-F) + the **full-funnel capture
-  obligation** (§8.4) — these are *contract*, not wiring, so they are M4's, not M5's — plus the client-echo
-  contract, validation rules, the Python payload dataclass contract, trainability rules, and the **M5 writer
-  acceptance criteria**. **M5 implements:** the live route wiring, the live insert, the additive trace
-  surface that exposes the discarded funnel, the `{snapshotId,candidateId}` binding, and the
-  outfit-membership check (OQ4 split holds — §8.7).
-- **Relation to response variants & feedback:** the surfaced `OutfitVariant`s (§6.5) are the `shown`
-  candidates; the response carries each shown variant's `(snapshotId, candidateId)` so the client echoes
-  that identity on feedback; the server re-reads snapshot content, never trusts the echo (§8.7).
+### 8.2 Schema field groups (derivation; canonical contract = §15.1)
 
-### 8.2 Canonical schema sections
+> Canonical field contract = spec **§15.1**; Mongoose shape = **§8.3**. Below is the design derivation +
+> per-group load-bearing rationale, anchors kept for cross-refs. **§15.1 wins on disagreement** — fix on
+> sight. camelCase = wire/Mongo (Python mirror snake_case, §8.4; `?` = nullable); owner field is **`user`**,
+> not `userId`.
 
-> **Single-home note (post-S3-close):** the **canonical** GenerationSnapshot contract now lives in spec
-> **§15.1**. §8.2/§8.3 are the *design derivation* that produced it (+ the Mongoose proposal and the
-> index/query/rationale §15.1 points back to). If the two ever disagree, **§15.1 wins**; fix on sight.
+**A — identity:** `_id`(snapshotId, TS-preallocated, §8.1), `schemaVersion`(=1, the additive-evolution lever),
+`user`, `sessionId`(=user id, Finding E), `candidateCacheKey`(groups re-roll siblings), `generationIndex`
+(re-roll lever, H7), `requestId?`(**the future render-idempotency key once H7 closes** — the unique-insert
+guard rides this, not `generationIndex`, §8.8), `createdAt`.
 
-camelCase = wire/Mongo names (Python mirror is snake_case — §8.4). `?` = nullable/optional.
+**B — request context (the Lens, §6.3):** `intent`(enum), `occasion`(verbatim), `weather`(bucket) +
+`weatherRaw?`/`location?`, `constraints`(flexible `Map`, additive H36), `forcedItemId?`/`baseOutfitItemIds?`/
+`routineId?`, `lens?{styleProfileId?,styleProfileVersion?,boardId?,confidence?,styleProfileSnapshot?}`,
+`wardrobeVersion`(**field only**; bump=W-track/H6), `interactionCountAtRequest`(H9), `seedDate?`(H8). **The
+`lens.styleProfileSnapshot?` embed seam (§6.2):** a bare `styleProfileId`/`version` ref re-creates the H10
+disease if a board-version doc is later cascaded away, so the schema embeds the compiled profile (Mixed, null
+until B-track), not just points at it.
 
-*Naming reconciliation (Codex finding 7):* the Mongoose owner field is **`user`** (matching every existing
-model), not `userId`; prose below says `user`. Other field names are camelCase wire/Mongo.
+**C — version / provenance — REQUIRED, non-null on every live write** (nullable provenance ⇒ unrecoverable
+provenance; the backstop for the engine-vs-evidence boundary): `fittedCoreVersion`, `generator{provider,model,
+temperature,promptVersion}`, `rankerConfigVersion`(a hash of the Appendix B constants), `scorer{kind:
+cold_start|trained, modelId?, available}`. `promptVersion` also decodes the generator-visible subset of
+`engineVisible`, so no separate `generatorVisible` store at `[NOW]`. **None of the three version constants
+exist in `fitted_core` today** (absent from `__init__.py`/`config.py`) → add before the first live write (S9
+ob. 1).
 
-**A — identity**
-- `_id: ObjectId` → the **snapshotId**, **TS-issued and pre-allocated before the browser response** (§8.1).
-- `schemaVersion: int` (=1) — the additive-evolution lever; readers branch on it.
-- `user: ObjectId ref User` — owner (ownership checks + the H43 cascade).
-- `sessionId: string` — the seed input verbatim (= `user` id, Finding E; stored as provenance because the
-  seed is derived from it, not because it's independent).
-- `candidateCacheKey: string` — the §15 candidate-stage key this render used; groups re-roll siblings.
-- `generationIndex: int` — the re-roll lever (H7); distinguishes siblings sharing a `candidateCacheKey`.
-- `requestId?: string` — optional client/trace correlation id (M5 may populate); **the future render-level
-  idempotency key once H7 closes** (§8.8 — the unique-insert guard rides this, not `generationIndex`).
-- `createdAt: Date` (timestamps) — immutable insert time.
+**D — item feature snapshots (`itemSnapshots[]`, the H10/H25 core) — the C+D provenance split (the
+one-way-door correction).** A **flat verbatim copy** of the deployed item doc is **REJECTED**: a future M6
+trainer can't distinguish "the engine conditioned on this" from "TS kept it for audit," so it would build
+features the recommendation never saw (e.g. `pattern`/`seasons`) and do contaminated off-policy correction —
+an irreversible corpus foreclosure (flat docs get written all through M5). Fix: **two namespaced buckets**
+(the bucket *is* the ranking-visibility marker; no per-field bool). Per `ItemSnapshot`:
+- `itemId: string` (**not** a populatable `ObjectId` ref — H10: nothing may re-hydrate a mutated live item).
+- **`engineVisible`** — the **exact** `fitted_core.WardrobeItem` projection sent to Python (`name`,
+  `clothingType`, `warmth`, `styleTags`/`colorTags`/`occasionTags`, `material`, `formality`, `imageUrl`) —
+  the **only** ranking-visible layer, **true by construction** (stored == sent, *modulo* the documented
+  snake↔camel rename `style_tags`/`color_tags`/`occasion_tags`, a bijection with no value transform).
+- **`evidence`** — storage-only deployed fields the engine **never saw**: `category`, `subCategory`,
+  `pattern`, `seasons`, `isAvailable`/`isFavorite`/`lastWornAt` (orphan/H21 signals, not yet engine-scored),
+  `brand`, `fit`, `size`, `layerRole`, `tags`, `rawAttributes?`(bounded; no blob, §8.6), and
+  `image?{imageRef?,imageVersion?,hash?}` — **refs/hash only, never the blob** (H29(c); guards H14). Image
+  hash/version is a **W-track dependency** (`WardrobeImage` has none today).
+- `generatorVisible?` — reserved (the `promptVersion`-decodable subset of `engineVisible` at `[NOW]`; H33
+  vision generator). `embeddingRef?`/`visualFeatureRef?` — **reserved nullable** (H25; shape **NOT** locked —
+  a bare-string lock is itself a foreclosure; deferred to the first writer).
 
-**B — request context (the Lens, §6.3)**
-- `intent: enum(rescue_item|outfit_upgrade|daily|translate)`
-- `occasion: string` (normalized verbatim), `weather: enum(hot|mild|cold|indoor|outdoor)` (bucket)
-- `weatherRaw?: string`, `location?: string` — raw weather signal beside the bucket (posture rule 1; M5/W-track)
-- `constraints: Map<string,Mixed>` — `ConstraintSet`, stored as a flexible map so additive constraint
-  values (H36) never force a migration; raw-preserving.
-- `forcedItemId?: string` (rescue), `baseOutfitItemIds?: [string]` (upgrade), `routineId?: ObjectId`
-- `lens?: { styleProfileId?, styleProfileVersion?, boardId?, confidence?, styleProfileSnapshot? }` —
-  which-version-of-me (H38); null until B-track. **`styleProfileSnapshot?` is the embed seam (Fable §2):**
-  §6.2 says the StyleProfileSnapshot is "the immutable copy taken at request time and stored in the
-  GenerationSnapshot" — a bare `styleProfileId`/`styleProfileVersion` ref re-creates the H10 disease if a
-  board-version doc is later cascaded away, so the schema must allow embedding the compiled profile, not
-  just pointing at it. Typed/`Mixed`, null until B-track produces a compiler.
-- `wardrobeVersion: int` — **field only**; bump semantics are W-track/H6, **not M4**.
-- `interactionCountAtRequest: int` — gates the signal branch; feeds M6 eligibility analysis (H9).
-- `seedDate?: string` — the daily-reseed `date` seed input (H8; null until M5 activates).
+**Trainability rule:** any model of what the recommendation *conditioned on* trains **only** from
+`engineVisible` + the per-candidate `scoreTrace`/identity fields; `evidence`/`embeddingRef` are new-capacity
+inputs that change the off-policy assumptions. Moving a field `evidence`→`engineVisible` requires a
+`schemaVersion` bump.
 
-**C — version / provenance.** **Required, non-null on every live write** (both reviews — provenance-by-version
-is the backstop for the engine-vs-evidence boundary; nullable provenance ⇒ unrecoverable provenance):
-- `fittedCoreVersion: string` (**required**) — substrate version. **Finding: `fitted_core` has no version
-  constant today** (confirmed: absent from `__init__.py`/`config.py`); **M4/M5 must add a `__version__`
-  before the first live write.**
-- `generator: { provider, model, temperature, promptVersion }` — from the `OpenAIGenerator`
-  (`provider="openai"`, `model="gpt-4o"`, `temperature=0.8`); **`promptVersion` is required** and tags the §D
-  prompt builder (no such constant today — **add one before first write**). `promptVersion` also decodes the
-  generator-visible subset of `engineVisible` (the §D-stripped attrs), so a separate `generatorVisible`
-  store is unneeded at `[NOW]`.
-- `rankerConfigVersion: string` (**required**) — a version/hash of the Appendix B constants the
-  ranker+response consumed, so a tuning change is attributable. Cheap to compute (a hash of the config
-  module); same provenance class as the two above, so also required.
-- `scorer: { kind: enum(cold_start|trained), modelId?, available: bool }` — the SignalScorer in play; at
-  `[NOW]` `{kind:"cold_start", available:false}`; `modelId?` nullable (null at cold start; M6 populates).
+**E — generation attempts (`generationAttempts[]`):** root/attempt-level events (invalid JSON, malformed
+root, the §12 repair retry, aggregate warnings, raw-generation metadata) that **must not be forced into fake
+candidates**. Per-attempt fields (`attemptId`/`attemptIndex`/`isRepair`/`parseIssue?`/`rootRejectionCode?`/
+`aggregateWarningCodes`/`payloadParsed`/`candidateCountEmitted` + bounded `rawText*`, §8.6) in §8.3;
+candidates link back via `sourceAttemptId`.
 
-**D — wardrobe / item feature snapshots** — `itemSnapshots: [ItemSnapshot]` (the H10/H25 core).
-**Provenance-split (the C+D hybrid — both reviews; the one-way-door correction).** The flat "verbatim copy
-of the whole `WardrobeItemDocument`" the first draft proposed is **rejected**: a future M6 trainer reading a
-flat snapshot cannot tell "the engine conditioned on this" from "TS copied this for audit," so it would
-build features (e.g. `pattern`/`seasons`) the recommendation never saw and do off-policy correction against
-a contaminated model — an irreversible corpus foreclosure (flat snapshots get written all through M5).
-Instead, **namespace the layers**; the bucket *is* the ranking-visibility marker (no per-field bool needed):
+**F — candidate pool (`candidates[]`, one array over generated→validated→ranked→shown; H29(b) — rejected +
+low-ranked must survive).** `candidateId` = **Python-issued, unique within the snapshot**, a deterministic
+ordinal over the fully-traced funnel; `dropStage?`/`dropReason?` are **open, append-only code sets** (not
+hard enums, so a future reason isn't a write-rejection foreclosure). Per-candidate fields (`stageReached`/
+`accepted`/`shown`/`shownPosition?`/`sourceAttemptId`/`sourceIndex?`/rejection+warning codes/content
+`items`+`slotMap`+`baseKey?`/`fullSignature?`/`optionPath?`/`risk?`/`styleMove?`/`rawEmitted?`/`scoreTrace?`)
+in §8.3.
 
-Per `ItemSnapshot`:
-- `itemId: string` (the WardrobeItem `_id` as a **string**, deliberately **not** a populatable `ObjectId`
-  ref — §8.4 / H10: nothing may re-hydrate a mutated live item into an old snapshot).
-- **`engineVisible: { … }`** — the **exact `fitted_core.WardrobeItem` projection M5 sent to the Python
-  service** (Python snake_case: `name`, `clothingType`/`type`, `warmth`, `style_tags`, `color_tags`,
-  `occasion_tags`, `material`, `formality`, `image_url`). This is what the scorer/keys/ranker conditioned on —
-  **true by construction** because TS captures it from the same projection it sent, not by a
-  copy-after-the-fact. *The only ranking-visible layer.* **Stored/wire camelCase names** are the explicit
-  snake↔camel mapping: `name`, `clothingType`, `warmth`, **`styleTags`/`colorTags`/`occasionTags`**
-  (≡ `style_tags`/`color_tags`/`occasion_tags`), `material`, `formality`, `imageUrl`. The invariant is
-  **`engineVisible` stored == the projection sent, *modulo* the documented serializer key-rename** (a
-  bijection, no value transform) — so provenance-by-construction survives the case mapping.
-- **`evidence: { … }`** — deployed-doc fields the engine **never saw** (storage-only audit/future capacity):
-  `category`, `subCategory`, `pattern`, `seasons`, `isAvailable`, `isFavorite`, `lastWornAt`, `brand`, `fit`,
-  `size`, `layerRole`, `tags`, `image`. (`isAvailable`/`isFavorite`/`lastWornAt` are orphan/H21 signals, but
-  the `[NOW]` engine does not score them, so they live here until a milestone makes them engine-visible.)
-- **`image?: { imageRef?, imageVersion?, hash? }`** (inside `evidence`) — **stable image reference / version
-  / hash, never the blob** (H29(c) visual ref; guards the H14 image-replacement data-loss). `hash`/`version`
-  nullable: **`WardrobeImage` has no hash/version field today** (confirmed — only `base64`/`contentType`/
-  `sizeBytes`), so true visual immutability is a **W-track dependency** (§8.7 H10 row).
-- **`generatorVisible?: { … }`** — **reserved**; for `[NOW]` it is the `promptVersion`-decodable subset of
-  `engineVisible` (the §D prompt strips `image_url`/`warmth`), so not separately stored. Reserved for a
-  vision generator (H33).
-- `embeddingRef?: string`, `visualFeatureRef?: string` — **reserved nullable** future visual/embedding refs
-  (H25); not required, not produced now. *Shape (`{ref, model, dim, version}`) is **not** locked now — a
-  bare-string lock is itself a foreclosure; defer the shape to whoever first writes it (W-track/M6).*
-- `rawAttributes?: Mixed` (inside `evidence`) — optional verbatim raw CV/declared blob + provenance (posture
-  rule 1); **bounded + no image/base64/blob** (§8.6).
+> **Content-preservation invariant (REQUIRED).** Every **generated, non-accepted** candidate MUST carry
+> `{items+slotMap}` (reconstructed by `sourceIndex` from the attempt's parsed `outfits[]`) **or** `rawEmitted`
+> — a bare `{candidateId, rejectionCodes}` is **invalid**: it loses the negative training signal, because
+> `Issue` carries only `code`/`candidate_index`/`detail`, **never the rejected outfit's content**
+> (`validator.py:60`). Snapshot-building must retain the parsed `outfits[]` beside the issues.
 
-**Trainability rule (folds into §15.1):** any model claiming to model what the recommendation *conditioned
-on* trains **only** from `engineVisible` + the explicit per-candidate `scoreTrace`/identity fields;
-`evidence`/`embeddingRef` are new-capacity inputs whose use changes the off-policy assumptions. A
-`schemaVersion` bump is required to move a field from `evidence` → `engineVisible`.
+**G — scores & diagnostics.** Per-candidate `scoreTrace` is **continuous (never just the 3-way buckets) and
+populated for every *scored* candidate, including scored-but-unshown** (H29(a); funnel sites #2/#3, §8.4):
+`compatibility?`/`visibility?`([0,1] cold-start, the M6 seam), `rankerScore?`, signed
+`scoreBreakdown?{base,combo,item,dislike,overuse,repetition,cooldown}` (N4), `signalScore?`(reserved, M6).
+Request-level `diagnostics` carries the per-type `TypeSampleResult` (M6 eligibility, H9), the SamplerResult/
+RankerResult/RescueResult/parse flags, and rejection/warning histograms (fields in §8.3).
 
-**E — generation attempts (root/attempt-level trace, Codex finding 4)** — `generationAttempts:
-[GenerationAttempt]`. Root/attempt-level events that **must not be forced into fake candidates**: invalid
-JSON, malformed root, the §12 repair retry, aggregate warnings, raw-generation metadata. Per
-`GenerationAttempt`:
-- `attemptId: string` (`"a0","a1"`), `attemptIndex: int`, `isRepair: bool` (the one §12 blind re-generation)
-- `parseIssue?: string` (`invalidJson`/`malformedRoot`/null-on-success), `rootRejectionCode?: string`,
-  `aggregateWarningCodes: [string]` (e.g. `extraCandidatesIgnored`)
-- `payloadParsed: bool`, `candidateCountEmitted: int`
-- `rawTextHash?: string`, `rawTextBytes?: int`, `rawTextTruncated?: bool`, `rawText?: string` — **bounded;
-  no image/base64/blob** (§8.6). Candidates link back via `sourceAttemptId`.
+**H — shown history (H19's queryable home).** Denormalized `shownCandidateIds`/`shownFullSignatures`/
+`nSurfaced`/`spreadCollapsed` so the repetition-window query never unwinds `candidates[]`. `shownBaseKeys`
+**dropped at S4** (§9.4: no `[NOW]` consumer; derivable from `shownCandidateIds` + `candidates[].baseKey`).
+The snapshot is the raw source for the ranker's `shown_full_signatures` window (`ranker.py:191`); **S4 owns
+the window/cap in the M5 reducer** (§8.8/§9.3).
 
-**F — candidate pool** — `candidates: [CandidateSnapshot]`, ONE array spanning the **generated → validated →
-ranked → shown** funnel (attempt-level events live in E; H29(b) — rejected + low-ranked must survive):
-- `candidateId: string` — **Python-issued, unique within the snapshot** (binding id; **not** the
-  fullSignature). Deterministic ordinal over the **fully-traced** funnel (attempts ordered deterministically).
-- `sourceAttemptId: string` — which `GenerationAttempt` emitted it; `sourceIndex?: int` — its position in
-  that attempt's `outfits[]` (pairs it with the parse-time `Issue.candidate_index`).
-- `stageReached: enum(generated|validated|ranked|shown)`, `accepted: bool`, `shown: bool`, `shownPosition?: int`
-- `dropStage?: string` (open code set) — the stage it exited:
-  `parse|validation|rescue_drop|step4_filter|variant_cap|ranking_cutoff|spread_selection|shown`
-- `dropReason?: string` (**open, append-only code set** — softened from a hard enum per Fable, mirroring the
-  `IssueCode`/`FallbackStage` string contracts so a future reason isn't a write-rejection foreclosure):
-  `missing_forced_item|missing_style_move|cooldown|contextual_dislike|lock_filter|variant_cap|below_cutoff|spread_not_selected|…`
-- `admittedViaFallbackStage?: enum(...FallbackStage...)`
-- `rejectionCodes: [string]`, `warningCodes: [string]` — `IssueCode` wire values (empty if accepted)
-- content: `items: [{itemId, role}]`, `slotMap: {dress?,top?,bottom?,outer?,shoes?}`,
-  `template?: enum(two_piece|one_piece)`, `baseKey?`, `fullSignature?`, `optionPath?`, `risk?`,
-  `styleMove?: {moveType, changedItemIds, oneSentence}`
-- `rawEmitted?: Mixed` — raw GPT object for a candidate that failed *pre-normalization* (**bounded; no blobs**)
-- `scoreTrace?: ScoreTrace` (§8.2-G)
+**I — visual / reference preservation.** Folded into `engineVisible`/`evidence.image` + reserved nullable
+`embeddingRef`/`visualFeatureRef` (§8.2-D); refs/hashes only, **never blobs**; the H25 extension seam.
 
-> **Content-preservation invariant (REQUIRED — Fable §5-A / Codex).** Every **generated, non-accepted**
-> candidate MUST carry at least one of {`items` + `slotMap`, reconstructed by `sourceIndex` from the
-> attempt's parsed `outfits[]`} **or** `rawEmitted`. A bare `{candidateId, rejectionCodes}` with no content
-> is **invalid** — it loses the negative training signal, because `Issue` carries only
-> `code`/`candidate_index`/`detail`, **never the rejected outfit's content** (validator.py:60). So snapshot
-> building must retain the parsed `outfits[]` beside the issues; the earlier "rawEmitted is optional, the
-> funnel already preserves negative signal" claim was **false** and is retracted.
+**J — feedback binding support** (contract; **finalized at S4 §9.1/§9.2**). OutfitInteraction gets four
+nullable binding fields (`snapshotId`/`candidateId`/`baseKey`/`fullSignature`, server-re-read,
+all-present-or-all-absent); `shownPosition`/`generationIndex` are **derived from the snapshot, not
+row-stored**. Client echoes `{snapshotId,candidateId}` **only**; the server re-reads the candidate and
+**server-sets** `items[]`/keys, validating optional `perItemFeedback.itemId` ⊆ the candidate's items. Gate
+(impl split §9.5): exists ∧ owned ∧ membership (`candidateId ∈ shownCandidateIds`) ∧ items⊆candidate.
 
-**G — scores & diagnostics.** Per-candidate `scoreTrace` (H29(a) — **continuous, never just the 3-way
-buckets**; **populated for every *scored* candidate, including scored-but-unshown** — funnel sites #2/#3,
-§8.4):
-- `compatibility?: float`, `visibility?: float` ([0,1] cold-start content scores; the M6 seam)
-- `rankerScore?: float`, `scoreBreakdown?: {base,combo,item,dislike,overuse,repetition,cooldown}` (signed, N4)
-- `signalScore?: float` — **reserved nullable** for the trained M6 scorer.
-
-Request-level `diagnostics`:
-- `samplerPerType: Map<clothingType, {selectionKind, reason?, randomCount, signalCount, poolSize}>` — the
-  per-type `TypeSampleResult` (cold-start vs signal vs fault, R11/R13; M6 eligibility input, H9)
-- `candidateRequested: int`, `promptItemCount: int`, `notEnoughItems: bool`, `scorerAvailable: bool` (SamplerResult)
-- `ranker: {fallbackStage, insufficientWardrobe, relaxedCooldownCount, lockedSurvivorCount, insufficientLockedCandidates}` (RankerResult)
-- `rescue?: {notEnoughItems, insufficientAfterGeneration, spreadCollapsed, reasonHint, fallbackStage}` (RescueResult; rescue intent only)
-- `parse: {parseSuccess, repairUsed, generatorCalls}` (the aggregate twin of E's per-attempt detail)
-- `rejectionHistogram: Map<issueCode,int>`, `warningHistogram: Map<issueCode,int>` (cheap aggregate of the per-candidate/per-attempt codes)
-
-**H — response / shown history (H19's queryable home)** — `shown` block, **denormalized** so the
-repetition-window query never has to unwind the candidate array:
-- `shownCandidateIds: [string]` (display order), `shownFullSignatures: [string]`
-- `shownBaseKeys` — **DROPPED at S4** (§9.4): no `[NOW]` consumer (cooldown reads the *dislike* buffer, not
-  shown-base-keys), and it is fully derivable from `shownCandidateIds` + `candidates[].baseKey`. Not stored.
-- `nSurfaced: int`, `spreadCollapsed: bool`
-This block is the H19 storage home: the ranker's `shown_full_signatures` window (ranker.py:191) is built by
-reading `shownFullSignatures` across a user's recent snapshots; **S4 owns the windowing/cap in the M5
-reducer** — the snapshot is the raw source, never the pre-windowed input (§8.8).
-
-**I — visual / reference preservation.** Folded into `ItemSnapshot.engineVisible`/`evidence.image` + the
-reserved nullable `embeddingRef`/`visualFeatureRef` (§8.2-D). Refs/versions/hashes only — **never image
-blobs**. Embeddings not required now; the nullable fields are the H25 extension seam.
-
-**J — feedback binding support** (contract, not a block — **finalized at S4, §9.1/§9.2**):
-- OutfitInteraction references the four nullable binding fields `snapshotId`, `candidateId`, `baseKey`,
-  `fullSignature` (server-re-read; all-present-or-all-absent — §9.1). `shownPosition`/`generationIndex` are
-  **derived from the snapshot, NOT row-stored** (§9.1/§9.0).
-- Client may echo: `{ snapshotId, candidateId }` **only**. The server **never trusts echoed content** — it
-  re-reads the candidate from the snapshot and **server-sets** the outfit `items[]`/keys from it. Optional
-  `perItemFeedback.itemId` may be client-submitted but is validated ⊆ the candidate's items.
-- Server must verify (gate; impl split = §9.5): snapshot exists ∧ `user` matches caller ∧ `candidateId ∈
-  shownCandidateIds` (the membership "did we actually show this?" check) ∧ `perItemFeedback.itemId` ⊆ the
-  candidate's `items`.
-
-**K — lifecycle / redaction seam (H43, D4)** — reserve only; behavior `[STAGED]`:
-- `redacted: bool` (default false), `redactedAt?: Date`, `redactionReason?: string` (lineage, posture rule 3).
-M4 reserves these + registers H43; it does **not** wire the `User` cascade (confirmed `User.ts:24` deletes
+**K — redaction seam (H43, D4; behavior `[STAGED]`).** Reserve `redacted`(default false)/`redactedAt?`/
+`redactionReason?` (lineage, posture rule 3); M4 does **not** wire the `User` cascade (`User.ts:24` covers
 only `wardrobeitems`+`outfitinteractions`). A rebuildable-projection affinity (OQ2) rebuilds clean after
-redaction — the D4/D6 cheapening. **Recorded intent for the privacy milestone (Fable §6, not a blocker):**
-the snapshot embeds user-context PII (`occasion` verbatim, `location`, `weatherRaw`, `rawText`/`rawEmitted`),
-which are *structurally separable* from training signal — so redaction MAY null those PII-bearing fields
-while preserving keys/scores/`itemSnapshots`, giving the immutable-truth-vs-erasure tension a designed exit.
+redaction (D4/D6). **Recorded privacy-milestone intent:** the snapshot's user-context PII (`occasion`,
+`location`, `weatherRaw`, `rawText`/`rawEmitted`) is structurally separable from training signal — redaction
+MAY null those while preserving keys/scores/`itemSnapshots`, the designed exit for the
+immutable-truth-vs-erasure tension.
 
 ### 8.3 Mongoose model proposal (`fitted/models/GenerationSnapshot.ts`)
 
@@ -660,111 +558,61 @@ GenerationSnapshotSchema {
 }  with { timestamps:true }
 ```
 
-- **Immutability:** Mongoose can't hard-enforce it; document write-once + a `pre(['updateOne',
-  'findOneAndUpdate','save'])` guard that allows mutation **only** of the redaction fields. Acceptance test
-  asserts a non-redaction update is rejected.
-- **Raw-field caps (Codex finding 5):** `rawText`/`rawEmitted`/`rawAttributes` are `Mixed` but governed by a
-  schema-level byte cap + hash + truncation flag + a **no image/base64/blob** rule (§8.6) — the 120 KB
-  estimate is only defensible with these.
-- **Cross-model reconciliation (Codex finding 7, routed — not S3 schema edits):** `WardrobeItem.clothingType`
-  is still `["top","bottom"]` (`WardrobeItem.ts:7`) → **S5**; `OutfitInteraction` lacks
-  `snapshotId`/`candidateId`/`baseKey`/`fullSignature` (`OutfitInteraction.ts:23`) → **S4**;
-  `initDatabase()` doesn't register `GenerationSnapshot` (`lib/db.ts:13`) → **M5/S7**.
-- **Indexes:** §8.8.
+- **Immutability:** document write-once + a `pre(['updateOne','findOneAndUpdate','save'])` guard allowing
+  mutation **only** of the redaction fields (acceptance test asserts a non-redaction update is rejected).
+- **Raw-field caps:** `rawText`/`rawEmitted`/`rawAttributes` governed by a byte cap + hash + truncation flag
+  + a no-image/base64/blob rule (§8.6) — the 120 KB bound is only defensible with these.
+- **Cross-model gaps (routed):** `clothingType` enum → S5 (CLOSED §10); `OutfitInteraction` binding fields →
+  S4 (CLOSED §9); `db.ts` `GenerationSnapshot` registration → M5/S7. Indexes: §8.8.
 
-### 8.4 Python payload contract
+### 8.4 Python payload contract + the three-site funnel obligation
 
-- **Producer object:** a new frozen dataclass `GenerationSnapshotPayload` (future `fitted_core/snapshot.py`
-  — **contracted now, built at implementation**, not in M4-the-planning). Fields = §8.2-A/B/C/E/F/G plus
-  each item's `engineVisible` projection (§8.2-D), in snake_case. The `evidence` layer is **not** Python's.
-- **Authorship = the C+D hybrid (the one-way-door correction; replaces the rejected flat/Option-B draft).**
-  Both reviews rejected "TS copies the whole `WardrobeItemDocument` verbatim after Python returns": a flat
-  snapshot makes a future M6 trainer unable to distinguish *what the engine conditioned on* from *what TS
-  kept as audit*, contaminating off-policy correction — and `schemaVersion=1` flat docs get written all
-  through M5, so it's irreversible. The fix:
-  - **(C) TS builds the canonical `itemSnapshots` *before* the Python call**, from the **single captured
-    request context** it already loaded — **no post-Python refetch** (Codex finding 2: a refetch could
-    capture a mutated doc). TS sends Python the **exact `engineVisible` projection** (the
-    `fitted_core.WardrobeItem` view), and stores **that same projection** as `itemSnapshot.engineVisible`.
-    "The engine saw it" is then **true by construction**, not by a hopeful after-the-fact copy.
-  - **(D) Namespace-split the rest:** TS attaches `itemSnapshot.evidence` (the storage-only deployed fields).
-    The bucket boundary *is* the ranking-visibility marker; no per-field provenance bool is needed.
-  - Python still owns + returns keys/scores/dispositions/`candidateId` → the **no-drift guarantee (§7/H15) is
-    intact** (the hazard is keys/scores, never an attribute copy), and now provenance is intact too. The
-    request only carries the projection Python already needs — *not* the rejected "ship all deployed
-    attributes to Python" option. `fitted_core.WardrobeItem` is confirmed lossy (models.py:106 — lacks
-    `category`/`subCategory`/`isAvailable`/`isFavorite`/`lastWornAt`/`pattern`/`seasons`/image refs).
-- **Maps from existing `fitted_core` objects:** `SamplerResult` (per_type, candidate_requested,
-  prompt_item_count, not_enough_items, scorer_available) → `diagnostics.sampler*`; `ValidationResult`
-  (candidates, **rejections, warnings**) + the **parsed `outfits[]`** → the funnel + histograms + the
-  content-preservation invariant; `keys.py` `base_key`/`full_signature` → per-candidate keys; `RankerResult`
-  + `RankedOutfit.breakdown`/`score` → ranked dispositions + scores; `response.OutfitVariant` → shown
-  candidates; `RescueResult` flags → `diagnostics.rescue`; `OpenAIGenerator` (model, temperature,
-  last_usage) → `generator` + cost.
-- **The full-funnel capture obligation — THREE substrate discard sites, not one (Codex finding 1 / Fable
-  §1/§5-B).** The first draft named only site #1. All three must be exposed in M5 via an **additive,
-  read-only trace/audit surface** that does **not** reopen the closed `rank()`/`build_variants()`/`rescue()`
-  public contracts:
-  1. **`rescue()`** returns `RescueResult{ranked, variants, flags}` only — it computes
-     `validate_gpt_payload(...)` at `rescue.py:653` but consumes only `.candidates` (`:656`);
-     `rejections`/`warnings` and the raw/parsed payload are dropped (`rescue.py:676`). → the rejected pool
-     + attempt trace (H29(b)).
-  2. **`rank()`** returns `RankerResult` = **top-k `RankedOutfit`s only** (`ranker.py:140`); the
-     scored-but-not-emitted `_ScoredCandidate`s (full `ScoreBreakdown`) inside `_select_fallback_pool`
-     are never returned. → **scored-but-unshown continuous scores die** — exactly the H29(a) selection bias.
-  3. **`build_variants()`** returns `(selected, spread_collapsed)` (`response.py:559`); the full
-     `variants_by_full_signature` — every non-selected variant's `compatibility`/`visibility` — is dropped.
-     → unshown variants' content scores die.
+- **Producer:** a frozen `GenerationSnapshotPayload` dataclass (future `fitted_core/snapshot.py`; contracted
+  now, built at impl). Fields = §8.2-A/B/C/E/F/G + each item's `engineVisible` (snake_case); `evidence` is
+  TS's, not Python's.
+- **C+D authorship (§8.2-D):** TS builds `itemSnapshots` from the single captured context **before** the
+  Python call (no refetch), sends Python the exact `engineVisible` projection, and stores that same
+  projection — "the engine saw it" true by construction. Python owns + returns keys/scores/dispositions/
+  `candidateId`, so the §7/H15 no-drift guarantee holds; `fitted_core.WardrobeItem` is confirmed lossy
+  (`models.py:106`). The request carries only the projection Python already needs.
+- **The full-funnel capture obligation — THREE substrate discard sites, not one.** All three must reach the
+  snapshot via an **additive, read-only** trace surface that does **not** reopen the closed
+  `rescue()`/`rank()`/`build_variants()` contracts:
+  1. **`rescue()`** (`rescue.py:653/656/676`) drops `rejections`/`warnings` + the raw/parsed payload → the
+     rejected pool + attempt trace (H29(b)).
+  2. **`rank()`** returns top-k only (`ranker.py:140`); the scored-but-unshown `_ScoredCandidate`s + their
+     `ScoreBreakdown`s die → the H29(a) selection bias.
+  3. **`build_variants()`** returns selected only (`response.py:559`); non-selected variants'
+     `compatibility`/`visibility` die.
 
-     The C6 eval harness already **re-derives** rejections/warnings by re-running `validate_gpt_payload`
-     (`evaluation.py`), proving site #1 is reconstructable; sites #2/#3 need the substrate to *expose* the
-     full scored pool / full variant map. **Mechanism — LOCKED (second-pass decision, 2026-06-25): additive
-     sibling trace APIs (Option B), NOT a return-shape change to the closed contracts.** The closed
-     `rescue()`/`rank()`/`build_variants()` (+ `validate_gpt_payload()`) stay **byte-stable**; new
-     `*_with_trace`/`*_with_audit` siblings return the richer payload and the existing functions become **thin
-     projections** of them (Option A — adding a field to the frozen `RankerResult`/return shape — was rejected:
-     it edits the closed dataclass, which the "must not reopen the closed contract" invariant forbids).
-     **Directional surface** (exact decomposition + tests owned by **S9/M5**, not M4): `rescue_with_trace()`,
-     `rank_with_audit()`, `build_variants_with_trace()`, and `validate_gpt_payload_with_trace()` if needed —
-     the siblings are the **sole** new public surface. **Acceptance criterion (S9):** every existing
-     closed-contract signature + its M0–M3/Spearhead tests remain **unchanged** (additive-only). Without all
-     three sites, every M5 snapshot has continuous scores only for *shown* outfits — the selection-biased
-     corpus M6 then trains on, permanently.
-- **Also new at implementation (not in `fitted_core` today):** the Python-issued `candidateId`; the
-  **required** `__version__` / `promptVersion` / `rankerConfigVersion` constants (§8.2-C — must exist before
-  the first live write); `interactionCountAtRequest`.
-- **Case + id boundary (pinned):** Python emits **snake_case** (`candidate_id`, `full_signature`,
-  `score_breakdown`, `option_path`); the service-boundary serializer converts to **camelCase** wire/Mongo,
-  with **finite floats only** (no `NaN`/`Infinity`), no `undefined`. **Ids:** item/candidate ids cross as
-  **opaque strings** (keys.py already assumes 24-char ObjectId hex); TS stores `user` as an `ObjectId`, but
-  **all item/candidate refs inside the snapshot stay strings** (no `ref`/`populate` — H10).
+  **Mechanism — LOCKED: Option B (additive sibling trace APIs), NOT a return-shape change.** The closed
+  `rescue()`/`rank()`/`build_variants()`/`validate_gpt_payload()` stay **byte-stable**; new `*_with_trace`/
+  `*_with_audit` siblings return the richer payload and the existing functions become **thin projections** of
+  them (Option A — editing a frozen return shape — rejected: it reopens the closed contract). Exact
+  decomposition + tests = **S9/M5** (§8.11 ob. 2; acceptance: every closed signature + its M0–M3/Spearhead
+  tests unchanged). Without all three, every M5 snapshot has continuous scores only for *shown* outfits — a
+  permanently selection-biased corpus.
+- **Maps from `fitted_core`:** SamplerResult / ValidationResult(+ parsed `outfits[]`) / `keys.py` /
+  RankerResult + breakdowns / `response.OutfitVariant` / RescueResult / OpenAIGenerator → the diagnostics/
+  funnel/keys/scores/shown/provenance fields (detailed mapping = S9). Also new at impl: the Python-issued
+  `candidateId`, the three required version constants (§8.2-C), `interactionCountAtRequest`.
+- **Case + id boundary (pinned):** Python snake_case → serializer camelCase, **finite floats only** (no
+  `NaN`/`Infinity`), no `undefined`; item/candidate ids cross as **opaque strings** (no `ref`/`populate`,
+  H10); `user` stored as `ObjectId`.
 
 ### 8.5 — (folded into 8.4)
 
-### 8.6 OQ1 — payload-size revalidation
+### 8.6 OQ1 — payload-size revalidation (RESOLVED-provisional)
 
-Worst-case sizing (BSON/JSON): item snapshots ≤ `MAX_PROMPT_ITEMS`=135 × ~500 B ≈ **67 KB**; validated
-candidates ≤ `MAX_CANDIDATES`=40 × ~700 B ≈ **28 KB**; rejected pool + bounded raw ≈ **20 KB**; context/
-provenance/shown ≈ **8 KB**. **Total worst case ≈ 120 KB** — **<1% of Mongo's 16 MB** document limit, and
-trivial as an HTTP body. A typical rescue (small scoped pool, few candidates) is **single-digit KB**.
-
-**The 120 KB is only defensible WITH raw-payload caps (Codex finding 5).** The estimate breaks if
-`rawText`/`rawEmitted`/`rawAttributes`/`metadata`/`notes` are copied verbatim or ever carry CV blobs. So the
-contract requires: **byte cap + stored hash + truncation flag on every raw field, and a hard "no image /
-base64 / blob" rule** (image data is always a ref, never inline — §8.2-D/E). With those, the bound holds.
-
-**Verdict: TS-write-verbatim assumption HOLDS, conditioned on (a) the raw caps above and (b) server/client
-separation.** Size never forces a Python-direct-Mongo write. The separation: the Python **service response
-to Next is two distinct top-level objects** —
-`{ clientResponse: {...shown variants + (snapshotId,candidateId) as the only feedback identity...}, snapshot: {...full server-only funnel + keys...} }`.
-Next **mints `snapshotId` up front** (§8.1), joins it onto both, **forwards `clientResponse` to the
-browser**, merges Python's `snapshot` payload with the TS-built `itemSnapshots` (§8.4), and **persists**.
-The rejected/low-ranked pool never reaches the client.
-
-Selected output (of the three): **"TS-write remains valid only if the server-only payload is separated from
-the client response."** **Status: PROVISIONAL** — final lock waits on the **S9** payload-size guard test
-(a real BSON-size assertion over a max-wardrobe + worst-raw-text fixture, §8.9/§8.11 obligation 4). No
-Python-direct-write.
+Worst case ≈ **120 KB** (item snapshots ≤135×~500 B + validated candidates ≤40×~700 B + rejected pool/raw +
+context/provenance/shown) — **<1% of Mongo's 16 MB**; a typical rescue is single-digit KB. **The bound is
+only defensible WITH raw-payload caps** (byte cap + hash + truncation flag + no-image/base64/blob on every
+raw field — else verbatim raw/CV blobs break it). **Verdict: TS-write-verbatim HOLDS**, conditioned on (a)
+those caps and (b) **server/client separation** — the service returns **two top-level objects**:
+`clientResponse` (shown variants + `(snapshotId,candidateId)` as the only feedback identity) and a
+server-only `snapshot` (full funnel + keys; never reaches the client). Next mints `snapshotId` up front
+(§8.1), joins it onto both, forwards `clientResponse`, merges + persists the `snapshot`. Size never forces a
+Python-direct write. **Status: PROVISIONAL** → final lock at the **S9** BSON-size guard test (§8.9/§8.11 ob. 4).
 
 ### 8.7 H10 / H19 / H25 / H29 / H43 resolution
 
@@ -790,113 +638,54 @@ Python-direct-write.
 *Candidate-level `fullSignature` inside `candidates[]` gets a multikey index **only if M6 proves it queries
 candidates directly** rather than batch-scanning — deferred, not now (Fable).*
 
-### 8.9 Tests needed (added at implementation — S9 ladder)
+### 8.9 Tests needed (S9 ladder)
 
-Schema/validation (jest, TS): required-field rejection (incl. **required `fittedCoreVersion`/`promptVersion`/
-`rankerConfigVersion`**); enum validation (intent/weather/clothingType/role/optionPath/risk) **and**
-open-code-set validation for `dropStage`/`dropReason` against a documented list (not a hard enum);
-**immutability** (non-redaction update rejected; redaction update allowed); **candidateId uniqueness within a
-snapshot** (custom validator over `candidates[]`); **content-preservation invariant** (a generated +
-`accepted:false` candidate with neither `items`+`slotMap` nor `rawEmitted` is rejected); shown-candidate
-lookup by id; rejected-candidate persistence (rejectionCodes survive); score preservation (continuous
-`scoreTrace` incl. unshown + breakdown round-trip); `itemId` stored as string (no populate); **bounded raw
-payload** (over-cap `rawText`/`rawEmitted` truncated + hashed + flagged; no base64/blob); declared **indexes
-present** via `schema.indexes()` and `(user,candidateCacheKey,generationIndex)` is **non-unique**. Membership
-(jest/integration): accepts a shown candidate, **rejects an unshown/rejected candidate**, rejects a
-wrong-user caller. Cross-language (pytest + a serialization fixture): **payload serialization round-trip**
-(snake↔camel, ids as strings, ObjectId boundary, **finite-floats-only / no NaN / no undefined**); H19
-shown-history query viability over a seeded set of snapshots. Substrate (pytest): the
-`GenerationSnapshotPayload` builder maps every funnel disposition correctly, incl. a fixture with
-**accepted + rejected + rescue-dropped + ranker-dropped (scored-but-unshown) + non-selected-variant + shown**
-candidates (proves all three discard sites are captured); **`engineVisible` == the exact projection sent to
-Python** (provenance-by-construction); **raw-GPT trace persistence** (invalid-JSON-then-repair, malformed
-root, **over-limit `extraCandidatesIgnored` candidates preserved before validator slicing**, aggregate
-warning, duplicate-fullSignature, unparseable-after-repair all land in
-`generationAttempts[]`/`diagnostics`, never as fake candidates); **item edit/delete does not alter snapshot
-meaning** (H10 — mutate/delete the live item, assert the embedded `itemSnapshot` + old feedback meaning
-unchanged); **graceful-degradation snapshot semantics** (service timeout/schema-invalid/empty-result arms
-either write a valid minimal snapshot or deliberately return a non-bindable legacy response, per the M5
-fallback contract); visual ref stored without blob. Payload-size guard (the OQ1 PROVISIONAL→lock test): assert real
-BSON size over a **max-wardrobe + worst-raw-text** fixture stays well under the limit.
+The S3 test plan; the implementation checkpoints are the §8.11 S9 obligations. Categories: **schema/validation
+(jest)** — required-field rejection (incl. the three version fields), enum + open-code-set validation
+(`dropStage`/`dropReason` against a documented list), immutability (non-redaction update rejected),
+`candidateId` uniqueness within a snapshot, the **content-preservation invariant**, rejected-candidate +
+continuous-`scoreTrace`(incl. unshown) persistence, `itemId`-as-string, bounded raw payload, declared indexes
++ the **non-unique** cache-key index; **membership (jest)** — accepts a shown candidate, rejects an unshown/
+rejected candidate, rejects a wrong-user caller; **cross-language (pytest)** — serialization round-trip
+(snake↔camel, ids as strings, ObjectId boundary, finite-floats-only), H19 query viability; **substrate
+(pytest)** — the builder maps every funnel disposition (a fixture with accepted + rejected + rescue-dropped +
+ranker-dropped + non-selected-variant + shown proves all three discard sites), `engineVisible` == the exact
+projection sent, raw-GPT trace persistence (never fake candidates), H10 edit/delete-doesn't-alter-meaning,
+graceful-degradation semantics, visual-ref-without-blob, and the OQ1 BSON-size guard.
 
 ### 8.10 S3 verdict — CLOSED 2026-06-25
 
-> **S3 CLOSED — schema + writer-contract design locked.** The narrow second pass (§8.11 prompt) confirmed
-> all four shape-changing required items were actually folded, **verified against source**
-> (`rescue.py:653/656/676`; `ranker.py:140` + the `ordered[: context.k]` truncation over the
-> `_ScoredCandidate`s/`:380`; `response.py:559`/`:571-576`; `validator.py:60`; `models.py:106`; spec §6.2;
-> version-constant absence in `__init__.py`/`config.py`/`generation.py`). **S3 closes the GenerationSnapshot
-> schema + writer-contract *design* only** — implementation still waits on the S9/M5 checkpoints (§8.11
-> S9-obligations block); nothing here is built.
+> **S3 CLOSED — schema + writer-contract design locked; nothing built.** The narrow second pass confirmed
+> all four shape-changing required items against source (`rescue.py:653/656/676`; `ranker.py:140`/`:380`;
+> `response.py:559`/`:571-576`; `validator.py:60`; `models.py:106`; spec §6.2; version-constant absence in
+> `__init__.py`/`config.py`/`generation.py`). Implementation waits on the S9/M5 checkpoints (§8.11).
 
-- **Schema status: CLOSED — design locked.** The C+D provenance split, three-site funnel capture, the
-  content-preservation invariant, and the `lens.styleProfileSnapshot` seam are confirmed folded into the
-  canonical spec §15.1.
-- **Second-pass per-item confirmations (§8.11 prompt):**
-  1. **Provenance authorship — CONFIRMED.** `engineVisible` == the exact projection sent to Python
-     (true-by-construction, no refetch); its field set == `models.py:106` `WardrobeItem`; the
-     `engineVisible`/`evidence` boundary is disjoint; the trainability rule (train only from `engineVisible`)
-     survives.
-  2. **Three-site funnel capture — CONFIRMED.** All three discard sites named + line-verified; mechanism
-     **LOCKED to additive trace siblings (Option B)** — the one item the fold had left open (§8.4).
-  3. **Content-preservation invariant — CONFIRMED.** `Issue` (`validator.py:60`) carries no content, so
-     snapshot-building must retain the parsed `outfits[]`; the invariant is app-enforceable (§8.3/§8.9).
-  4. **`lens.styleProfileSnapshot` seam — CONFIRMED.** Present, `Mixed`, null-until-B-track, honoring §6.2
-     ("the immutable copy taken at request time and stored in the GenerationSnapshot").
-- **OQ1: TS-write SURVIVED but PROVISIONAL** — size is a non-issue (~120 KB) **conditioned on** raw-payload
-  caps + server/client separation (§8.6). Final lock waits on the **S9** BSON-size guard test (now an S9
-  obligation, §8.11). No Python-direct write.
-- **What S4 (identity/binding) must consume:** Python-issued `candidateId` + `baseKey`/`fullSignature` per
-  candidate; `shownCandidateIds`/`shownFullSignatures` as the de-orphan/membership read path; the
-  `{snapshotId, candidateId}` echo contract; **plus** the H19 window/cap ownership in the M5 reducer and the
-  `snapshotId` pre-allocation ordering. Must **not** reopen the §7 key format (trap-guard F).
-- **What S6 (feedback authenticity) must consume:** the membership check over `shownCandidateIds` (exists ∧
-  `user` owns ∧ actually-shown); echoed-items ⊆ candidate `items`/`itemSnapshots`. Confirms the OQ4 M4/M5
-  split (M4 = existence+ownership+content-key binding; M5 = `{snapshotId,candidateId}` binding + membership).
-- **§15.1 spec text: LANDED.** All four required changes are folded and confirmed; S4 may proceed from the
-  canonical §15.1 contract plus the S9/M5 implementation obligations below.
+- **CONFIRMED against source:** (1) provenance authorship — `engineVisible` == the exact projection sent, the
+  `engineVisible`/`evidence` boundary disjoint, the trainability rule survives; (2) three-site funnel capture
+  — all three sites line-verified, mechanism LOCKED to Option B (§8.4); (3) content-preservation invariant —
+  `Issue` carries no content (`validator.py:60`), so snapshot-building retains the parsed `outfits[]`; (4)
+  `lens.styleProfileSnapshot` seam — present, Mixed, null-until-B-track (§6.2).
+- **OQ1:** TS-write SURVIVED but PROVISIONAL (~120 KB, conditioned on raw caps + server/client separation,
+  §8.6); BSON-size guard → S9.
+- **Consumed downstream:** S4 took the binding + the H19 window/cap (§9); S6 took the membership check + the
+  OQ4 split (§11). **§15.1 spec text: LANDED.**
 
-### 8.11 Reconciliation ledger (Codex impl review × substitute-Fable arch/spec/training review)
+### 8.11 Dual-review outcome + S9 implementation obligations
 
-**Both second opinions present and reconciled.** The Codex review is the implementation/runtime second
-opinion; the substitute-Fable review is the architecture/spec/training one (CLAUDE.md dual-read substitute).
-They were **strongly convergent** — no contradictions; Fable's provenance/funnel findings *subsume* Codex's
-feasibility findings, and Codex's runtime findings (no-refetch, snapshotId ordering, raw caps, index safety)
-*sharpen* the writer contract Fable approved-with-changes.
+The S3 design was reconciled against two convergent adversarial reviews (Codex impl + substitute-Fable arch —
+the CLAUDE.md dual-read substitute). **What the review changed** (all folded into §8.2/§8.4/§15.1): the C+D
+provenance split (flat item-copy → `engineVisible`/`evidence`); the three-site funnel obligation + Option B
+trace siblings; `generationAttempts[]` for root/attempt events (not fake candidates); the
+content-preservation invariant; required non-null version fields; pinned id authorship (snapshotId
+TS-preallocated / candidateId Python-issued); the `lens.styleProfileSnapshot` embed seam; the **non-unique**
+cache-key index (H7-deferred); TS-write-survives-only-with raw caps + server/client split; `dropStage`/
+`dropReason` softened to open code sets; `shownBaseKeys` dropped (→S4 §9.4). **Rejected traps:** a flat
+item-copy (provenance foreclosure); a per-field provenance bool (the two-bucket boundary suffices); editing
+the closed return shapes for the trace (→ Option B siblings); locking the `embeddingRef` shape now (deferred
+to first writer). All shape-changing items were confirmed against source in the narrow second pass (verdict
+§8.10; the confirmation-prompt is retired — its content is folded here + §8.10).
 
-| # | Finding | Source | Disposition | Where folded |
-|---|---|---|---|---|
-| 1 | Flat/Option-B item authorship falsifies provenance → C+D hybrid (engineVisible/evidence) | Fable §2/§7 (+Codex 2) | **ACCEPTED** (the one-way-door correction) | §8.1, §8.2-D, §8.3, §8.4, §8.7 |
-| 2 | Only 1 of 3 substrate discard sites named; rank()#2 + build_variants()#3 also drop signal | Fable §1/§5-B (+Codex 1) | **ACCEPTED** | §8.4 (three-site obligation), §8.7-H29, §8.9 |
-| 3 | `generationAttempts[]` for root/attempt events; don't fake-candidate them | Codex 4 | **ACCEPTED** | §8.2-E, §8.3, §8.9 |
-| 4 | Content-preservation invariant for non-accepted candidates (Issue carries no content) | Fable §5-A (+Codex) | **ACCEPTED** | §8.2-F invariant, §8.3, §8.9 |
-| 5 | Strengthen candidates: sourceAttemptId/sourceIndex/dropStage/scoreTrace/bounded rawEmitted | Codex 3 | **ACCEPTED** | §8.2-F, §8.3 |
-| 6 | Pin ids: snapshotId TS-preallocated; candidateId Python-issued; echo `{snapshotId,candidateId}` | Fable §8 + Codex 3 | **ACCEPTED** | §8.1, §8.2-A/J, §8.4, §8.6 |
-| 7 | `fittedCoreVersion`+`promptVersion`(+`rankerConfigVersion`) required, non-null pre-write | Fable §7 | **ACCEPTED** (extended to rankerConfigVersion) | §8.2-C, §8.3, §8.9 |
-| 8 | Honest H10 status: text-resolved / visual-seam / W-track-dependent | Fable §2 | **ACCEPTED** | §8.7-H10 |
-| 9 | `lens.styleProfileSnapshot?` embed seam (§6.2), null until B-track | Fable §2 | **ACCEPTED** | §8.2-B, §8.3 |
-| 10 | TS-write survives only with: one captured context, no refetch, server/client split, raw caps | Codex 2/5 + Fable | **ACCEPTED** | §8.1, §8.4, §8.6 |
-| 11 | Demote `(user,candidateCacheKey,generationIndex)` to non-unique until H7 closes | Fable + Codex 6 | **ACCEPTED** | §8.8 |
-| 12 | §8.10 = approve-with-required-changes; §15.1 delayed; second pass required | both | **DONE** — narrow second pass run 2026-06-25; all four items CONFIRMED against source → **S3 CLOSED**, §15.1 landed | §8.10 |
-| — | Soften `dropReason`/`dropStage` to open append-only code set (not hard enum) | Fable (optional) | **ACCEPTED** (cheap, posture rule 1) | §8.2-F, §8.3 |
-| — | `embeddingRef` shape `{ref,model,dim,version}` not bare string — but defer, don't lock now | Fable (optional) | **SOFTENED** — recorded as "shape not locked", deferred to first writer | §8.2-D |
-| — | `shownBaseKeys` has no `[NOW]` consumer | Fable §3 | **DROPPED at S4** — the "drop at S4" branch taken (derivable from `shownCandidateIds`+`candidates[].baseKey`) | §9.4 |
-| — | PII scrub-vs-tombstone redaction intent | Fable §6 | **ACCEPTED (recorded intent, not built)** | §8.2-K |
-| — | Per-field provenance bool on every feature | Fable §7 (self-rejected) | **REJECTED** — the engineVisible/evidence two-bucket boundary suffices; per-field is overkill | n/a |
-| — | Cross-model gaps (clothingType enum, OutfitInteraction fields, db.ts registration) | Codex 7 | **ROUTED** (not S3 schema edits) — clothingType→S5, interaction fields→S4, registration→M5/S7 | §8.3 note |
-| 13 | Trace-surface mechanism for sites #2/#3: additive return vs `*_with_trace` wrapper | second pass | **LOCKED — Option B** (additive sibling trace APIs; closed contracts stay byte-stable; decomposition→S9/M5) | §8.4, §8.10 |
-| 14 | engineVisible camelCase tag names (`colors`/`occasions` were non-mechanical) | second pass | **ACCEPTED** — `colorTags`/`occasionTags`/`styleTags` (literal snake↔camel); `engineVisible` stored == sent modulo serializer | §8.2-D, §8.3 |
-
-**Implementation-side second opinion: PRESENT** (Codex). Nothing in S3's closeout rests on a missing review.
-
-**Narrow second pass: DONE 2026-06-25.** Confirmation-only re-review of the fold against the three cited
-substrate files + `validator.py`/`models.py` + spec §6.2; all four shape-changing required items returned
-CONFIRMED, the one open item (trace mechanism) was LOCKED (Option B), and the cosmetic naming nit was
-accepted. Result: **S3 CLOSED; §15.1 landed.** Codex's implementation-feasibility notes are **S9
-obligations, not S3 blockers** (the schema only needed the funnel data to be *exposable* — confirmed; *how*
-it is exposed is S9/M5).
-
-#### S9 obligations (Codex feasibility notes → implementation-ladder checkpoints, NOT S3 blockers)
+#### S9 obligations (implementation-ladder checkpoints, NOT S3 blockers)
 
 S9 (the C1–Cn ladder) must carry an explicit checkpoint — each with acceptance criteria + a test plan — for
 each of the following. They are recorded here so the planning→implementation handoff cannot lose them:
@@ -934,31 +723,6 @@ each of the following. They are recorded here so the planning→implementation h
    surrounding trace wrapper) must preserve bounded raw or normalized content for candidates that trigger
    `extraCandidatesIgnored` before the current validator truncates to `MAX_CANDIDATES`, satisfying the
    content-preservation invariant for generated-but-not-accepted candidates.
-
-#### Narrow second S3 pass — prompt (EXECUTED 2026-06-25; verdict in §8.10, ledger row 12)
-
-> **M4 Session 3 — narrow second pass (confirmation only).** Read `docs/plans/m4-data-model-migration.md`
-> §8 (reconciled) + the three source files it cites (`ml-system/fitted_core/{rescue,ranker,response}.py`).
-> Do **not** redesign; confirm only that the reconciliation closed the four shape-changing required items,
-> then give a CLOSE / NOT-CLOSE verdict:
-> 1. **Provenance authorship (C+D):** does §8.2-D + §8.4 guarantee `itemSnapshot.engineVisible` is *exactly*
->    the projection M5 sends to Python (true-by-construction, no post-Python refetch)? Is the
->    `engineVisible`/`evidence` boundary unambiguous, and does the trainability rule (train only from
->    `engineVisible`) survive?
-> 2. **Three-site funnel capture:** does §8.4 name all three discard sites (`rescue()`#1, `rank()`#2,
->    `build_variants()`#3) **and** commit to an *additive, read-only* trace surface that does **not** reopen
->    the closed `rank()`/`build_variants()`/`rescue()` contracts? Is the mechanism (additive return vs
->    `*_with_trace` wrapper) decided or explicitly deferred-to-M5 with a named owner?
-> 3. **Content-preservation invariant:** is "generated ∧ ¬accepted ⇒ (items+slotMap) ∨ rawEmitted"
->    enforceable, and does snapshot-building retain the parsed `outfits[]` to satisfy it given `Issue`
->    carries no content (validator.py:60)?
-> 4. **`lens.styleProfileSnapshot` seam:** present, typed-or-Mixed, null until B-track, honoring §6.2?
->
-> Also spot-check: snapshotId-preallocated/candidateId-Python-issued (§8.1); required version fields
-> (§8.2-C); non-unique cache-key index + H7 coupling (§8.8); raw caps (§8.6). Output: per-item
-> CONFIRMED/GAP, an overall **CLOSE S3 / SECOND-PASS-AGAIN** verdict, and — only if CLOSE — green-light to
-> draft spec §15.1 from §8.2. Be adversarial about *whether the fold actually did what the first review
-> demanded*, not about re-opening settled shape.
 
 ---
 
@@ -1151,17 +915,13 @@ closes the *design*; implementation is the S9 ladder + M5.** Next: **S5** ✅ CL
 
 ## 10. Session 5 outputs — `clothingType`→5 migration + additive field-adds (CLOSED 2026-06-25)
 
-Signed off 2026-06-25. S5 is the **detachable light island** (§7.4): additive, reversible, off the
-S3→S4→S6 critical path. No one-way door → **no Fable review** (the classifier fallback is re-runnable
-forward-design, §7.2/D3); decision basis = a first-principles read of the two deployed string-match sites
-against the closed substrate's 5-value `ItemType`, reasoned from the determinism/consistency promise. The
-canonical decision is single-homed into spec **§6.1**; this section holds the classifier mechanics, the
-two-site divergence evidence, and the S9 obligations.
-
-**Scope confirmation (Brian, 2026-06-25):** the migration target is **dev/seed/test data, not precious
-production history** (this fork has no real users — D3). So S5: align the persisted schema to the 5-type
-engine, keep it simple + reversible, and move on. No null/typeless behavior, no new M4 review/confidence
-fields, no rollback/live-data ceremony — durable review/confidence belongs to the W-track if/when it matters.
+S5 is the **detachable light island** (§7.4): additive, reversible, off the S3→S4→S6 critical path. No
+one-way door → **no Fable review** (the classifier fallback is re-runnable forward-design, §7.2/D3); decision
+basis = a first-principles read of the two deployed string-match sites against the closed substrate's 5-value
+`ItemType`. **Target = dev/seed/test data, no real users (D3)** → align the persisted schema to the engine,
+keep it simple + reversible; no null/typeless behavior, no new M4 review/confidence field, no live-data
+ceremony (durable review/confidence belongs to the W-track). Canonical decision single-homed into spec
+**§6.1**; this section holds the classifier mechanics, the two-site divergence evidence, and the S9 obligations.
 
 ### 10.0 Inbound audit (open bookend) — clean
 
@@ -1389,24 +1149,21 @@ and would be **wrongly rejected**, flattening the rotation signal the dive most 
 **time/idempotency** distinction, not a binding one.
 
 **Decision (pinned):**
-- **Mechanism = read-time reducer dedup.** The write path stays **append-only** (every tap persisted with
-  `createdAt`, full lineage, posture rule 3); it never rejects or upserts. Dedup lives in the compute-live
-  reducer that builds the pre-reduced signals — the seam `ranker.py:188` already declares. **Unique-index-reject
-  and upsert-last-wins are rejected** (foreclose append-only events; repeat the §8.8 trap; flatten repeat-wears;
-  and would *still* need the retry-vs-repeat discriminator — only at a place where a wrong key loses data
-  permanently instead of re-deriving).
-- **Dedup key = `{snapshotId, candidateId, action}`.** `action` keeps `saved`/`worn`/`rated` distinct.
-- **Applied only where it matters:** set/recency projections need no dedup; the counted `item_affinity`
-  collapses same-key rows within `FEEDBACK_DEDUP_WINDOW` (Appendix B; provisional, M5-tunable) to one count;
-  same-key rows outside the window are distinct repeat-events and each count.
-- **Concurrent-write semantics: a non-problem by construction.** No read-modify-write, no lock, no
-  transaction — two concurrent POSTs append two rows; the next projection collapses them. (OQ2's counter-race
-  dissolution, made precise.)
-- **Distinct from backfill idempotency** (trivial — no live data, D3): this is the *forward write-path* rule
-  for the deployed M5 feedback loop.
-- **Retry-vs-repeat discriminator → M5** (parallel to S4 leaving H19's numbers to M5): M4 fixes the
-  rule/key/read-time locus; M5 owns the window's form — **a client idempotency token is the precise mechanism,
-  a bounded time-window the zero-client-contract fallback** — and tunes it.
+- **Mechanism = read-time reducer dedup**, write path **append-only** (every tap persisted with `createdAt`,
+  posture rule 3; never rejects or upserts). Dedup lives in the compute-live reducer (the `ranker.py:188`
+  seam). **Unique-index-reject / upsert-last-wins rejected** — they foreclose append-only events, repeat the
+  §8.8 trap, flatten repeat-wears, and would *still* need the retry-vs-repeat discriminator (only at a place
+  where a wrong key loses data permanently).
+- **Key = `{snapshotId, candidateId, action}`** (`action` keeps `saved`/`worn`/`rated` distinct); applied
+  only to the **counted** `item_affinity` (set/recency projections need no dedup), collapsing same-key rows
+  within `FEEDBACK_DEDUP_WINDOW` (Appendix B; M5-tunable) — same-key rows outside it are distinct
+  repeat-events and each count.
+- **Concurrent writes: a non-problem by construction** (no read-modify-write; two POSTs append two rows, the
+  next projection collapses them — OQ2's counter-race dissolution). **Distinct from backfill idempotency**
+  (trivial, no live data).
+- **Retry-vs-repeat discriminator → M5** (as S4 left H19's numbers to M5): M4 fixes the rule/key/read-time
+  locus; M5 picks the form (client idempotency token = precise; bounded time-window = zero-client-contract
+  fallback) + tunes it.
 
 **Reversibility:** the log keeps every row, so any dedup rule re-derives by re-projection — the opposite of a
 one-way door. Single-homed: spec §16 (rule) + Appendix B (`FEEDBACK_DEDUP_WINDOW`) + §23-H11 (status).
