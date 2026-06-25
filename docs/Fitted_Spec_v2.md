@@ -285,6 +285,12 @@ The node of the closet graph. Deployed schema is already rich
     # Rule: new fields are ADDITIVE ONLY — never rename or remove the above. The trained scorer (§11)
     # may add fields it needs without touching sampler code.
   ```
+  *Persisted home (M4/S5):* `wardrobeVersion` is stored on the **User** doc — `User.wardrobeVersion:int`,
+  default 0, monotonic — and the request adapter reads it into the Lens. The single bump transition is
+  deferred to the W-track (§18/§23-H6); until it is named the value is a constant 0, and pre-existing user
+  docs lacking the field coalesce missing→0 at snapshot-write (`docs/plans/m4-data-model-migration.md`
+  §10.4/§10.6).
+
   *Why `weather` is a bucket but `occasion` is verbatim:* weather drifts without user intent (raw text
   destabilizes the seed every render); occasion changes only by user intent and must stay text-distinct so
   "job interview" and "office party" never collide in the cache. Raw→canonical normalization is owned by the
