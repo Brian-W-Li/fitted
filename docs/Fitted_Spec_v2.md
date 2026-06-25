@@ -318,7 +318,7 @@ The node of the closet graph. Deployed schema is already rich
   non-negative in the `[NOW]`/`[NEXT]` layer, signed at `[STAGED]` — H18).
   *The deployed/ v1.2 additive memory (`ItemAffinity`, comboBoost/itemBoost) is **demoted** to the humble
   first implementation of `behavioralStrength` (§14), not a parallel system.*
-- **GenerationSnapshot** (new): §15.
+- **GenerationSnapshot** (new): §15.1.
 
 ### 6.7 Caches (§15)
 Two-stage. Candidate cache (expensive) keyed on candidate-stage inputs only; ranking runs per request.
@@ -647,12 +647,114 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   channel. The dataclass keeps only its two narrow guards (enum coercion of `clothingType`,
   `warmth ∈ 0..10`) as a last-resort backstop and is **not** the wire boundary (it accepts `warmth=True`,
   since a Python bool is an int — the trap-guard).
-- **GenerationSnapshot** (training truth, `[NEXT]`): one immutable record per request — request inputs +
-  StyleProfileSnapshot + candidate pool + **shown outfit ids/positions** + model/prompt/scorer versions +
-  **interaction-time item feature snapshots**. Feedback binds to a **server-issued outfit id**. *This is the
-  minimum durable record set — NOT full event sourcing* (audit rows + snapshots, normal Mongo projections
-  for current state). Resolves the exposure-bias and feature-skew gaps before any model trains.
+- **GenerationSnapshot** (training truth, `[NEXT]`): one immutable record per rendered response — request
+  inputs + StyleProfileSnapshot + the full candidate funnel + **shown outfit ids/positions** +
+  model/prompt/scorer versions + **immutable item feature snapshots**. Feedback binds to a **server-issued
+  outfit id**. The full cross-language contract is **§15.1**; this bullet is a pointer.
 - **Logging** is async, best-effort, never on the critical path.
+
+### 15.1 GenerationSnapshot — the contract `[NEXT]`
+
+The canonical cross-language contract for the immutable training-truth record. **Storage** = a TS Mongoose
+model `GenerationSnapshot.ts`; **Python** mirrors the producer half as a frozen dataclass
+(`GenerationSnapshotPayload`). Field names below are **camelCase** (wire/Mongo); the Python mirror is
+snake_case and the service-boundary serializer maps between them (finite floats only — no `NaN`/`Infinity`;
+item/candidate ids as opaque strings; `user` as `ObjectId`). **M4 owns this contract; M5 owns the live
+write.** The Mongoose proposal, index/query plan, the writer's 10 deliverables, and all rationale live in
+`docs/plans/m4-data-model-migration.md` §8 — not restated here.
+
+**One snapshot = one rendered response** (per `generationIndex`, not per candidate-cache pass; re-roll
+siblings share a `candidateCacheKey` but are independently complete). It captures the resolved Lens inputs,
+the version/provenance of every component that shaped the render, an immutable feature-copy of every
+participating wardrobe item, the **full candidate funnel** (generated → validated → ranked → shown) with
+continuous scores and dispositions, and the shown set with positions. **Immutable after insert** — feedback
+writes `OutfitInteraction` rows that *reference* it, never mutating it; the only post-insert write is the
+redaction seam below. `schemaVersion` (=1) is the additive-evolution lever (posture rule 1); readers branch
+on it, and moving a field across the provenance boundary requires a bump.
+
+**A snapshot is written for every response/render attempt — including empty-shown and graceful-degradation
+renders** (e.g. an unparseable-after-repair generation that shows nothing still writes a snapshot whose
+`generationAttempts[]` records the failure and whose shown arrays are empty). The failure/empty corpus is
+the negative signal training wants, so it is never skipped. Consequently `generationAttempts[]`,
+`candidates[]`, `itemSnapshots[]`, and `shownCandidateIds[]` are **required arrays that may be empty** —
+**absent ≠ empty** (an absent array is an invalid snapshot; an empty one is a valid degenerate render).
+
+**Field groups** (`?` = nullable/optional):
+- **Identity:** `_id` (the snapshotId — **TS-issued, pre-allocated before the browser response**, so each
+  shown variant can carry `(snapshotId, candidateId)`), `schemaVersion`, `user` (`ObjectId` ref User),
+  `sessionId` (= user id, R8), `candidateCacheKey`, `generationIndex`, `requestId?` (the future
+  render-idempotency key once H7 closes), `createdAt`.
+- **Request context (the Lens, §6.3):** `intent` enum(`rescue_item|outfit_upgrade|daily|translate`),
+  `occasion` (verbatim), `weather` enum(`hot|mild|cold|indoor|outdoor`), `weatherRaw?`/`location?`,
+  `constraints` (flexible map — additive, H36), `forcedItemId?`/`baseOutfitItemIds?`/`routineId?`, `lens?`,
+  `wardrobeVersion` (field only; bump = W-track/H6), `interactionCountAtRequest`, `seedDate?` (H8).
+  **`lens.styleProfileSnapshot?`** is the §6.2 embed seam — the immutable compiled profile itself, not just a
+  `styleProfileId`/`version` ref (a bare ref re-creates H10 if a board version is later cascaded away);
+  typed/`Mixed`, null until B-track.
+- **Provenance / versions — required, non-null on every live write** (nullable provenance ⇒ unrecoverable
+  provenance; the backstop for the engine-vs-evidence boundary): `fittedCoreVersion`, `generator`
+  (`provider`/`model`/`temperature`/`promptVersion`), `rankerConfigVersion` (a hash of the Appendix B
+  constants), `scorer` (`kind` enum(`cold_start|trained`)/`modelId?`/`available`).
+- **Item feature snapshots:** `itemSnapshots[]`, each `{ itemId (string — never a populatable ref, H10),
+  engineVisible{…}, evidence{…}, embeddingRef?/visualFeatureRef? (reserved, H25) }`. **The provenance split
+  is load-bearing.** `engineVisible` is *exactly* the `fitted_core.WardrobeItem` projection the engine
+  conditioned on — `name`, `clothingType`, `warmth`, `styleTags`/`colorTags`/`occasionTags`, `material`,
+  `formality`, `imageUrl` — **true by construction** (the same projection M5 sends to the service, stored
+  verbatim, no post-call refetch; the camelCase names are the documented snake↔camel mapping of
+  `style_tags`/`color_tags`/`occasion_tags`, a key-rename with no value transform). **engineVisible names
+  follow the Python projection / snapshot wire contract, not the deployed `WardrobeItem` field names** — the
+  deployed→`fitted_core` renames and derivations are the M5 request-adapter's job (§15 R12): e.g. deployed
+  `colors`→`colorTags`, `occasions`→`occasionTags`, plus the adapter-*derived* `styleTags`/`warmth`/`material`/
+  `formality` (no direct deployed source). `evidence` is deployed-doc fields the engine **never saw**
+  (storage-only: `category`, `subCategory`, `pattern`, `seasons`, `isAvailable`, `isFavorite`, `lastWornAt`,
+  `brand`, `fit`, `size`, `layerRole`, `tags`, `rawAttributes?` (bounded, storage-only — raw CV/declared blob,
+  posture rule 1), `image{imageRef?/imageVersion?/hash?}` — **ref/version/hash only, never the blob**, H29(c),
+  guarding H14).
+  - **Trainability rule:** a model claiming to model what the recommendation *conditioned on* trains **only**
+    from `engineVisible` + the per-candidate score/identity fields; `evidence`/`embeddingRef` are
+    new-capacity inputs whose use changes the off-policy assumptions. Moving a field `evidence`→`engineVisible`
+    requires a `schemaVersion` bump.
+- **Candidate funnel** (H29(b) — rejected + low-ranked must survive): `generationAttempts[]` (root/attempt
+  events — invalid JSON, the §12 repair retry, aggregate warnings — captured here, **never forced into fake
+  candidates**) and `candidates[]`, one array spanning generated → validated → ranked → shown. Each
+  candidate: `candidateId` (**Python-issued**, unique within the snapshot, over the deterministic funnel
+  order), `sourceAttemptId`/`sourceIndex?`, `stageReached`/`accepted`/`shown`/`shownPosition?`,
+  `dropStage?`/`dropReason?` (**open, append-only code sets** — not hard enums, so a future reason is not a
+  write-rejection foreclosure), `rejectionCodes`/`warningCodes`, content
+  (`items`/`slotMap`/`template?`/`baseKey?`/`fullSignature?`/`optionPath?`/`risk?`/`styleMove?`),
+  `rawEmitted?` (bounded; no blobs), `scoreTrace?`.
+  - **Content-preservation invariant (required):** a **generated, non-accepted** candidate MUST carry at
+    least one of {`items`+`slotMap`} or `rawEmitted`; a bare `{candidateId, rejectionCodes}` is **invalid**
+    (it loses the negative training signal — the validator's `Issue` carries no outfit content, so
+    snapshot-building must retain the parsed candidate content beside the issue log).
+- **Scores (H29(a) — continuous, never just the 3-way path/risk buckets; populated for every *scored*
+  candidate, including scored-but-unshown):** `scoreTrace{ compatibility?, visibility? ([0,1] cold-start
+  content scores — the M6 seam), rankerScore?, scoreBreakdown?{base,combo,item,dislike,overuse,repetition,
+  cooldown}, signalScore? (reserved, trained M6) }`. Request-level `diagnostics` carries the per-type sampler
+  result, the ranker/rescue/parse flags, and rejection/warning histograms.
+- **Shown history (H19 storage home):** denormalized `shownCandidateIds`/`shownFullSignatures`
+  (+ `shownBaseKeys?` reserved), `nSurfaced`, `spreadCollapsed` — so the repetition-window query reads recent
+  snapshots without unwinding `candidates[]`. The snapshot is the raw source; the M5 reducer owns the
+  window/cap.
+- **Redaction seam (H43, `[STAGED]`):** `redacted` (default false)/`redactedAt?`/`redactionReason?` —
+  reserved + the hole registered; behavior staged (no `User` cascade wired in M4). Redaction MAY null the
+  PII-bearing fields (`occasion`, `location`, `weatherRaw`, raw text) while preserving keys/scores/
+  `itemSnapshots`, giving the immutable-truth-vs-erasure tension a designed exit (posture rule 3, lineage).
+
+**Identity binding.** On feedback the client echoes `{snapshotId, candidateId}` **only**; the server
+**re-reads** the candidate from the snapshot and **never trusts echoed content**. The authenticity gate (§16)
+verifies: snapshot exists ∧ `user` matches caller ∧ `candidateId ∈ shownCandidateIds` (membership) ∧ echoed
+items ⊆ the candidate's items.
+
+**Full-funnel capture obligation (writer contract).** The substrate discards funnel signal at three sites —
+`rescue()` (rejected pool + attempt trace), `rank()` (scored-but-unshown breakdowns), `build_variants()`
+(non-selected variants' content scores). All three must reach the snapshot via **additive, read-only trace
+siblings** (`*_with_trace`/`*_with_audit`) that leave the closed `rank()`/`build_variants()`/`rescue()`
+public contracts unchanged; the mechanism, decomposition, and tests are owned by M5/S9 (plan §8.4/§8.11).
+
+This is the **minimum durable record set — NOT full event sourcing** (audit rows + snapshots; normal Mongo
+projections for current state). It resolves the exposure-bias and feature-skew gaps before any model
+trains (§21).
 
 ---
 
@@ -796,8 +898,8 @@ The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M3
 | **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | ✅ done (C1–C6 — parse, strict §12 schema, SlotMap/pool validation, keys + exact-FullSignature dedup, StyleMove, candidate bounds; pytest green) |
 | **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, repetition, fallback, regen controls (over M2's already-deduped accepted candidates — M3 never re-dedups) | ✅ done (C1–C6; §12 mutation-hardened; pytest green) |
 | **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, and `baseKey`/`fullSignature` emitted for later feedback binding. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | ✅ done (C1–C6; three new modules `generation`/`rescue`/`response` over the closed M0–M3 substrate + the `Generator` seam + the C6 `evaluation`/`cli` eval surface; pytest green; C6/H40 live-eval recorded in `docs/plans/spearhead.md` §E) |
-| **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `ItemAffinity`/`wardrobeVersion`/`sessionId`, GenerationSnapshot, baseKey/fullSig on interactions, feedback-authenticity gate | `[NEXT]` |
-| **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (normalization); trust-boundary gates | `[NEXT]` |
+| **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `wardrobeVersion`/`sessionId` storage, the affinity substrate, baseKey/fullSig on interactions; **GenerationSnapshot shape/storage/indexes + writer contract** (§15.1 — *not* the live writer wiring); the **feedback-authenticity contract** (existence + ownership + content-key binding here; membership + server-id binding land M5). Plan: `docs/plans/m4-data-model-migration.md` | `[NEXT]` |
+| **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (normalization); trust-boundary gates; **the live GenerationSnapshot write + server-issued shown-outfit binding / outfit-membership check** | `[NEXT]` |
 | **W-track** | Async CV queue + item states + review surface + VLM extraction/embeddings (§18) | `[NEXT]`/`[STAGED]` |
 | **B-track** | Text boards → StyleProfile compiler; then visual boards | `[NEXT]` text / `[STAGED]` visual |
 | **M6 (the dive)** | Trained edge/graph scorer at the SignalScorer seam; offline NDCG@k; online A/B; behavioral edges → learned (§11) | `[STAGED]` |
@@ -868,7 +970,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H7 | `generationIndex` lifecycle (ownership, range, increment, reset) undefined — it is the sole input distinguishing a re-roll | **OPEN** → DEFERRED-M5 | M5 defines it; load-bearing for the two-stage cache |
 | H8 | Daily-reseed `date` timezone (server-UTC vs user-local) undefined | **OPEN** → DEFERRED-M5 | Must be identical across the Next adapter and the service or seed/cache desync at the day boundary. Default: UTC |
 | H9 | M6 eligibility prevalence unknown (needs both ≥5 interactions AND ≥1 type over cap) | **OPEN** → DEFERRED-pre-M6 | Measure % of requests meeting both; if low, give the model a second surface (candidate ordering / ranker) |
-| H10 | M4 interaction-time feature snapshots not yet built; mutable wardrobe refs rewrite old feedback's meaning | **OPEN** → DEFERRED-M4 | GenerationSnapshot (§15) persists immutable feature snapshots before interactions become labels; add history tests for edited/deleted items |
+| H10 | M4 interaction-time feature snapshots not yet built; mutable wardrobe refs rewrite old feedback's meaning | **OPEN** → DEFERRED-M4 | GenerationSnapshot (§15.1) persists immutable feature snapshots before interactions become labels; add history tests for edited/deleted items |
 | H11 | M4 idempotency/transaction rules (duplicate feedback, affinity updates, concurrent caps, `wardrobeVersion` races) | **OPEN** → DEFERRED-M4 | Define when M4 is specced |
 | H12 | M5 graceful-fallback failure semantics under-pinned | **OPEN** → DEFERRED-M5 | Pin: numeric timeout budget; full trigger set (unreachable OR timeout OR schema-invalid/empty); an anti-rot smoke test exercising the fallback arm |
 | H13 | Pre-M5 CI / runtime reproducibility (no CI workflow, no runtime pins, `requirements.txt` lower-bounds only) | **OPEN** → DEFERRED-pre-M5 | Cross-runtime CI before M5 integration so serialization/auth/timeout/fallback can't drift between Next and the service |
@@ -877,7 +979,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H16 | Candidate cache key ⊋ session-seed inputs — retires the v1.2 R1/N1 `cache_key ≡ seed` invariant | **RESOLVED-HERE** | New rule `cache key ⊇ seed inputs`: `intent`/`forcedItemId`/`styleProfileVersion` key the candidate cache (they change GPT candidates) but need not seed the sampler (§15) |
 | H17 | PDF `forceRegenerate=true` disposition undefined, given R1/R9 redefine regenerate as cached re-rank | **OPEN** → DEFERRED-M5 | M5 decides retain/rename/remove; current lean: removed (R9 locks + the `generationIndex` re-roll cover the intent — H7) |
 | H18 | `behavioralStrength` sign: §11 said "signed" but §14/R2 keep affinity non-negative | **RESOLVED-HERE** | `[NOW]`/`[NEXT]` non-negative affinity + separate `dislikePenalty`/cooldown (R2); signed per-edge accumulator is the `[STAGED]` graph evolution (§11/§6.6) |
-| H19 | Repetition-window shown-history has no `[NOW]` storage home (dropped from the old ledger on consolidation) | **OPEN** → DEFERRED-M4 | M3 consumes shown-history as a pure input (shipped); only the storage home remains — `GenerationSnapshot.shownFullSignatures` (§15, `[NEXT]`) or an interim per-user ring buffer until the snapshot lands |
+| H19 | Repetition-window shown-history has no `[NOW]` storage home (dropped from the old ledger on consolidation) | **OPEN** → DEFERRED-M4 | M3 consumes shown-history as a pure input (shipped); only the storage home remains — `GenerationSnapshot.shownFullSignatures` (§15.1, `[NEXT]`) or an interim per-user ring buffer until the snapshot lands |
 | H20 | `optionPath`/`risk` were emitted by GPT (violates §5 "GPT never ranks"); cold-start path/risk metrics undefined | **RESOLVED-HERE** (locus) + **IMPLEMENTED in Spearhead** (shape/metric) | Pure Python backend functions assign path/risk/graph-role labels (§11/§12/§14). The M2 GPT schema excludes `optionPath`, `risk`, score, rank, graph role, edge strength, freshness, exposure, fallback decisions, matched/missing traits, and diagnostic reason candidates; future schemas may add trait/reason fields only when their owning milestone consumes them (§12). Cold-start path ≈ compatibility/commonness/trusted-anchor availability; cold-start risk ≈ social visibility/boldness — built post-rank in `fitted_core/response.py` (`compatibility`/`visibility` → `assign_path`/`assign_risk`, the 2-D `(path×risk)` spread); the functional form is fixed in `docs/plans/spearhead.md` §G and the numeric config constants live in Appendix B (provisional, tuned against golden wardrobes at Spearhead C6). The learned M6 scorer replaces these heuristics at the same seam (§11) |
 | H21 | "Orphan" is edge-defined but no edges exist at cold start | **RESOLVED-HERE** | Cold-start orphan = zero interactions + null/old `lastWornAt` (± `isFavorite`, ± explicit mark); deployed schema already has these fields (§11) |
 | H22 | Rescue forced-item → template logic + insufficient case + minimum starter closet | **RESOLVED-HERE** (template/insufficient) + **IMPLEMENTED in Spearhead** (min-closet) | `clothingType`→template rule + rescue `notEnoughItems` (§12); the minimum starter closet = the rescue insufficiency check itself, built in `fitted_core/rescue.py` (`_resolve_shape` + `_check_sufficiency`, `docs/plans/spearhead.md` §G steps 1–2): the forced item plus enough to build one valid outfit under its template; sub-threshold returns `not_enough_items` (PRE-GPT, no generation) + an add-a-{type} hint |
@@ -887,7 +989,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H26 | §11 "never shared-catalog" / §22 "cross-user out of scope" would also bar a universal compatibility model | **RESOLVED-HERE** | Split: **behavioral/collaborative** cross-user stays out (privacy); a **universal *content*-compatibility model** trained on **public outfit corpora** is in-scope (clothes, not people) and is what makes the trained scorer feasible at portfolio scale — within-user behavior personalizes it (§11/§22). **Load-bearing for the dive's feasibility** |
 | H27 | §22 body/color non-goal would bar a body-type styling signal | **RESOLVED-HERE** | Non-goal = no prescriptive quiz/scan + no objective "fashionability" score. An **optional, declared, coarse body-proportion archetype** as a refinable cold-start styling prior is **in-scope** (behavior reinforces current defaults; a prior enables better-than-default advice); measurements stay optional/out (sizing only) (§22) |
 | H28 | The `SignalScorer` seam is item-level (`score(item, context)`) — wrong shape for outfit/pairwise compatibility | **OPEN** → DEFERRED-M5/M6 | Reserve a **second seam shape**: an **outfit/pairwise-level scoring hook on the ranker** (scores a SlotMap / a pair), distinct from the item-level sampler slot. A summed per-item score cannot represent "these clash"; the compatibility dive needs the outfit-level hook to land (§5/§11/§14) |
-| H29 | GenerationSnapshot may store only validated/shown candidates + text features (selection-biased, label-only, attribute-only) | **OPEN** → DEFERRED-M4 | Snapshot must persist (a) **continuous** path/risk/compatibility **scores**, not just the 3-way buckets; (b) **rejected + low-ranked** candidates + reasons (negative signal); (c) the **visual** (image ref/embedding), not just text attributes — else the rich-representation + off-policy paths die (§15/§21). Guard the image-replacement data-loss (H14) |
+| H29 | GenerationSnapshot may store only validated/shown candidates + text features (selection-biased, label-only, attribute-only) | **OPEN** → DEFERRED-M4 | Snapshot must persist (a) **continuous** path/risk/compatibility **scores**, not just the 3-way buckets; (b) **rejected + low-ranked** candidates + reasons (negative signal); (c) the **visual** (image ref/embedding), not just text attributes — else the rich-representation + off-policy paths die (§15.1/§21). Guard the image-replacement data-loss (H14) |
 | H30 | `FullSignature` format is spec-locked; new garment roles would force a key migration; BaseKey identity is base-only | **RESOLVED-HERE** (rule) + **OPEN** (identity) | Extension rule: a new optional slot appends **only when present**, fixed canonical order, so existing keys stay valid. BaseKey stays **base-only** for `[NOW]` cooldown/variant-cap; outer/shoe-defined identity is a registered **future** redefinition (§7/§8) |
 | H31 | §22 "real-time online training" non-goal could be read to bar exploration | **RESOLVED-HERE** | Out = continuous real-time gradient training. **In-scope**: a serving-time **exploration** policy (sometimes surface an orphan to learn its edges) + **periodic batch** retraining — how orphan-learning + anti-capture work; enables off-policy eval (§21/§22) |
 | H32 | The 30% signal slot caps the learned model's influence on *generation* | **RESOLVED-HERE** | The 70/30 split is a deliberate generation-influence ceiling, **not a law**; the trained scorer also scores the ranker, so total influence is not capped at 30% (§10) |
@@ -901,6 +1003,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H40 | The `[NOW]` product *assumes* GPT styles believably from **text attributes only** (images stripped, §12) — unvalidated | **VALIDATED-mechanical (Spearhead C6)** / believability descriptive | The `[NOW]` viability bet, measured at Spearhead C6 on the golden corpus (gpt-4o, `--runs 5`, 55 generations): 100% JSON-parse, 100% forced-item inclusion, 100% StyleMove presence, 0 hallucinated ids, 0 schema failures (full results + cost/latency baseline in `docs/plans/spearhead.md` §E). Text-only generation held mechanically, so vision-input-to-generator (H33) was **not** promoted. Human believability stays **descriptive** (the §E rubric, never a gate); a larger believability read remains worthwhile pre-M5 if the rescue surface ships (§12/§21) |
 | H41 | §2 "graph never the interface" + "hook first" could harden into bans | **RESOLVED-HERE** | Cards are the **default dressing interface**; a **secondary** graph/progress/`[NORTH-STAR]`-editing surface may exist behind progressive disclosure. Hook-first is the **default**, not a ban on optional lens-first board/routine selection (§2) |
 | H42 | The forced/rescue item is in 100% of rescue candidates, so the ranker's overuse mechanic (§14) flags it in every rescue outfit | **RESOLVED-HERE** (accepted) → DEFERRED (exemption) | Uniform across all rescue candidates → relative ranking unaffected, so accepted as harmless. A forced-item *exemption* signal on the ranker is a future refinement, deferred (would reopen the closed M3 contract); see `docs/plans/spearhead.md` §G |
+| H43 | GenerationSnapshot is a **new collection** not covered by the `User` cascade-delete (`User.ts:24` deletes `wardrobeitems`+`outfitinteractions` only); retention / purge / **redaction** on account delete is undefined, in tension with snapshots being immutable training truth (§15) | **OPEN** → DEFERRED (Privacy `[STAGED]`, §22); **M4 registers + reserves the seam** | Defer the full retention/purge/redaction *policy* (no real users; privacy `[STAGED]`). M4 must NOT silently create an un-cascaded collection: register this hole **and** reserve a cheap deletion/redaction seam in the §15.1 schema (soft-delete/redaction marker + lineage), behavior staged. Ties to posture rule 3 (append-only with lineage) and the affinity-as-rebuildable-projection bias (`docs/plans/m4-data-model-migration.md` D4/D6/OQ2) — a projection rebuilds clean after source redaction |
 
 ---
 
