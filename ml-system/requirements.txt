@@ -1,8 +1,13 @@
 # Core (outfit_recommender.py)
 # No extra deps for rule-based recommender
 
-# fitted_core/ substrate (M0–M2) — pure functions + tests
+# fitted_core/ substrate (M0–M3) — pure functions + tests
 pytest>=7.4
+
+# Spearhead rescue — real OpenAI generator + CLI only. The import is lazy/local to
+# OpenAIGenerator.generate (spearhead.md §B/§J), so the core package and the hermetic
+# pytest suite import and run with `openai` ABSENT; only a live generation call needs it.
+openai>=1.0
 
 # CV / clothing attribute inference (clothing_cv.py)
 numpy>=1.20

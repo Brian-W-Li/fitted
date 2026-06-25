@@ -1,0 +1,25 @@
+{
+  "case_id": "bold_statement",
+  "description": "A forced neon statement tee. Statement style-tags lift visibility (bold/noticeable risk) and a warm-vs-cool family clash adds contrast — the spread should reach the bolder (path,risk) cells, with a neutral-anchored option staying safer.",
+  "stresses": ["bold/statement item", "visibility / contrast", "spread into bold cells"],
+  "request": {
+    "forced_item_id": "t-neon",
+    "occasion": "party",
+    "weather": "mild",
+    "session_id": "corpus-bold",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-neon", "name": "Neon orange statement tee", "type": "top", "warmth": 3, "style_tags": ["neon", "statement"], "color_tags": ["orange"], "occasion_tags": ["party"], "material": "cotton", "formality": "casual"},
+    {"id": "b-black", "name": "Black jeans", "type": "bottom", "warmth": 5, "color_tags": ["black"], "occasion_tags": ["party"], "material": "denim", "formality": "casual"},
+    {"id": "b-blue", "name": "Cobalt trousers", "type": "bottom", "warmth": 5, "color_tags": ["blue"], "occasion_tags": ["party"], "material": "cotton", "formality": "smart casual"},
+    {"id": "s-white", "name": "White sneakers", "type": "shoes", "warmth": 3, "color_tags": ["white"], "occasion_tags": ["party"], "material": "canvas", "formality": "casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-neon", "role": "base_top"}, {"itemId": "b-black", "role": "base_bottom"}, {"itemId": "s-white", "role": "shoes"}], "styleMove": {"moveType": "anchor", "changedItemIds": ["b-black"], "oneSentence": "Black jeans let the neon tee be the only loud thing in the room."}},
+      {"items": [{"itemId": "t-neon", "role": "base_top"}, {"itemId": "b-blue", "role": "base_bottom"}], "styleMove": {"moveType": "color-clash", "changedItemIds": ["b-blue"], "oneSentence": "Orange against cobalt is a deliberate, high-energy clash for the party."}},
+      {"items": [{"itemId": "t-neon", "role": "base_top"}, {"itemId": "b-black", "role": "base_bottom"}], "styleMove": {"moveType": "pared-back", "changedItemIds": ["t-neon"], "oneSentence": "Tee and black jeans, nothing else — let the statement piece do all the talking."}}
+    ]
+  }
+}

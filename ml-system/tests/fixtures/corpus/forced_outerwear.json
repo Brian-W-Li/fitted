@@ -1,0 +1,26 @@
+{
+  "case_id": "forced_outerwear",
+  "description": "A forced heavy parka on a cold day — an optional-slot rescue over both base templates. The parka is high-warmth so it reads weather-appropriate in the cold (no penalty).",
+  "stresses": ["forced outerwear optional-slot", "cold weather", "two_piece + one_piece bases"],
+  "request": {
+    "forced_item_id": "o-parka",
+    "occasion": "errands",
+    "weather": "cold",
+    "session_id": "corpus-forced-outer",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-grey", "name": "Grey thermal", "type": "top", "warmth": 6, "color_tags": ["gray"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "b-wool", "name": "Wool trousers", "type": "bottom", "warmth": 7, "color_tags": ["charcoal"], "occasion_tags": ["casual"], "material": "wool", "formality": "smart casual"},
+    {"id": "d-knit", "name": "Knit sweater dress", "type": "dress", "warmth": 7, "color_tags": ["burgundy"], "occasion_tags": ["casual"], "material": "wool", "formality": "smart casual"},
+    {"id": "s-boot", "name": "Snow boots", "type": "shoes", "warmth": 8, "color_tags": ["black"], "occasion_tags": ["casual"], "material": "rubber", "formality": "casual"},
+    {"id": "o-parka", "name": "Down parka", "type": "outer_layer", "warmth": 9, "color_tags": ["green"], "occasion_tags": ["casual"], "material": "nylon", "formality": "casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-grey", "role": "base_top"}, {"itemId": "b-wool", "role": "base_bottom"}, {"itemId": "o-parka", "role": "outer_layer"}], "styleMove": {"moveType": "bundle", "changedItemIds": ["o-parka"], "oneSentence": "Top a warm base with the parka for a no-fuss cold-weather errand run."}},
+      {"items": [{"itemId": "d-knit", "role": "one_piece"}, {"itemId": "o-parka", "role": "outer_layer"}], "styleMove": {"moveType": "layer", "changedItemIds": ["o-parka"], "oneSentence": "The parka over a knit dress keeps it effortless but genuinely warm."}},
+      {"items": [{"itemId": "t-grey", "role": "base_top"}, {"itemId": "b-wool", "role": "base_bottom"}, {"itemId": "o-parka", "role": "outer_layer"}, {"itemId": "s-boot", "role": "shoes"}], "styleMove": {"moveType": "complete", "changedItemIds": ["s-boot"], "oneSentence": "Snow boots finish the parka outfit for slush and ice."}}
+    ]
+  }
+}

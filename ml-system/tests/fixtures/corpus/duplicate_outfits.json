@@ -1,0 +1,24 @@
+{
+  "case_id": "duplicate_outfits",
+  "description": "GPT returns the same outfit three times. M2 dedups on FullSignature (first wins), so the pipeline sees ONE survivor — an honest insufficient_after_generation, never papered over by a duplicate. Tests the M2->rescue dedup handoff at eval time.",
+  "stresses": ["duplicate-ish generated outfits", "FullSignature dedup", "honest insufficient_after_generation"],
+  "request": {
+    "forced_item_id": "t-dup",
+    "occasion": "casual",
+    "weather": "mild",
+    "session_id": "corpus-duplicate",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-dup", "name": "Plain tee", "type": "top", "warmth": 4, "color_tags": ["gray"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "b-1", "name": "Black jeans", "type": "bottom", "warmth": 5, "color_tags": ["black"], "occasion_tags": ["casual"], "material": "denim", "formality": "casual"},
+    {"id": "s-1", "name": "White sneakers", "type": "shoes", "warmth": 3, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "canvas", "formality": "casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-dup", "role": "base_top"}, {"itemId": "b-1", "role": "base_bottom"}, {"itemId": "s-1", "role": "shoes"}], "styleMove": {"moveType": "basic", "changedItemIds": ["t-dup"], "oneSentence": "Tee, jeans, sneakers — the default."}},
+      {"items": [{"itemId": "t-dup", "role": "base_top"}, {"itemId": "b-1", "role": "base_bottom"}, {"itemId": "s-1", "role": "shoes"}], "styleMove": {"moveType": "basic", "changedItemIds": ["t-dup"], "oneSentence": "Tee, jeans, sneakers again (identical)."}},
+      {"items": [{"itemId": "t-dup", "role": "base_top"}, {"itemId": "b-1", "role": "base_bottom"}, {"itemId": "s-1", "role": "shoes"}], "styleMove": {"moveType": "basic", "changedItemIds": ["t-dup"], "oneSentence": "Tee, jeans, sneakers a third time (identical)."}}
+    ]
+  }
+}

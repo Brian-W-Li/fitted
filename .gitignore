@@ -40,3 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 lab01-solo/
+
+# Local secrets — ignore real env files, keep committed templates
+.env
+.env.*
+!.env.example
+!.env.sample

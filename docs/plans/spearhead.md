@@ -1,7 +1,11 @@
 # Spearhead — orphan-item rescue (cold-start vertical slice)
 
-> Active milestone plan. Canonical design lives in `docs/Fitted_Spec_v2.md`; this plan points to
-> §sections where the canonical spec owns the decision. Build order is the checkpoint ladder in §C.
+> COMPLETED 2026-06-25 — C1–C6 landed and accepted (milestone-close audit). This plan is now the
+> completed-milestone reference: it stays as the design record for the rescue vertical and leaves the
+> default reading list. Canonical design lives in `docs/Fitted_Spec_v2.md`; this plan points to
+> §sections where the canonical spec owns the decision. Build order was the checkpoint ladder in §C;
+> the as-built modules are `fitted_core/{generation,rescue,response}.py` + the C6 `evaluation.py`/`cli.py`
+> eval surface. The C6/H40 live-eval results are recorded in §E.
 
 ## Goal
 
@@ -86,6 +90,7 @@ class RescueRequest:                             # the rescue-layer input; build
 
 @dataclass(frozen=True)
 class RescueResult:
+    ranked: Optional[RankerResult]               # the full ≤k ranked pool select_spread chose from + raw diagnostics
     variants: tuple[OutfitVariant, ...]          # the surfaced set (≤ n_surfaced), spread order
     not_enough_items: bool                       # PRE-GPT structural insufficiency (template can't be built)
     insufficient_after_generation: bool          # POST: GPT/filters/rank left fewer than n_surfaced
@@ -96,8 +101,20 @@ class RescueResult:
 def rescue(request: RescueRequest, generator: Generator) -> RescueResult: ...
 ```
 
-Internal helpers (all pure except where they call `generator`): `_resolve_shape(forced_type: ItemType) ->
-(allowed_templates, valid_types)`, `_check_sufficiency(counts, forced_type) -> Optional[hint]`,
+This is the **C5-final** shape. The surface is built in two staged checkpoints (mirroring
+`ValidatedCandidate` at M2 and `RankedOutfit` at M3). **C4** (`rescue()` lands ending at `rank()`,
+§C) introduces `ranked: Optional[RankerResult]` — the M3-ranked survivors (`None` only on the
+pre-GPT `not_enough_items` exit) — with `variants`/`spread_collapsed` not yet populated. **C5**
+wires in the response layer over that exact C4 surface (purely additive — the C4 `ranked` field
+and its tests are untouched): it wraps `ranked.outfits` into the `OutfitVariant`s and **adds**
+`variants` + `spread_collapsed`. `ranked` is **retained** (not replaced): it is the full ≤k pool
+`select_spread` chose its ≤ `n_surfaced` spread from, plus the raw `RankerResult` diagnostics —
+richer C6-eval material than the surfaced 3, with `variants` the user-facing slice over it.
+
+Internal helpers (all pure except where they call `generator`): `_resolve_forced_item(wardrobe,
+forced_item_id) -> WardrobeItem` (§G step 1; raises on a missing id), `_resolve_shape(forced_type: ItemType) ->
+(allowed_templates, valid_types)`, `_partition_counts(wardrobe) -> dict[ItemType, int]` (the full-count
+`counts` arg for the next helper, §G step 2), `_check_sufficiency(counts, forced_type) -> Optional[hint]`,
 `_scope_pool_to_forced(pool, forced_item, valid_types) -> dict[ItemType, list[WardrobeItem]]` (forced
 item's type → exactly `[forced_item]`; invalid types → `[]`; usable sibling types kept as sampled — this is
 the rescue "pin," idempotent and duplicate-free by construction), `_flatten_pool(scoped) ->
@@ -165,7 +182,7 @@ Mirrors the M2/M3 cadence. Each row is session-sized; deps are strict unless not
 |---|---|---|---|
 | **C1** | `generation.py`: `Generator` protocol, `GenerationPrompt`, `OpenAIGenerator` (lazy `openai` import), `StubGenerator` test helper. `config.py` new constants + `test_config.py` regression (incl. caps-sum still holds). | — | stub returns canned JSON; `fitted_core` imports with `openai` absent; constants present/typed. |
 | **C2** | `rescue.py` pre-GPT half: `RescueRequest`, `_resolve_shape`, `_check_sufficiency`, build sampler `RequestContext`, `_scope_pool_to_forced` + `_flatten_pool`, `_rescue_candidate_requested`. | C1 | allowed template(s) + valid_types per `ItemType`; the four insufficiency branches; scoping sets the forced item's type to exactly `[forced_item]`, drops invalid types, keeps siblings, `prompt_item_count ≤ MAX_PROMPT_ITEMS`, flattened pool has **no duplicate ids even when the forced item was also sampled**; rescue count follows the scoped formula including the floor/cap cases (it may exceed the generic sampler count in tiny closets). |
-| **C3** | `_build_prompt` (pure) + the prompt artifact (§D). | C1 (parallel with C2) | prompt contains forced-item rule, vibe-range, styleMove-required, every pool id; input items strip `imageUrl`/`warmth` (§12); output-schema instruction (`{itemId, role}` only, no extra/forbidden fields); golden prompt snapshot. |
+| **C3** | `_build_prompt` (pure) + the prompt artifact (§D). | C1 (parallel with C2) | prompt contains forced-item rule, vibe-range, styleMove-required, every pool id, `candidate_requested`, and (forced dress only) the lone-dress `changedItemIds=[forcedItemId]` rule; input items strip `imageUrl`/`warmth` (§12); output-schema instruction (`{itemId, role}` only, no extra/forbidden fields); deterministic golden snapshot. |
 | **C4** | `rescue()` orchestration: generate → `parse_gpt_json` (one §12 repair) → `validate_gpt_payload` → `_drop_invalid` (forced + StyleMove presence) → `rank`. | C2, C3 | end-to-end with `StubGenerator`; drops candidates missing forced item / StyleMove; repair path; empty-after-filter → `insufficient_after_generation`; determinism (stub, fixed `generation_index`). |
 | **C5** | `response.py`: `compatibility`, `visibility` (the §G defined forms), `assign_path`/`assign_risk`, weather penalty + `[0,1]` clamp, `select_spread` (compatibility-led cold ordering), `OutfitVariant` assembly + slot_map→ordered items. Wire into `rescue()`. | C4 | each scoring term at its edge cases (single-item outfit, all-attributes-missing, neutral-only, family clash); purity/determinism; clamp keeps `[0,1]`; bucketing at thresholds; spread spans cells; collapse flag; compatibility-led order under flat ranker scores; item ordering (§6.5); `score == breakdown` sum preserved. |
 | **C6** | Eval harness + golden corpus + believability rubric (§E) + `cli.py` demo. H40 measurement run. Doc updates (§F) — **reported, not auto-applied**. | C5 | corpus runs through real validator; metrics computed; CLI prints variants; (believability is manual/descriptive). |
@@ -192,7 +209,11 @@ the validator rejects as `unknownItemField` and drops the **whole** candidate.
 - Return a **range of vibes** across your outfits — from everyday/expected to adventurous — so the user
   sees genuinely different ways to wear the piece. (Do **not** label, score, or rank them.)
 - **Every outfit MUST include a `styleMove`**: the single concrete styling idea that makes it work
-  (`moveType`, `changedItemIds` ⊆ the outfit's items, `oneSentence`).
+  (`moveType`, `changedItemIds` a **non-empty** subset of the outfit's items, `oneSentence`). For a
+  **lone-dress `one_piece` outfit** (the forced-dress case — the only single-item outfit that can
+  occur), `changedItemIds` must be exactly `[forcedItemId]`: the validator drops an empty/absent
+  `changedItemIds`, and decision 8 then drops the whole outfit, so the prompt states this explicitly
+  for a forced dress.
 - Respect the weather and occasion given. Treat weather as high-priority styling context.
 - Return **strictly valid JSON only**, exactly `{"outfits":[{"items":[{"itemId","role"},...],
   "styleMove":{"moveType","changedItemIds","oneSentence"}}, ...]}`. No prose. Emit **only** these keys —
@@ -230,6 +251,33 @@ The strict validator **is the oracle** — most of pressure-testing is automatab
 - **H40 verdict**: if text-only generation underdelivers on believability, the spec's escape hatch is
   to promote a vision-capable generator (H33) — recorded, not built here.
 
+**Failure attribution (resolved — option a).** The harness pins a shortfall to its stage by
+instrumenting the pipeline **externally** — re-running `generator.generate` → `parse_gpt_json` →
+`validate_gpt_payload` → `_drop_invalid` → `rank` → `build_variants` over the captured generator
+output — so GPT-parse vs validator-reject vs rescue-drop vs ranker/spread are distinguishable at
+eval time. `RescueResult` stays product/runtime-shaped (the §B C5-final surface); it is **not**
+widened with stage-diagnostic fields unless a concrete C6 finding shows external instrumentation
+can't attribute a failure. (Without this, a parse-fail-after-repair, an all-validator-rejected, and
+an all-rescue-dropped run all collapse to `ranked.outfits==()` + `insufficient_after_generation` —
+the harness reconstructs the cause; the runtime result intentionally does not carry it.)
+
+**C6 / H40 measurement run (recorded — the milestone acceptance evidence).** Reproduce with
+`python -m fitted_core.cli --corpus-dir tests/fixtures/corpus --runs 5` (needs `OPENAI_API_KEY`;
+the hermetic suite never calls OpenAI). Run on **gpt-4o, `--runs 5`** over the 11 generating corpus
+cases (`tiny_insufficient` is the 1 pre-GPT case → 0 calls): **55 real generations**.
+
+- **Mechanical conformance (the H40 bet):** 100% JSON-parse, **0 repairs**, **100% forced-item
+  inclusion**, **100% StyleMove presence**, **0 hallucinated ids**, 0 structural-schema failures.
+  **2** `duplicateFullSignature` validator rejections across the 55 (rare near-duplicate generations,
+  handled by the M2 dedup → honest `insufficient_after_generation`, never papered over). No
+  forced-item or StyleMove rescue-drops.
+- **Cost / latency baseline:** latency **p50 ≈ 2.60 s, p95 ≈ 5.11 s**; **≈ 1,052 tokens/rescue** mean;
+  **≈ $0.0046/rescue** estimated on gpt-4o (the §E `MODEL_PRICING` table).
+- **Believability:** the §E rubric is **descriptive evidence**, captured by hand against the surfaced
+  ways-to-wear — never a gate. The text-only viability bet (H40) held mechanically, so the vision-input
+  escape hatch (H33) was **not** triggered. *(These figures are the recorded live run; the milestone-close
+  audit itself re-ran only the hermetic 666-test suite, never the live API.)*
+
 ---
 
 ## F. Doc-sync impacts (owner: Brian)
@@ -237,11 +285,16 @@ The strict validator **is the oracle** — most of pressure-testing is automatab
 This section is the landing checklist only; current design authority is §B/§G and
 `docs/Fitted_Spec_v2.md`.
 
-**Pending on-landing** (when the milestone completes; not yet applied):
-- **`Fitted_Spec_v2.md` §20** — flip Spearhead → ✅ done; note the **three** new modules
-  (`generation`/`rescue`/`response`) + the `Generator` seam.
-- **`ml-system/README.md`** — add the rescue vertical + the `Generator` seam to the module list.
-- **`docs/README.md`** — move Spearhead from current build target to completed milestone reference.
+**Applied on landing** (2026-06-25 milestone-close audit):
+- **`Fitted_Spec_v2.md` §20** — Spearhead flipped to ✅ done; the three modules
+  (`generation`/`rescue`/`response`) + the C6 eval surface + the `Generator` seam are noted.
+- **`Fitted_Spec_v2.md` §23** — H20 (path/risk shape) and H22 (min-closet) reconciled to *implemented*;
+  H40 records the C6 live-eval verdict (§E below). H7/H21/H28/H42 remain deferred (none were built).
+- **`ml-system/README.md`** — the rescue vertical + the `Generator` seam are in the module list;
+  next active work moved to M4.
+- **`docs/README.md`** — Spearhead moved from current build target to completed milestone reference;
+  M4 is the current target.
+- **`CLAUDE.md`** — Spearhead marked complete; M4 (data migration) is the next active milestone.
 
 ---
 
@@ -280,9 +333,13 @@ This section is the landing checklist only; current design authority is §B/§G 
    clamp(complementary*3, MIN_RESCUE_CANDIDATES, MAX_CANDIDATES)` — the floor preserves a 3-cell spread on
    a tiny closet; the cap matches §10. It is an upper-bound hint (§12): asking for more than GPT can build
    is harmless (extras sliced with a warning), so the floor is the load-bearing half.
-6. **Build prompt** (§D) → `generator.generate(...)` → raw JSON.
+6. **Build prompt** (§D) → `generator.generate(...)` → raw JSON. `_build_prompt(scoped, request,
+   forced_item)` computes the step-5 `candidate_requested` **once** and carries it on the returned
+   `GenerationPrompt.candidate_requested` (it also surfaces it as the "return up to N" ask). Step 7 reads
+   `prompt.candidate_requested` back for the validator rather than recomputing — one computation, so the
+   prompt ask and the validator bound can never desync.
 7. **Parse + validate** — `parse_gpt_json` → `validate_gpt_payload(payload, _flatten_pool(scoped),
-   candidate_requested)`. The "one §12 repair" on `invalidJson` is a **single re-generation call** owned
+   prompt.candidate_requested)`. The "one §12 repair" on `invalidJson` is a **single re-generation call** owned
    by `rescue()`: re-issue `generator.generate(...)` with a repair-augmented prompt (a `GenerationPrompt`
    whose system text appends "your previous output was not valid JSON — return only strict JSON in the
    required shape"). `GenerationPrompt` carries no slot for the prior raw output, so this is a **blind

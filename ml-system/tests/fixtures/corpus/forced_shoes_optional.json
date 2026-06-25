@@ -1,0 +1,27 @@
+{
+  "case_id": "forced_shoes_optional",
+  "description": "A forced shoe — an optional-slot rescue. A valid base-only outfit can omit the forced item, so this exercises the forced-item drop (step 8) end-to-end across both two_piece and one_piece bases.",
+  "stresses": ["forced shoes optional-slot", "forced-item drop", "two_piece + one_piece bases"],
+  "request": {
+    "forced_item_id": "s-boot",
+    "occasion": "work",
+    "weather": "cold",
+    "session_id": "corpus-forced-shoes",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-white", "name": "White oxford shirt", "type": "top", "warmth": 4, "color_tags": ["white"], "occasion_tags": ["business"], "material": "cotton", "formality": "business casual"},
+    {"id": "b-black", "name": "Black trousers", "type": "bottom", "warmth": 5, "color_tags": ["black"], "occasion_tags": ["business"], "material": "wool", "formality": "business"},
+    {"id": "d-floral", "name": "Floral midi dress", "type": "dress", "warmth": 4, "style_tags": ["print"], "color_tags": ["pink", "green"], "occasion_tags": ["work"], "material": "viscose", "formality": "smart casual"},
+    {"id": "o-coat", "name": "Camel overcoat", "type": "outer_layer", "warmth": 8, "color_tags": ["tan"], "occasion_tags": ["business"], "material": "wool", "formality": "business"},
+    {"id": "s-boot", "name": "Brown leather boots", "type": "shoes", "warmth": 6, "color_tags": ["brown"], "occasion_tags": ["business"], "material": "leather", "formality": "business casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-white", "role": "base_top"}, {"itemId": "b-black", "role": "base_bottom"}, {"itemId": "s-boot", "role": "shoes"}], "styleMove": {"moveType": "ground", "changedItemIds": ["s-boot"], "oneSentence": "Brown boots warm up a crisp white-and-black office base."}},
+      {"items": [{"itemId": "d-floral", "role": "one_piece"}, {"itemId": "s-boot", "role": "shoes"}], "styleMove": {"moveType": "contrast", "changedItemIds": ["s-boot"], "oneSentence": "Sturdy boots ground a floral midi for an unexpected workday edge."}},
+      {"items": [{"itemId": "t-white", "role": "base_top"}, {"itemId": "b-black", "role": "base_bottom"}], "styleMove": {"moveType": "minimal", "changedItemIds": ["t-white"], "oneSentence": "A clean shirt-and-trouser base — but this one forgets the forced boots."}},
+      {"items": [{"itemId": "d-floral", "role": "one_piece"}, {"itemId": "o-coat", "role": "outer_layer"}, {"itemId": "s-boot", "role": "shoes"}], "styleMove": {"moveType": "layer", "changedItemIds": ["o-coat"], "oneSentence": "A camel coat over the dress, finished with boots for the cold commute."}}
+    ]
+  }
+}

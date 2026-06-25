@@ -1,0 +1,25 @@
+{
+  "case_id": "missing_attributes",
+  "description": "The CV-failure case: most items carry no color/formality/occasion tags. The §G sanity result is a humble reliable+safe default (compatibility ~0.75, visibility 0), and the cells will likely cluster — a real test of spread_collapsed on featureless data. Empty lens occasion gives full occasion credit.",
+  "stresses": ["missing attributes (CV failure)", "humble reliable+safe default", "likely spread_collapsed"],
+  "request": {
+    "forced_item_id": "t-cv",
+    "occasion": "",
+    "weather": "mild",
+    "session_id": "corpus-missing-attrs",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-cv", "name": "Unlabelled top", "type": "top", "warmth": 4},
+    {"id": "b-cv", "name": "Unlabelled bottom", "type": "bottom", "warmth": 5},
+    {"id": "s-cv", "name": "Unlabelled shoes", "type": "shoes", "warmth": 3},
+    {"id": "b-blue", "name": "Blue jeans (color known)", "type": "bottom", "warmth": 5, "color_tags": ["blue"]}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-cv", "role": "base_top"}, {"itemId": "b-cv", "role": "base_bottom"}, {"itemId": "s-cv", "role": "shoes"}], "styleMove": {"moveType": "safe", "changedItemIds": ["t-cv"], "oneSentence": "With no attribute data, a clean three-piece base is the honest default."}},
+      {"items": [{"itemId": "t-cv", "role": "base_top"}, {"itemId": "b-blue", "role": "base_bottom"}], "styleMove": {"moveType": "swap", "changedItemIds": ["b-blue"], "oneSentence": "Swap in the one bottom we have color for, a plain blue jean."}},
+      {"items": [{"itemId": "t-cv", "role": "base_top"}, {"itemId": "b-cv", "role": "base_bottom"}], "styleMove": {"moveType": "minimal", "changedItemIds": ["t-cv"], "oneSentence": "The same top with the unlabelled bottom, kept deliberately plain."}}
+    ]
+  }
+}

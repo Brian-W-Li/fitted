@@ -1,0 +1,26 @@
+{
+  "case_id": "forced_bottom",
+  "description": "A forced bottom (olive cargos) the user can't see ways to wear — the mirror of the green-shirt top case, completing the §E 'forced item of each ItemType' coverage (top/bottom/dress/outer/shoes). Exercises the two_piece base built around a pinned bottom and a believable everyday-to-bolder vibe spread.",
+  "stresses": ["forced bottom / two_piece base", "forced item of each ItemType (bottom)", "vibe spread"],
+  "request": {
+    "forced_item_id": "b-cargo",
+    "occasion": "weekend casual",
+    "weather": "mild",
+    "session_id": "corpus-forced-bottom",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "b-cargo", "name": "Olive cargo pants", "type": "bottom", "warmth": 5, "color_tags": ["olive"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "t-white", "name": "White tee", "type": "top", "warmth": 4, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "t-rust", "name": "Rust henley", "type": "top", "warmth": 4, "color_tags": ["rust"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "o-denim", "name": "Denim jacket", "type": "outer_layer", "warmth": 6, "color_tags": ["blue"], "occasion_tags": ["casual"], "material": "denim", "formality": "casual"},
+    {"id": "s-white", "name": "White sneakers", "type": "shoes", "warmth": 3, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "canvas", "formality": "casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-white", "role": "base_top"}, {"itemId": "b-cargo", "role": "base_bottom"}, {"itemId": "s-white", "role": "shoes"}], "styleMove": {"moveType": "anchor", "changedItemIds": ["b-cargo"], "oneSentence": "Olive cargos ground a clean white tee and sneakers for an easy everyday look."}},
+      {"items": [{"itemId": "t-rust", "role": "base_top"}, {"itemId": "b-cargo", "role": "base_bottom"}, {"itemId": "o-denim", "role": "outer_layer"}], "styleMove": {"moveType": "warm-up", "changedItemIds": ["t-rust"], "oneSentence": "A rust henley under a denim jacket warms the olive cargos into a richer weekend palette."}},
+      {"items": [{"itemId": "t-white", "role": "base_top"}, {"itemId": "b-cargo", "role": "base_bottom"}], "styleMove": {"moveType": "minimal", "changedItemIds": ["t-white"], "oneSentence": "Just the white tee and cargos, kept deliberately plain so the pants lead."}}
+    ]
+  }
+}

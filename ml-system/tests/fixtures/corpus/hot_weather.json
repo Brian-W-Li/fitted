@@ -1,0 +1,26 @@
+{
+  "case_id": "hot_weather",
+  "description": "A forced linen tee on a hot day. The closet contains a heavy parka so one generated outfit is deliberately weather-mismatched — the soft weather penalty should drop its compatibility (a stretch), not gate it out.",
+  "stresses": ["hot weather", "weather penalty as soft scoring", "bucket-not-gate"],
+  "request": {
+    "forced_item_id": "t-linen",
+    "occasion": "beach day",
+    "weather": "hot",
+    "session_id": "corpus-hot",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-linen", "name": "Linen tee", "type": "top", "warmth": 2, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "linen", "formality": "casual"},
+    {"id": "b-shorts", "name": "Cotton shorts", "type": "bottom", "warmth": 1, "color_tags": ["beige"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "b-jeans", "name": "Blue jeans", "type": "bottom", "warmth": 5, "color_tags": ["blue"], "occasion_tags": ["casual"], "material": "denim", "formality": "casual"},
+    {"id": "o-parka", "name": "Heavy parka", "type": "outer_layer", "warmth": 9, "color_tags": ["green"], "occasion_tags": ["casual"], "material": "nylon", "formality": "casual"},
+    {"id": "s-sandal", "name": "Leather sandals", "type": "shoes", "warmth": 1, "color_tags": ["tan"], "occasion_tags": ["casual"], "material": "leather", "formality": "casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-linen", "role": "base_top"}, {"itemId": "b-shorts", "role": "base_bottom"}, {"itemId": "s-sandal", "role": "shoes"}], "styleMove": {"moveType": "breeze", "changedItemIds": ["t-linen"], "oneSentence": "Linen, shorts, and sandals — built to breathe on a hot day."}},
+      {"items": [{"itemId": "t-linen", "role": "base_top"}, {"itemId": "b-jeans", "role": "base_bottom"}], "styleMove": {"moveType": "casual", "changedItemIds": ["b-jeans"], "oneSentence": "Swap to jeans for a slightly more covered but still easy look."}},
+      {"items": [{"itemId": "t-linen", "role": "base_top"}, {"itemId": "b-shorts", "role": "base_bottom"}, {"itemId": "o-parka", "role": "outer_layer"}], "styleMove": {"moveType": "wildcard", "changedItemIds": ["o-parka"], "oneSentence": "A parka over shorts is a deliberate clash — wrong for the heat, but the system should still rank it, not hide it."}}
+    ]
+  }
+}

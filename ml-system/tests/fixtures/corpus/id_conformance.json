@@ -1,0 +1,24 @@
+{
+  "case_id": "id_conformance",
+  "description": "An id-vs-itemId conformance stress: every output item uses the correct {itemId, role} schema, but one outfit references a hallucinated id not in the scoped pool. The validator rejects only that outfit (itemOutsideSampledPool) while the well-formed ones survive — the failure-attribution harness pins the loss to the validator stage, not parse or rescue-drop.",
+  "stresses": ["id-vs-itemId conformance", "hallucinated id -> itemOutsideSampledPool", "validator-stage attribution"],
+  "request": {
+    "forced_item_id": "t-real",
+    "occasion": "casual",
+    "weather": "mild",
+    "session_id": "corpus-id-conformance",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-real", "name": "Real tee", "type": "top", "warmth": 4, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "b-real", "name": "Real jeans", "type": "bottom", "warmth": 5, "color_tags": ["blue"], "occasion_tags": ["casual"], "material": "denim", "formality": "casual"},
+    {"id": "s-real", "name": "Real sneakers", "type": "shoes", "warmth": 3, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "canvas", "formality": "casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-real", "role": "base_top"}, {"itemId": "b-real", "role": "base_bottom"}], "styleMove": {"moveType": "basic", "changedItemIds": ["t-real"], "oneSentence": "A clean tee-and-jeans base from real wardrobe ids."}},
+      {"items": [{"itemId": "t-real", "role": "base_top"}, {"itemId": "b-ghost", "role": "base_bottom"}], "styleMove": {"moveType": "hallucination", "changedItemIds": ["t-real"], "oneSentence": "References b-ghost, which is not in the wardrobe — the validator must catch this."}},
+      {"items": [{"itemId": "t-real", "role": "base_top"}, {"itemId": "b-real", "role": "base_bottom"}, {"itemId": "s-real", "role": "shoes"}], "styleMove": {"moveType": "complete", "changedItemIds": ["s-real"], "oneSentence": "Add the real sneakers to finish the look."}}
+    ]
+  }
+}

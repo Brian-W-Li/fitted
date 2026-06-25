@@ -1,0 +1,16 @@
+{
+  "case_id": "tiny_insufficient",
+  "description": "A forced top with no bottoms in the closet — structurally unbuildable as a two_piece. The H22 min-closet rule short-circuits PRE-GPT with not_enough_items + an add-a-bottom hint; no generation happens, so there is no canned_response.",
+  "stresses": ["tiny closet / insufficient", "pre-GPT not_enough_items", "H22 min-closet rule"],
+  "request": {
+    "forced_item_id": "t-lonely",
+    "occasion": "casual",
+    "weather": "mild",
+    "session_id": "corpus-insufficient",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-lonely", "name": "Lonely tee", "type": "top", "warmth": 4, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "s-only", "name": "The only shoes", "type": "shoes", "warmth": 3, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "canvas", "formality": "casual"}
+  ]
+}

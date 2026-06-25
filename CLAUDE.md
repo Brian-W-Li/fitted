@@ -83,8 +83,8 @@ Maps to team issues **#84** (Brian's own: *"LLM prompts make it better"*) and **
 Sketch of the arc:
 
 1. ✅ `fitted_core` M0-M3: sampler, validation boundary, ranker, regen controls, deterministic tests (486 pytest green; closed).
-2. Spearhead: orphan-item rescue end-to-end on the v2 pipeline — the resolved post-M3 next step, specced in `docs/plans/spearhead.md` (C1–C6 ladder). Runs on the existing substrate; defers feedback storage to M4.
-3. M4/M5: migrate data shape, add GenerationSnapshot / feedback authenticity, deploy the Python service, and wire the Next app behind `USE_ML_SHORTLISTER`.
+2. ✅ Spearhead: orphan-item rescue end-to-end on the v2 pipeline (C1–C6; done 2026-06-25, specced in `docs/plans/spearhead.md`) — three new modules `generation`/`rescue`/`response` + the `Generator` seam + the C6 `evaluation`/`cli` eval surface, over the closed M0–M3 substrate. 666 pytest green; C6/H40 live-eval recorded in the plan's §E. Deferred feedback storage to M4.
+3. M4/M5 (next): migrate data shape, add GenerationSnapshot / feedback authenticity, deploy the Python service, and wire the Next app behind `USE_ML_SHORTLISTER`.
 4. M6: train the style-graph scorer at the `SignalScorer` seam; evaluate with GenerationSnapshots + feedback.
 5. Writeup: architecture diagram, methodology, before/after numbers.
 
@@ -96,7 +96,7 @@ This is an **overhaul**. The product direction is the **lens-first personal styl
 
 **Authoritative for design:**
 - `docs/Fitted_Spec_v2.md` — **the** canonical spec. Build-ladder tagged (`[NOW]`/`[NEXT]`/`[STAGED]`/`[NORTH-STAR]`); §23 is the live Open Holes Register. When v2 and deployed behavior disagree, v2 wins.
-- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context. **Next active work is the Spearhead milestone (orphan-item rescue) — the resolved post-M3 next step (chosen over M4-first), specced in `docs/plans/spearhead.md` (C1–C6 ladder); implement per that plan. M4 (data migration) follows.**
+- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context; `docs/plans/spearhead.md` is the **completed Spearhead reference** (orphan-item rescue, C1–C6; C6/H40 live-eval in its §E). **Next active work is M4 (data migration) — `docs/Fitted_Spec_v2.md` §20; `/spec` it before building.**
 - `docs/plans/*.md` — per-milestone plans produced by `/spec` or the `planner` subagent. Active execution plans.
 - This `CLAUDE.md` — project conventions and scope.
 

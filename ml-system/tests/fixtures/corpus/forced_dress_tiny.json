@@ -1,0 +1,24 @@
+{
+  "case_id": "forced_dress_tiny",
+  "description": "A forced dress in a near-empty closet on a cold evening. Exercises the lone one_piece base, the shared-BaseKey/variant-cap-relaxed path, and the [forcedItemId] lone-dress styleMove rule.",
+  "stresses": ["forced dress", "lone one_piece", "tiny closet", "cold weather", "shared BaseKey / variant_cap_relaxed"],
+  "request": {
+    "forced_item_id": "d-navy",
+    "occasion": "dinner",
+    "weather": "cold",
+    "session_id": "corpus-forced-dress",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "d-navy", "name": "Navy wrap dress", "type": "dress", "warmth": 3, "color_tags": ["navy"], "occasion_tags": ["dinner"], "material": "silk", "formality": "cocktail"},
+    {"id": "o-black", "name": "Black wool coat", "type": "outer_layer", "warmth": 8, "color_tags": ["black"], "occasion_tags": ["formal"], "material": "wool", "formality": "formal"},
+    {"id": "s-heel", "name": "Black heels", "type": "shoes", "warmth": 2, "color_tags": ["black"], "occasion_tags": ["formal"], "material": "leather", "formality": "cocktail"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "d-navy", "role": "one_piece"}], "styleMove": {"moveType": "let-it-stand", "changedItemIds": ["d-navy"], "oneSentence": "Let the navy wrap dress carry the evening on its own."}},
+      {"items": [{"itemId": "d-navy", "role": "one_piece"}, {"itemId": "o-black", "role": "outer_layer"}], "styleMove": {"moveType": "layer", "changedItemIds": ["o-black"], "oneSentence": "Add the wool coat for warmth and a polished line in the cold."}},
+      {"items": [{"itemId": "d-navy", "role": "one_piece"}, {"itemId": "s-heel", "role": "shoes"}], "styleMove": {"moveType": "elevate", "changedItemIds": ["s-heel"], "oneSentence": "Heels lengthen the silhouette for a dressier dinner look."}}
+    ]
+  }
+}

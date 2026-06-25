@@ -62,3 +62,77 @@ REPETITION_PENALTY = 1.0  # flat magnitude, subtracted on a re-shown FullSignatu
 DISLIKE_WINDOW_SIZE = 20  # recent disliked item ids (dislikePenalty window, §14 "M=20")
 COOLDOWN_BUFFER_SIZE = 10  # recent disliked BaseKeys (cooldown buffer, FIFO)
 REPETITION_WINDOW_SIZE = 10  # recently shown FullSignatures (repetition window)
+
+# --- Spearhead rescue (cold-start response layer, v2 Appendix B) ----------------
+# Provisional C6 tuning inputs, NOT universal fashion law (spearhead.md §A/§G): their
+# sole job is to position an outfit in a (path, risk) cell — they never gate/filter a
+# candidate (the §G "bucket, never gate" trap-guard; structural validity is the only
+# filter). The scoring forms that consume them are fixed in spearhead.md §G; only these
+# weights/thresholds/taxonomies move in C6 eval. Free-string lookups go through the
+# response layer's `_norm_label` (trim, lowercase, hyphen/underscore→space, collapse
+# whitespace) before exact match; unmatched non-neutral colors map to "other".
+
+# Surfaced set + rescue candidate floor (consumed by rescue.py at C2)
+N_SURFACED = 3  # ways-to-wear surfaced per rescue (the 2-D (path,risk) spread target)
+MIN_RESCUE_CANDIDATES = 6  # floor on the rescue candidate_requested — preserves a 3-cell
+# spread on a tiny closet; clamped against MAX_CANDIDATES (must stay ≤ it, guarded below)
+
+# Color / style taxonomies (consumed by response.py at C5)
+NEUTRAL_COLORS = frozenset(
+    {"black", "white", "gray", "grey", "navy", "beige", "cream", "tan", "khaki", "denim"}
+)
+BOLD_STYLE_TAGS = frozenset(
+    {"bold", "statement", "bright", "graphic", "print", "pattern", "neon", "sequin"}
+)
+COLOR_FAMILIES: dict[str, frozenset[str]] = {
+    "warm": frozenset(
+        {"red", "orange", "yellow", "coral", "peach", "gold", "mustard", "burgundy", "maroon", "rust", "brown"}
+    ),
+    "cool": frozenset(
+        {"blue", "green", "teal", "cyan", "purple", "violet", "lavender", "mint", "olive"}
+    ),
+    "pink": frozenset({"pink", "magenta", "fuchsia", "rose", "salmon"}),
+}
+
+# Formality ladder + its normalizer. MAX_FORMALITY_SPREAD MUST equal the table's
+# (max rank − min rank) so the §G `spread / MAX_FORMALITY_SPREAD` term stays in [0,1]
+# before the clamp — regression-guarded in test_config.py (add a rank 6 without bumping
+# this and the guard fails). Unknown/None formality is unranked and never counts (§G).
+FORMALITY_RANK: dict[str, int] = {
+    "loungewear": 0,
+    "lounge": 0,
+    "casual": 1,
+    "smart casual": 2,
+    "business casual": 2,
+    "business": 3,
+    "workwear": 3,
+    "formal": 4,
+    "cocktail": 4,
+    "black tie": 5,
+}
+MAX_FORMALITY_SPREAD = 5
+
+# Cold-start scoring weights (§G). Each scored term is in [0,1]; the per-family weights
+# sum to 1.0 by design, so the weighted sum lands in [0,1] before §G's final clamp01.
+W_NEUTRAL_ANCHOR = 0.25  # compatibility: grounding-neutral share
+W_COLOR_FAMILY = 0.25  # compatibility: color-family cohesion
+W_FORMALITY_COHERENCE = 0.25  # compatibility: formality coherence (1 − spread)
+W_OCCASION_OVERLAP = 0.25  # compatibility: occasion-tag overlap with the lens
+W_CONTRAST = 0.4  # visibility: contrasting-pair share
+W_STATEMENT_TAGS = 0.4  # visibility: statement-tag share
+W_FORMALITY_DISTANCE = 0.2  # visibility: formality spread (register mixing)
+
+# Path/risk bucket thresholds (§G / Appendix B). Ordering is structural — the STRETCH/
+# SAFE max must sit below the RELIABLE/BOLD min so the middle (bridge/noticeable) band
+# exists; guarded in test_config.py.
+PATH_RELIABLE_MIN = 0.66  # compatibility ≥ this → reliable
+PATH_STRETCH_MAX = 0.40  # compatibility ≤ this → stretch; between → bridge
+RISK_BOLD_MIN = 0.66  # visibility ≥ this → bold
+RISK_SAFE_MAX = 0.33  # visibility ≤ this → safe; between → noticeable
+
+# Weather warmth bands (§G weather penalty). WARMTH_BAND bins an item's 0–10 warmth into
+# 0/1/2; TARGET_BAND is the lens weather's desired band (None for indoor/outdoor → no
+# penalty). Penalty = WEATHER_MISMATCH_PENALTY × max band-distance over the outfit's items.
+WEATHER_WARMTH_BAND: dict[str, tuple[int, int]] = {"hot": (0, 3), "mild": (3, 6), "cold": (6, 10)}
+WEATHER_TARGET_BAND: dict[str, int] = {"hot": 0, "mild": 1, "cold": 2}
+WEATHER_MISMATCH_PENALTY = 0.5

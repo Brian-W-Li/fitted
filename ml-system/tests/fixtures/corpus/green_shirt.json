@@ -1,0 +1,27 @@
+{
+  "case_id": "green_shirt",
+  "description": "The canonical green-shirt orphan: an everyday graphic tee the user can't see ways to wear. The spearhead's reason for being (the 'green-shirt problem').",
+  "stresses": ["green shirt / orphan top", "vibe spread", "everyday-to-adventurous range"],
+  "request": {
+    "forced_item_id": "t-green",
+    "occasion": "weekend casual",
+    "weather": "mild",
+    "session_id": "corpus-green-shirt",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-green", "name": "Green graphic tee", "type": "top", "warmth": 4, "style_tags": ["graphic"], "color_tags": ["green"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "b-khaki", "name": "Khaki chinos", "type": "bottom", "warmth": 5, "color_tags": ["khaki"], "occasion_tags": ["casual"], "material": "cotton", "formality": "smart casual"},
+    {"id": "b-navy", "name": "Navy trousers", "type": "bottom", "warmth": 5, "color_tags": ["navy"], "occasion_tags": ["casual"], "material": "wool", "formality": "business casual"},
+    {"id": "b-red", "name": "Red corduroys", "type": "bottom", "warmth": 6, "color_tags": ["red"], "occasion_tags": ["casual"], "material": "corduroy", "formality": "casual"},
+    {"id": "o-denim", "name": "Denim jacket", "type": "outer_layer", "warmth": 6, "color_tags": ["blue"], "occasion_tags": ["casual"], "material": "denim", "formality": "casual"},
+    {"id": "s-white", "name": "White sneakers", "type": "shoes", "warmth": 3, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "canvas", "formality": "casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-green", "role": "base_top"}, {"itemId": "b-khaki", "role": "base_bottom"}, {"itemId": "s-white", "role": "shoes"}], "styleMove": {"moveType": "anchor", "changedItemIds": ["t-green"], "oneSentence": "Ground the graphic tee with neutral khakis and clean sneakers for an easy everyday look."}},
+      {"items": [{"itemId": "t-green", "role": "base_top"}, {"itemId": "b-navy", "role": "base_bottom"}, {"itemId": "o-denim", "role": "outer_layer"}], "styleMove": {"moveType": "layer", "changedItemIds": ["o-denim"], "oneSentence": "Throw a denim jacket over the tee to make it weekend-ready without trying too hard."}},
+      {"items": [{"itemId": "t-green", "role": "base_top"}, {"itemId": "b-red", "role": "base_bottom"}], "styleMove": {"moveType": "color-pop", "changedItemIds": ["b-red"], "oneSentence": "Pair the green with red corduroys for a bold, intentional color statement."}}
+    ]
+  }
+}

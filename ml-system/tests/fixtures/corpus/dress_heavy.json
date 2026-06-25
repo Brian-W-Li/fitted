@@ -1,0 +1,27 @@
+{
+  "case_id": "dress_heavy",
+  "description": "A dress-dominated closet (four dresses) with a forced red heel — an optional-slot rescue where every base is a one_piece. Stresses spread on a dress-heavy wardrobe: the four dress+heel outfits span reliable/safe, bridge/noticeable, and stretch/bold cells, so select_spread fills three DISTINCT (path,risk) cells (spread_collapsed=False) rather than clustering. Empty-occasion-free: every item is tagged 'evening' so the occasion term is full credit and the spread is driven by color/formality/statement.",
+  "stresses": ["dress-heavy closet", "one_piece base spread", "forced shoes optional-slot", "distinct (path,risk) cells"],
+  "request": {
+    "forced_item_id": "s-red",
+    "occasion": "evening",
+    "weather": "mild",
+    "session_id": "corpus-dress-heavy",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "s-red", "name": "Red strappy heels", "type": "shoes", "warmth": 3, "color_tags": ["red"], "occasion_tags": ["evening"], "material": "leather", "formality": "cocktail"},
+    {"id": "d-black", "name": "Black sheath dress", "type": "dress", "warmth": 4, "color_tags": ["black"], "occasion_tags": ["evening"], "material": "crepe", "formality": "formal"},
+    {"id": "d-white", "name": "White sundress", "type": "dress", "warmth": 3, "color_tags": ["white"], "occasion_tags": ["evening"], "material": "cotton", "formality": "casual"},
+    {"id": "d-emerald", "name": "Emerald satin dress", "type": "dress", "warmth": 4, "color_tags": ["green"], "occasion_tags": ["evening"], "material": "satin", "formality": "cocktail"},
+    {"id": "d-floral", "name": "Floral print midi", "type": "dress", "warmth": 4, "style_tags": ["print"], "color_tags": ["pink", "green"], "occasion_tags": ["evening"], "material": "viscose", "formality": "smart casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "d-black", "role": "one_piece"}, {"itemId": "s-red", "role": "shoes"}], "styleMove": {"moveType": "pop", "changedItemIds": ["s-red"], "oneSentence": "A red heel is the one deliberate spark against a clean black sheath."}},
+      {"items": [{"itemId": "d-white", "role": "one_piece"}, {"itemId": "s-red", "role": "shoes"}], "styleMove": {"moveType": "fresh", "changedItemIds": ["s-red"], "oneSentence": "Red heels lift an easy white sundress into something evening-ready."}},
+      {"items": [{"itemId": "d-emerald", "role": "one_piece"}, {"itemId": "s-red", "role": "shoes"}], "styleMove": {"moveType": "jewel-clash", "changedItemIds": ["s-red"], "oneSentence": "Emerald and red is a rich jewel-tone pairing that reads intentional, not loud."}},
+      {"items": [{"itemId": "d-floral", "role": "one_piece"}, {"itemId": "s-red", "role": "shoes"}], "styleMove": {"moveType": "amplify", "changedItemIds": ["s-red"], "oneSentence": "Picking out the floral's warm tones with red heels turns the print all the way up."}}
+    ]
+  }
+}
