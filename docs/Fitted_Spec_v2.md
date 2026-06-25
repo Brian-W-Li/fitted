@@ -182,7 +182,8 @@ deliverable.
 the engine is a **closet-grounded GPT stylist with structured outputs and stable feedback keys**: GPT
 composes outfits fenced to the wardrobe + Lens, the deterministic ranker filters/diversifies them (the
 response layer buckets them into path/risk), and the response carries `baseKey`/`fullSignature` so M4 can
-bind feedback later. Believability rides on **GPT's styling judgment fenced by the closet** — *not* a
+persist them; after the M5 GenerationSnapshot writer lands, feedback binds by `{snapshotId,candidateId}` and
+the server re-reads keys from the snapshot. Believability rides on **GPT's styling judgment fenced by the closet** — *not* a
 learned graph yet. The **personal style graph** is the brand, the metaphor, and the `[STAGED]` payoff:
 accumulated feedback + a learned compatibility model (§11) is what the data *grows into*. Same engine,
 different rungs — not the same moment. *(Seam caveat: "no other code change" holds only if the seam is the
@@ -309,8 +310,11 @@ The node of the closet graph. Deployed schema is already rich
   `action ∈ {generated,accepted,rejected,saved,worn,rated}`, `rating`, `perItemFeedback:[{itemId,disliked,
   notes}]`, `context:{weather,temperatureF,location,occasion}`. **Only `accepted`/`rejected` are written
   today.** v2 uses existing `saved/worn/rated` actions and additively extends the enum for
-  `planned/packed/corrected` scoped-feedback events (§16). It also adds the
-  **lens snapshot + baseKey/fullSig + server-issued outfit id** to each row. Trainable "why" is captured
+  `planned/packed/corrected` scoped-feedback events (§16). It also adds the **`{snapshotId, candidateId}`
+  binding** + **server-re-read `baseKey`/`fullSignature`** to each row (all nullable — present iff
+  snapshot-bound; pre-M5 legacy rows have none). The immutable lens + item-feature snapshot lives **only** in
+  the referenced `GenerationSnapshot` (§15.1), never duplicated on the row; on snapshot-bound feedback the
+  server re-reads the candidate from the snapshot and never trusts client-echoed content (S4). Trainable "why" is captured
   only by the structured `FeedbackReason` set (§16); no unstructured blurb is a **training label** — raw /
   corrected user rationale is nonetheless **persisted with provenance** and excluded from training until
   deliberately reviewed/compiled (§23-H34).
@@ -341,7 +345,8 @@ Two keys, never conflated (carried from v1.2 §5; trap-guard R10 inline).
   base (one_piece XOR two_piece); (2) no participating itemId contains a reserved char (`:`, `|`, `=`) or
   equals the sentinel `"none"`. Real Mongo ObjectId-hex ids never trigger it (zero false-reject); it is the
   documented contract for any future id source. **Keys are computed once, in Python, never reimplemented in
-  TS** (drift hazard); the response carries them and the client echoes them on feedback.
+  TS** (drift hazard); M4 persists them verbatim. Pre-M5 legacy feedback may echo them, but M5
+  snapshot-bound feedback echoes `{snapshotId,candidateId}` and the server re-reads keys from the snapshot.
 
 ## 8. Outfit structure & SlotMap normalization
 
@@ -617,8 +622,10 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
 ## 15. Response, caching, logging `[NOW]` cache · `[NEXT]` snapshot
 
 - **Response**: `outfits[]` (each with items, backend-assigned `optionPath`/`risk`, StyleMove,
-  scoreBreakdown), plus
-  `insufficientWardrobe` if triggered, plus baseKey/fullSig per outfit (client echoes them on feedback).
+  scoreBreakdown), plus `insufficientWardrobe` if triggered. Pre-M5/legacy feedback may still carry
+  server-computed `baseKey`/`fullSignature`, but the M5 snapshot-bound feedback identity is
+  `{snapshotId,candidateId}` **only**; the server re-reads keys/content from the snapshot and never trusts
+  client-echoed keys.
 - **Seed** (R1 trap-guard): one **private** `_canonical_seed` primitive + two wrappers (`session_seed` /
   `tiebreak_seed`) so the two seeds cannot drift. **Length-prefix each field by UTF-8 byte count**
   (`f"{len(s.encode('utf-8'))}:{s}"`) before joining, sha256, first 8 bytes → int. A bare `"\x1f"` join
@@ -649,8 +656,8 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   since a Python bool is an int — the trap-guard).
 - **GenerationSnapshot** (training truth, `[NEXT]`): one immutable record per rendered response — request
   inputs + StyleProfileSnapshot + the full candidate funnel + **shown outfit ids/positions** +
-  model/prompt/scorer versions + **immutable item feature snapshots**. Feedback binds to a **server-issued
-  outfit id**. The full cross-language contract is **§15.1**; this bullet is a pointer.
+  model/prompt/scorer versions + **immutable item feature snapshots**. Feedback binds to the server-issued
+  `{snapshotId,candidateId}` pair. The full cross-language contract is **§15.1**; this bullet is a pointer.
 - **Logging** is async, best-effort, never on the critical path.
 
 ### 15.1 GenerationSnapshot — the contract `[NEXT]`
@@ -726,25 +733,40 @@ the negative signal training wants, so it is never skipped. Consequently `genera
   - **Content-preservation invariant (required):** a **generated, non-accepted** candidate MUST carry at
     least one of {`items`+`slotMap`} or `rawEmitted`; a bare `{candidateId, rejectionCodes}` is **invalid**
     (it loses the negative training signal — the validator's `Issue` carries no outfit content, so
-    snapshot-building must retain the parsed candidate content beside the issue log).
+    snapshot-building must retain the parsed candidate content beside the issue log). This includes
+    over-limit candidates that trigger `extraCandidatesIgnored`: the trace surface must preserve bounded raw
+    or normalized content before validator slicing.
 - **Scores (H29(a) — continuous, never just the 3-way path/risk buckets; populated for every *scored*
   candidate, including scored-but-unshown):** `scoreTrace{ compatibility?, visibility? ([0,1] cold-start
   content scores — the M6 seam), rankerScore?, scoreBreakdown?{base,combo,item,dislike,overuse,repetition,
   cooldown}, signalScore? (reserved, trained M6) }`. Request-level `diagnostics` carries the per-type sampler
   result, the ranker/rescue/parse flags, and rejection/warning histograms.
-- **Shown history (H19 storage home):** denormalized `shownCandidateIds`/`shownFullSignatures`
-  (+ `shownBaseKeys?` reserved), `nSurfaced`, `spreadCollapsed` — so the repetition-window query reads recent
-  snapshots without unwinding `candidates[]`. The snapshot is the raw source; the M5 reducer owns the
-  window/cap.
+- **Shown history (H19 storage home):** denormalized `shownCandidateIds`/`shownFullSignatures`, `nSurfaced`,
+  `spreadCollapsed` — so the repetition-window query reads recent snapshots without unwinding `candidates[]`.
+  `shownBaseKeys` is intentionally **not** stored (no `[NOW]` consumer; shown base keys derive from
+  `shownCandidateIds` + `candidates[].baseKey`). The snapshot is the raw source; the **M5 reducer** owns the
+  window/cap:
+  - **Repetition-window reducer (H19 contract; M5 implements).** Deterministic — read the user's most-recent
+    `REPETITION_WINDOW_SNAPSHOTS` snapshots **with `nSurfaced > 0`** (empty/failed renders never consume the
+    window) by `{user, createdAt, _id}` (most-recent-first; the `_id` tie-break makes same-millisecond
+    `createdAt` ties deterministic), under a bounded scan cap, walk their `shownFullSignatures`
+    most-recent-first, dedup keeping the first occurrence, truncate to
+    `REPETITION_WINDOW_SIZE`. Output is an **ordered `Sequence[str]`** (recency-faithful; the M3 ranker
+    normalizes it to a `tuple` — `ranker.py:191`/`:247`), **not** a set. Both constants are in Appendix B —
+    `REPETITION_WINDOW_SIZE` is the shipped M3 sig cap (unchanged); `REPETITION_WINDOW_SNAPSHOTS` is the new
+    snapshot-read window. The count-based window adapts to usage intensity and is index-bounded; M3 is not
+    reopened (plan §9.3/§9.7).
 - **Redaction seam (H43, `[STAGED]`):** `redacted` (default false)/`redactedAt?`/`redactionReason?` —
   reserved + the hole registered; behavior staged (no `User` cascade wired in M4). Redaction MAY null the
   PII-bearing fields (`occasion`, `location`, `weatherRaw`, raw text) while preserving keys/scores/
   `itemSnapshots`, giving the immutable-truth-vs-erasure tension a designed exit (posture rule 3, lineage).
 
 **Identity binding.** On feedback the client echoes `{snapshotId, candidateId}` **only**; the server
-**re-reads** the candidate from the snapshot and **never trusts echoed content**. The authenticity gate (§16)
-verifies: snapshot exists ∧ `user` matches caller ∧ `candidateId ∈ shownCandidateIds` (membership) ∧ echoed
-items ⊆ the candidate's items.
+**re-reads** the candidate from the snapshot and **never trusts echoed content** — the canonical outfit
+`items[]` and keys are **server-set** from the re-read candidate. The authenticity gate (§16) verifies:
+snapshot exists ∧ `user` matches caller ∧ `candidateId ∈ shownCandidateIds` (membership) ∧ any optional
+client-submitted `perItemFeedback.itemId` ⊆ the candidate's items (per-item feedback targets are the only
+client ids and are subset-validated; the outfit composition itself is never echoed).
 
 **Full-funnel capture obligation (writer contract).** The substrate discards funnel signal at three sites —
 `rescue()` (rejected pool + attempt trace), `rank()` (scored-but-unshown breakdowns), `build_variants()`
@@ -778,8 +800,10 @@ v2 activates those unused values and additively extends the enum for `planned/pa
   feedback; free-form explanation blurbs are not training labels by default — but raw/corrected user rationale is **persisted with provenance** (user explanations are high-trust) and may be compiled into reasons **only after deliberate review** (§23-H34).
 - **Scoped memory** `[NEXT]`/`[STAGED]`: feedback attaches to a scope — `outfit` / `board` / `routine` /
   `global`. A dislike under a "minimal workwear" board is not a global dislike. **Default scope in the
-  `[NOW]` implicit lens (no board/routine active, H24):** an item dislike ("not me") is `global`; a path/look
-  reaction is `outfit`-scoped — those are the only two scopes until B-track introduces boards. Hierarchy for sparse data
+  `[NOW]` implicit lens (no board/routine active, H24):** a path/look reaction is `outfit`-scoped; an item
+  dislike ("not me") attaches to the **implicit/default-lens** scope and is promoted to `global` only on
+  **repeated support/confirmation** — one tap never yanks the global profile (anti-capture §3, posture rule 2;
+  **S6 hardens the promotion threshold**). Those are the only scopes until B-track introduces boards. Hierarchy for sparse data
   (C2): global prior → profile memory if enough support → routine memory only with explicit/high support →
   content/board similarity fallback. Every scoped score carries a `supportCount`; low-support memory never
   outranks basic quality. Corrections — "right outfit, wrong board/routine" — **move** an edge's scope
@@ -790,8 +814,12 @@ v2 activates those unused values and additively extends the enum for `planned/pa
   (`interactions/route.ts:106-230`) authenticates the caller but persists client-supplied `items` and
   `perItemFeedback.itemId` with **no existence/ownership/outfit-membership check** (`:157-163`). Tolerable
   while feedback only feeds a user's own summary; **a dataset-poisoning vector once these rows become
-  training labels.** Gate: bind feedback to a server-issued generation/outfit identity and validate item
-  existence, ownership, and outfit membership before persistence.
+  training labels.** Gate: bind feedback to `{snapshotId,candidateId}`; **server-set** the outfit `items[]`
+  and keys from the re-read candidate (never the echo), and validate that any client-submitted
+  `perItemFeedback.itemId` is ⊆ the candidate's items, before persistence. **Implementation splits M4/M5 (OQ4):** M4
+  = existence + ownership + content-key (`baseKey`/`fullSignature`) binding over the persisted row; M5 = the
+  live `{snapshotId,candidateId}` echo wiring + the "actually-shown" outfit-membership check
+  (`candidateId ∈ shownCandidateIds`, the §15.1 H19 home). See plan §9.5/OQ4.
 
 ## 17. Boards & routines lifecycle `[NOW]` text · `[STAGED]` dormancy · `[NORTH-STAR]` calendar
 
@@ -898,8 +926,8 @@ The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M3
 | **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | ✅ done (C1–C6 — parse, strict §12 schema, SlotMap/pool validation, keys + exact-FullSignature dedup, StyleMove, candidate bounds; pytest green) |
 | **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, repetition, fallback, regen controls (over M2's already-deduped accepted candidates — M3 never re-dedups) | ✅ done (C1–C6; §12 mutation-hardened; pytest green) |
 | **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, and `baseKey`/`fullSignature` emitted for later feedback binding. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | ✅ done (C1–C6; three new modules `generation`/`rescue`/`response` over the closed M0–M3 substrate + the `Generator` seam + the C6 `evaluation`/`cli` eval surface; pytest green; C6/H40 live-eval recorded in `docs/plans/spearhead.md` §E) |
-| **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `wardrobeVersion`/`sessionId` storage, the affinity substrate, baseKey/fullSig on interactions; **GenerationSnapshot shape/storage/indexes + writer contract** (§15.1 — *not* the live writer wiring); the **feedback-authenticity contract** (existence + ownership + content-key binding here; membership + server-id binding land M5). Plan: `docs/plans/m4-data-model-migration.md` | `[NEXT]` |
-| **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (normalization); trust-boundary gates; **the live GenerationSnapshot write + server-issued shown-outfit binding / outfit-membership check** | `[NEXT]` |
+| **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `wardrobeVersion` field (`sessionId = userId` derivation, no independent field), affinity projection posture (no authoritative `ItemAffinity` unless later evidence overturns it), baseKey/fullSig on interactions; **GenerationSnapshot shape/storage/indexes + writer contract** (§15.1 — *not* the live writer wiring); the **feedback-authenticity contract** (existence + ownership + content-key binding here; membership + `{snapshotId,candidateId}` binding land M5). Plan: `docs/plans/m4-data-model-migration.md` | `[NEXT]` |
+| **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (normalization); trust-boundary gates; **the live GenerationSnapshot write + `{snapshotId,candidateId}` shown-candidate binding / outfit-membership check** | `[NEXT]` |
 | **W-track** | Async CV queue + item states + review surface + VLM extraction/embeddings (§18) | `[NEXT]`/`[STAGED]` |
 | **B-track** | Text boards → StyleProfile compiler; then visual boards | `[NEXT]` text / `[STAGED]` visual |
 | **M6 (the dive)** | Trained edge/graph scorer at the SignalScorer seam; offline NDCG@k; online A/B; behavioral edges → learned (§11) | `[STAGED]` |
@@ -931,8 +959,10 @@ alone are selection-biased. **Do not claim model lift unless sample size + expos
 (= cap sum, never a silent truncation — §10); one JSON-repair attempt;
 normalization before validation before scoring; invalid candidates never reach the ranker; all weights as
 named constants in one config file (the 70/30 split is the exception — a structural helper, §10/R6); logging
-async/best-effort; `wardrobeVersion` bumped only by the API layer on the single activation transition (§18); scoreBreakdown computed
-at response time, not persisted; graceful degradation through the fallback ladder before any error.
+async/best-effort; `wardrobeVersion` bumped only by the API layer on the single activation transition (§18);
+`scoreBreakdown` is computed at response time and not persisted as mutable current state, but the immutable
+GenerationSnapshot persists per-candidate `scoreTrace.scoreBreakdown` for training truth (§15.1); graceful
+degradation through the fallback ladder before any error.
 
 **Non-goals (still out of scope for the near term — reframed from v1.2 §21):** virtual try-on / avatars
 (platform-owned; `[NORTH-STAR]` at most); social wardrobes / community feeds; shopping marketplace /
@@ -970,16 +1000,16 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H7 | `generationIndex` lifecycle (ownership, range, increment, reset) undefined — it is the sole input distinguishing a re-roll | **OPEN** → DEFERRED-M5 | M5 defines it; load-bearing for the two-stage cache |
 | H8 | Daily-reseed `date` timezone (server-UTC vs user-local) undefined | **OPEN** → DEFERRED-M5 | Must be identical across the Next adapter and the service or seed/cache desync at the day boundary. Default: UTC |
 | H9 | M6 eligibility prevalence unknown (needs both ≥5 interactions AND ≥1 type over cap) | **OPEN** → DEFERRED-pre-M6 | Measure % of requests meeting both; if low, give the model a second surface (candidate ordering / ranker) |
-| H10 | M4 interaction-time feature snapshots not yet built; mutable wardrobe refs rewrite old feedback's meaning | **OPEN** → DEFERRED-M4 | GenerationSnapshot (§15.1) persists immutable feature snapshots before interactions become labels; add history tests for edited/deleted items |
-| H11 | M4 idempotency/transaction rules (duplicate feedback, affinity updates, concurrent caps, `wardrobeVersion` races) | **OPEN** → DEFERRED-M4 | Define when M4 is specced |
-| H12 | M5 graceful-fallback failure semantics under-pinned | **OPEN** → DEFERRED-M5 | Pin: numeric timeout budget; full trigger set (unreachable OR timeout OR schema-invalid/empty); an anti-rot smoke test exercising the fallback arm |
+| H10 | M4 interaction-time feature snapshots not yet built; mutable wardrobe refs rewrite old feedback's meaning | **RESOLVED-DESIGN** → PENDING-M4/M5-IMPLEMENTATION | GenerationSnapshot (§15.1) persists immutable feature snapshots before interactions become labels; add history tests for edited/deleted items. Visual hash/versioning remains W-track-dependent (H14/H33). |
+| H11 | M4 idempotency/transaction rules (duplicate feedback, affinity updates, concurrent caps, `wardrobeVersion` races) | **OPEN** → DEFERRED-S6 | Backfill idempotency trivial (no live data). Forward write-path concurrency — incl. **duplicate feedback on a `{snapshotId, candidateId}` binding** — routes to **S6**; S4 makes the binding the natural dedup key (plan §9.6) but defers the dedup/concurrency rule. |
+| H12 | M5 graceful-fallback failure semantics under-pinned | **OPEN** → DEFERRED-M5 | Pin: numeric timeout budget; full trigger set (unreachable OR timeout OR schema-invalid/empty); decide whether each fallback writes a minimal GenerationSnapshot with empty shown arrays + diagnostics or returns a legacy response explicitly marked non-bindable; add an anti-rot smoke test exercising the fallback arm. |
 | H13 | Pre-M5 CI / runtime reproducibility (no CI workflow, no runtime pins, `requirements.txt` lower-bounds only) | **OPEN** → DEFERRED-pre-M5 | Cross-runtime CI before M5 integration so serialization/auth/timeout/fallback can't drift between Next and the service |
 | H14 | Retained-host cleanup bugs: clear-wardrobe/user-cascade omit some cleanup; image **replacement deletes the old image before the replacement commits** (data-loss ordering) | **OPEN** → DEFERRED-W-track | Fix when the W-track or trust-boundary gate touches these routes |
-| H15 | Key-computation locus: keys are Python; `interactions` route is TS | **RESOLVED-HERE** | Compute keys once in Python at generation; response carries them; client echoes on feedback; store verbatim (server recompute optional). Never reimplement in TS (§7) |
+| H15 | Key-computation locus: keys are Python; `interactions` route is TS | **RESOLVED-HERE** | Compute keys once in Python at generation; persist them verbatim in GenerationSnapshot/OutfitInteraction. Pre-M5 legacy may echo keys, but M5 feedback identity is `{snapshotId,candidateId}` only; the server re-reads keys/content from the snapshot. Never reimplement key logic in TS (§7/§15.1). |
 | H16 | Candidate cache key ⊋ session-seed inputs — retires the v1.2 R1/N1 `cache_key ≡ seed` invariant | **RESOLVED-HERE** | New rule `cache key ⊇ seed inputs`: `intent`/`forcedItemId`/`styleProfileVersion` key the candidate cache (they change GPT candidates) but need not seed the sampler (§15) |
 | H17 | PDF `forceRegenerate=true` disposition undefined, given R1/R9 redefine regenerate as cached re-rank | **OPEN** → DEFERRED-M5 | M5 decides retain/rename/remove; current lean: removed (R9 locks + the `generationIndex` re-roll cover the intent — H7) |
 | H18 | `behavioralStrength` sign: §11 said "signed" but §14/R2 keep affinity non-negative | **RESOLVED-HERE** | `[NOW]`/`[NEXT]` non-negative affinity + separate `dislikePenalty`/cooldown (R2); signed per-edge accumulator is the `[STAGED]` graph evolution (§11/§6.6) |
-| H19 | Repetition-window shown-history has no `[NOW]` storage home (dropped from the old ledger on consolidation) | **OPEN** → DEFERRED-M4 | M3 consumes shown-history as a pure input (shipped); only the storage home remains — `GenerationSnapshot.shownFullSignatures` (§15.1, `[NEXT]`) or an interim per-user ring buffer until the snapshot lands |
+| H19 | Repetition-window shown-history has no `[NOW]` storage home (dropped from the old ledger on consolidation) | **RESOLVED-DESIGN (S4)** → PENDING-M5-IMPLEMENTATION | Home = `GenerationSnapshot.shownFullSignatures` (§15.1). S4 fixed the window/cap reducer contract (§15.1/plan §9.3): read recent `REPETITION_WINDOW_SNAPSHOTS` snapshots, union most-recent-first, dedup, truncate to the shipped `REPETITION_WINDOW_SIZE`, return an ordered `Sequence[str]` (`ranker.py:191`); M5 implements the reducer. `shownBaseKeys` dropped (no consumer); M3 not reopened. |
 | H20 | `optionPath`/`risk` were emitted by GPT (violates §5 "GPT never ranks"); cold-start path/risk metrics undefined | **RESOLVED-HERE** (locus) + **IMPLEMENTED in Spearhead** (shape/metric) | Pure Python backend functions assign path/risk/graph-role labels (§11/§12/§14). The M2 GPT schema excludes `optionPath`, `risk`, score, rank, graph role, edge strength, freshness, exposure, fallback decisions, matched/missing traits, and diagnostic reason candidates; future schemas may add trait/reason fields only when their owning milestone consumes them (§12). Cold-start path ≈ compatibility/commonness/trusted-anchor availability; cold-start risk ≈ social visibility/boldness — built post-rank in `fitted_core/response.py` (`compatibility`/`visibility` → `assign_path`/`assign_risk`, the 2-D `(path×risk)` spread); the functional form is fixed in `docs/plans/spearhead.md` §G and the numeric config constants live in Appendix B (provisional, tuned against golden wardrobes at Spearhead C6). The learned M6 scorer replaces these heuristics at the same seam (§11) |
 | H21 | "Orphan" is edge-defined but no edges exist at cold start | **RESOLVED-HERE** | Cold-start orphan = zero interactions + null/old `lastWornAt` (± `isFavorite`, ± explicit mark); deployed schema already has these fields (§11) |
 | H22 | Rescue forced-item → template logic + insufficient case + minimum starter closet | **RESOLVED-HERE** (template/insufficient) + **IMPLEMENTED in Spearhead** (min-closet) | `clothingType`→template rule + rescue `notEnoughItems` (§12); the minimum starter closet = the rescue insufficiency check itself, built in `fitted_core/rescue.py` (`_resolve_shape` + `_check_sufficiency`, `docs/plans/spearhead.md` §G steps 1–2): the forced item plus enough to build one valid outfit under its template; sub-threshold returns `not_enough_items` (PRE-GPT, no generation) + an add-a-{type} hint |
@@ -989,7 +1019,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H26 | §11 "never shared-catalog" / §22 "cross-user out of scope" would also bar a universal compatibility model | **RESOLVED-HERE** | Split: **behavioral/collaborative** cross-user stays out (privacy); a **universal *content*-compatibility model** trained on **public outfit corpora** is in-scope (clothes, not people) and is what makes the trained scorer feasible at portfolio scale — within-user behavior personalizes it (§11/§22). **Load-bearing for the dive's feasibility** |
 | H27 | §22 body/color non-goal would bar a body-type styling signal | **RESOLVED-HERE** | Non-goal = no prescriptive quiz/scan + no objective "fashionability" score. An **optional, declared, coarse body-proportion archetype** as a refinable cold-start styling prior is **in-scope** (behavior reinforces current defaults; a prior enables better-than-default advice); measurements stay optional/out (sizing only) (§22) |
 | H28 | The `SignalScorer` seam is item-level (`score(item, context)`) — wrong shape for outfit/pairwise compatibility | **OPEN** → DEFERRED-M5/M6 | Reserve a **second seam shape**: an **outfit/pairwise-level scoring hook on the ranker** (scores a SlotMap / a pair), distinct from the item-level sampler slot. A summed per-item score cannot represent "these clash"; the compatibility dive needs the outfit-level hook to land (§5/§11/§14) |
-| H29 | GenerationSnapshot may store only validated/shown candidates + text features (selection-biased, label-only, attribute-only) | **OPEN** → DEFERRED-M4 | Snapshot must persist (a) **continuous** path/risk/compatibility **scores**, not just the 3-way buckets; (b) **rejected + low-ranked** candidates + reasons (negative signal); (c) the **visual** (image ref/embedding), not just text attributes — else the rich-representation + off-policy paths die (§15.1/§21). Guard the image-replacement data-loss (H14) |
+| H29 | GenerationSnapshot may store only validated/shown candidates + text features (selection-biased, label-only, attribute-only) | **RESOLVED-DESIGN** → PENDING-S9/M5-IMPLEMENTATION | §15.1 fixes the snapshot contract: (a) continuous scores in `scoreTrace`, including scored-but-unshown; (b) rejected + low-ranked candidates in `candidates[]`/`generationAttempts[]` with content-preservation; (c) visual ref/hash/embedding seam. S9/M5 must implement the additive trace surfaces, raw caps, BSON guard, and over-limit candidate preservation. |
 | H30 | `FullSignature` format is spec-locked; new garment roles would force a key migration; BaseKey identity is base-only | **RESOLVED-HERE** (rule) + **OPEN** (identity) | Extension rule: a new optional slot appends **only when present**, fixed canonical order, so existing keys stay valid. BaseKey stays **base-only** for `[NOW]` cooldown/variant-cap; outer/shoe-defined identity is a registered **future** redefinition (§7/§8) |
 | H31 | §22 "real-time online training" non-goal could be read to bar exploration | **RESOLVED-HERE** | Out = continuous real-time gradient training. **In-scope**: a serving-time **exploration** policy (sometimes surface an orphan to learn its edges) + **periodic batch** retraining — how orphan-learning + anti-capture work; enables off-policy eval (§21/§22) |
 | H32 | The 30% signal slot caps the learned model's influence on *generation* | **RESOLVED-HERE** | The 70/30 split is a deliberate generation-influence ceiling, **not a law**; the trained scorer also scores the ranker, so total influence is not capped at 30% (§10) |
@@ -1042,7 +1072,9 @@ map is their forwarding address.
 overused item, subtracted — S4) · `COOLDOWN_PENALTY=-2.0` (stored
 negative, added — S4) · `DISLIKE_PENALTY` magnitude 0.5 (per disliked item, subtracted — S4) ·
 `COMBO_BOOST=+2.0` · `ITEM_BOOST_WEIGHT=+0.1` · `BASE_SCORE=+1.0` ·
-dislike window `M=20` · cooldown buffer 10 (FIFO) · repetition window 10 ·
+dislike window `M=20` · cooldown buffer 10 (FIFO) · `REPETITION_WINDOW_SIZE=10` (sig cap on the ranker's
+`shown_full_signatures`) · `REPETITION_WINDOW_SNAPSHOTS=20` (S4: recent-snapshot read window for the H19
+reducer; provisional, M5-tunable — §15.1) ·
 `REPETITION_PENALTY=1.0` (flat magnitude on a re-shown FullSignature, subtracted — S4) · cache TTL 15 min. The 70/30 split
 is **not** a constant — it is the sampler-owned `random_count` helper (§10/R6). *(Note: deployed K default is
 5, not 10; v2 sets 10.)*
