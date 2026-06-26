@@ -7,6 +7,9 @@ const UserSchema = new Schema(
     email: { type: String, required: true },
     displayName: { type: String },
     photoURL: { type: String },
+    // Monotonic per-user counter; bumps only when a wardrobe change becomes sampler-visible.
+    // M4 stores the field (default 0); the bump trigger is named by the W-track (spec §23-H6).
+    wardrobeVersion: { type: Number, default: 0 },
     metadata: { type: Map, of: Schema.Types.Mixed, default: {} },
   },
   {

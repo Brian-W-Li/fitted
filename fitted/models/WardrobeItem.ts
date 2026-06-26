@@ -4,7 +4,15 @@ const WardrobeItemSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     name: { type: String, required: true, trim: true },
-    clothingType: { type: String, enum: ["top", "bottom"], default: "top", index: true },
+    clothingType: {
+      type: String,
+      enum: ["top", "bottom", "dress", "outer_layer", "shoes"],
+      default: "top",
+      index: true,
+    },
+    // Engine-required warmth band (0=coolest .. 10=warmest). Keyword-derived at ingestion (M4 C2);
+    // the W-track VLM CV later writes it directly. The ranker only bins this into 3 bands.
+    warmth: { type: Number, required: true, min: 0, max: 10 },
     category: { type: String, required: true, index: true },
     subCategory: { type: String },
     pattern: { type: String },
