@@ -6,12 +6,13 @@ import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
 import { AddItemUploadStepActions } from "@/lib/addItemUploadStepActions";
 import { validateWardrobeForm } from "@/lib/wardrobeValidation";
+import { type ClothingType } from "@/lib/clothingType";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 
 type WardrobeItem = {
   id: string;
   name: string;
-  clothingType?: "top" | "bottom";
+  clothingType?: ClothingType;
   category: string;
   subCategory?: string;
   pattern?: string;

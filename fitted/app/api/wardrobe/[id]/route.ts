@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
+import { normalizeClothingType } from "@/lib/clothingType";
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -73,8 +74,7 @@ export async function PATCH(
         } else if (field === "isAvailable") {
           update[field] = Boolean(body[field]);
         } else if (field === "clothingType") {
-          const v = body[field];
-          update[field] = v === "bottom" ? "bottom" : "top";
+          update[field] = normalizeClothingType(body[field]);
         } else {
           const v = body[field];
           update[field] = typeof v === "string" ? v.trim() : v;

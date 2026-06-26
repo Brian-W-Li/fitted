@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
+import { type ClothingType, CLOTHING_TYPES, deriveClothingType } from "@/lib/clothingType";
+import { deriveWarmth } from "@/lib/deriveWarmth";
 
 /**
  * GET /api/wardrobe
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
     type WardrobeItemLean = {
       _id: { toString(): string };
       name: string;
-      clothingType?: "top" | "bottom";
+      clothingType?: ClothingType;
       category: string;
       subCategory?: string;
       pattern?: string;
@@ -124,7 +126,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       name,
-      clothingType = "top",
+      clothingType,
+      warmth,
       category,
       subCategory = "",
       pattern = "",
@@ -146,11 +149,32 @@ export async function POST(request: NextRequest) {
     }
 
     const { WardrobeItem } = await initDatabase();
-    const clothingTypeToSave = clothingType === "bottom" ? "bottom" : "top";
+    // Use the form-supplied clothingType when valid; otherwise classify from
+    // category/name (the form does not supply it today — §10.3 ingestion classifier).
+    const clothingTypeToSave: ClothingType = CLOTHING_TYPES.includes(clothingType)
+      ? clothingType
+      : deriveClothingType({
+          category: String(category),
+          subCategory: String(subCategory || ""),
+          name: String(name),
+          layerRole: String(layerRole || ""),
+        });
+    const seasonsToSave = Array.isArray(seasons) ? seasons : [];
+    // Honor a valid supplied warmth (W-track review form / CV); else keyword-derive.
+    const warmthToSave =
+      typeof warmth === "number" && Number.isInteger(warmth) && warmth >= 0 && warmth <= 10
+        ? warmth
+        : deriveWarmth({
+            category: String(category),
+            subCategory: String(subCategory || ""),
+            name: String(name),
+            seasons: seasonsToSave,
+          });
     const itemDoc = await WardrobeItem.create({
       user: userId,
       name: String(name).trim(),
       clothingType: clothingTypeToSave,
+      warmth: warmthToSave,
       category: String(category).trim(),
       subCategory: String(subCategory || "").trim() || undefined,
       pattern: String(pattern || "").trim() || undefined,
@@ -158,7 +182,7 @@ export async function POST(request: NextRequest) {
       layerRole: String(layerRole || "").trim() || undefined,
       fit: String(fit || "").trim() || undefined,
       size: String(size || "").trim() || undefined,
-      seasons: Array.isArray(seasons) ? seasons : [],
+      seasons: seasonsToSave,
       occasions: Array.isArray(occasions) ? occasions : [],
       notes: String(notes || "").trim() || undefined,
       isAvailable: Boolean(isAvailable),

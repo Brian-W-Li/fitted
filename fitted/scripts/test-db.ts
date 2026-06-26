@@ -22,7 +22,9 @@ try {
 
 async function main() {
   const { initDatabase, getUserWardrobeItems, getUserWardrobeItem, deleteUserWithData } = await import("@/lib/db");
-  
+  const { deriveClothingType } = await import("@/lib/clothingType");
+  const { deriveWarmth } = await import("@/lib/deriveWarmth");
+
   console.log("🔌 Connecting to MongoDB...");
   const { User, WardrobeItem, OutfitInteraction } = await initDatabase();
   console.log("✅ Connected!\n");
@@ -54,7 +56,13 @@ async function main() {
   for (const item of items) {
     const wardrobeItem = await WardrobeItem.findOneAndUpdate(
       { user: testUser._id, name: item.name },
-      { user: testUser._id, ...item },
+      {
+        user: testUser._id,
+        ...item,
+        // M4: clothingType + warmth are required/derived at ingestion.
+        clothingType: deriveClothingType(item),
+        warmth: deriveWarmth(item),
+      },
       { upsert: true, new: true }
     );
     createdItems.push(wardrobeItem);
