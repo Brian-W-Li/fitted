@@ -215,32 +215,43 @@ breaking a stored identity/format — are the only kind worth pre-empting, and a
 key/snapshot holes, §7/§15/§23-H29/H30.)*
 
 ### 6.1 WardrobeItem `[NOW]`
-The node of the closet graph. Deployed schema is already rich
-(`category`, `subCategory`, `pattern`, `colors[]`, `seasons[]`, `occasions[]`, `layerRole`, `brand`, `fit`,
-`size`, `isAvailable`, `isFavorite`, `lastWornAt`, `tags[]`). v2 adds/normalizes:
+The node of the closet graph. Deployed schema carries
+`category`, `subCategory`, `pattern`, `colors[]`, `seasons[]`, `occasions[]`, `layerRole`, `brand`, `fit`,
+`size`, `isAvailable`, `isFavorite`, `lastWornAt`, `tags[]`. v2 adds the fields the engine actually
+conditions on, written natively by the rebuilt ingestion (no backfill of existing rows — M4 wipes the
+collection clean, since no real users accumulated against this fork; `docs/plans/m4-data-model-migration.md` §14):
 
-- **`clothingType` extended from `["top","bottom"]` → `["top","bottom","dress","outer_layer","shoes"]`** (exact
-  underscore wire values = `fitted_core` `ItemType` member names, no translation table).
-  *Migration:* the field already exists (`WardrobeItem.ts:7`, default `"top"`, indexed) but is **never read
-  by the recommend routes** — one-piece/outer/shoes are string-matched at request time over
-  `category`/`name`/`subCategory` by **two divergent classifiers** (`recommend/route.ts:231` and `:543`, which
-  disagree on the fallback — default-top vs `unknown` — and on a `mid_layer` bucket that has no v2 type). v2
-  makes `clothingType` first-class, **backfills** existing rows via a **single canonical classifier** that
-  consolidates the two sites, and the engine reads `clothingType` directly. The classifier **re-derives from
-  raw** `category`/`name`/`subCategory`/`layerRole` — never the existing `clothingType`, which defaults to
-  `"top"` on every row and is therefore not evidence — so the backfill is idempotent + raw-preserving.
-  **Unmatched (out-of-ontology) rows default to `top`** (deployed parity, always a valid sampler partition;
-  posture rule 2: the guess is surfaced in the backfill report, never silently laundered; durable per-field
-  review/confidence is the W-track's `needs_review` seam, §18). Mid-layer knits collapse to `top` unless an
-  explicit `layerRole=="outer"` wins. The string-grep path is deleted at cutover (§19). This is a
-  **consolidation, not a new capability** — the deployed app already handles dresses, just not via the enum.
-  Mapping table + rationale: `docs/plans/m4-data-model-migration.md` §10. *(Build note: the engine reads
-  `clothingType` at `[NOW]`, but rows are reliably populated only after the M4 backfill `[NEXT]`; until then
-  the adapter falls back to the string-match logic it will replace.)*
-- **Richer style ontology** `[STAGED]`: `silhouette`, `formality`, `material/texture`, `garmentRole`
-  (base_top, base_bottom, one_piece, outer, mid, shoe, and future accessory/bag/belt/hat), `warmth (0–10)`,
-  per-field `confidence`, `reviewed` flag. Added additively; `[NOW]` uses only what exists + `clothingType`.
-  Accessories and under-layers are explicitly future garment roles (§8).
+- **`clothingType` widened to 5 values** = `["top","bottom","dress","outer_layer","shoes"]` (exact
+  underscore wire values = `fitted_core` `ItemType` member names, no translation table). The deployed enum
+  was `["top","bottom"]` with a hard-coded coerce-to-top/bottom at the POST handler — both go away at M4
+  alongside the request-time string-match classifiers in the recommend routes (§19 deletion table). The new
+  ingestion writes the 5-value `clothingType` natively from CV output + the per-item review surface (the
+  W-track data-path, §18).
+- **`warmth` (int 0–10, required) — the one new engine column M4 adds.** `fitted_core.WardrobeItem`
+  *requires* warmth (raises on null/out-of-range), so the engine cannot run without it. M4 persists it as a
+  column, **keyword-derived at ingestion** from `category`/`subCategory`/`name` (so it's never null). The
+  ranker bins warmth into 3 bands (`response.py` `_warmth_band`), so a coarse keyword map suffices by
+  construction. Computed once at write, stored, user-correctable — the §15.2 adapter passes it through, no
+  read-time derivation.
+- **`material` / `formality` / `styleTags` — deferred to the W-track, NOT M4 columns.** The engine treats
+  these as **optional** (`fitted_core.models.py`: `material`/`formality` `Optional`, `styleTags` defaults
+  `[]`), and today's CV produces none of them — so adding the columns in M4 would persist three fields
+  nothing can fill and nothing reads before the W-track CV. They ship as **one coherent W-track unit** with
+  the VLM CV that fills them + the review form that corrects them (§18). **The snapshot `engineVisible`
+  contract still carries all three field-slots** (§15.1) — the M5 adapter emits `null`/`[]` for them until
+  the columns exist — so the training shape is reserved now without persisting empty columns. When the
+  W-track adds them: `material`/`formality` are **freeform, normalized on write** (`_norm_label` idiom);
+  `formality`'s effective vocab is the Appendix B `FORMALITY_RANK` keys + `unknown`; a hard enum stays
+  unlocked (posture rule 1).
+- **`tags` stays as-is** (deployed freeform user/CV annotation, posture rule 1; demoted to snapshot
+  `evidence`, storage-only). The curated engine-visible `styleTags` arrives with the W-track (above); the
+  `evidence.tags` vs `engineVisible.styleTags` provenance split (§15.1) holds — do not wholesale-copy one
+  into the other.
+- **Richer style ontology** `[STAGED]`: `silhouette`, `garmentRole`
+  (base_top, base_bottom, one_piece, outer, mid, shoe, and future accessory/bag/belt/hat),
+  per-field `confidence`, `reviewed` flag. Added additively; `[NOW]` uses only what exists +
+  `clothingType` + the four CV fields above. Accessories and under-layers are explicitly future garment
+  roles (§8).
 
 ### 6.2 Board / StyleProfile / StyleProfileSnapshot `[NOW]` text · `[STAGED]` visual
 - **Board**: `{id, userId, name, source: text|visual|mixed|imported|inferred, status: active|archived,
@@ -340,6 +351,13 @@ The node of the closet graph. Deployed schema is already rich
   non-negative in the `[NOW]`/`[NEXT]` layer, signed at `[STAGED]` — H18).
   *The deployed/ v1.2 additive memory (`ItemAffinity`, comboBoost/itemBoost) is **demoted** to the humble
   first implementation of `behavioralStrength` (§14), not a parallel system.*
+- **Affinity is a compute-live projection, never stored** (posture rule 1 + 3 applied to behavioralStrength's
+  humble layer): the M5 request adapter recomputes `item_affinity` / `liked_full_signatures` / the cooldown
+  buffer from append-only `OutfitInteraction` rows at request time. **No authoritative `ItemAffinity`
+  collection** — an incrementally-updated counter is a read-modify-write that can drift from the log, while a
+  projection cannot drift (recomputed from the log, consistent by construction; rebuilds clean after H43
+  redaction). Materialize to a stored projection only later on measured request cost or an M6 feature-store
+  need, with evidence (§14 / plan §7.3).
 - **GenerationSnapshot** (new): §15.1.
 
 ### 6.7 Caches (§15)
@@ -720,6 +738,12 @@ the negative signal training wants, so it is never skipped. Consequently `genera
   provenance; the backstop for the engine-vs-evidence boundary): `fittedCoreVersion`, `generator`
   (`provider`/`model`/`temperature`/`promptVersion`), `rankerConfigVersion` (a hash of the Appendix B
   constants), `scorer` (`kind` enum(`cold_start|trained`)/`modelId?`/`available`).
+  - **`cvModelVersion?` (data-path provenance, nullable).** Once the W-track CV becomes the *writer* of
+    `warmth`/`material`/`formality`/`styleTags` — which land in `engineVisible` as trainable features — a
+    CV-model change silently shifts those features' meaning, the same drift the engine version-block guards
+    against. (At M4 only `warmth` is written, and by a keyword rule, not CV — so the seam is forward-looking.)
+    Reserve `cvModelVersion?` on the itemSnapshot (or snapshot provenance), **null at M4**, wired when the
+    W-track rebuilds CV. Additive nullable — cheap to reserve now, expensive to retrofit once the corpus exists.
 - **Item feature snapshots:** `itemSnapshots[]`, each `{ itemId (string — never a populatable ref, H10),
   engineVisible{…}, evidence{…}, embeddingRef?/visualFeatureRef? (reserved, H25) }`. **The provenance split
   is load-bearing.** `engineVisible` is *exactly* the `fitted_core.WardrobeItem` projection the engine
@@ -728,10 +752,13 @@ the negative signal training wants, so it is never skipped. Consequently `genera
   verbatim, no post-call refetch; the camelCase names are the documented snake↔camel mapping of
   `style_tags`/`color_tags`/`occasion_tags`, a key-rename with no value transform). **engineVisible names
   follow the Python projection / snapshot wire contract, not the deployed `WardrobeItem` field names** — the
-  deployed→`fitted_core` renames and derivations are the M5 request-adapter's job (§15 R12; full per-field
-  mapping in **§15.2**): renames `colors`→`colorTags`, `occasions`→`occasionTags`; the repurpose
-  `tags`→`styleTags`; `material`/`formality` from CV `metadata` when present (else null); and the one
-  genuinely adapter-*derived* field, `warmth` (no deployed column). `evidence` is deployed-doc fields the engine **never saw**
+  deployed→`fitted_core` renames are the M5 request-adapter's job (§15 R12; full per-field mapping in
+  **§15.2**): renames `colors`→`colorTags`, `occasions`→`occasionTags`. **`warmth` is a persisted column**
+  on `WardrobeItem` post-M4 (§6.1), passed through directly. **`material`/`formality`/`styleTags` have no
+  column until the W-track** (§6.1) — the adapter emits `null`/`[]` for them, so `engineVisible` carries the
+  field-slots but they are **empty until W-track CV**. A snapshot reader (M6) must treat an empty value as
+  *unmeasured*, never as a negative feature, until `cvModelVersion` (below) marks the full-extraction CV.
+  `evidence` is deployed-doc fields the engine **never saw**
   (storage-only: `category`, `subCategory`, `pattern`, `seasons`, `isAvailable`, `isFavorite`, `lastWornAt`,
   `brand`, `fit`, `size`, `layerRole`, `tags`, `rawAttributes?` (bounded, storage-only — raw CV/declared blob,
   posture rule 1), `image{imageRef?/imageVersion?/hash?}` — **ref/version/hash only, never the blob**, H29(c),
@@ -801,40 +828,31 @@ trains (§21).
 
 The M5 request adapter maps each deployed `WardrobeItemDocument` (`fitted/models/WardrobeItem.ts`) to a
 `fitted_core.WardrobeItem` (`ml-system/fitted_core/models.py`) — the `engineVisible` projection of §15.1.
-Most fields are direct or key-renames; **three have no deployed column and are adapter-*derived***. The raw
-deployed inputs are preserved verbatim in the snapshot's `evidence{}` (§15.1), so every derivation is
-re-derivable and never lossy.
+The adapter is pure renames + pass-throughs, **no read-time derivation** (the warmth derivation moved to the
+M4 ingestion write — §6.1). The three deferred fields (`material`/`formality`/`styleTags`) have no column
+until the W-track, so the adapter **emits `null`/`[]`** for them — the engine tolerates this (all three are
+optional in `models.py`). Raw deployed inputs are preserved verbatim in the snapshot's `evidence{}` (§15.1).
 
 | `fitted_core.WardrobeItem` | deployed source | transform |
 |---|---|---|
 | `id` | `_id` | `ObjectId` → string |
 | `name` | `name` | direct |
-| `type` (`ItemType`) | `clothingType` (post-M4 5-value) | 1:1 enum pass-through (member names = wire values, `models.py`) |
-| `warmth` (int 0–10, **required**) | **derived** (no column) | garment-type keyword (`category`/`subCategory`/`name`) → band-center `{hot 2, mild 5, cold 8}`; `seasons` nudges ±1 band; unknown → 5 (mild). Total + deterministic. |
-| `style_tags` | `tags` | passthrough (rename only; freeform `tags` also kept in `evidence`) |
+| `type` (`ItemType`) | `clothingType` (M4 5-value, written natively) | 1:1 enum pass-through (member names = wire values, `models.py`) |
+| `warmth` (int 0–10, **required**) | `warmth` (M4 column; keyword-derived at ingestion) | direct |
 | `color_tags` | `colors` | rename |
 | `occasion_tags` | `occasions` | rename |
-| `material` (Optional) | `metadata.material` if present | else `null` (CV emits none today; ranker tolerates `None`) |
-| `formality` (Optional) | `metadata.formality` if present | else `null` (derivation from `occasions`/`category` deferred — Optional; `response.py` tolerates `None`) |
+| `style_tags` | — (no column until W-track) | emit `[]` |
+| `material` (Optional) | — (no column until W-track) | emit `null` |
+| `formality` (Optional) | — (no column until W-track) | emit `null` |
 | `image_url` | `imageUrl` | else resolve `imagePath` → `WardrobeImage`; else `""` |
 
 **Wire-validation (R12 part 2)** is unchanged: this adapter is the trust boundary (non-empty ids/strings,
 tag-container shape, one predictable error channel); the dataclass keeps only its two backstop guards
-(enum coercion, `warmth ∈ 0..10`) — §15 adapter bullet.
-
-**The one design call — `warmth` derivation.** `warmth` is the only adapter-derived field the contract
-cannot leave null (`models.py` raises outside `0..10`), so it needs a *total, deterministic* rule. The
-promise it serves is weather-appropriateness (no parka in July). Source priority: **garment type**
-(`category` is `required` deployed, and the most reliable physical warmth proxy) is primary; **`seasons`**
-is a secondary nudge (user-tagged, sparse, often empty — unreliable as primary); unknown → mild. Only
-**band**-accuracy matters — the ranker bins warmth into 3 bands (`response.py` `_warmth_band`:
-hot `<3` / mild `<6` / cold `≥6`), so a coarse keyword map suffices by construction. This mirrors the
-existing string-match idiom (the M4 `clothingType` classifier; deployed `route.ts` already string-matches
-`category`/`name`). **No Fable review:** the `engineVisible`/`evidence` split (§15.1) preserves the raw
-inputs verbatim, `engineVisible` is correct-by-construction for off-policy training (it records exactly what
-the engine conditioned on), only 3-band resolution matters, and there is no live data — so the
-one-way-door property that would justify a review is absent. Resolved in-session by first-principles
-(decision-method: review the *important* calls; this isn't one once §15.1 is read).
+(enum coercion, `warmth ∈ 0..10`) — §15 adapter bullet. Because warmth is keyword-derived at ingestion
+(never null on the column), the adapter never has to fabricate a band; a row that somehow reaches the
+adapter without a valid warmth is rejected through the wire-validation error channel, not coerced. When the
+W-track adds the `material`/`formality`/`styleTags` columns + CV, the three `— ` rows above become direct
+pass-throughs (additive; no adapter redesign).
 
 ---
 
@@ -894,10 +912,13 @@ v2 activates those unused values and additively extends the enum for `planned/pa
   while feedback only feeds a user's own summary; **a dataset-poisoning vector once these rows become
   training labels.** Gate: bind feedback to `{snapshotId,candidateId}`; **server-set** the outfit `items[]`
   and keys from the re-read candidate (never the echo), and validate that any client-submitted
-  `perItemFeedback.itemId` is ⊆ the candidate's items, before persistence. **Implementation splits M4/M5 (OQ4):** M4
-  = existence + ownership + content-key (`baseKey`/`fullSignature`) binding over the persisted row; M5 = the
-  live `{snapshotId,candidateId}` echo wiring + the "actually-shown" outfit-membership check
-  (`candidateId ∈ shownCandidateIds`, the §15.1 H19 home). See plan §9.5/OQ4.
+  `perItemFeedback.itemId` is ⊆ the candidate's items, before persistence. **Implementation (OQ4, scope-trimmed
+  2026-06-26):** M4 adds the **binding fields** (`{snapshotId,candidateId}` + server-re-read
+  `baseKey`/`fullSignature`) to the interaction row and defines this full contract; **the gate *functions*
+  themselves (existence + ownership + content-key binding + the live `{snapshotId,candidateId}` echo wiring +
+  the "actually-shown" membership check, `candidateId ∈ shownCandidateIds`) are all implemented at M5**, where
+  the live `interactions/route.ts` route makes them testable for real (building fixture-only halves at M4 just
+  produces stubs M5 rewrites). See plan §14 (C7 deferral) + §9.5/OQ4.
 
 ## 17. Boards & routines lifecycle `[NOW]` text · `[STAGED]` dormancy · `[NORTH-STAR]` calendar
 
@@ -923,7 +944,19 @@ Ingestion is **data acquisition for the whole graph** — friction starves the w
 and the trained scorer. It is in scope (amends the CLAUDE.md frontend-redesign exclusion). Deployed today:
 synchronous per-item CV via `cv/infer` → external HF Space (`CV_SERVICE_URL`), brittle cold starts.
 
-**Target subsystem:**
+**Scope split — M4 vs the rest of the W-track.** M4 pulled forward only what the engine strictly needs: the
+5-value `clothingType` (the deployed coerce-to-top/bottom actively corrupts dresses/outer/shoes) and the
+**`warmth` column** (`fitted_core` requires warmth non-null), keyword-derived at ingestion. **Everything
+else stays in this W-track**, shipped as coherent units rather than column-now / CV-later / review-later
+across three milestones:
+- **The `material` / `formality` / `styleTags` columns** + the VLM CV that fills them + the review form that
+  corrects them. The engine treats all three as optional and today's CV produces none, so M4 deferred them
+  here (the snapshot `engineVisible` contract reserves the field-slots; the adapter emits `null`/`[]` until
+  these land — §15.2/§6.1). The VLM CV stamps `cvModelVersion` (§15.1) when it starts writing them.
+- **Async job queue, item-state machine, the dedicated review surface, VLM/embedding extraction** — the
+  full ingestion subsystem below.
+
+**Target subsystem (downstream of M4):**
 - **Async ingestion**: a Mongo-backed job queue + worker on the always-on M5 service. Upload writes the
   image + an item shell; CV runs in the background; the user keeps using recommendations meanwhile.
 - **Item states**: `pending_cv → needs_review → active → inactive`, plus `cv_failed_needs_review`. **The
@@ -934,8 +967,9 @@ synchronous per-item CV via `cv/infer` → external HF Space (`CV_SERVICE_URL`),
 - **CV-down never loses an upload**: a 404/timeout drops the item into `needs_review` with whatever partial
   attributes exist; the review form is the recovery path. Ingestion degrades gracefully the same way
   recommendation does (§19).
-- **One review surface** = CV-correction form = manual-entry form: chips/suggestions, **named colors not hex
-  codes**, review only low-confidence fields.
+- **Dedicated review surface** = CV-correction form = manual-entry form: chips/suggestions, **named colors
+  not hex codes**, review only low-confidence fields. (M4 ships the data-path defaults in the existing
+  upload form; the dedicated review surface lands here.)
 - **Extractor** `[STAGED]`: leading option is **VLM structured extraction** (JSON-schema output of the §6.1
   attribute set + per-field confidence + an image **embedding** for similarity/cold-start; same
   backend-validates-structure philosophy as the GPT pipeline). Fallback: rehost a CV model on the service
@@ -943,8 +977,6 @@ synchronous per-item CV via `cv/infer` → external HF Space (`CV_SERVICE_URL`),
   fields**, never raw model guesses. *(This gate governs **human-reviewable** fields; machine-learned
   features such as the per-item **embedding** are a separate class the scorer may consume directly — they
   are not human-correctable, so review does not apply to them, §23-H25.)*
-- New ingestion **writes the 5-value `clothingType` natively** (the delivery vehicle for the §6.1
-  consolidation; backfill covers historical rows).
 
 ## 19. Host integration & what we delete
 
@@ -958,25 +990,43 @@ profile/account UI (`account/page.tsx`), wardrobe UI, the image store (`Wardrobe
 `images/[imageId]`), sign-in/up + landing + `AuthGate`/`Sidebar`. The CV ingestion surface (`cv/infer`,
 `cv/status`, `lib/cvToWardrobeForm`, the add-item upload UI) is kept but revamped by the W-track (§18).
 
-**Replaced wholesale at cutover (delete after the flag flips, verified clean cut — no shared-lib
-entanglement):**
-| File | Why it dies |
+**Deleted in M4 (deletion license; no real users to protect):**
+| File / surface | Why it dies |
+|---|---|
+| `app/api/preferences/summarize/route.ts` | legacy taste-summary route; v2 uses structured feedback reasons, not generated preference prose |
+| `lib/runPersonalizationSummary.ts` | legacy personalization-summary helper; no slot in the §12 prompt; §21-class non-goal |
+| `models/PreferenceSummary.ts` | legacy generated-preference artifact; no v2 reader |
+| `/account` PreferenceSummary UI section + `account/page.tsx:88` read | last consumer of the dropped collection |
+| `recommend/route.ts` + `regenerate/route.ts` PreferenceSummary calls (`getOrRefreshPreferenceSummary`) | surgical excision; the legacy LLM flow is otherwise preserved until M5 cutover |
+| `wardrobe/route.ts:149` create-coerce + the edit-coerce at `wardrobe/[id]/route.ts:75-77` + the `"top" \| "bottom"` typing in `wardrobe/page.tsx:14` + the GET response type at `wardrobe/route.ts:61` (mapped `:87`) | replaced by the 5-value `clothingType` written natively (§6.1) |
+
+**Deleted at the M5 cutover (after the `USE_ML_SHORTLISTER` flag flips):**
+| File / surface | Why it dies |
 |---|---|
 | `app/api/recommend/route.ts` | rewritten against this spec |
-| `app/api/recommend/regenerate/route.ts` | folded into one route (R9); it is a near-duplicate of `route.ts` |
-| `app/api/preferences/summarize/route.ts` | legacy taste-summary route; v2 uses structured feedback reasons, not generated preference prose |
-| `lib/runPersonalizationSummary.ts` (`runPersonalizationSummary`) | legacy personalization-summary helper; no slot in the §12 prompt; §21-class non-goal; contaminates dive lift attribution |
-| legacy external-LLM adapter files used only by preference summaries | no v2 consumer after generated preference prose is removed |
+| `app/api/recommend/regenerate/route.ts` | folded into one route (R9); near-duplicate of `route.ts` |
 | `lib/weather.ts` | single consumer (`recommend/route.ts`); v2 weather is the bucketed Lens field, re-derived clean |
-| `models/PreferenceSummary.ts` | legacy generated-preference artifact; no v2 reader |
-| The request-time `clothingType` string-grep paths (`route.ts:241,550`, regenerate `:234,557`) | replaced by the first-class `clothingType` enum (§6.1) |
+| The request-time `clothingType` string-grep paths (`route.ts:231/543`, regenerate `:217/551`) | replaced by the first-class `clothingType` enum (§6.1) |
 | The footwear auto-injection hack (`route.ts:583-598`) | sampler/validator handle shoes honestly |
 | `dashboard/page.tsx` recommendation UI + `history/page.tsx` | rewritten to the §6.5 response + StyleMove |
+| legacy external-LLM adapter files used only by the legacy recommend flow | no v2 consumer after cutover |
 
 `OutfitInteraction.ts` is **kept and extended** (§6.6) — it is the training-signal source.
 
-**Sequencing:** freeze the entire old recommendation vertical as the M5 fallback arm; delete the whole arm
-at the dive cutover. Deleting before the replacement exists would break the working app — do not.
+**Database wipe (M4 deploy step).** With no real users on this fork, M4 drops the `wardrobeitems`,
+`outfititeractions`, and `preferencesummaries` collections cleanly rather than running a backfill
+classifier. Consequences:
+- The §10 backfill classifier folds out (no rows to classify; the §6.1 ingestion rule covers all future
+  rows). The dry-run/report mode becomes a fixture-mode tool only.
+- The §9.1 co-presence guard runs strict from row 0 — no legacy "all four binding fields absent"
+  allowance is needed.
+- Brian re-uploads his test wardrobe through the rebuilt ingestion (§18 data-path); the bolted-on dresses
+  string-match cruft has nothing to migrate.
+
+**Sequencing:** freeze the entire old recommendation vertical as the M5 fallback arm; delete the whole
+M5-cutover arm at the dive cutover. Deleting before the replacement exists would break the working app —
+do not. The M4 deletions above (PreferenceSummary + top/bottom coerce) are safe because their callers
+are surgically removed in the same M4 sessions.
 
 **Trust-boundary gates (verified real; fix before treating any retained route as trusted):**
 - `interactions/route.ts` POST: no ownership check on `items` (§16 gate).
@@ -1004,9 +1054,10 @@ The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M3
 | **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | ✅ done (C1–C6 — parse, strict §12 schema, SlotMap/pool validation, keys + exact-FullSignature dedup, StyleMove, candidate bounds; pytest green) |
 | **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, repetition, fallback, regen controls (over M2's already-deduped accepted candidates — M3 never re-dedups) | ✅ done (C1–C6; §12 mutation-hardened; pytest green) |
 | **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, and `baseKey`/`fullSignature` emitted for later feedback binding. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | ✅ done (C1–C6; three new modules `generation`/`rescue`/`response` over the closed M0–M3 substrate + the `Generator` seam + the C6 `evaluation`/`cli` eval surface; pytest green; C6/H40 live-eval recorded in `docs/plans/spearhead.md` §E) |
-| **M4** | Data-model migration: `clothingType` →5 + backfill, action enum extension (`planned/packed/corrected`), `wardrobeVersion` field (`sessionId = userId` derivation, no independent field), affinity projection posture (no authoritative `ItemAffinity` unless later evidence overturns it), baseKey/fullSig on interactions; **GenerationSnapshot shape/storage/indexes + writer contract** (§15.1 — *not* the live writer wiring); the **feedback-authenticity contract** (existence + ownership + content-key binding here; membership + `{snapshotId,candidateId}` binding land M5). Plan: `docs/plans/m4-data-model-migration.md` | `[NEXT]` |
-| **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (normalization); trust-boundary gates; **the live GenerationSnapshot write + `{snapshotId,candidateId}` shown-candidate binding / outfit-membership check** | `[NEXT]` |
-| **W-track** | Async CV queue + item states + review surface + VLM extraction/embeddings (§18) | `[NEXT]`/`[STAGED]` |
+| **M4a** (data path — ships partly live) | DB wipe (§19); 5-value `clothingType` (enum widening + native ingestion writes on create+edit, no backfill); the **`warmth` column** (keyword-derived at ingestion — the one engine-required new column; `material`/`formality`/`styleTags` deferred to the W-track, §18); rebuilt wardrobe POST + edit handlers; `wardrobeVersion` field; action-enum + scope-vocab + binding fields on `OutfitInteraction`; **PreferenceSummary ripped wholesale** (collection + summarize endpoint + /account UI + dashboard fetch + recommend/regenerate calls + `db.ts`/`gemini.ts` deps). Verify by re-uploading a test wardrobe. Plan §14 (C1–C3). | `[NEXT]` |
+| **M4b** (snapshot substrate — dormant) | `fitted_core` version constants + serializer; **GenerationSnapshot model/storage/indexes + writer contract** (§15.1, incl. the reserved H43 redaction fields + the `cvModelVersion` seam); Python snapshot payload + Option-B trace wrappers; **`wardrobeimages` cascade-delete** (closes the H14 cascade arm); affinity projection posture (no authoritative `ItemAffinity`). The snapshot-redaction cascade wiring is deferred to the Privacy milestone and the live authenticity gate to M5 (only the §16 contract + the schema seam are M4). Ships nothing runnable; value lands at M5. Plan §14 (C4–C8). | `[NEXT]` |
+| **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; two-stage cache; request adapter (renames only, no derivations — §15.2); trust-boundary gates; **the live GenerationSnapshot write + `{snapshotId,candidateId}` shown-candidate binding / outfit-membership check**; FEEDBACK_DEDUP_WINDOW tuning; rewrite of recommend/regenerate routes against this spec; delete the M5-cutover arm in §19 | `[NEXT]` |
+| **W-track (downstream of M4)** | Async CV queue + item states + dedicated review surface + VLM extraction/embeddings (§18). The **data-path persistence layer is M4**; this row covers the remaining async/queue/review surface. | `[NEXT]`/`[STAGED]` |
 | **B-track** | Text boards → StyleProfile compiler; then visual boards | `[NEXT]` text / `[STAGED]` visual |
 | **M6 (the dive)** | Trained edge/graph scorer at the SignalScorer seam; offline NDCG@k; online A/B; behavioral edges → learned (§11) | `[STAGED]` |
 | **R-track** | Explicit routines → routine-scoped memory; dormancy/revival; then inferred/calendar | `[STAGED]`/`[NORTH-STAR]` |
@@ -1055,7 +1106,11 @@ explanations, attribute-level StyleProfile traits, routine/occasion context — 
 
 **Privacy** `[STAGED]` (C7/C10): boards, routines, calendar, wardrobe photos, and interaction logs are
 sensitive. Before calendar integration or visual boards: define data minimization, deletion behavior, and
-private-by-default. Cross-user **collaborative/behavioral** signals require item canonicalization + consent — out of scope; this
+private-by-default. **User-delete at M4** cascades `wardrobeitems` + `outfitinteractions` + `wardrobeimages`
+(closing H14's cascade arm); the **GenerationSnapshot redaction seam is reserved but not wired** (§23-H43) —
+the snapshot-redaction cascade (null PII, preserve `itemSnapshots`/keys/scores) + retention policy land at
+this Privacy milestone, since there are no users to protect on the fork yet. Cross-user
+**collaborative/behavioral** signals require item canonicalization + consent — out of scope; this
 bars collaborative signals, **not** a universal content-compatibility model trained on public outfit data (§23-H26).
 
 **Doc lifecycle (carried from CLAUDE.md):** this file is living — edit stale content in place, no
@@ -1082,7 +1137,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H11 | M4 idempotency/transaction rules (duplicate feedback, affinity updates, concurrent caps, `wardrobeVersion` races) | **RESOLVED-DESIGN (S6)** → PENDING-M5-IMPLEMENTATION | Backfill idempotency trivial (no live data). Forward write-path rule (S6, §16/plan §11.1): feedback rows are **append-only**; dedup is a **read-time reducer** concern in the compute-live affinity projection (no stored counter to race — OQ2). Set/recency projections (`liked_full_signatures`, cooldown) are idempotent under duplication; the **counted** `item_affinity` collapses rows sharing **`{snapshotId, candidateId, action}`** within `FEEDBACK_DEDUP_WINDOW` (Appendix B, M5-tunable) — accidental retry counts once, genuine repeat-events each count. Write-path unique-index/upsert **rejected** (forecloses append-only events; repeats the §8.8 unique-index trap; flattens repeat-wears). M5 implements the reducer + tunes the window. The hole's other sub-parts: concurrent per-type caps are deterministic config (no race); `wardrobeVersion`-bump concurrency rides H6/W-track. |
 | H12 | M5 graceful-fallback failure semantics under-pinned | **OPEN** → DEFERRED-M5 | Pin: numeric timeout budget; full trigger set (unreachable OR timeout OR schema-invalid/empty); decide whether each fallback writes a minimal GenerationSnapshot with empty shown arrays + diagnostics or returns a legacy response explicitly marked non-bindable; add an anti-rot smoke test exercising the fallback arm. |
 | H13 | Pre-M5 CI / runtime reproducibility (no CI workflow, no runtime pins, `requirements.txt` lower-bounds only) | **OPEN** → DEFERRED-pre-M5 | Cross-runtime CI before M5 integration so serialization/auth/timeout/fallback can't drift between Next and the service |
-| H14 | Retained-host cleanup bugs: clear-wardrobe/user-cascade omit some cleanup; image **replacement deletes the old image before the replacement commits** (data-loss ordering) | **OPEN** → DEFERRED-W-track | Fix when the W-track or trust-boundary gate touches these routes |
+| H14 | Retained-host cleanup bugs: clear-wardrobe/user-cascade omit some cleanup; image **replacement deletes the old image before the replacement commits** (data-loss ordering) | **PARTIAL — RESOLVED-DESIGN (cascade)** → IMAGE-REPLACE-ORDERING DEFERRED-W-track | M4 extends `User.ts` cascade to include `wardrobeimages` + GenerationSnapshot-via-redaction (H43); image-replacement ordering bug (delete-before-commit) remains W-track when the upload pipeline gets rebuilt for async |
 | H15 | Key-computation locus: keys are Python; `interactions` route is TS | **RESOLVED-HERE** | Compute keys once in Python at generation; persist them verbatim in GenerationSnapshot/OutfitInteraction. Pre-M5 legacy may echo keys, but M5 feedback identity is `{snapshotId,candidateId}` only; the server re-reads keys/content from the snapshot. Never reimplement key logic in TS (§7/§15.1). |
 | H16 | Candidate cache key ⊋ session-seed inputs — retires the v1.2 R1/N1 `cache_key ≡ seed` invariant | **RESOLVED-HERE** | New rule `cache key ⊇ seed inputs`: `intent`/`forcedItemId`/`styleProfileVersion` key the candidate cache (they change GPT candidates) but need not seed the sampler (§15) |
 | H17 | PDF `forceRegenerate=true` disposition undefined, given R1/R9 redefine regenerate as cached re-rank | **OPEN** → DEFERRED-M5 | M5 decides retain/rename/remove; current lean: removed (R9 locks + the `generationIndex` re-roll cover the intent — H7) |
@@ -1111,7 +1166,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H40 | The `[NOW]` product *assumes* GPT styles believably from **text attributes only** (images stripped, §12) — unvalidated | **VALIDATED-mechanical (Spearhead C6)** / believability descriptive | The `[NOW]` viability bet, measured at Spearhead C6 on the golden corpus (gpt-4o, `--runs 5`, 55 generations): 100% JSON-parse, 100% forced-item inclusion, 100% StyleMove presence, 0 hallucinated ids, 0 schema failures (full results + cost/latency baseline in `docs/plans/spearhead.md` §E). Text-only generation held mechanically, so vision-input-to-generator (H33) was **not** promoted. Human believability stays **descriptive** (the §E rubric, never a gate); a larger believability read remains worthwhile pre-M5 if the rescue surface ships (§12/§21) |
 | H41 | §2 "graph never the interface" + "hook first" could harden into bans | **RESOLVED-HERE** | Cards are the **default dressing interface**; a **secondary** graph/progress/`[NORTH-STAR]`-editing surface may exist behind progressive disclosure. Hook-first is the **default**, not a ban on optional lens-first board/routine selection (§2) |
 | H42 | The forced/rescue item is in 100% of rescue candidates, so the ranker's overuse mechanic (§14) flags it in every rescue outfit | **RESOLVED-HERE** (accepted) → DEFERRED (exemption) | Uniform across all rescue candidates → relative ranking unaffected, so accepted as harmless. A forced-item *exemption* signal on the ranker is a future refinement, deferred (would reopen the closed M3 contract); see `docs/plans/spearhead.md` §G |
-| H43 | GenerationSnapshot is a **new collection** not covered by the `User` cascade-delete (`User.ts:24` deletes `wardrobeitems`+`outfitinteractions` only); retention / purge / **redaction** on account delete is undefined, in tension with snapshots being immutable training truth (§15) | **OPEN** → DEFERRED (Privacy `[STAGED]`, §22); **M4 registers + reserves the seam** | Defer the full retention/purge/redaction *policy* (no real users; privacy `[STAGED]`). M4 must NOT silently create an un-cascaded collection: register this hole **and** reserve a cheap deletion/redaction seam in the §15.1 schema (soft-delete/redaction marker + lineage), behavior staged. Ties to posture rule 3 (append-only with lineage) and the affinity-as-rebuildable-projection bias (`docs/plans/m4-data-model-migration.md` D4/D6/OQ2) — a projection rebuilds clean after source redaction |
+| H43 | GenerationSnapshot is a **new collection** not covered by the `User` cascade-delete (`User.ts:24` deletes `wardrobeitems`+`outfitinteractions` only); retention / purge / **redaction** on account delete is undefined, in tension with snapshots being immutable training truth (§15) | **SEAM-RESERVED (M4)** → redaction-wiring + retention DEFERRED-Privacy-`[STAGED]` | M4 **reserves** the redaction fields in the §15.1 schema (`redacted`/`redactedAt`/`redactionReason`) and closes H14's cascade arm by **hard-deleting `wardrobeimages`** — but does **not** wire the snapshot-redaction cascade (transaction-threading a session-less hook to protect data that doesn't exist on a no-users fork is premature, decided 2026-06-26). The redaction *wiring* (null PII, preserve `itemSnapshots`/keys/scores) + retention policy land at the Privacy milestone. The snapshot stays un-cascaded but **registered + harmless** with zero users; affinity is a rebuildable projection so it survives a later redaction. Posture rule 3 (lineage) intact. |
 
 ---
 
