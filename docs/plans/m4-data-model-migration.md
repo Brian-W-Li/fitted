@@ -1,6 +1,6 @@
 # M4 — Data-model migration (planning conductor)
 
-> ACTIVE PLANNING — multi-session arc, Session 6 of ~11 **CLOSED** (feedback-authenticity contract consolidated + the H11 read-time-reducer dedup rule + the H37 split scope-vocab field + the `planned/packed/corrected` action-enum, locked 2026-06-25 — §11; the last node of the S3→S4→S6 critical path, §7.4). S3 (GenerationSnapshot schema/writer-contract) + S4 (OutfitInteraction binding fields, the de-orphan loop, the H19 reducer contract) + S5 (`clothingType` consolidation) + S6 (authenticity contract + dedup + scope vocab + action-enum) close the *design*; implementation waits on the S9/M5 checkpoints (§8.11 + §9.8 + §10.6 + §11.6 S9-obligations). Canonical contracts live in spec **§15.1** (snapshot) + **§6.6/§16/Appendix B** (interaction binding + reducer constants + dedup window + scope vocab) + **§6.1** (`clothingType` consolidation). **Next: S7 — reconcile-with-reality (OQ3 PreferenceSummary, OQ2 placement residue, OQ5 adapter mapping, M4↔M5 sequencing; MEDIUM).** This is the **in-repo conductor** for
+> ACTIVE PLANNING — multi-session arc, S1–S7 **CLOSED** + the **§13 consolidation pass CLOSED** — **M4 DESIGN DECISIONS CLOSED + VALIDATED; READY FOR CODE-FIRST IMPLEMENTATION** (S10 alignment PASS + S11 design-freeze items 1–5 PASS — §13.1/§13.2; S8 runtime falsification routed to M5 with hole anchors — §13.3; 3 defects found+fixed — §13.5). Plan stays ACTIVE through implementation (S9 ladder + M5); the `> COMPLETED` retirement header lands post-implementation (feedback-authenticity contract consolidated + the H11 read-time-reducer dedup rule + the H37 split scope-vocab field + the `planned/packed/corrected` action-enum, locked 2026-06-25 — §11; the last node of the S3→S4→S6 critical path, §7.4). S3 (GenerationSnapshot schema/writer-contract) + S4 (OutfitInteraction binding fields, the de-orphan loop, the H19 reducer contract) + S5 (`clothingType` consolidation) + S6 (authenticity contract + dedup + scope vocab + action-enum) + S7 (OQ5 adapter mapping → §15.2; OQ3 PreferenceSummary drop; OQ2/sequencing confirm — §12) close the *design*; implementation waits on the S9/M5 checkpoints (§8.11 + §9.8 + §10.6 + §11.6 S9-obligations + the §15.2 warmth map). Canonical contracts live in spec **§15.1** (snapshot) + **§15.2** (deployed→`fitted_core` adapter mapping) + **§6.6/§16/Appendix B** (interaction binding + reducer constants + dedup window + scope vocab) + **§6.1** (`clothingType` consolidation). **Design CLOSED (S7 done — §12). Next: code-first implementation — collapse S8–S11 into the build (the §8.11 + §9.8 + §10.6 + §11.6 S9-obligations + the §15.2 warmth map + wire-validation). M4 ships nothing runnable by itself; value lands at M5.** This is the **in-repo conductor** for
 > M4 planning: the session map, the locked framing decisions, the hole map, and the open-questions log.
 > It supersedes the throwaway `~/Downloads/m4-session-plan-DRAFT.md`; from Session 2 on, the conductor
 > lives here and the Downloads file can be dropped.
@@ -56,11 +56,11 @@ Count is downstream of the reversibility principle, not a target. Sessions are n
 | **4** | **Persisted identity & binding. ✅ CLOSED §9** (2026-06-25). `baseKey`/`fullSignature` + `{snapshotId,candidateId}` additive on interaction rows; the de-orphan binding loop (server re-reads the snapshot candidate, never the echo); the **H19 reducer contract** (count-based snapshot window → dedup → truncate to the shipped `REPETITION_WINDOW_SIZE` → ordered `Sequence[str]`); `shownBaseKeys` dropped; `shownPosition`/`generationIndex` not row-stored (derive from snapshot); OQ4 M4/M5 split confirmed. | Coupled to S3 (stored identity/format/home) **and** S6 (membership + H11 dup-feedback dedup). |
 | **5** | **`clothingType`→5 migration + additive field-adds. ✅ CLOSED §10** (2026-06-25). Fallback = **default-to-top** (deployed parity; guesses surfaced in the D3 report; durable review = W-track `needs_review`, §18) — null+downstream and a new M4 review-field both rejected (§10.2). Found + resolved: the dresses debt is **two divergent string-match shapes, each duplicated across `recommend`+`regenerate`** (four request-time instances), reconciled into **one canonical TS classifier** (§10.1/§10.3); S9 verifies all four are cut at cutover (§10.6 ob. 2a). `wardrobeVersion` field added (home = `User`; bump = W-track/H6); `sessionId` stays derived (=userId, Finding E). | Idempotent + additive; raw never discarded (re-derives from raw, ignores the default-laden `clothingType`); dry-run/report mode (D3). **No ItemAffinity** (OQ2). action-enum is **S6**, not batched here. |
 | **6** | **Feedback authenticity + the full authenticity contract. ✅ CLOSED §11** (2026-06-25). Full authenticity contract consolidated into spec §16 (exists ∧ owned ∧ membership ∧ items⊆candidate; OQ4 M4/M5 split confirmed). **H11 dedup = read-time reducer dedup** on `{snapshotId,candidateId,action}` in the compute-live affinity projection (append-only writes; counter-race dissolved by OQ2; `FEEDBACK_DEDUP_WINDOW` M5-tunable). Action-enum +`planned/packed/corrected` (additive only). **H37 = split `scopeTarget` + `learningDisposition`** (additive nullable fields; behavior `[STAGED]`). No Fable review (reversible, non-foreclosure). | Weight set by S2, **not** pre-assumed light. Membership-check reads shown-history → coupled to S4/S3 (consumed clean). |
-| **7** | **Reconcile with reality.** `fitted/models/*.ts`, deployed schema, what the M5 request adapter needs, M4↔M5 deploy sequencing, migrate-vs-delete seams (deletion license is M5/M6, not M4). | **PreferenceSummary** migrate-vs-delete (D3; §19 routes `PreferenceSummary.ts` for deletion as a no-v2-reader artifact — S7 decides whether to mine any data signal first). **Final ItemAffinity placement** (D6). **OQ5 `engineVisible` adapter-mapping gap** — the deployed→`fitted_core` mapping table (§4). |
-| **8** | **Adversarial falsification.** *Distinct muscle from alignment.* Attack (a) runtime flows — edited item mid-session, deleted item with prior feedback, concurrent/duplicate feedback, re-roll, day-boundary (H10/H11); (b) the classifier on fixtures — ambiguous/null rows, the dresses-debt cases. | — |
+| **7** | **Reconcile with reality. ✅ CLOSED §12** (2026-06-25). `fitted/models/*.ts`, deployed schema, what the M5 request adapter needs, M4↔M5 deploy sequencing, migrate-vs-delete seams (deletion license is M5/M6, not M4). | **RESOLVED §12:** OQ5 adapter mapping → canonical table **spec §15.2** (warmth = garment-type→band keyword map, the one design call; no Fable — reversible once §15.1 read); **PreferenceSummary dropped** (OQ3, no mine); **affinity stays compute-live**, no `ItemAffinity.ts` (OQ2 residue); **sequencing** = no hazard (M4 ships nothing runnable). |
+| **8** | **Adversarial falsification.** *Distinct muscle from alignment.* Attack (a) runtime flows — edited item mid-session, deleted item with prior feedback, concurrent/duplicate feedback, re-roll, day-boundary (H10/H11); (b) the classifier on fixtures — ambiguous/null rows, the dresses-debt cases. | **→ §13.3:** runtime scenarios **routed to M5** (no live route in M4); classifier-on-fixtures folds into the S9 pytest ladder. |
 | **9** | **Implementation ladder.** Decompose M4 into an ordered checkpoint sequence (C1–Cn), each with acceptance criteria + a test plan (pytest for substrate/migration over fixtures; jest where TS models change). Produces the "directly implementable" artifact. | **Must carry the 9 §8.11 S9-obligation checkpoints** (version constants; Option-B trace wrappers; cross-language serializer tests; raw-cap constants + BSON-size guard; itemSnapshot builder-drift tests; snapshotId/candidateId ordering; Python candidateId over the full funnel; graceful-degradation snapshot semantics; over-limit candidate preservation) **plus the S4 obligations (§9.8)** (interaction binding fields + co-presence invariant; the binding index; the M4 gate functions; the H19 reducer + its empty-snapshot/tie-break tests). |
-| **10** | **Content alignment audit.** Does the M4 design cohere with the ambition appendix, the canonical spec, the closed M0–M3 substrate, and Spearhead? Catch design contradictions + missed dependencies. | — |
-| **11** | **Documentation consistency freeze.** §6 checklist; only freeze when all pass; the plan doc gets `> COMPLETED <date>` and leaves the default reading list. | — |
+| **10** | **Content alignment audit.** Does the M4 design cohere with the ambition appendix, the canonical spec, the closed M0–M3 substrate, and Spearhead? Catch design contradictions + missed dependencies. | ✅ **DONE §13.1** — coheres; 1 contradiction found+fixed (§13.5). |
+| **11** | **Documentation consistency freeze.** §6 checklist; only freeze when all pass; the plan doc gets `> COMPLETED <date>` and leaves the default reading list. | ✅ **design-freeze DONE §13.2** (items 1–5); `> COMPLETED` retirement header deferred to post-implementation (plan stays active for the build). |
 
 **The S3↔S4↔S6 coupling (carry-forward from Finding A).** The feedback-authenticity gate's
 **outfit-membership** check ("did we actually show this?") reads **shown-history**, whose storage home is
@@ -170,17 +170,19 @@ the post-S3 design status and point to the implementation owner.
   authoritative collection. Default lean **compute-live** in the M5 request adapter; materialize only later
   on measured request cost / an M6 feature-store need, **with evidence**. **Do not create
   `fitted/models/ItemAffinity.ts` in M4** unless a later session overturns this with evidence. Rationale +
-  the avoided-second-door framing in §7.3. Only residue: materialize-vs-live placement (S7).
-- **OQ3 (S7, Finding D3):** the deployed **`PreferenceSummary`** collection (free-text per-user
-  preference blob, the rough v1 analog of the v2 StyleProfile) is unmentioned in spec §6, but **§19 routes
-  `PreferenceSummary.ts` for deletion** (no v2 reader) — so the open call is whether to migrate/mine any data
-  signal before the drop, or just drop it. Decide at reconcile-with-reality.
+  the avoided-second-door framing in §7.3. Residue (materialize-vs-live placement) **RESOLVED S7 §12.3**:
+  compute-live confirmed, **no `ItemAffinity.ts` in M4**; materialize only later on measured evidence.
+- **OQ3 (RESOLVED S7 §12.2 — DROP, no mine):** the deployed **`PreferenceSummary`** collection (free-text
+  per-user preference blob, the rough v1 analog of the v2 StyleProfile) is unmentioned in spec §6, but **§19
+  routes `PreferenceSummary.ts` for deletion** (no v2 reader). Resolved: **dropped, not mined** — empty
+  migration target (D3, no real users), and the v2 successor (StyleProfile §6.2) is board/routine-derived,
+  not a free-text blob, so the shape doesn't carry forward. No M4 migration; drop under the M5/M6 license.
 - **OQ4 (RESOLVED S6 §11.2; confirmed S4 §9.5):** the **authenticity-gate M4/M5 split** — M4 does
   existence+ownership + content-key (`baseKey`/`fullSignature`) binding; M5 adds `{snapshotId,candidateId}`
   binding + the outfit-membership ("actually shown") check (reads the S3-fixed H19 home). M4 defines the
   *full* contract (spec §16). **Split CONFIRMED holding** — no live route for M4 to attack; the membership
   semantic is the runtime gate.
-- **OQ5 (S7, surfaced at the §15.1 review):** the **`engineVisible` adapter-mapping gap.** §15.1
+- **OQ5 (RESOLVED S7 §12.1 → canonical table spec §15.2):** the **`engineVisible` adapter-mapping gap.** §15.1
   `engineVisible` is the *post-adapter* `fitted_core.WardrobeItem` projection, but the deployed
   `WardrobeItem.ts` has **no direct source** for several of its fields: `styleTags` (deployed has only
   `tags`, no style-tags field), `warmth`, `material`, `formality`, and the renames `colors`→`colorTags` /
@@ -311,7 +313,7 @@ drift** (recomputed from the log, consistent by construction), and **rebuilds cl
 `m0-m1-substrate.md:550` ("M4 must create `ItemAffinity.ts`") to **"derive, don't create a collection"**;
 the retired plan keeps its old text (this conductor is the authority).
 
-**Residue → S7:** materialize-vs-live is the only open sub-choice; default lean compute-live.
+**Residue (materialize-vs-live):** ✅ RESOLVED S7 §12.3 — compute-live, no `ItemAffinity.ts` in M4.
 
 ### 7.4 Session weights + the critical path
 
@@ -325,11 +327,16 @@ no cluster dependency; may sequence first).
 | **S4** | **MEDIUM-HEAVY** | runs **after/with S3**; `baseKey`/`fullSig` fields are additive (light), but the bind-to-exact-shown-outfit de-orphan loop + H19 home is real. Trap-guard F: don't reopen the §7 key format |
 | **S5** | **LIGHT — ✅ CLOSED §10** | classifier fallback (default-to-top, §10.2) + the two-site reconciliation (§10.1) + dry-run/report; off the critical path; no affinity collection (§7.3) |
 | **S6** | **MEDIUM — ✅ CLOSED §11** | full authenticity contract consolidated + H11 read-time-reducer dedup + action-enum +3 + H37 split scope field; no foreclosure, reversible → no Fable review (§11) |
-| **S7** | **MEDIUM** | reconcile: OQ3 PreferenceSummary, OQ2 placement residue, M4↔M5 sequencing, migrate-vs-delete seams |
+| **S7** | **MEDIUM — ✅ CLOSED §12** | reconcile: OQ5 mapping → spec §15.2, OQ3 drop, OQ2/sequencing confirm; no Fable (reversible once §15.1 read) |
 | **S8** | **MEDIUM** | adversarial falsification — distinct muscle; depends on all prior design |
 | **S9** | **MEDIUM** | the C1–Cn implementation ladder |
 | **S10** | **LIGHT–MEDIUM** | content-alignment audit |
 | **S11** | **LIGHT** | documentation-consistency freeze (§6) |
+
+**S8–S11 disposition — see the §13 consolidation pass.** S10 (alignment) + S11 (design-freeze) were run as
+one consolidation pass (§13.1/§13.2); S8's runtime scenarios are routed to M5 (§13.3 — no live route in M4)
+and its classifier-fixture surface folds into the S9 pytest ladder; the S9 C1–Cn implementation ladder
+emerges as the additive/reversible M4 code is written. The next M4 session writes code, not plans.
 
 ### 7.5 Findings carried forward (E/F/G)
 
@@ -564,7 +571,7 @@ GenerationSnapshotSchema {
 - **Raw-field caps:** `rawText`/`rawEmitted`/`rawAttributes` governed by a byte cap + hash + truncation flag
   + a no-image/base64/blob rule (§8.6) — the 120 KB bound is only defensible with these.
 - **Cross-model gaps (routed):** `clothingType` enum → S5 (CLOSED §10); `OutfitInteraction` binding fields →
-  S4 (CLOSED §9); `db.ts` `GenerationSnapshot` registration → M5/S7. Indexes: §8.8.
+  S4 (CLOSED §9); `db.ts` `GenerationSnapshot` registration → M5 (live wiring; S7 did not absorb). Indexes: §8.8.
 
 ### 8.4 Python payload contract + the three-site funnel obligation
 
@@ -1252,5 +1259,135 @@ substrate's pre-reduced signals (`ranker.py:188`), and the OQ2/S4 framing. One c
 promotion-threshold→rule); the one hard decision locked (H11 read-time reducer dedup); the full authenticity
 contract consolidated + OQ4 split confirmed; action-enum + H37 field designed (both additive, behavior
 `[STAGED]`); trap-guards honored (no key reopen, no membership-impl pull-in, no `ItemAffinity.ts`). **S6 closes
-the *design*; implementation is the §11.6 ladder + M5.** Next: **S7** (reconcile-with-reality — OQ3
-PreferenceSummary, OQ2 placement residue, OQ5 adapter mapping, M4↔M5 sequencing).
+the *design*; implementation is the §11.6 ladder + M5.** Next: **S7** ✅ CLOSED — see §12.
+
+## 12. Session 7 outputs — reconcile with reality (CLOSED 2026-06-25)
+
+Scoped deliberately small (last planning session): resolve the four S7 residues against verified source,
+then go code-first. **No S3–S6 decision reopened.** Inbound source-verification (read firsthand, not from
+summary): `fitted_core/models.py` (the `WardrobeItem` target), `fitted/models/WardrobeItem.ts` +
+`PreferenceSummary.ts` (deployed), `response.py`/`config.py` (warmth bands), `cv-integration.md`, spec
+§15.1/§15/§19.
+
+### 12.1 OQ5 — deployed→`fitted_core` adapter mapping (the headline) — RESOLVED
+
+Canonical mapping table now lives in spec **§15.2** (single-home; this plan points, never restates). The
+deployed `WardrobeItem.ts` has no column for `styleTags`/`warmth`/`material`/`formality` and uses
+`colors`/`occasions` not `colorTags`/`occasionTags` — the M5 request-adapter (R12) owns the renames +
+derivations. Renames + nullable derivations (`material`/`formality` ← CV `metadata` if present else `null`,
+which the ranker tolerates) are mechanical.
+
+**The one real call — `warmth` derivation.** It's the only adapter-derived field that can't be null
+(`models.py` raises outside `0..10`). Resolved = garment-type keyword (`category`/`subCategory`/`name`) →
+band-center `{hot 2, mild 5, cold 8}`, `seasons` as a ±1-band nudge, unknown → mild; deterministic + total;
+mirrors the M4 `clothingType` classifier idiom. **Recalibration finding (the reason S7 stayed cheap):**
+at S7 entry `warmth` *looked* like an irreversible-corpus call. Reading §15.1 dissolved that — the
+`engineVisible`/`evidence` split preserves the raw inputs (`seasons`/`category`/`tags`/`rawAttributes`)
+verbatim, `engineVisible` is correct-by-construction for off-policy training (records exactly what the
+engine saw, crude or not), the ranker only needs 3-band resolution (`response.py` `_warmth_band`), and
+there's no live data. The one-way-door property is absent → **no Fable review** (decision-method satisfied
+by recognizing this isn't an important call once the architecture is read; substitute basis = the §15.1
+read). Implementation of the warmth map + the wire-validation is an M5/S9 ladder item (adapter is M5, §7.1).
+
+### 12.2 OQ3 — PreferenceSummary: DROP, do not mine — RESOLVED
+
+Verified `PreferenceSummary.ts` = `{ text, feedbackCount, lastFeedbackAt }` per user. No v2 reader (§19
+already routes it for deletion); D3 established the migration target is effectively empty (no real users) →
+nothing to mine. The v2 successor (StyleProfile, §6.2) is board/routine-derived, not a free-text blob — so
+even the *shape* doesn't carry forward. **No M4 migration**; dropped under the M5/M6 deletion license. OQ3
+closed.
+
+### 12.3 OQ2 residue + M4↔M5 sequencing + migrate-vs-delete — CONFIRMED
+
+- **Affinity placement (OQ2 residue):** compute-live confirmed; **no `fitted/models/ItemAffinity.ts` in
+  M4** (§7.3). Materialize only later on measured request cost / an M6 feature-store need, *with evidence*.
+  Not reopened.
+- **M4↔M5 sequencing:** no ordering hazard — M4 lands additive schema + classifier + writer contract over
+  fixtures, touching **no live route** (§7.1); it ships nothing runnable. M5 deploys the service, flips
+  `USE_ML_SHORTLISTER`, and does the live snapshot write + adapter. M4 can land and sit dormant.
+- **Migrate-vs-delete seams:** the deletion license is **M5/M6, not M4** (CLAUDE.md). M4 only *registers*
+  what M5/M6 will delete: `PreferenceSummary` + the legacy preference-prose adapter (both in spec **§19**'s
+  deletion table), and the four dresses string-match sites (§10.6 ob. 2a). No M4 deletions.
+
+### S7 verdict — CLOSED 2026-06-25
+The design is complete. OQ5 mapping table landed in spec §15.2 (warmth call resolved in-session, no Fable —
+reversible/non-foreclosure once §15.1 is read); OQ3 dropped; OQ2 residue + sequencing + delete-seams
+confirmed without reopening S3–S6. **All M4 *design* questions are now closed.** What remains is not
+planning: the implementation ladder (the §8.11 + §9.8 + §10.6 + §11.6 S9-obligations + the §15.2 warmth map
++ wire-validation), which lands code-first. **S8–S11 disposition → refined by the §13 consolidation pass**
+(an adversarial audit of this plan vs the spec showed the bare "collapse" was too loose: S10/S11 had real
+residual value and caught a live contradiction). M4 ships nothing runnable by itself; value lands at M5.
+
+## 13. Consolidation pass — S10 alignment + S11 design-freeze + S8-runtime routing (CLOSED 2026-06-25)
+
+User-elected single consolidation pass in lieu of three standalone S8/S10/S11 sessions, after an
+adversarial audit of this plan against the spec. Rationale: ~5/6 of S8 attacks *runtime* (the live route +
+feedback path), which M4 doesn't have — those belong to M5; but S10 (alignment) and S11 (freeze) had real
+residual value, proven immediately by the 3 defects this pass found+fixed (§13.5).
+
+### 13.1 S10 — alignment cross-check (PASS)
+M4 design coheres with:
+- **Substrate (M0–M3):** `engineVisible` names match `fitted_core.WardrobeItem` (`models.py`); `warmth` is
+  consumed by the §G weather penalty (`response.py` `_warmth_band`, 3-band); the compute-live affinity
+  projection + H19 reducer feed exactly the pre-reduced `RankContext` signals (`ranker.py:188` —
+  `item_affinity`/`liked_full_signatures`/`shown_full_signatures`, "never raw OutfitInteraction; already
+  windowed"); `baseKey`/`fullSignature` ↔ `keys.py` `base_key`/`full_signature` (documented snake↔camel).
+  No closed contract reopened.
+- **Spec:** internal re-read — one substantive contradiction found+fixed (§13.5); remaining under-specs are
+  by-design `[STAGED]`/`[NEXT]` (scoped-memory threshold §16; `learningDisposition` behavior; `[STAGED]`
+  ontology §6.1; `embeddingRef` shape H25; `seedDate`/H8).
+- **Spearhead:** the three-site funnel capture (§8.4) includes `rescue()` — the orphan-rescue trace is
+  captured. Aligned.
+
+### 13.2 S11 — design-freeze checklist (§6 items 1–5 PASS; item 6 deferred)
+1. **Single-home ✓** — OQ5 table homed once in §15.2; this plan points.
+2. **Cross-surface ✓** — spec §6/§15/§16/§20/§23 consistent; `docs/README.md` + `ml-system/README.md`
+   correctly name M4 the active build target; `CLAUDE.md` still accurate (M4 = next active work).
+3. **Naming ✓** — `GenerationSnapshot`/`baseKey`/`fullSignature`/`wardrobeVersion`/`clothingType` consistent
+   across active surfaces. **`generation_logs` drift:** confined to the **retired+bannered**
+   `m0-m1-substrate.md:68` (a stale forward-scope cell that also predates the no-`ItemAffinity` OQ2 call);
+   **left per doc-lifecycle** (git is the archive; retired docs exempt; its banner already redirects
+   forward-scope to the spec). All active surfaces are clean.
+4. **Hole retirement ✓** — §23 verified for the 7 owned holes (H10/H11/H19/H29/H37 RESOLVED-DESIGN→
+   PENDING-impl; H25 RESOLVED-HERE; H43 OPEN-by-design, seam reserved). H12 newly tracked (§13.3).
+5. **Compaction ✓** — spec ~1216 < 1500; reading list < 2000. (`FEEDBACK_DEDUP_WINDOW` is a deliberately
+   value-less Appendix B entry — M5 sets the number.)
+6. **Retirement header — DEFERRED.** The plan stays **ACTIVE** through M4 *implementation* (S9 ladder + M5).
+   The `> COMPLETED` header lands post-implementation, not at design-freeze.
+
+### 13.3 S8 — runtime attack scenarios routed to M5 (M4 has no live route to attack)
+M4 builds contracts + the backfill classifier over fixtures. 5 of 6 S8 scenarios need the live
+route/feedback path and are M5's to falsify; the spec already routes their holes there. Recorded so the M5
+`/spec` inherits them as explicit adversarial-test obligations:
+
+| S8 scenario | hole anchor | M5 falsification obligation |
+|---|---|---|
+| edited item mid-session | H10 | `itemSnapshot` immutable under live edit |
+| deleted item with prior feedback | H10 | feedback meaning stable after source delete; projection rebuilds clean |
+| concurrent / duplicate feedback | H11 | append-only + read-time reducer dedup under concurrency |
+| re-roll | — | one-snapshot-per-render; siblings share `candidateCacheKey` |
+| **day-boundary** | **H8 (OPEN)** | **H8 still needs an M5 design resolution** (UTC default) — seed/cache desync |
+
+The **one M4-testable** S8 surface — the classifier on ambiguous/null/dresses fixtures — is captured as S9
+pytest obligations (§10.6 ob. 2/2a); its design was already stress-tested at S5 (the two-divergent-
+classifier bug, §10.1). **H12 (graceful-degradation arm)** flagged: §8.11 ob. 8 defers a real M5 *design*
+choice (minimal valid snapshot vs legacy non-bindable response), not just a test — shapes the H19
+`nSurfaced>0` filter; M5-owned, tracked here so it isn't mistaken for pure coding.
+
+### 13.4 Session-map disposition
+S8 = **routed to M5** (runtime) + folded to S9 (classifier fixtures); S10 = **DONE §13.1**; S11 =
+**design-freeze DONE §13.2** (full retirement deferred to post-implementation).
+
+### 13.5 Defects found + fixed this pass
+1. **§15.1↔§15.2 `styleTags` contradiction** — §15.1 called `styleTags`/`material`/`formality` "derived, no
+   deployed source," but §15.2 sources `styleTags`←`tags` (repurpose) and `material`/`formality`←CV
+   `metadata`. Only `warmth` is source-less. §15.1 reworded.
+2. **Stale "Next: S7"** in the §11 S6 verdict — updated to "✅ CLOSED — see §12" (matching its S4/S5 siblings).
+3. **Overstated header banner** — "M4 DESIGN COMPLETE" → "DESIGN DECISIONS CLOSED; validation via §13."
+
+### S-consolidation verdict — CLOSED 2026-06-25
+Design decisions closed (S1–S7); design-validation done (S10 alignment PASS, S11 freeze items 1–5 PASS);
+S8 runtime falsification routed to M5 with hole anchors; 3 defects fixed. **M4 is now genuinely ready for
+code-first implementation** — the C1–Cn ladder over the §8.11 + §9.8 + §10.6 + §11.6 obligations + the
+§15.2 warmth map + wire-validation. Plan stays active through implementation.
+

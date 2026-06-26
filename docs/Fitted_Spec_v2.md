@@ -728,9 +728,10 @@ the negative signal training wants, so it is never skipped. Consequently `genera
   verbatim, no post-call refetch; the camelCase names are the documented snake↔camel mapping of
   `style_tags`/`color_tags`/`occasion_tags`, a key-rename with no value transform). **engineVisible names
   follow the Python projection / snapshot wire contract, not the deployed `WardrobeItem` field names** — the
-  deployed→`fitted_core` renames and derivations are the M5 request-adapter's job (§15 R12): e.g. deployed
-  `colors`→`colorTags`, `occasions`→`occasionTags`, plus the adapter-*derived* `styleTags`/`warmth`/`material`/
-  `formality` (no direct deployed source). `evidence` is deployed-doc fields the engine **never saw**
+  deployed→`fitted_core` renames and derivations are the M5 request-adapter's job (§15 R12; full per-field
+  mapping in **§15.2**): renames `colors`→`colorTags`, `occasions`→`occasionTags`; the repurpose
+  `tags`→`styleTags`; `material`/`formality` from CV `metadata` when present (else null); and the one
+  genuinely adapter-*derived* field, `warmth` (no deployed column). `evidence` is deployed-doc fields the engine **never saw**
   (storage-only: `category`, `subCategory`, `pattern`, `seasons`, `isAvailable`, `isFavorite`, `lastWornAt`,
   `brand`, `fit`, `size`, `layerRole`, `tags`, `rawAttributes?` (bounded, storage-only — raw CV/declared blob,
   posture rule 1), `image{imageRef?/imageVersion?/hash?}` — **ref/version/hash only, never the blob**, H29(c),
@@ -795,6 +796,45 @@ public contracts unchanged; the mechanism, decomposition, and tests are owned by
 This is the **minimum durable record set — NOT full event sourcing** (audit rows + snapshots; normal Mongo
 projections for current state). It resolves the exposure-bias and feature-skew gaps before any model
 trains (§21).
+
+### 15.2 Deployed → `fitted_core` request-adapter mapping (R12) `[NEXT]`
+
+The M5 request adapter maps each deployed `WardrobeItemDocument` (`fitted/models/WardrobeItem.ts`) to a
+`fitted_core.WardrobeItem` (`ml-system/fitted_core/models.py`) — the `engineVisible` projection of §15.1.
+Most fields are direct or key-renames; **three have no deployed column and are adapter-*derived***. The raw
+deployed inputs are preserved verbatim in the snapshot's `evidence{}` (§15.1), so every derivation is
+re-derivable and never lossy.
+
+| `fitted_core.WardrobeItem` | deployed source | transform |
+|---|---|---|
+| `id` | `_id` | `ObjectId` → string |
+| `name` | `name` | direct |
+| `type` (`ItemType`) | `clothingType` (post-M4 5-value) | 1:1 enum pass-through (member names = wire values, `models.py`) |
+| `warmth` (int 0–10, **required**) | **derived** (no column) | garment-type keyword (`category`/`subCategory`/`name`) → band-center `{hot 2, mild 5, cold 8}`; `seasons` nudges ±1 band; unknown → 5 (mild). Total + deterministic. |
+| `style_tags` | `tags` | passthrough (rename only; freeform `tags` also kept in `evidence`) |
+| `color_tags` | `colors` | rename |
+| `occasion_tags` | `occasions` | rename |
+| `material` (Optional) | `metadata.material` if present | else `null` (CV emits none today; ranker tolerates `None`) |
+| `formality` (Optional) | `metadata.formality` if present | else `null` (derivation from `occasions`/`category` deferred — Optional; `response.py` tolerates `None`) |
+| `image_url` | `imageUrl` | else resolve `imagePath` → `WardrobeImage`; else `""` |
+
+**Wire-validation (R12 part 2)** is unchanged: this adapter is the trust boundary (non-empty ids/strings,
+tag-container shape, one predictable error channel); the dataclass keeps only its two backstop guards
+(enum coercion, `warmth ∈ 0..10`) — §15 adapter bullet.
+
+**The one design call — `warmth` derivation.** `warmth` is the only adapter-derived field the contract
+cannot leave null (`models.py` raises outside `0..10`), so it needs a *total, deterministic* rule. The
+promise it serves is weather-appropriateness (no parka in July). Source priority: **garment type**
+(`category` is `required` deployed, and the most reliable physical warmth proxy) is primary; **`seasons`**
+is a secondary nudge (user-tagged, sparse, often empty — unreliable as primary); unknown → mild. Only
+**band**-accuracy matters — the ranker bins warmth into 3 bands (`response.py` `_warmth_band`:
+hot `<3` / mild `<6` / cold `≥6`), so a coarse keyword map suffices by construction. This mirrors the
+existing string-match idiom (the M4 `clothingType` classifier; deployed `route.ts` already string-matches
+`category`/`name`). **No Fable review:** the `engineVisible`/`evidence` split (§15.1) preserves the raw
+inputs verbatim, `engineVisible` is correct-by-construction for off-policy training (it records exactly what
+the engine conditioned on), only 3-band resolution matters, and there is no live data — so the
+one-way-door property that would justify a review is absent. Resolved in-session by first-principles
+(decision-method: review the *important* calls; this isn't one once §15.1 is read).
 
 ---
 
