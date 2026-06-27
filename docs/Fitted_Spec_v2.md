@@ -300,7 +300,7 @@ collection clean, since no real users accumulated against this fork; `docs/plans
   default 0, monotonic — and the request adapter reads it into the Lens. The single bump transition is
   deferred to the W-track (§18/§23-H6); until it is named the value is a constant 0, and pre-existing user
   docs lacking the field coalesce missing→0 at snapshot-write (`docs/plans/m4-data-model-migration.md`
-  §10.4/§10.6).
+  §10.4).
 
   *Why `weather` is a bucket but `occasion` is verbatim:* weather drifts without user intent (raw text
   destabilizes the seed every render); occasion changes only by user intent and must stay text-distinct so

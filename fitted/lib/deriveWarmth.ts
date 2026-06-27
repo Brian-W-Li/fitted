@@ -14,7 +14,7 @@
  */
 import { mentionsAny } from "@/lib/keywordMatch";
 
-// Band centers (the §10.3/§12.1 warmth map): hot 2 / mild 5 / cold 8.
+// Band centers (the warmth map; spec §6.1): hot 2 / mild 5 / cold 8.
 const HOT_CENTER = 2;
 const MILD_CENTER = 5;
 const COLD_CENTER = 8;

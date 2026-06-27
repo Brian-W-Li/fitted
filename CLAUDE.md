@@ -139,7 +139,9 @@ The doc set must stay small, current, and internally consistent. Rules:
   never leave a known conflict standing.
 - **Default reading list** for a milestone session: `CLAUDE.md` + `Fitted_Spec_v2.md` + the
   active milestone's plan. Everything else — `sessions/`, completed plans, the retired
-  PDF/ledgers — is on-demand reference, pulled only when a pointer leads there.
+  PDF/ledgers — is on-demand reference, pulled only when a pointer leads there. **Execution
+  sessions may scope the spec to the sections the active plan cites** (the plan names them);
+  `/spec`/design/heavy-audit sessions read it whole.
 - **Retirement.** When a milestone completes, its plan doc gets a `> COMPLETED <date>` header
   line and leaves the default list. `sessions/` notes are write-mostly: read only when
   hunting history, never required context. (Retired/historical docs are exempt from the
@@ -147,9 +149,12 @@ The doc set must stay small, current, and internally consistent. Rules:
 - **Hole/conflict cadence.** Each milestone `/spec` opens by hole-checking and
   conflict-checking the docs it inherits. Active holes go in `Fitted_Spec_v2.md` §23, or in
   the active milestone plan if the issue is local to that milestone.
-- **Compaction backstop.** In-place editing should keep active docs from accreting; if a single
-  active spec/plan exceeds roughly **1,500 lines**, or the default reading list exceeds roughly
-  **2,000 lines**, spend a dedicated session compacting it.
+- **Compaction backstop.** In-place editing should keep active docs from accreting. The primary
+  guardrail is **per-doc**: if any single active spec/plan exceeds roughly **1,500 lines**, spend a
+  dedicated session compacting it. The default reading list (`CLAUDE.md` + spec + active plan) should
+  stay under roughly **2,500 lines**; because the canonical spec legitimately spans M0–M6 + the §23
+  holes register, the per-doc 1,500 ceiling — not a tight sum — is the load-bearing limit, and the
+  next compaction trigger is the spec itself crossing 1,500.
 - **Critical-usage recovery backstop.** If Claude sees usage/context critically low and likely
   cannot complete the current request, stop before the next risky edit or long-running task.
   Bring any document currently being edited to a safe or safe-enough stopping point (finish the

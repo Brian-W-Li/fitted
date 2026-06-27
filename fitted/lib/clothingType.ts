@@ -74,7 +74,7 @@ const BARE_DRESS = /\bdress(es)?\b/;
  * The upload form does not supply clothingType today, so it is derived from the
  * garment's category / subCategory / name (+ layerRole) at ingestion. One ordered
  * first-match cascade, consolidating the two divergent legacy string-match sites
- * (docs/plans/m4-data-model-migration.md §10.1/§10.3). Out-of-ontology rows default
+ * (docs/plans/m4-data-model-migration.md §10.3). Out-of-ontology rows default
  * to "top". The W-track VLM CV / review surface later supplies clothingType directly.
  *
  * "dress" counts as a one-piece only when it is NOT immediately followed by a garment noun
