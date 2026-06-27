@@ -13,6 +13,7 @@ import {
   SHOE_KEYWORDS,
   BOTTOM_KEYWORDS,
   OUTER_KEYWORDS,
+  DRESS_MODIFIER_EXTRA,
 } from "@/lib/clothingType";
 
 const band = (w: number) => (w < 3 ? "hot" : w < 6 ? "mild" : "cold");
@@ -176,6 +177,14 @@ describe("deriveClothingType (the §10.3 ingestion classifier)", () => {
     expect(deriveClothingType({ name: "black dress socks" })).toBe("top");
   });
 
+  it("partitions an unambiguous bottom noun ('slacks') to bottom, not top", () => {
+    // "slacks" is unambiguously trousers — it belongs in the bottom rung, not just the
+    // adjectival-modifier set, so a bare "wool slacks" item partitions correctly.
+    expect(deriveClothingType({ name: "grey slacks" })).toBe("bottom");
+    expect(deriveClothingType({ name: "wool slacks" })).toBe("bottom");
+    expect(deriveClothingType({ name: "dress slacks" })).toBe("bottom");
+  });
+
   it("still classifies a genuine 'dress' (head noun) as dress", () => {
     // "dress" as the head noun — including when miscategorized — stays a one-piece (§10.3).
     expect(deriveClothingType({ category: "bottom", name: "wrap dress" })).toBe("dress");
@@ -195,7 +204,7 @@ describe("deriveClothingType (the §10.3 ingestion classifier)", () => {
   // keyword added to any rung is automatically a noun "dress" can modify. This asserts the
   // invariant directly — if the derivation is ever broken, "dress <rung-noun>" → "dress"
   // would resurface the "Dress Shoes → dress" footgun and fail loudly here.
-  it.each([...SHOE_KEYWORDS, ...BOTTOM_KEYWORDS, ...OUTER_KEYWORDS])(
+  it.each([...SHOE_KEYWORDS, ...BOTTOM_KEYWORDS, ...OUTER_KEYWORDS, ...DRESS_MODIFIER_EXTRA])(
     "never lets adjectival 'dress %s' collapse to a one-piece dress",
     (kw) => {
       expect(deriveClothingType({ name: `dress ${kw}` })).not.toBe("dress");

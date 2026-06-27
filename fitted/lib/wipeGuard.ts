@@ -31,6 +31,11 @@ export function parseMongoUri(uri: string): { host: string; dbName: string } {
  *
  * Boundary-anchoring is the point: a trailing hyphen does NOT count as a boundary,
  * so a prod host like "fitted-dev-shadow.prod.mongodb.net" is correctly refused.
+ *
+ * `localhost`/`127.0.0.1` are EXACT-host labels: a right-side dot does NOT count as a
+ * boundary for them, so "localhost.evil.example.com" is refused (it is not the local box).
+ * `fitted-dev` keeps the dot right-boundary because it may legitimately be a subdomain
+ * label of a real dev Atlas cluster ("fitted-dev.abc.mongodb.net").
  * The password never reaches here (URL parsing keeps it out of the host).
  */
 export function isWipeAllowed(
@@ -40,7 +45,10 @@ export function isWipeAllowed(
   if (env.FITTED_ALLOW_WIPE === "1") return true;
   const atBoundary = (label: string) => {
     const esc = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`(^|[.@/:])${esc}([.:/]|$)`, "i");
+    // Exact-host labels reject a dot on the right (no "localhost.evil.com" bypass);
+    // fitted-dev allows a dot so a dev Atlas subdomain still authorizes.
+    const right = label === "fitted-dev" ? "[.:/]" : "[:/]";
+    return new RegExp(`(^|[.@/:])${esc}(${right}|$)`, "i");
   };
   return ALLOWLIST_LABELS.some((label) => atBoundary(label).test(host));
 }

@@ -17,7 +17,8 @@ services:
     container_name: fitted-mongo
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      # Loopback-only: don't expose the unauthenticated dev DB to the LAN.
+      - "127.0.0.1:27017:27017"
     volumes:
       - fitted-mongo-data:/data/db
 

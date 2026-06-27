@@ -48,6 +48,13 @@ describe("isWipeAllowed", () => {
     expect(isWipeAllowed("prod.mongodb.net", NO_OVERRIDE)).toBe(false);
   });
 
+  it("REFUSES a host that only dot-prefixes an exact label (no localhost.evil bypass)", () => {
+    // "localhost"/"127.0.0.1" are exact-host labels — a right-side dot is NOT a boundary,
+    // so a non-local host merely beginning with the label is refused.
+    expect(isWipeAllowed("localhost.evil.example.com:27017", NO_OVERRIDE)).toBe(false);
+    expect(isWipeAllowed("127.0.0.1.evil.example.com", NO_OVERRIDE)).toBe(false);
+  });
+
   it("a password containing 'localhost' cannot false-allow (host only)", () => {
     const { host } = parseMongoUri("mongodb+srv://user:localhostpw@prod.mongodb.net/app");
     expect(isWipeAllowed(host, NO_OVERRIDE)).toBe(false);

@@ -13,6 +13,7 @@ import { resolve } from "path";
 import mongoose from "mongoose";
 import { deriveClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
+import { parseMongoUri, isWipeAllowed } from "@/lib/wipeGuard";
 import WardrobeItem from "@/models/WardrobeItem";
 import User from "@/models/User";
 
@@ -49,6 +50,19 @@ const TEST_ITEMS: Array<{
 async function main() {
   loadEnvLocal();
   const uri = process.env.MONGODB_URI || "mongodb://localhost:27017/fitted-dev";
+
+  // Safety gate (same host allowlist as scripts/wipe-db.ts): the reused CS148 .env.local
+  // may point MONGODB_URI at the SHARED team Atlas cluster. This seed writes test items
+  // onto the OLDEST real user, so refuse a non-allowlisted host unless FITTED_ALLOW_WIPE=1.
+  const { host } = parseMongoUri(uri);
+  if (!isWipeAllowed(host)) {
+    console.error(
+      `Refusing to seed: MONGODB_URI host "${host}" is not on the localhost/fitted-dev allowlist.\n` +
+        `If this really is a throwaway dev DB, re-run with FITTED_ALLOW_WIPE=1.`,
+    );
+    process.exit(1);
+  }
+
   await mongoose.connect(uri);
 
   const user = await User.findOne().sort({ createdAt: 1 }).exec();

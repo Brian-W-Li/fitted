@@ -35,7 +35,7 @@ export function normalizeClothingType(value: unknown): ClothingType {
 const ONE_PIECE_KEYWORDS = ["jumpsuit", "romper", "sundress", "gown", "frock"];
 export const BOTTOM_KEYWORDS = [
   "pants", "sweatpants", "joggers", "snowpants", "jeggings", "jeans",
-  "shorts", "skirt", "trousers", "chinos", "leggings",
+  "shorts", "skirt", "trousers", "chinos", "leggings", "slacks",
 ];
 export const SHOE_KEYWORDS = [
   "shoes", "sneakers", "boots", "sandals", "loafers", "heels", "flats",
@@ -46,9 +46,13 @@ export const OUTER_KEYWORDS = [
 ];
 // Garment nouns "dress" can modify that have no rung of their own — once excluded from the
 // one-piece bucket they fall through to the "top" default ("dress shirt", "dress socks").
-const DRESS_MODIFIER_EXTRA = [
+// "oxford"/"mule"/"pump"/"brogue" are deliberately NOT in SHOE_KEYWORDS: bare "oxford" is
+// ambiguous (an oxford shirt is a top), so they only guard the adjectival-"dress" case here.
+// (An unambiguous garment like "slacks" lives in its real rung — BOTTOM_KEYWORDS — not here.)
+// Exported so the drift-guard test covers every modifier noun, not only the rung arrays.
+export const DRESS_MODIFIER_EXTRA = [
   "shirt", "top", "tee", "blouse", "polo", "sock",
-  "oxford", "mule", "pump", "brogue", "slacks",
+  "oxford", "mule", "pump", "brogue",
 ];
 
 // "dress" is a MODIFIER (not a one-piece) when immediately followed by a garment noun (the

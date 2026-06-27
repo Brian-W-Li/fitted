@@ -143,7 +143,7 @@ behavior that M5 depends on, so its outputs must be inspectable even on fixtures
 
 Snapshots are immutable training truth (§15); retention/purge/redaction is privacy `[STAGED]` (§22,
 C7/C10) and there are no real users to protect → the **full policy is deferred.** But M4 introduces a
-**new collection** (GenerationSnapshot) that the existing `User` cascade-delete hook (`User.ts:24`,
+**new collection** (GenerationSnapshot) that the existing `User` cascade-delete hook (`User.ts:27`,
 deletes `wardrobeitems`+`outfitinteractions`) does **not** cover. M4 must NOT silently create an
 un-cascaded collection: **register a §23 hole** (H43) **and reserve a cheap deletion/redaction seam in
 the §15.1 schema** (e.g. a soft-delete/redaction marker + lineage), even though behavior stays
@@ -166,7 +166,7 @@ the post-S3 design status and point to the implementation owner.
 | **H29** | Snapshot must persist continuous scores + rejected/low-ranked candidates + visual (not shown/text only) | **Resolved-design / pending implementation.** §15.1 is the canonical shape; S9/M5 must implement the three trace surfaces, content-preservation invariant, raw caps, and visual seam. |
 | **H37** | Add `lens` / `exception` scope vocab | **RESOLVED-DESIGN (S6 §11.4)** → PENDING-S9. **Split** `scopeTarget` (`outfit/board/routine/global/lens`) + `learningDisposition` (`normal/exception/do_not_learn`), additive nullable on `OutfitInteraction`; anomaly-scoping **behavior** stays `[STAGED]`. Spec §16/§6.6/§23. |
 | **H25** (reflect) | Extensible item representation (tags now → embeddings later) | Reflect at S3/S5: scoring + snapshot consume a *representation*, never a fixed tag list. |
-| **H43** (NEW) | GenerationSnapshot lifecycle: new collection not covered by `User` cascade-delete; retention/purge/redaction undefined vs immutable-training-truth | **Upgraded by §14 decision #6:** M4 no longer just *reserves* the seam — it **wires** the cascade (C7): `User` delete hard-deletes `wardrobeimages` + **redacts** GenerationSnapshot (nulls PII, preserves itemSnapshots/keys/scores). Only the long-horizon retention *policy* stays `[STAGED]`. Spec §23-H43 RESOLVED-DESIGN. |
+| **H43** (NEW) | GenerationSnapshot lifecycle: new collection not covered by `User` cascade-delete; retention/purge/redaction undefined vs immutable-training-truth | **Trimmed by §14 decision #6 (audit round 3):** M4 closes only H14's cascade arm — `User` delete hard-deletes `wardrobeimages` (C7) — and **reserves** the redaction fields (`redacted`/`redactedAt`/`redactionReason`) in the §15.1 schema. The snapshot-redaction cascade **wiring** (nulls PII, preserves itemSnapshots/keys/scores) + retention *policy* are **DEFERRED to the Privacy `[STAGED]` milestone** (transaction-threading a session-less hook for data that doesn't exist on a no-users fork is premature). Spec §23-H43 = **SEAM-RESERVED** (not RESOLVED-DESIGN). |
 | **H6** | `wardrobeVersion`'s single bump/activation transition is unnamed (spec §23-H6) | **M4 stores the field only.** The bump trigger / activation transition stays **deferred to the W-track — NOT solved by M4.** Recorded here so the additive field-add is never mistaken for the bump semantics (S2 §7.1/§7.5-F). |
 
 ## 4. Open-questions log (carried across sessions)
@@ -504,7 +504,7 @@ row-stored**. Client echoes `{snapshotId,candidateId}` **only**; the server re-r
 (impl split §9.5): exists ∧ owned ∧ membership (`candidateId ∈ shownCandidateIds`) ∧ items⊆candidate.
 
 **K — redaction seam (H43, D4; behavior `[STAGED]`).** Reserve `redacted`(default false)/`redactedAt?`/
-`redactionReason?` (lineage, posture rule 3); M4 does **not** wire the `User` cascade (`User.ts:24` covers
+`redactionReason?` (lineage, posture rule 3); M4 does **not** wire the `User` cascade (`User.ts:27` hook covers
 only `wardrobeitems`+`outfitinteractions`). A rebuildable-projection affinity (OQ2) rebuilds clean after
 redaction (D4/D6). **Recorded privacy-milestone intent:** the snapshot's user-context PII (`occasion`,
 `location`, `weatherRaw`, `rawText`/`rawEmitted`) is structurally separable from training signal — redaction
@@ -552,6 +552,7 @@ ItemSnapshotSchema {
              lastWornAt?:Date, brand?, fit?, size?, layerRole?, tags:[String],
              image?:{imageRef?:String, imageVersion?:Number, hash?:String}, rawAttributes?:Mixed },          // bounded; no blobs
   generatorVisible?:Mixed,   // reserved (promptVersion-decodable from engineVisible at [NOW])
+  cvModelVersion?:String,    // data-path provenance seam (§15.1 / C5); null at M4, wired at W-track CV
   embeddingRef?:String, visualFeatureRef?:String   // reserved; shape NOT locked now
 }   // _id:false
 
@@ -601,7 +602,7 @@ GenerationSnapshotSchema {
   `rescue()`/`rank()`/`build_variants()` contracts:
   1. **`rescue()`** (`rescue.py:653/656/676`) drops `rejections`/`warnings` + the raw/parsed payload → the
      rejected pool + attempt trace (H29(b)).
-  2. **`rank()`** returns top-k only (`ranker.py:140`); the scored-but-unshown `_ScoredCandidate`s + their
+  2. **`rank()`** returns top-k only (`ranker.py:834`); the scored-but-unshown `_ScoredCandidate`s + their
      `ScoreBreakdown`s die → the H29(a) selection bias.
   3. **`build_variants()`** returns selected only (`response.py:559`); non-selected variants'
      `compatibility`/`visibility` die.
@@ -1453,7 +1454,7 @@ dependency on C1/C2, and C4 is pure Python independent of all TS work.
 | 3 | **Rip PreferenceSummary wholesale** | Delete the collection + summarize endpoint + `/account` UI section + `runPersonalizationSummarize` + the calls from `recommend/route.ts` (def `:294`, call `:436`) and `regenerate/route.ts` (def `:283`, call `:411`); plus `db.ts`/`gemini.ts`/dashboard consumers + 5 test files (C3 has the full list) |
 | 4 | **Write the C1–Cn ladder before any code** | §14.2 below; supersedes the scattered S9 obligation lists |
 | 5 | **Wipe the Mongo collections** (`wardrobeitems` + `outfitinteractions` + `preferencesummaries`) | No backfill classifier needed; §9.1 co-presence guard runs strict from row 0; the §10 standalone backfill harness collapses out (§10 is now the ingestion classification rule, used by CV, not a separate workstream) |
-| 6 | **Cascade — trimmed (audit round 3).** `User.ts:30-31` also **hard-deletes `wardrobeimages`** (closes H14's cascade arm). The **GenerationSnapshot redaction-cascade wiring is DEFERRED to the Privacy `[STAGED]` milestone** (transaction-threading a session-less hook for data that doesn't exist on a no-users fork is premature); M4 only **reserves** the redaction schema fields (free in C5). | C7 slims to the `wardrobeimages` arm + the reserved seam; spec §22/§23-H43 reverted to SEAM-RESERVED |
+| 6 | **Cascade — trimmed (audit round 3).** `User.ts:33-34` (the two `deleteMany` lines in the `:27` hook) also gains a **hard-delete of `wardrobeimages`** (closes H14's cascade arm). The **GenerationSnapshot redaction-cascade wiring is DEFERRED to the Privacy `[STAGED]` milestone** (transaction-threading a session-less hook for data that doesn't exist on a no-users fork is premature); M4 only **reserves** the redaction schema fields (free in C5). | C7 slims to the `wardrobeimages` arm + the reserved seam; spec §22/§23-H43 reverted to SEAM-RESERVED |
 | 7 | **W-track scope.** Only `warmth` + the `clothingType` widen pull into M4 (the engine-required minimum). `material`/`formality`/`styleTags` **columns** + CV fill + review surface stay a coherent W-track unit; async queue / item-state machine also W-track (§18). | C1/C2 add only `warmth` + the enum widen |
 | 8 | **Recommend routes — surgical PreferenceSummary excision** | Delete only the `getOrRefreshPreferenceSummary` calls in M4; the full route rewrite stays in M5 behind `USE_ML_SHORTLISTER` |
 
@@ -1598,9 +1599,11 @@ suites).
   silent (forget to bump → two behaviorally-different corpora share a version → M6 can't separate them), so
   the comment is the guardrail.
 - `snapshot_serde.py`: snake↔camel field-name maps for `engineVisible` (`style_tags`↔`styleTags`,
-  `color_tags`↔`colorTags`, `occasion_tags`↔`occasionTags`); a `to_wire()` / `from_wire()` pair that
-  enforces finite floats only (raises on `NaN`/`Infinity`), opaque-string ids (rejects ObjectIds at the
-  Python boundary), no `undefined`.
+  `color_tags`↔`colorTags`, `occasion_tags`↔`occasionTags`, **plus the partition-key rename
+  `type`↔`clothingType`** — a name change a generic snake→camel will NOT produce, value = the `ItemType`
+  member's string (member names = wire values, §15.2) — and `image_url`↔`imageUrl`); a `to_wire()` /
+  `from_wire()` pair that enforces finite floats only (raises on `NaN`/`Infinity`), opaque-string ids
+  (rejects ObjectIds at the Python boundary), no `undefined`.
 
 **Acceptance:** pytest round-trip — a synthetic payload survives `to_wire()`→JSON→`from_wire()` byte-equal
 (modulo float canonical form). Rejection tests: a `NaN` raises; a non-string itemId raises. Version-constant
@@ -1678,8 +1681,8 @@ edit/delete after the payload is built does not alter the already-built `itemSna
 #### C7 — `wardrobeimages` cascade (the cheap H14 arm)
 **Touches:** `fitted/models/User.ts`. **Trimmed by audit round 3** — only the cheap, no-transaction arm
 lands in M4.
-- Extend `User.ts` cascade hook (the `deleteMany` lines at `:30-31`, inside the `pre(['deleteOne',
-  'findOneAndDelete'])` query hook): on user delete, also **hard-delete `wardrobeimages`** rows. Closes
+- Extend `User.ts` cascade hook (the `deleteMany` lines at `:33-34`, inside the `pre(['deleteOne',
+  'findOneAndDelete'])` query hook at `:27`): on user delete, also **hard-delete `wardrobeimages`** rows. Closes
   H14's cascade arm; cheap (one more `deleteMany`, no transaction).
   - **Trap-guard (two invocation paths):** `lib/db.ts:61 deleteUserWithData` calls `User.deleteOne`, so the
     hook fires there too — verify the cascade covers both that path and any direct `User.deleteOne`.
