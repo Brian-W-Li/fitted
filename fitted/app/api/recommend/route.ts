@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { getWeatherContext } from "@/lib/weather";
-import { runPersonalizationSummarize } from "@/lib/runPersonalizationSummary";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -286,65 +285,6 @@ function toShortlistedItem(item: WardrobeItemLean): ShortlistedItem {
 }
 
 // ============================================================================
-// PREFERENCE SUMMARY HELPER (lazy refresh)
-// ============================================================================
-
-const SUMMARY_STALE_THRESHOLD = 5;
-
-async function getOrRefreshPreferenceSummary(userId: string): Promise<string | null> {
-  try {
-    const { PreferenceSummary, OutfitInteraction } = await initDatabase();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existing = (await PreferenceSummary.findOne({ user: userId }).lean().exec()) as any;
-    const existingText: string | null = existing?.text || null;
-    const lastUpdatedAt: Date | null = existing?.updatedAt || null;
-
-    // Count qualifying interactions since last summary update
-    const sinceQuery: Record<string, unknown> = {
-      user: userId,
-      action: { $in: ["accepted", "rejected"] },
-      inferredWhy: { $exists: true, $ne: "" },
-    };
-    if (lastUpdatedAt) {
-      sinceQuery.createdAt = { $gt: lastUpdatedAt };
-    }
-    const newCount = await OutfitInteraction.countDocuments(sinceQuery).exec();
-
-    const isStale = !existingText || newCount >= SUMMARY_STALE_THRESHOLD;
-
-    console.info(JSON.stringify({
-      event: "summarize_refresh_decision",
-      userId,
-      hasSummary: !!existingText,
-      newInteractionsSinceUpdate: newCount,
-      threshold: SUMMARY_STALE_THRESHOLD,
-      willRefresh: isStale,
-    }));
-
-    if (!isStale) {
-      return existingText;
-    }
-
-    // Inline refresh — if it fails, fall back to existing summary
-    const result = await runPersonalizationSummarize(userId);
-    if (result.success && result.summaryText) {
-      return result.summaryText;
-    }
-
-    // Refresh failed (not enough data, Gemini error, validation rejection, etc.)
-    console.info(JSON.stringify({
-      event: "summarize_refresh_fallback",
-      userId,
-      reason: result.message,
-    }));
-    return existingText;
-  } catch (err) {
-    console.error(JSON.stringify({ event: "summarize_refresh_error", userId, message: (err as Error)?.message }));
-    return null;
-  }
-}
-
-// ============================================================================
 // MAIN ENDPOINT
 // ============================================================================
 
@@ -432,9 +372,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Get preference summary (lazy refresh if stale)
-    const preferenceSummary = await getOrRefreshPreferenceSummary(userId);
-
     // Build the prompt
     const systemMessage = `You are an expert fashion stylist creating outfit recommendations from a user's wardrobe.
 
@@ -477,14 +414,6 @@ COLOR & STYLE:
 - Max 1 bold pattern per outfit.`;
 
     let userMessage = "";
-
-    // Add preference summary if available
-    if (preferenceSummary) {
-      userMessage += `USER_PREFERENCES:\n${preferenceSummary}\n\n`;
-      userMessage += `When generating outfits, interpret USER_PREFERENCES as follows:
-- Roughly half of the outfits ("safe") should strongly follow USER_PREFERENCES.
-- The other half ("exploratory") should still be appropriate for the event and weather, but try something fresh (e.g. more color, different silhouettes) without completely ignoring preferences.\n\n`;
-    }
 
     userMessage += `EVENT_DESCRIPTION: "${eventDescription}"
 

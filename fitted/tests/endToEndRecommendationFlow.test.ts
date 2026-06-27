@@ -14,8 +14,6 @@
  *      the regenerate body must contain).
  *   3. The per-outfit scoping contract (disliked IDs from outfit N cannot
  *      bleed into outfit M's regenerate call).
- *   4. The summary staleness contract (threshold logic that governs whether
- *      Gemini is called during a recommend/regenerate call).
  *
  * These complement the individual route tests in regenerateExclusion.test.ts,
  * interactionPersistence.test.ts, and recommendationStability.test.ts.
@@ -184,51 +182,5 @@ describe("Per-outfit disliked-item scoping — cross-outfit isolation", () => {
 
     expect(getDislikedForOutfit(state, 0)).toEqual([]);
     expect(getDislikedForOutfit(state, 2)).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 4. Summary staleness contract
-// ---------------------------------------------------------------------------
-
-describe("Summary staleness contract", () => {
-  const SUMMARY_STALE_THRESHOLD = 5;
-
-  /**
-   * Simulates the isStale decision inside getOrRefreshPreferenceSummary.
-   */
-  function isSummaryStalе(
-    existingText: string | null,
-    newInteractionCount: number
-  ): boolean {
-    return !existingText || newInteractionCount >= SUMMARY_STALE_THRESHOLD;
-  }
-
-  it("is stale when no existing summary exists (first-run)", () => {
-    expect(isSummaryStalе(null, 0)).toBe(true);
-  });
-
-  it("is stale when no existing summary and interactions exist", () => {
-    expect(isSummaryStalе(null, 10)).toBe(true);
-  });
-
-  it("is NOT stale when existing summary and fewer than threshold new interactions", () => {
-    expect(isSummaryStalе("- Prefers casual", 4)).toBe(false);
-  });
-
-  it("is NOT stale when exactly threshold - 1 new interactions", () => {
-    expect(isSummaryStalе("- Prefers casual", SUMMARY_STALE_THRESHOLD - 1)).toBe(false);
-  });
-
-  it("IS stale at exactly threshold new interactions", () => {
-    expect(isSummaryStalе("- Prefers casual", SUMMARY_STALE_THRESHOLD)).toBe(true);
-  });
-
-  it("IS stale above threshold", () => {
-    expect(isSummaryStalе("- Prefers casual", SUMMARY_STALE_THRESHOLD + 3)).toBe(true);
-  });
-
-  it("is NOT stale when count is 0 and summary exists", () => {
-    expect(isSummaryStalе("- Prefers casual", 0)).toBe(false);
   });
 });

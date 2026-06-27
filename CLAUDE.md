@@ -70,7 +70,7 @@ fallback arm, not behavioral truth; v2 wins when they disagree.
 | `fitted/app/api/recommend/route.ts` | Legacy main recommendation endpoint; rewritten at M5 |
 | `fitted/app/api/recommend/regenerate/route.ts` | Legacy re-roll variant; folded into the single route at M5 |
 | `fitted/lib/weather.ts` | Legacy weather helper; v2 re-derives weather as the bucketed Lens field |
-| `fitted/models/*.ts` | Mongo schemas: `User`, `WardrobeItem`, `OutfitInteraction`, `PreferenceSummary`, `WardrobeImage` |
+| `fitted/models/*.ts` | Mongo schemas: `User`, `WardrobeItem`, `OutfitInteraction`, `WardrobeImage` |
 | `fitted/docs/ML_OVERVIEW.md` | Legacy deployed-app writeup. Prefer source code; v2 wins. |
 | `fitted/docs/database.md` | Deployed-schema reference. Prefer `fitted/models/*.ts`; v2 wins for targets. |
 

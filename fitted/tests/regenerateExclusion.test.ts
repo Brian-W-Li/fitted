@@ -3,7 +3,7 @@
  * contract: items listed in dislikedItemIds must be absent from the WARDROBE_ITEMS JSON
  * that is sent to OpenAI, and items not listed must be present.
  *
- * Mocks: openai, @/lib/db, @/lib/firebaseAdmin, @/lib/runPersonalizationSummary
+ * Mocks: openai, @/lib/db, @/lib/firebaseAdmin
  *
  * Pattern: jest.resetModules() + dynamic import per test so that the module-scope
  * `const openai = new OpenAI(...)` in the route picks up the current mock impl.
@@ -13,9 +13,6 @@ jest.mock("openai", () => ({ __esModule: true, default: jest.fn() }));
 jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
 jest.mock("@/lib/firebaseAdmin", () => ({
   adminAuth: { verifyIdToken: jest.fn() },
-}));
-jest.mock("@/lib/runPersonalizationSummary", () => ({
-  runPersonalizationSummarize: jest.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -85,12 +82,8 @@ function makeDbMock(
   const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
     adminAuth: { verifyIdToken: jest.Mock };
   };
-  const { runPersonalizationSummarize } = jest.requireMock(
-    "@/lib/runPersonalizationSummary"
-  ) as { runPersonalizationSummarize: jest.Mock };
 
   adminAuth.verifyIdToken.mockResolvedValue({ uid: "firebase-uid" });
-  runPersonalizationSummarize.mockResolvedValue({ success: false, message: "not enough data" });
 
   initDatabase.mockResolvedValue({
     User: {
@@ -103,18 +96,6 @@ function makeDbMock(
         lean: jest.fn().mockReturnValue({
           exec: jest.fn().mockResolvedValue(wardrobeItems),
         }),
-      }),
-    },
-    PreferenceSummary: {
-      findOne: jest.fn().mockReturnValue({
-        lean: jest.fn().mockReturnValue({
-          exec: jest.fn().mockResolvedValue(null),
-        }),
-      }),
-    },
-    OutfitInteraction: {
-      countDocuments: jest.fn().mockReturnValue({
-        exec: jest.fn().mockResolvedValue(0),
       }),
     },
   });

@@ -26,11 +26,6 @@ export default function AccountPage() {
   const [savingFeedback, setSavingFeedback] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [styleSummary, setStyleSummary] = useState("");
-  const [styleSummaryLoading, setStyleSummaryLoading] = useState(false);
-  const [styleSummarySaving, setStyleSummarySaving] = useState(false);
-  const [styleSummaryMessage, setStyleSummaryMessage] = useState<string | null>(null);
-  const [styleSummaryNeedsUpdate, setStyleSummaryNeedsUpdate] = useState(false);
 
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [ageInput, setAgeInput] = useState("");
@@ -83,39 +78,6 @@ export default function AccountPage() {
 
     return () => unsub();
   }, []);
-
-  useEffect(() => {
-    async function loadPreferenceSummary() {
-      try {
-        if (!auth.currentUser) return;
-        setStyleSummaryLoading(true);
-        const token = await auth.currentUser.getIdToken();
-        const res = await fetch("/api/preferences/summarize", {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          // Non-fatal for account page; just skip
-          return;
-        }
-        if (data.summary?.text) {
-          setStyleSummary(data.summary.text);
-        } else {
-          setStyleSummary("");
-        }
-        setStyleSummaryNeedsUpdate(Boolean(data.needsUpdate));
-      } finally {
-        setStyleSummaryLoading(false);
-      }
-    }
-
-    if (user) {
-      void loadPreferenceSummary();
-    }
-  }, [user]);
 
   async function saveProfile() {
     if (!firebaseUid) return;
@@ -184,72 +146,6 @@ export default function AccountPage() {
       setTimeout(() => setFeedbackMessage(null), 2000);
     } finally {
       setSavingFeedback(false);
-    }
-  }
-
-  async function saveStyleSummary() {
-    if (!auth.currentUser) return;
-    setStyleSummarySaving(true);
-    setStyleSummaryMessage(null);
-    setError(null);
-    try {
-      const token = await auth.currentUser.getIdToken();
-      const res = await fetch("/api/preferences/summarize", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ text: styleSummary }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Failed to save style preferences.");
-        return;
-      }
-      if (data.summary?.text) {
-        setStyleSummary(data.summary.text);
-      }
-      setStyleSummaryNeedsUpdate(false);
-      setStyleSummaryMessage("Style preferences saved");
-      setTimeout(() => setStyleSummaryMessage(null), 2000);
-    } finally {
-      setStyleSummarySaving(false);
-    }
-  }
-
-  async function regenerateStyleSummary() {
-    if (!auth.currentUser) return;
-    setStyleSummarySaving(true);
-    setStyleSummaryMessage(null);
-    setError(null);
-    try {
-      const token = await auth.currentUser.getIdToken();
-      const res = await fetch("/api/preferences/summarize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // If not enough feedback, show message in the style summary area
-        if (data.message) {
-          setStyleSummaryMessage(data.message);
-        } else {
-          setError(data.error ?? "Failed to regenerate style preferences.");
-        }
-        return;
-      }
-      if (data.summary?.text) {
-        setStyleSummary(data.summary.text);
-      }
-      setStyleSummaryNeedsUpdate(false);
-      setStyleSummaryMessage("Style preferences regenerated from your recent likes and dislikes");
-      setTimeout(() => setStyleSummaryMessage(null), 2500);
-    } finally {
-      setStyleSummarySaving(false);
     }
   }
 
@@ -413,59 +309,6 @@ export default function AccountPage() {
                 {saving ? "Saving..." : "Save changes"}
               </button>
               {message && <p className="text-sm text-emerald-700">{message}</p>}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h3 className="text-lg font-medium text-slate-900">Style profile</h3>
-                <p className="mt-1 text-sm text-slate-600">
-                  This summary guides AI recommendations. Edit it or regenerate from your likes/dislikes.
-                </p>
-              </div>
-              {styleSummaryNeedsUpdate && (
-                <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
-                  Updated feedback available
-                </span>
-              )}
-            </div>
-
-            <div className="mt-4">
-              {styleSummaryLoading ? (
-                <p className="text-sm text-slate-500">Loading style profile…</p>
-              ) : (
-                <textarea
-                  value={styleSummary}
-                  onChange={(e) => setStyleSummary(e.target.value)}
-                  rows={6}
-                  maxLength={2000}
-                  placeholder="Prefers neutral colors and simple patterns and dislikes heavy layering in warm weather"
-                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 placeholder:text-slate-400"
-                />
-              )}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={saveStyleSummary}
-                disabled={styleSummarySaving || styleSummaryLoading}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {styleSummarySaving ? "Saving..." : "Save style profile"}
-              </button>
-              <button
-                type="button"
-                onClick={regenerateStyleSummary}
-                disabled={styleSummarySaving || styleSummaryLoading}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Regenerate from feedback
-              </button>
-              {styleSummaryMessage && (
-                <p className="text-sm text-emerald-700">{styleSummaryMessage}</p>
-              )}
             </div>
           </div>
 

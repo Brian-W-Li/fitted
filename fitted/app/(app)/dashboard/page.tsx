@@ -659,38 +659,6 @@ export default function Home() {
     });
   }, [firebaseUser, eventDescription, eventTimeBucket, customEventDateTime, outfits, environment, recMessage]);
 
-  // Check and update preference summary in background
-  useEffect(() => {
-    if (!firebaseUser) return;
-
-    const checkAndUpdatePreferences = async () => {
-      try {
-        const token = await firebaseUser.getIdToken();
-        
-        // Check if summary needs update
-        const checkRes = await fetch("/api/preferences/summarize", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        
-        if (!checkRes.ok) return;
-        
-        const { needsUpdate, newFeedbackCount } = await checkRes.json();
-        
-        // If 5+ new interactions since last summary, update in background
-        if (needsUpdate && newFeedbackCount >= 5) {
-          fetch("/api/preferences/summarize", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-          }).catch(err => console.error("Background preference update failed:", err));
-        }
-      } catch (error) {
-        console.error("Error checking preferences:", error);
-      }
-    };
-
-    checkAndUpdatePreferences();
-  }, [firebaseUser]);
-
   async function handleLogout() {
     try {
       setSigningOut(true);
@@ -935,7 +903,7 @@ export default function Home() {
           <div>
             <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Our AI stylist uses your wardrobe, event description, and style preferences to suggest outfits.
+              Our AI stylist uses your wardrobe, event description, and the weather to suggest outfits.
             </p>
           </div>
         </div>
@@ -1171,9 +1139,9 @@ export default function Home() {
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
             <p className="text-[11px] font-semibold tracking-wider text-slate-400">03</p>
-            <p className="mt-2 font-semibold text-slate-900">Learns from You</p>
+            <p className="mt-2 font-semibold text-slate-900">Responds to Feedback</p>
             <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Your detailed feedback builds a preference profile over time.
+              Your likes and dislikes refine the outfits it suggests next.
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">

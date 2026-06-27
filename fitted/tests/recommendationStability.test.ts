@@ -5,17 +5,13 @@
  * prior dislikes (item-level or otherwise). All available items must be
  * forwarded to OpenAI regardless of past feedback.
  *
- * Mocks: openai, @/lib/db, @/lib/firebaseAdmin, @/lib/runPersonalizationSummary,
- *        @/lib/weather
+ * Mocks: openai, @/lib/db, @/lib/firebaseAdmin, @/lib/weather
  */
 
 jest.mock("openai", () => ({ __esModule: true, default: jest.fn() }));
 jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
 jest.mock("@/lib/firebaseAdmin", () => ({
   adminAuth: { verifyIdToken: jest.fn() },
-}));
-jest.mock("@/lib/runPersonalizationSummary", () => ({
-  runPersonalizationSummarize: jest.fn(),
 }));
 jest.mock("@/lib/weather", () => ({
   getWeatherContext: jest.fn(),
@@ -96,15 +92,11 @@ function setupMocks(
   const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
     adminAuth: { verifyIdToken: jest.Mock };
   };
-  const { runPersonalizationSummarize } = jest.requireMock(
-    "@/lib/runPersonalizationSummary"
-  ) as { runPersonalizationSummarize: jest.Mock };
   const { getWeatherContext } = jest.requireMock("@/lib/weather") as {
     getWeatherContext: jest.Mock;
   };
 
   adminAuth.verifyIdToken.mockResolvedValue({ uid: "firebase-uid" });
-  runPersonalizationSummarize.mockResolvedValue({ success: false, message: "not enough data" });
   getWeatherContext.mockResolvedValue(null);
 
   initDatabase.mockResolvedValue({
@@ -118,18 +110,6 @@ function setupMocks(
         lean: jest.fn().mockReturnValue({
           exec: jest.fn().mockResolvedValue(wardrobeItems),
         }),
-      }),
-    },
-    PreferenceSummary: {
-      findOne: jest.fn().mockReturnValue({
-        lean: jest.fn().mockReturnValue({
-          exec: jest.fn().mockResolvedValue(null),
-        }),
-      }),
-    },
-    OutfitInteraction: {
-      countDocuments: jest.fn().mockReturnValue({
-        exec: jest.fn().mockResolvedValue(0),
       }),
     },
   });
@@ -252,58 +232,5 @@ describe("POST /api/recommend — stability: item-level dislikes do not filter t
     const res = await POST(req as any);
     expect(res.status).toBe(503);
     expect(mockCreate).not.toHaveBeenCalled();
-  });
-
-  it("includes preference summary in prompt when one exists", async () => {
-    const summaryText = "- Prefers casual smart outfits\n- Avoids formal wear";
-    const mockCreate = jest.fn().mockResolvedValue(OPENAI_EMPTY_RESPONSE);
-    setupMocks(mockCreate);
-
-    // Override the PreferenceSummary mock to return an existing summary
-    const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
-    const existingResolvedValue = await (initDatabase as jest.Mock).mock.results[0]?.value;
-    // Re-setup with a summary present
-    const MockOpenAI = jest.requireMock("openai").default as jest.Mock;
-    MockOpenAI.mockImplementation(() => ({
-      chat: { completions: { create: mockCreate } },
-    }));
-    const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
-      adminAuth: { verifyIdToken: jest.Mock };
-    };
-    adminAuth.verifyIdToken.mockResolvedValue({ uid: "firebase-uid" });
-
-    initDatabase.mockResolvedValue({
-      User: {
-        findOne: jest.fn().mockReturnValue({
-          exec: jest.fn().mockResolvedValue({ _id: { toString: () => "user-id" } }),
-        }),
-      },
-      WardrobeItem: {
-        find: jest.fn().mockReturnValue({
-          lean: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(WARDROBE) }),
-        }),
-      },
-      PreferenceSummary: {
-        findOne: jest.fn().mockReturnValue({
-          lean: jest.fn().mockReturnValue({
-            exec: jest.fn().mockResolvedValue({ text: summaryText, updatedAt: new Date() }),
-          }),
-        }),
-      },
-      OutfitInteraction: {
-        countDocuments: jest.fn().mockReturnValue({
-          exec: jest.fn().mockResolvedValue(2), // below stale threshold (5)
-        }),
-      },
-    });
-
-    const { POST } = await import("@/app/api/recommend/route");
-    const req = makeRequest({ eventDescription: "casual hangout" });
-
-    await POST(req as any);
-
-    const userContent: string = mockCreate.mock.calls[0][0].messages[1].content;
-    expect(userContent).toContain("USER_PREFERENCES");
-    expect(userContent).toContain(summaryText);
   });
 });
