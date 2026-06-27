@@ -242,8 +242,9 @@ GenerationSnapshotSchema {
   lens?:{styleProfileId?:ObjectId, styleProfileVersion?:Number, boardId?:ObjectId, confidence?:Number, styleProfileSnapshot?:Mixed},
   wardrobeVersion:Number (required), interactionCountAtRequest:Number (required), seedDate?:String,
   fittedCoreVersion:String (REQUIRED),                                          // non-null on every live write
-  generator:{provider:String, model:String, temperature:Number, promptVersion:String (REQUIRED)},
-  rankerConfigVersion:String (REQUIRED), scorer:{kind:String enum[cold_start,trained], modelId?:String, available:Boolean},
+  generator:{provider:String (REQUIRED), model:String (REQUIRED), temperature:Number (REQUIRED), promptVersion:String (REQUIRED)} (REQUIRED),  // §8.2-C: the full generator is required non-null provenance
+  rankerConfigVersion:String (REQUIRED),
+  scorer:{kind:String enum[cold_start,trained] (REQUIRED), modelId?:String, available:Boolean (REQUIRED)} (REQUIRED),  // §15.1 groups scorer in the non-null provenance block; modelId null at cold start
   itemSnapshots:[ItemSnapshotSchema] (required),
   generationAttempts:[GenerationAttemptSchema] (required),                      // root/attempt-level trace
   candidates:[CandidateSnapshotSchema] (required),
@@ -256,12 +257,20 @@ GenerationSnapshotSchema {
 }  with { timestamps:true }
 ```
 
-- **Immutability:** document write-once + a `pre(['updateOne','findOneAndUpdate','save'])` guard allowing
-  mutation **only** of the redaction fields (acceptance test asserts a non-redaction update is rejected).
+- **Immutability (C5, expanded from the original 3-op sketch):** document write-once + a guard allowing
+  mutation **only** of the redaction fields. `updateOne`/`updateMany`/`findOneAndUpdate` run a field-whitelist
+  guard; `replaceOne`/`findOneAndReplace` are **rejected unconditionally** (a whole-doc replace can never
+  preserve the record, so a field-whitelist is unsound there); `save` re-saves are whitelist-checked (the
+  `isNew` insert is allowed). Framework-managed timestamp paths (`createdAt`/`updatedAt`, injected by
+  `{timestamps:true}`'s own pre-hooks) are exempt — else the guard would reject its own redaction write.
+  (Acceptance tests assert a non-redaction update/replace/`$rename`-bypass is rejected and a redaction update
+  with live timestamps is accepted.)
 - **Raw-field caps:** `rawText`/`rawEmitted`/`rawAttributes` governed by a byte cap + hash + truncation flag
   + a no-image/base64/blob rule (§8.3) — the 120 KB bound is only defensible with these.
 - **Cross-model gaps (routed):** `clothingType` enum → S5 (CLOSED §10); `OutfitInteraction` binding fields →
-  S4 (CLOSED §9); `db.ts` `GenerationSnapshot` registration → M5 (live wiring; S7 did not absorb). Indexes: §8.8.
+  S4 (CLOSED §9); `db.ts` `GenerationSnapshot` registration → **done at C5** (registering an unused model is
+  inert, but without it the autoIndex + immutability guard never load — §14.2; supersedes the earlier
+  "→ M5" note). Indexes: §8.8.
 
 ### 8.4 Python payload contract + the three-site funnel obligation
 

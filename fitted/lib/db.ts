@@ -4,6 +4,7 @@ import OutfitInteraction from "@/models/OutfitInteraction";
 import User from "@/models/User";
 import WardrobeItem from "@/models/WardrobeItem";
 import WardrobeImage from "@/models/WardrobeImage";
+import GenerationSnapshot from "@/models/GenerationSnapshot";
 
 /**
  * Connects to MongoDB and ensures indexes are registered.
@@ -16,9 +17,12 @@ export async function initDatabase() {
     WardrobeItem.init(),
     OutfitInteraction.init(),
     WardrobeImage.init(),
+    // Registered dormant at M4 (C5): nothing writes it until the M5 cutover, but it must
+    // init here or its indexes + immutability guard never load (§14.2 index-mechanism note).
+    GenerationSnapshot.init(),
   ]);
 
-  return { User, WardrobeItem, OutfitInteraction, WardrobeImage };
+  return { User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot };
 }
 
 export type DatabaseModels = Awaited<ReturnType<typeof initDatabase>>;
