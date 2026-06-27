@@ -187,5 +187,38 @@ trained head → GPT-4o-as-judge (+ its $/latency). "It works" = clears co-occur
 **Sequencing:** standalone offline — **not gated behind M5 deploy.** Slot it before/around M4b, and definitely
 before M6 commits, because it (a) yields the demonstrable zero-user ML number the portfolio needs, (b) settles
 the H28 seam shape that M4b/M5 otherwise wire blind, and (c) gates the go/no-go on the whole trained-scorer
-milestone. Integration of the resulting model stays M6.
+milestone. Integration of the resulting model stays M6. **Now wired into the canonical ladder** (spec §20 row +
+CLAUDE.md arc step 4) as `decision-pending → /spec next`.
+
+## Doc compaction plan (HELD for sign-off — its own session)
+
+The named verbosity concern, confirmed by the closeout wave (DH-01/DH-02/DH-04/DH-05/DH-06 + CS1). The **spec
+(1267 lines) is UNDER budget**; the overage is **the M4 plan (1753 lines, over the ~1500 single-doc backstop)**,
+which pushes the default reading list (CLAUDE.md+spec+plan ≈ **3230**) over the ~2000 ceiling. It's not just
+length: §14 (the live build authority, at the *bottom*) supersedes §0–§13, but those ~1400 lines still
+physically contain stale "backfill"/"fixtures-only"/"M4 implements the gate functions" prose, neutralized only
+by ~7 scattered "§14 wins" banners — a top-down reader acts on stale guidance before reaching the correction.
+
+**Plan (do as a dedicated session — NOT a blind rewrite):**
+1. **First, grep §14 for every back-reference into §0–§13** (`§8.2`, `§8.3`, `§8.4`, `§8.8`, `§9.1`, `§9.3`,
+   `§10.2`, `§10.3`, …). That set is the **binding keep-or-repoint list** (DH-02 — the earlier draft's keep-list
+   missed §8.2 + §9.1, which C5/C6/C1 cite).
+2. **KEEP verbatim** (the C-ladder cites them): §8.2 field groups A–K (or repoint to §8.3 + spec §15.1), §8.3
+   Mongoose sketch, §8.4 Option-B + the 3 discard sites, §8.8 index plan, §9.1 binding fields + co-presence,
+   §9.3 H19 reducer, §10.2 default-to-top rationale, §10.3 classifier table + the adjectival-dress trap-guard;
+   plus the named trap-guards (host-not-dbname, re-derive-from-raw). **KEEP §14 entirely.**
+3. **DELETE** (pure past/derivation — "past goes to commits"): §0 framing except the one-way-door sentence, §1
+   session map, §3 hole-map (dup of spec §23), §4 OQ-log (all resolved), §5 S1 handoff, §6 freeze checklist,
+   §8.10/§8.11 verdict+dual-review narrative, §9.0/§9.2/§9.4–9.8/verdicts, §10.0/§10.1/§10.4–10.6/verdicts, §11
+   except the dedup trap-guard, §12, §13. Also sweep the ~20 evolution-narrative markers (DH-04: "verdict",
+   "signed-off", "Next: S7").
+4. **Single-home (DH-06):** the H19 reducer is stated in full in BOTH spec §15.1 and plan §9.3 — make §9.3 point
+   to §15.1, not restate.
+5. **Dangling refs (DH-05):** the spec cites the plan's S-numbers (S4/S6/S9) + dated-audit annotations; when the
+   plan retires post-M4, either keep a tiny S#→§ concordance or repoint the spec refs in the same pass.
+
+**Est.:** plan → ~600–780 lines; reading list → ~2030–2250. To firmly clear 2000, additionally delete the §8.2
+prose (largely redundant with the §8.3 sketch + the canonical §15.1 contract) and repoint C5/C6's §8.2-* cites.
+**Recommendation:** run as its own focused session before M4b proper (the plan is correct, just long — not
+urgent, but it's the one real doc-debt item).
 

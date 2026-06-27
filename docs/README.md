@@ -22,9 +22,10 @@ read by authority level, not by filename age or folder location.
 
 - `Fitted_Spec_v2_recovered_appendix.md` - preserved brainstorm/user-story/north-star material. Useful for
   discussing the soul of the product, not for implementation authority.
-- `CODEX_HANDOFF.md` - ephemeral handoff scratchpad. Its current body says where canonical context lives.
 
 ## Retired or historical
+
+- `CODEX_HANDOFF.md` - retired M2-era handoff, gutted to a banner + pointer to canonical context (body in git).
 
 Do not use these for future-looking product or architecture guidance:
 

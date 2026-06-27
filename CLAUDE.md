@@ -85,9 +85,10 @@ Sketch of the arc:
 1. ✅ `fitted_core` M0-M3: sampler, validation boundary, ranker, regen controls, deterministic tests (486 pytest green; closed).
 2. ✅ Spearhead: orphan-item rescue end-to-end on the v2 pipeline (C1–C6; done 2026-06-25, specced in `docs/plans/spearhead.md`) — three new modules `generation`/`rescue`/`response` + the `Generator` seam + the C6 `evaluation`/`cli` eval surface, over the closed M0–M3 substrate. 666 pytest green; C6/H40 live-eval recorded in the plan's §E. Deferred feedback storage to M4.
 3. M4: **M4a ✅ done** (data path — DB wipe, 5-value `clothingType` + the keyword-derived `warmth` column, PreferenceSummary rip, ingestion rebuild; C1–C3 committed + live-verified). **M4b (next)** — dormant snapshot substrate: GenerationSnapshot model + Python trace layer + feedback-binding fields. The `material`/`formality`/`styleTags` columns + cascade-redaction wiring are scope-trimmed to later milestones. Build ladder C1–C8 in `docs/plans/m4-data-model-migration.md` §14.
-4. M5: deploy the Python service; wire the Next app behind `USE_ML_SHORTLISTER`; live GenerationSnapshot write + the runtime authenticity gate; full recommend/regenerate rewrite.
-5. M6: train the style-graph scorer at the `SignalScorer` seam; evaluate with GenerationSnapshots + feedback.
-6. Writeup: architecture diagram, methodology, before/after numbers.
+4. **H26 compatibility spike (offline, `/spec`-pending):** a public-corpus content-compatibility baseline (Polyvore disjoint split; AUC + FITB vs a GPT-4o-as-judge baseline) — the zero-user demonstrable ML result + the go/no-go on the trained scorer; settles the H28 seam shape (pairwise/edge) before M5 wires it. Not gated behind M5; slot before/around M4b. (Spec §20 + §23-H26/H28.)
+5. M5: deploy the Python service; wire the Next app behind `USE_ML_SHORTLISTER`; live GenerationSnapshot write + the runtime authenticity gate; full recommend/regenerate rewrite.
+6. M6: train the style-graph scorer at the `SignalScorer` seam (gated by the spike); evaluate with GenerationSnapshots + feedback.
+7. Writeup: architecture diagram, methodology, before/after numbers.
 
 The old `_score_outfit` interface in `ml-system/outfit_recommender.py` is legacy inspiration only. The active seam is `fitted_core`'s `SignalScorer` protocol in `docs/Fitted_Spec_v2.md` §10/§11.
 
@@ -97,7 +98,7 @@ This is an **overhaul**. The product direction is the **lens-first personal styl
 
 **Authoritative for design:**
 - `docs/Fitted_Spec_v2.md` — **the** canonical spec. Build-ladder tagged (`[NOW]`/`[NEXT]`/`[STAGED]`/`[NORTH-STAR]`); §23 is the live Open Holes Register. When v2 and deployed behavior disagree, v2 wins.
-- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context; `docs/plans/spearhead.md` is the **completed Spearhead reference** (orphan-item rescue, C1–C6; C6/H40 live-eval in its §E). **Next active work is M4 (data migration) — `docs/Fitted_Spec_v2.md` §20; `/spec` it before building.**
+- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context; `docs/plans/spearhead.md` is the **completed Spearhead reference** (orphan-item rescue, C1–C6; C6/H40 live-eval in its §E). **Next active work is M4b (the §14 C4–C8 ladder in `docs/plans/m4-data-model-migration.md`); the design is closed — execute the ladder, no re-spec. M4a (data path) is done. The pre-M6 H26 compatibility spike is `/spec`-pending (§20).**
 - `docs/plans/*.md` — per-milestone plans produced by `/spec` or the `planner` subagent. Active execution plans.
 - This `CLAUDE.md` — project conventions and scope.
 

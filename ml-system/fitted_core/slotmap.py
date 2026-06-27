@@ -19,7 +19,9 @@ V2 §13 is the authoritative validation superset, split across three owners
 pre-collapse; (b) mixed templates / empty / duplicate itemId → ``is_valid_slotmap``;
 (c) itemId-not-in-sampled-pool → the M2 Step-3 validator (needs the pool, which the
 pure ``is_valid_slotmap(slotmap)`` signature cannot accept). Matches the legacy
-route's per-role counts at fitted/app/api/recommend/route.ts:628-648.
+route's per-role counts in ``isValidOutfitStructure`` (the per-role count block in
+fitted/app/api/recommend/route.ts — legacy, slated for M5 deletion; cite by name, not
+line, since it drifts).
 
 Sources: docs/Fitted_Spec_v2.md §8/§13 / Appendix A N3,
 docs/plans/m0-m1-substrate.md M0-4.

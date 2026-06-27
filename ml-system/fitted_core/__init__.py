@@ -1,8 +1,9 @@
-"""Fitted v2 recommendation substrate (M0–M3).
+"""Fitted v2 recommendation substrate (M0–M3 + the Spearhead orphan-rescue vertical).
 
-Pure functions and contracts for the sampler/shortlister pipeline. No Mongo, no
-API keys — everything here unit-tests cleanly. See docs/plans/m0-m1-substrate.md,
-docs/plans/m2-validator.md, and docs/plans/m3-ranker.md.
+Pure functions and contracts for the sampler/shortlister pipeline (the Spearhead
+generation boundary in ``generation.py`` is the lone lazy-``openai`` IO seam). No Mongo,
+no API keys in the core — everything here unit-tests cleanly. See docs/plans/m0-m1-substrate.md,
+docs/plans/m2-validator.md, docs/plans/m3-ranker.md, and docs/plans/spearhead.md.
 
 Error-model convention (applies across the package):
   - **Expected, data-driven failures return an error channel** — a

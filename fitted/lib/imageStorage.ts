@@ -20,7 +20,7 @@ export async function uploadWardrobeImage(input: UploadInput): Promise<ImageUplo
   assertAllowedImageType(input.contentType);
 
   // Hard cap to avoid Mongo 16MB doc limits (and base64 bloat)
-  const MAX_BYTES = 5 * 1024 * 1024; // 2MB
+  const MAX_BYTES = 5 * 1024 * 1024; // 5MB
   if (input.bytes.length > MAX_BYTES) {
     throw new Error("Image too large (max 5MB)");
   }
