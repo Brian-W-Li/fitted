@@ -1,0 +1,25 @@
+# Local dev infrastructure for the Fitted app.
+#
+# A pinned, reproducible MongoDB for development so the dev/M4 data path never
+# depends on a host toolchain (Homebrew/Xcode) or the shared team Atlas cluster.
+# Data persists in the named volume across restarts; drop the volume for a hard reset.
+#
+#   docker compose up -d        # start Mongo in the background
+#   docker compose ps           # check status
+#   docker compose down         # stop (data kept)
+#   docker compose down -v      # stop AND delete all data
+#
+# App connection string (fitted/.env.local):
+#   MONGODB_URI=mongodb://localhost:27017/fitted-dev
+services:
+  mongo:
+    image: mongo:8
+    container_name: fitted-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - fitted-mongo-data:/data/db
+
+volumes:
+  fitted-mongo-data:
