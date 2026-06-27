@@ -293,12 +293,17 @@ GenerationSnapshotSchema {
      `compatibility`/`visibility` die.
 
   **Mechanism — LOCKED: Option B (additive sibling trace APIs), NOT a return-shape change.** The closed
-  `rescue()`/`rank()`/`build_variants()`/`validate_gpt_payload()` stay **byte-stable**; new `*_with_trace`/
-  `*_with_audit` siblings return the richer payload and the existing functions become **thin projections** of
-  them (Option A — editing a frozen return shape — rejected: it reopens the closed contract). Exact
-  decomposition + tests = **S9/M5** (§8.11 ob. 2; acceptance: every closed signature + its M0–M3/Spearhead
-  tests unchanged). Without all three, every M5 snapshot has continuous scores only for *shown* outfits — a
-  permanently selection-biased corpus.
+  `rescue()`/`rank()`/`build_variants()`/`validate_gpt_payload()` stay **byte-stable** (their bodies are
+  **untouched**, not refactored); new `*_with_trace`/`*_with_audit` siblings return the richer payload (Option A —
+  editing a frozen return shape — rejected: it reopens the closed contract). **As implemented at C6**, each
+  sibling recovers the discarded signal *additively*: `validate_gpt_payload_with_trace` wraps the original +
+  returns the parsed `outfits[]`; `rank_with_audit`/`build_variants_with_trace` **re-run the pure, deterministic
+  internals** (seeded by context) to recover the full pre-truncation funnel; `rescue_with_trace` re-orchestrates
+  with the siblings — so the closed functions are never edited and re-running yields byte-identical results
+  (`rescue_with_trace().result == rescue()`, test-pinned). (This supersedes the earlier "the existing functions
+  become *thin projections*" sketch — same Option-B intent, achieved by re-run/wrap rather than by re-pointing the
+  originals.) Without all three, every M5 snapshot has continuous scores only for *shown* outfits — a permanently
+  selection-biased corpus.
 - **Maps from `fitted_core`:** SamplerResult / ValidationResult(+ parsed `outfits[]`) / `keys.py` /
   RankerResult + breakdowns / `response.OutfitVariant` / RescueResult / OpenAIGenerator → the diagnostics/
   funnel/keys/scores/shown/provenance fields (detailed mapping = S9). Also new at impl: the Python-issued
@@ -889,4 +894,49 @@ not vibes.
   ordering bug stays W-track.
 - **No new hole.** The deferred columns + the deferred redaction/gate are by-design scope trims (decisions
   #1/#6/#7), each routed to an owning milestone — not gaps.
+
+### 14.5 M5 handoff (M4b complete)
+
+Concrete state M5 inherits and owns, after C1–C8. The full data contract is proven to compose end-to-end by
+`ml-system/tests/test_m4_e2e_fixture.py` (Python producer → `snapshot_serde` wire doc → the committed fixture
+`ml-system/tests/fixtures/m4b_e2e_snapshot.json` + the binding round-trip) and `fitted/tests/m4bSnapshotContract.test.ts`
+(that exact Python wire doc validates against the live C5 model after the M5 merge).
+
+**M5 inherits:**
+- **DB:** collections `wardrobeitems` / `outfitinteractions` / `wardrobeimages` / `generationsnapshots`, all
+  registered in `lib/db.ts` `initDatabase()` and auto-indexed on first boot (`autoIndex:true`); the dev DB is empty (M4a wipe).
+- **TS models:** `models/GenerationSnapshot.ts` — immutable record + §8.8 indexes + the guard exports
+  (`nonRedactionUpdatePaths`/`nonRedactionModifiedPaths`/`immutableUpdateGuard`/`immutableSaveGuard`/`immutableReplaceGuard`,
+  `GENERATION_SNAPSHOT_MUTABLE_FIELDS`, `RAW_TEXT_CAP_BYTES`/`RAW_EMITTED_CAP_BYTES`/`RAW_ATTRIBUTES_CAP_BYTES`);
+  `models/OutfitInteraction.ts` — the `{snapshotId,candidateId,baseKey,fullSignature}` binding fields + the
+  `pre('validate')` co-presence guard + the `{snapshotId,candidateId}` join index; `models/User.ts` —
+  `cascadeDeleteUserData`.
+- **fitted_core:** the provenance constants `__version__`/`PROMPT_VERSION`/`RANKER_CONFIG_VERSION`;
+  `snapshot_serde.to_wire`/`from_wire` (the snake↔camel + finite-float + opaque-id wire layer);
+  `snapshot.build_snapshot_payload` + `GenerationSnapshotPayload` (the producer half); the Option-B trace siblings
+  `rescue_with_trace` / `rank_with_audit` / `build_variants_with_trace` / `validate_gpt_payload_with_trace`.
+
+**M5 owns:**
+- The live route rewrite (recommend/regenerate) behind `USE_ML_SHORTLISTER`; the request-adapter normalization (§15.2).
+- **The TS merge before insert:** the Python payload authors everything EXCEPT the TS-owned fields. M5 must add
+  `user` (ObjectId) + `interactionCountAtRequest` (the Lens field) + `evidence{}` per itemSnapshot + the
+  **TS-preallocated `_id`** (= `snapshotId`, allocated *before* the browser response so each shown variant carries
+  `(snapshotId, candidateId)`). The C8 jest test asserts that without `user`+`interactionCountAtRequest` the doc is invalid.
+- **The live snapshot write** via `.create()` / pre-allocated-`_id` insert — **never `bulkWrite`** (it bypasses the
+  immutability middleware) — for every render attempt incl. empty/degraded.
+- **The raw-field cap enforcement** at write time (truncate to `RAW_*_CAP_BYTES` + hash + truncation flag; no blobs).
+- **The authenticity gate** (§9.5/§16): exists ∧ owned ∧ membership (`candidateId ∈ shownCandidateIds`) ∧
+  `perItemFeedback.itemId ⊆` the candidate's items; the live `{snapshotId,candidateId}` echo; the server re-read of
+  keys/items from the immutable snapshot (never the client echo).
+- **The H19 shown-history reducer** (§9.3/§15.1): read the most-recent `REPETITION_WINDOW_SNAPSHOTS` snapshots with
+  `nSurfaced>0` by `{user,createdAt,_id}`, dedup, truncate to `REPETITION_WINDOW_SIZE`; tune the two window constants.
+- Turning **autoIndex off** on the always-on M5 service (§14.2 production note).
+
+**Forward-compat notes (not gaps):**
+- `diagnostics.samplerPerType` is a serde-**opaque** data-Map: its ItemType keys (incl. `outer_layer`) cross
+  verbatim, and so do the value-struct's inner keys (`selection_kind`/`item_count`/…) — they stay **snake_case** on
+  the wire. An M6 reader of those value structs must expect snake_case inner keys (the `ranker`/`rescue` diagnostic
+  blocks, being non-opaque, are camelCased normally).
+- The Privacy `[STAGED]` milestone wires the snapshot redaction cascade + **extends** the guard whitelist to null the
+  PII fields (`occasion`/`location`/`weatherRaw`/raw text) while preserving keys/scores/itemSnapshots (§14.4/§23-H43).
 

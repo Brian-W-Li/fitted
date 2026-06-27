@@ -1,0 +1,616 @@
+{
+  "candidateCacheKey": "ck-e2e",
+  "candidates": [
+    {
+      "accepted": true,
+      "baseKey": "t1:b1",
+      "candidateId": "c0",
+      "dropReason": null,
+      "dropStage": null,
+      "fullSignature": "t1:b1|outer=none|shoes=none",
+      "items": [
+        {
+          "itemId": "t1",
+          "role": "base_top"
+        },
+        {
+          "itemId": "b1",
+          "role": "base_bottom"
+        }
+      ],
+      "optionPath": "reliable",
+      "rawEmitted": {
+        "items": [
+          {
+            "itemId": "t1",
+            "role": "base_top"
+          },
+          {
+            "itemId": "b1",
+            "role": "base_bottom"
+          }
+        ],
+        "styleMove": {
+          "changedItemIds": [
+            "t1"
+          ],
+          "moveType": "layer",
+          "oneSentence": "An idea."
+        }
+      },
+      "rejectionCodes": [],
+      "risk": "safe",
+      "scoreTrace": {
+        "compatibility": 0.75,
+        "rankerScore": 1.0,
+        "scoreBreakdown": {
+          "base": 1.0,
+          "combo": 0.0,
+          "cooldown": 0.0,
+          "dislike": -0.0,
+          "item": 0.0,
+          "overuse": -0.0,
+          "repetition": 0.0
+        },
+        "signalScore": null,
+        "visibility": 0.0
+      },
+      "shown": true,
+      "shownPosition": 0,
+      "slotMap": {
+        "bottom": "b1",
+        "top": "t1"
+      },
+      "sourceAttemptId": "a0",
+      "sourceIndex": 0,
+      "stageReached": "shown",
+      "styleMove": {
+        "changedItemIds": [
+          "t1"
+        ],
+        "moveType": "layer",
+        "oneSentence": "An idea."
+      },
+      "template": "two_piece",
+      "warningCodes": []
+    },
+    {
+      "accepted": true,
+      "baseKey": "t1:b2",
+      "candidateId": "c1",
+      "dropReason": null,
+      "dropStage": null,
+      "fullSignature": "t1:b2|outer=none|shoes=none",
+      "items": [
+        {
+          "itemId": "t1",
+          "role": "base_top"
+        },
+        {
+          "itemId": "b2",
+          "role": "base_bottom"
+        }
+      ],
+      "optionPath": "reliable",
+      "rawEmitted": {
+        "items": [
+          {
+            "itemId": "t1",
+            "role": "base_top"
+          },
+          {
+            "itemId": "b2",
+            "role": "base_bottom"
+          }
+        ],
+        "styleMove": {
+          "changedItemIds": [
+            "t1"
+          ],
+          "moveType": "layer",
+          "oneSentence": "An idea."
+        }
+      },
+      "rejectionCodes": [],
+      "risk": "safe",
+      "scoreTrace": {
+        "compatibility": 0.75,
+        "rankerScore": 1.0,
+        "scoreBreakdown": {
+          "base": 1.0,
+          "combo": 0.0,
+          "cooldown": 0.0,
+          "dislike": -0.0,
+          "item": 0.0,
+          "overuse": -0.0,
+          "repetition": 0.0
+        },
+        "signalScore": null,
+        "visibility": 0.0
+      },
+      "shown": true,
+      "shownPosition": 2,
+      "slotMap": {
+        "bottom": "b2",
+        "top": "t1"
+      },
+      "sourceAttemptId": "a0",
+      "sourceIndex": 1,
+      "stageReached": "shown",
+      "styleMove": {
+        "changedItemIds": [
+          "t1"
+        ],
+        "moveType": "layer",
+        "oneSentence": "An idea."
+      },
+      "template": "two_piece",
+      "warningCodes": []
+    },
+    {
+      "accepted": true,
+      "baseKey": "t1:b3",
+      "candidateId": "c2",
+      "dropReason": null,
+      "dropStage": null,
+      "fullSignature": "t1:b3|outer=none|shoes=s1",
+      "items": [
+        {
+          "itemId": "t1",
+          "role": "base_top"
+        },
+        {
+          "itemId": "b3",
+          "role": "base_bottom"
+        },
+        {
+          "itemId": "s1",
+          "role": "shoes"
+        }
+      ],
+      "optionPath": "stretch",
+      "rawEmitted": {
+        "items": [
+          {
+            "itemId": "t1",
+            "role": "base_top"
+          },
+          {
+            "itemId": "b3",
+            "role": "base_bottom"
+          },
+          {
+            "itemId": "s1",
+            "role": "shoes"
+          }
+        ],
+        "styleMove": {
+          "changedItemIds": [
+            "s1"
+          ],
+          "moveType": "layer",
+          "oneSentence": "An idea."
+        }
+      },
+      "rejectionCodes": [],
+      "risk": "safe",
+      "scoreTrace": {
+        "compatibility": 0.25,
+        "rankerScore": 1.0,
+        "scoreBreakdown": {
+          "base": 1.0,
+          "combo": 0.0,
+          "cooldown": 0.0,
+          "dislike": -0.0,
+          "item": 0.0,
+          "overuse": -0.0,
+          "repetition": 0.0
+        },
+        "signalScore": null,
+        "visibility": 0.0
+      },
+      "shown": true,
+      "shownPosition": 1,
+      "slotMap": {
+        "bottom": "b3",
+        "shoes": "s1",
+        "top": "t1"
+      },
+      "sourceAttemptId": "a0",
+      "sourceIndex": 2,
+      "stageReached": "shown",
+      "styleMove": {
+        "changedItemIds": [
+          "s1"
+        ],
+        "moveType": "layer",
+        "oneSentence": "An idea."
+      },
+      "template": "two_piece",
+      "warningCodes": []
+    },
+    {
+      "accepted": true,
+      "baseKey": "t1:b2",
+      "candidateId": "c3",
+      "dropReason": null,
+      "dropStage": null,
+      "fullSignature": "t1:b2|outer=none|shoes=s1",
+      "items": [
+        {
+          "itemId": "t1",
+          "role": "base_top"
+        },
+        {
+          "itemId": "b2",
+          "role": "base_bottom"
+        },
+        {
+          "itemId": "s1",
+          "role": "shoes"
+        }
+      ],
+      "optionPath": "reliable",
+      "rawEmitted": {
+        "items": [
+          {
+            "itemId": "t1",
+            "role": "base_top"
+          },
+          {
+            "itemId": "b2",
+            "role": "base_bottom"
+          },
+          {
+            "itemId": "s1",
+            "role": "shoes"
+          }
+        ],
+        "styleMove": {
+          "changedItemIds": [
+            "s1"
+          ],
+          "moveType": "layer",
+          "oneSentence": "An idea."
+        }
+      },
+      "rejectionCodes": [],
+      "risk": "safe",
+      "scoreTrace": {
+        "compatibility": 0.75,
+        "rankerScore": 1.0,
+        "scoreBreakdown": {
+          "base": 1.0,
+          "combo": 0.0,
+          "cooldown": 0.0,
+          "dislike": -0.0,
+          "item": 0.0,
+          "overuse": -0.0,
+          "repetition": 0.0
+        },
+        "signalScore": null,
+        "visibility": 0.0
+      },
+      "shown": false,
+      "shownPosition": null,
+      "slotMap": {
+        "bottom": "b2",
+        "shoes": "s1",
+        "top": "t1"
+      },
+      "sourceAttemptId": "a0",
+      "sourceIndex": 3,
+      "stageReached": "ranked",
+      "styleMove": {
+        "changedItemIds": [
+          "s1"
+        ],
+        "moveType": "layer",
+        "oneSentence": "An idea."
+      },
+      "template": "two_piece",
+      "warningCodes": []
+    },
+    {
+      "accepted": true,
+      "baseKey": "t1:b3",
+      "candidateId": "c4",
+      "dropReason": "rescue_stylemove_invalid",
+      "dropStage": "rescue",
+      "fullSignature": "t1:b3|outer=none|shoes=none",
+      "items": [
+        {
+          "itemId": "t1",
+          "role": "base_top"
+        },
+        {
+          "itemId": "b3",
+          "role": "base_bottom"
+        }
+      ],
+      "optionPath": null,
+      "rawEmitted": {
+        "items": [
+          {
+            "itemId": "t1",
+            "role": "base_top"
+          },
+          {
+            "itemId": "b3",
+            "role": "base_bottom"
+          }
+        ]
+      },
+      "rejectionCodes": [],
+      "risk": null,
+      "scoreTrace": null,
+      "shown": false,
+      "shownPosition": null,
+      "slotMap": {
+        "bottom": "b3",
+        "top": "t1"
+      },
+      "sourceAttemptId": "a0",
+      "sourceIndex": 4,
+      "stageReached": "validated",
+      "styleMove": null,
+      "template": "two_piece",
+      "warningCodes": []
+    },
+    {
+      "accepted": false,
+      "baseKey": null,
+      "candidateId": "c5",
+      "dropReason": null,
+      "dropStage": null,
+      "fullSignature": null,
+      "items": [],
+      "optionPath": null,
+      "rawEmitted": {
+        "items": [
+          {
+            "itemId": "t1",
+            "role": "base_top"
+          },
+          {
+            "itemId": "ghost",
+            "role": "base_bottom"
+          }
+        ],
+        "styleMove": {
+          "changedItemIds": [
+            "t1"
+          ],
+          "moveType": "layer",
+          "oneSentence": "An idea."
+        }
+      },
+      "rejectionCodes": [
+        "itemOutsideSampledPool"
+      ],
+      "risk": null,
+      "scoreTrace": null,
+      "shown": false,
+      "shownPosition": null,
+      "slotMap": null,
+      "sourceAttemptId": "a0",
+      "sourceIndex": 5,
+      "stageReached": "generated",
+      "styleMove": null,
+      "template": null,
+      "warningCodes": []
+    }
+  ],
+  "diagnostics": {
+    "candidateRequested": 9,
+    "notEnoughItems": false,
+    "parse": {
+      "generatorCalls": 1,
+      "parseSuccess": true,
+      "repairUsed": false
+    },
+    "promptItemCount": 5,
+    "ranker": {
+      "fallbackStage": "insufficient",
+      "insufficientLockedCandidates": false,
+      "insufficientWardrobe": true,
+      "lockedSurvivorCount": 4,
+      "relaxedCooldownCount": 0
+    },
+    "rejectionHistogram": {
+      "itemOutsideSampledPool": 1
+    },
+    "rescue": {
+      "insufficientAfterGeneration": false,
+      "notEnoughItems": false,
+      "spreadCollapsed": true
+    },
+    "samplerPerType": {
+      "bottom": {
+        "item_count": 3,
+        "random_count": 0,
+        "reason": null,
+        "selection_kind": "includeAll",
+        "signal_count": 0
+      },
+      "dress": {
+        "item_count": 0,
+        "random_count": 0,
+        "reason": null,
+        "selection_kind": "includeAll",
+        "signal_count": 0
+      },
+      "outer_layer": {
+        "item_count": 0,
+        "random_count": 0,
+        "reason": null,
+        "selection_kind": "includeAll",
+        "signal_count": 0
+      },
+      "shoes": {
+        "item_count": 1,
+        "random_count": 0,
+        "reason": null,
+        "selection_kind": "includeAll",
+        "signal_count": 0
+      },
+      "top": {
+        "item_count": 1,
+        "random_count": 0,
+        "reason": null,
+        "selection_kind": "includeAll",
+        "signal_count": 0
+      }
+    },
+    "scorerAvailable": false,
+    "warningHistogram": {}
+  },
+  "fittedCoreVersion": "0.4.0",
+  "forcedItemId": "t1",
+  "generationAttempts": [
+    {
+      "aggregateWarningCodes": [],
+      "attemptId": "a0",
+      "attemptIndex": 0,
+      "candidateCountEmitted": 6,
+      "isRepair": false,
+      "parseIssue": null,
+      "payloadParsed": true,
+      "rawText": "{\"outfits\": [{\"items\": [{\"itemId\": \"t1\", \"role\": \"base_top\"}, {\"itemId\": \"b1\", \"role\": \"base_bottom\"}], \"styleMove\": {\"moveType\": \"layer\", \"changedItemIds\": [\"t1\"], \"oneSentence\": \"An idea.\"}}, {\"items\": [{\"itemId\": \"t1\", \"role\": \"base_top\"}, {\"itemId\": \"b2\", \"role\": \"base_bottom\"}], \"styleMove\": {\"moveType\": \"layer\", \"changedItemIds\": [\"t1\"], \"oneSentence\": \"An idea.\"}}, {\"items\": [{\"itemId\": \"t1\", \"role\": \"base_top\"}, {\"itemId\": \"b3\", \"role\": \"base_bottom\"}, {\"itemId\": \"s1\", \"role\": \"shoes\"}], \"styleMove\": {\"moveType\": \"layer\", \"changedItemIds\": [\"s1\"], \"oneSentence\": \"An idea.\"}}, {\"items\": [{\"itemId\": \"t1\", \"role\": \"base_top\"}, {\"itemId\": \"b2\", \"role\": \"base_bottom\"}, {\"itemId\": \"s1\", \"role\": \"shoes\"}], \"styleMove\": {\"moveType\": \"layer\", \"changedItemIds\": [\"s1\"], \"oneSentence\": \"An idea.\"}}, {\"items\": [{\"itemId\": \"t1\", \"role\": \"base_top\"}, {\"itemId\": \"b3\", \"role\": \"base_bottom\"}]}, {\"items\": [{\"itemId\": \"t1\", \"role\": \"base_top\"}, {\"itemId\": \"ghost\", \"role\": \"base_bottom\"}], \"styleMove\": {\"moveType\": \"layer\", \"changedItemIds\": [\"t1\"], \"oneSentence\": \"An idea.\"}}]}",
+      "rootRejectionCode": null
+    }
+  ],
+  "generationIndex": 0,
+  "generator": {
+    "model": "gpt-4o",
+    "promptVersion": "spearhead-d.v1",
+    "provider": "openai",
+    "temperature": 0.8
+  },
+  "intent": "rescue_item",
+  "itemSnapshots": [
+    {
+      "engineVisible": {
+        "clothingType": "top",
+        "colorTags": [
+          "navy"
+        ],
+        "formality": null,
+        "imageUrl": "https://img/t1.png",
+        "material": null,
+        "name": "t1 name",
+        "occasionTags": [
+          "casual"
+        ],
+        "styleTags": [
+          "solid"
+        ],
+        "warmth": 4
+      },
+      "itemId": "t1"
+    },
+    {
+      "engineVisible": {
+        "clothingType": "bottom",
+        "colorTags": [
+          "navy"
+        ],
+        "formality": null,
+        "imageUrl": "https://img/b1.png",
+        "material": null,
+        "name": "b1 name",
+        "occasionTags": [
+          "casual"
+        ],
+        "styleTags": [
+          "solid"
+        ],
+        "warmth": 5
+      },
+      "itemId": "b1"
+    },
+    {
+      "engineVisible": {
+        "clothingType": "bottom",
+        "colorTags": [
+          "navy"
+        ],
+        "formality": null,
+        "imageUrl": "https://img/b2.png",
+        "material": null,
+        "name": "b2 name",
+        "occasionTags": [
+          "casual"
+        ],
+        "styleTags": [
+          "solid"
+        ],
+        "warmth": 5
+      },
+      "itemId": "b2"
+    },
+    {
+      "engineVisible": {
+        "clothingType": "bottom",
+        "colorTags": [
+          "navy"
+        ],
+        "formality": null,
+        "imageUrl": "https://img/b3.png",
+        "material": null,
+        "name": "b3 name",
+        "occasionTags": [
+          "casual"
+        ],
+        "styleTags": [
+          "solid"
+        ],
+        "warmth": 6
+      },
+      "itemId": "b3"
+    },
+    {
+      "engineVisible": {
+        "clothingType": "shoes",
+        "colorTags": [
+          "navy"
+        ],
+        "formality": null,
+        "imageUrl": "https://img/s1.png",
+        "material": null,
+        "name": "s1 name",
+        "occasionTags": [
+          "casual"
+        ],
+        "styleTags": [
+          "solid"
+        ],
+        "warmth": 3
+      },
+      "itemId": "s1"
+    }
+  ],
+  "nSurfaced": 3,
+  "occasion": "weekend brunch",
+  "rankerConfigVersion": "9a9d9bf8302f24fc9e0208f42fe19d7b7cb1bc35f848b5b6c7449771d2b213ad",
+  "scorer": {
+    "available": false,
+    "kind": "cold_start",
+    "modelId": null
+  },
+  "seedDate": null,
+  "sessionId": "user-e2e",
+  "shownCandidateIds": [
+    "c0",
+    "c2",
+    "c1"
+  ],
+  "shownFullSignatures": [
+    "t1:b1|outer=none|shoes=none",
+    "t1:b3|outer=none|shoes=s1",
+    "t1:b2|outer=none|shoes=none"
+  ],
+  "spreadCollapsed": true,
+  "wardrobeVersion": 3,
+  "weather": "mild"
+}

@@ -246,6 +246,87 @@ def test_engine_visible_is_an_immutable_copy_of_the_projection():
     assert snap.engine_visible["name"] == "t1 name"
 
 
+def _overflow_request() -> RescueRequest:
+    # 2 bottoms → the rescue candidate bound floors at 6 (n_bottoms*3=6); 3 shoe options let us
+    # emit 8 distinct forced-top outfits, so 2 exceed the bound and are sliced with a warning.
+    return RescueRequest(
+        wardrobe=[
+            _item("t1", ItemType.top), _item("b1", ItemType.bottom), _item("b2", ItemType.bottom),
+            _item("s1", ItemType.shoes), _item("s2", ItemType.shoes), _item("s3", ItemType.shoes),
+        ],
+        forced_item_id="t1", occasion="x", weather="mild", session_id="s", wardrobe_version=1,
+    )
+
+
+def _overflow_envelope() -> str:
+    outfits = [
+        _outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),
+        _outfit([("t1", Role.base_top), ("b2", Role.base_bottom)], ["t1"]),
+    ]
+    for b in ("b1", "b2"):
+        for s in ("s1", "s2", "s3"):
+            outfits.append(_outfit([("t1", Role.base_top), (b, Role.base_bottom), (s, Role.shoes)], [s]))
+    return _envelope(*outfits)  # 8 distinct outfits
+
+
+def test_attempt_level_aggregate_warning_is_on_the_attempt_not_a_candidate():
+    # 8 distinct outfits > the rescue bound (6) → an aggregate extraCandidatesIgnored warning
+    # (candidate_index=None) that belongs to the producing attempt, never a fake candidate (§8.2-E).
+    payload = _payload(request=_overflow_request(), envelope=_overflow_envelope())
+    attempt = payload.generation_attempts[-1]
+    assert "extraCandidatesIgnored" in attempt.aggregate_warning_codes
+    assert all("extraCandidatesIgnored" not in c.warning_codes for c in payload.candidates)
+
+
+def test_attempt_level_repair_retry_captured():
+    request = _rich_request()
+    # invalid JSON → the single §12 repair → valid: two attempts, the 2nd flagged is_repair.
+    stub = StubGenerator(["{ not valid json", _rich_envelope()])
+    trace = rescue_with_trace(request, stub)
+    payload = build_snapshot_payload(
+        trace, request, candidate_cache_key="ck-repair",
+        generator_provider="openai", generator_model="gpt", generator_temperature=0.8,
+    )
+    assert len(payload.generation_attempts) == 2
+    assert payload.generation_attempts[0].is_repair is False
+    assert payload.generation_attempts[0].parse_issue is not None  # the invalidJson that triggered repair
+    assert payload.generation_attempts[1].is_repair is True
+    assert payload.generation_attempts[1].payload_parsed is True
+    assert payload.diagnostics.parse == {"parse_success": True, "repair_used": True, "generator_calls": 2}
+
+
+def test_attempt_level_root_rejection_captured_with_zero_candidates():
+    request = _rich_request()
+    bad_root = json.dumps({"outfits": "not a list"})  # parses, but the root envelope is malformed
+    trace = rescue_with_trace(request, StubGenerator(bad_root))
+    payload = build_snapshot_payload(
+        trace, request, candidate_cache_key="ck-root",
+        generator_provider="openai", generator_model="gpt", generator_temperature=0.8,
+    )
+    assert payload.generation_attempts[-1].root_rejection_code is not None  # a root reject...
+    assert payload.candidates == ()  # ...yields zero candidates, never a fabricated one
+
+
+def test_rank_with_audit_captures_ranker_filtered_candidates():
+    # The ranker-filtered disposition (drop_stage="ranker") is unreachable via cold-start rescue
+    # (empty locks/dislikes), so exercise the rank_with_audit sibling directly: a contextually
+    # disliked candidate is hard-filtered before scoring (no breakdown), with its drop reason.
+    from fitted_core.ranker import rank_with_audit
+    from tests.test_ranker import _candidate, _ctx
+
+    survivor = _candidate(source_index=0, top="t1", bottom="b1")
+    disliked = _candidate(source_index=1, top="t1", bottom="bX")
+    audit = rank_with_audit([survivor, disliked], _ctx(contextual_disliked_item_ids=frozenset({"bX"})))
+
+    scored_indexes = {o.source_index for o in audit.scored}
+    assert 0 in scored_indexes and 1 not in scored_indexes
+    assert {f.candidate.source_index: f.drop_reason for f in audit.filtered} == {
+        1: "ranker_contextual_disliked"
+    }
+    # determinism: the truncated top-k prefix equals the public rank() result, byte-for-byte.
+    assert audit.scored[: len(audit.result.outfits)] == audit.result.outfits
+
+
 def test_not_enough_items_exit_builds_a_degenerate_payload():
     # A forced item with no possible pairing → pre-GPT not_enough_items; the snapshot is still valid.
     request = RescueRequest(
