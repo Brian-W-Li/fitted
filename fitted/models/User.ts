@@ -20,21 +20,43 @@ const UserSchema = new Schema(
 UserSchema.index({ authProvider: 1, authId: 1 }, { unique: true });
 UserSchema.index({ email: 1 }, { unique: true });
 
+// Minimal structural view of the connection the cascade needs (a real Mongoose Connection is
+// assignable to it; a stub is trivial to build in tests — there is no DB harness here).
+type CascadeDb = {
+  collection: (name: string) => { deleteMany: (filter: Record<string, unknown>) => Promise<unknown> };
+};
+
 /**
- * Cascade delete: remove all wardrobe items and outfit interactions
- * when a user is deleted via deleteOne() or findOneAndDelete().
+ * Cascade-delete every collection a user owns. Exported (and the hook delegates to it) so the
+ * cascade is unit-testable without a live DB. On user delete we hard-delete wardrobe items,
+ * outfit interactions, AND wardrobe images — the latter closes H14's cascade arm (M4b C7).
+ *
+ * GenerationSnapshots are intentionally NOT cascaded here: erasing a user's training-truth
+ * records is the Privacy-milestone redaction path (null the PII, keep keys/scores), not a
+ * hard delete (§14.4 / §23-H43). The image-replacement delete-before-commit ordering bug stays
+ * W-track (§14.4-H14).
  */
-UserSchema.pre(["deleteOne", "findOneAndDelete"], async function (next) {
-  const query = this.getQuery();
-  const userId = query._id;
-  if (userId) {
-    // Access the db connection from the model attached to this query
-    const db = this.model.db;
-    await db.collection("wardrobeitems").deleteMany({ user: userId });
-    await db.collection("outfitinteractions").deleteMany({ user: userId });
-  }
+export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Promise<void> {
+  await db.collection("wardrobeitems").deleteMany({ user: userId });
+  await db.collection("outfitinteractions").deleteMany({ user: userId });
+  await db.collection("wardrobeimages").deleteMany({ user: userId });
+}
+
+/**
+ * Cascade hook: fires on a user delete via `deleteOne()` or `findOneAndDelete()` — both the
+ * direct `User.deleteOne` and `lib/db.ts` `deleteUserWithData` (which calls `User.deleteOne`)
+ * paths run this. Named + exported so a test can invoke the exact registered hook.
+ */
+export async function cascadeUserDataHook(
+  this: { getQuery: () => { _id?: unknown }; model: { db: CascadeDb } },
+  next: (err?: Error) => void,
+): Promise<void> {
+  const userId = this.getQuery()._id;
+  if (userId) await cascadeDeleteUserData(this.model.db, userId);
   next();
-});
+}
+
+UserSchema.pre(["deleteOne", "findOneAndDelete"], cascadeUserDataHook);
 
 export type UserDocument = InferSchemaType<typeof UserSchema>;
 
