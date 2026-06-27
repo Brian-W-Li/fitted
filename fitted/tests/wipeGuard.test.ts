@@ -30,27 +30,30 @@ describe("parseMongoUri", () => {
 });
 
 describe("isWipeAllowed", () => {
-  it("allows an allowlisted label at a boundary (host or db)", () => {
-    expect(isWipeAllowed("localhost:27017", "fitted", NO_OVERRIDE)).toBe(true);
-    expect(isWipeAllowed("127.0.0.1:27017", "app", NO_OVERRIDE)).toBe(true);
-    expect(isWipeAllowed("fitted-dev.abc.mongodb.net", "app", NO_OVERRIDE)).toBe(true);
-    expect(isWipeAllowed("cluster.abc.mongodb.net", "fitted-dev", NO_OVERRIDE)).toBe(true);
+  it("allows an allowlisted label at a host boundary", () => {
+    expect(isWipeAllowed("localhost:27017", NO_OVERRIDE)).toBe(true);
+    expect(isWipeAllowed("127.0.0.1:27017", NO_OVERRIDE)).toBe(true);
+    expect(isWipeAllowed("fitted-dev.abc.mongodb.net", NO_OVERRIDE)).toBe(true);
+  });
+
+  it("REFUSES a non-allowlisted host even when the db name matches (no dbName bypass)", () => {
+    // The whole point of the gate: a `fitted-dev`-named db on the shared team Atlas
+    // host must NOT authorize a wipe. The host is the only trustworthy signal.
+    expect(isWipeAllowed("cluster.abc.mongodb.net", NO_OVERRIDE)).toBe(false);
   });
 
   it("REFUSES a prod host that merely contains the label without a boundary", () => {
-    expect(isWipeAllowed("fitted-dev-shadow.prod.mongodb.net", "app", NO_OVERRIDE)).toBe(false);
-    expect(isWipeAllowed("myfitted-development.net", "app", NO_OVERRIDE)).toBe(false);
-    expect(isWipeAllowed("prod.mongodb.net", "app", NO_OVERRIDE)).toBe(false);
+    expect(isWipeAllowed("fitted-dev-shadow.prod.mongodb.net", NO_OVERRIDE)).toBe(false);
+    expect(isWipeAllowed("myfitted-development.net", NO_OVERRIDE)).toBe(false);
+    expect(isWipeAllowed("prod.mongodb.net", NO_OVERRIDE)).toBe(false);
   });
 
-  it("a password containing 'localhost' cannot false-allow (host/db only)", () => {
-    const { host, dbName } = parseMongoUri("mongodb+srv://user:localhostpw@prod.mongodb.net/app");
-    expect(isWipeAllowed(host, dbName, NO_OVERRIDE)).toBe(false);
+  it("a password containing 'localhost' cannot false-allow (host only)", () => {
+    const { host } = parseMongoUri("mongodb+srv://user:localhostpw@prod.mongodb.net/app");
+    expect(isWipeAllowed(host, NO_OVERRIDE)).toBe(false);
   });
 
   it("FITTED_ALLOW_WIPE=1 overrides the allowlist", () => {
-    expect(
-      isWipeAllowed("prod.mongodb.net", "app", { FITTED_ALLOW_WIPE: "1" }),
-    ).toBe(true);
+    expect(isWipeAllowed("prod.mongodb.net", { FITTED_ALLOW_WIPE: "1" })).toBe(true);
   });
 });

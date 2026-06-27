@@ -10,6 +10,9 @@ import {
   normalizeClothingType,
   deriveClothingType,
   CLOTHING_TYPES,
+  SHOE_KEYWORDS,
+  BOTTOM_KEYWORDS,
+  OUTER_KEYWORDS,
 } from "@/lib/clothingType";
 
 const band = (w: number) => (w < 3 ? "hot" : w < 6 ? "mild" : "cold");
@@ -153,4 +156,49 @@ describe("deriveClothingType (the §10.3 ingestion classifier)", () => {
     // two-word forms already worked
     expect(deriveClothingType({ name: "sweat pants" })).toBe("bottom");
   });
+
+  it("does not let an adjectival 'dress' hijack the real garment", () => {
+    // "Dress Shoes" is a literal footwear subcategory in the upload form — must be shoes.
+    expect(
+      deriveClothingType({ category: "footwear", subCategory: "dress shoes", name: "Oxford Dress Shoes" }),
+    ).toBe("shoes");
+    expect(deriveClothingType({ name: "dress shoes" })).toBe("shoes");
+    // the noun set covers the whole footwear rung (not just "shoes")
+    expect(deriveClothingType({ category: "footwear", name: "white dress sneakers" })).toBe("shoes");
+    expect(deriveClothingType({ name: "dress boots" })).toBe("shoes");
+    // a hyphen separator reads like a space (keywordMatch hyphen-as-boundary convention)
+    expect(deriveClothingType({ category: "footwear", name: "dress-shoes" })).toBe("shoes");
+    // other adjectival-"dress" compounds route to their real type, not "dress"
+    expect(deriveClothingType({ category: "top", name: "blue dress shirt" })).toBe("top");
+    expect(deriveClothingType({ name: "grey dress pants" })).toBe("bottom");
+    expect(deriveClothingType({ name: "pleated dress skirt" })).toBe("bottom");
+    expect(deriveClothingType({ name: "wool dress coat" })).toBe("outer_layer");
+    expect(deriveClothingType({ name: "black dress socks" })).toBe("top");
+  });
+
+  it("still classifies a genuine 'dress' (head noun) as dress", () => {
+    // "dress" as the head noun — including when miscategorized — stays a one-piece (§10.3).
+    expect(deriveClothingType({ category: "bottom", name: "wrap dress" })).toBe("dress");
+    expect(deriveClothingType({ name: "shirt dress" })).toBe("dress");
+    expect(deriveClothingType({ name: "sweater dress" })).toBe("dress");
+    expect(deriveClothingType({ name: "maxi dress" })).toBe("dress");
+  });
+
+  it("classifies closed-compound / synonym one-pieces the bare 'dress' boundary misses", () => {
+    // "sundress" has no \bdress\b boundary inside it (like the bottoms rung's "sweatpants").
+    expect(deriveClothingType({ name: "floral sundress" })).toBe("dress");
+    expect(deriveClothingType({ name: "evening gown" })).toBe("dress");
+    expect(deriveClothingType({ name: "tweed frock" })).toBe("dress");
+  });
+
+  // Drift guard: the adjectival-"dress" exclusion is derived from these rung arrays, so a
+  // keyword added to any rung is automatically a noun "dress" can modify. This asserts the
+  // invariant directly — if the derivation is ever broken, "dress <rung-noun>" → "dress"
+  // would resurface the "Dress Shoes → dress" footgun and fail loudly here.
+  it.each([...SHOE_KEYWORDS, ...BOTTOM_KEYWORDS, ...OUTER_KEYWORDS])(
+    "never lets adjectival 'dress %s' collapse to a one-piece dress",
+    (kw) => {
+      expect(deriveClothingType({ name: `dress ${kw}` })).not.toBe("dress");
+    },
+  );
 });

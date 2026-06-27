@@ -64,10 +64,12 @@ async function main() {
     process.exit(1);
   }
 
-  const { host, dbName } = parseMongoUri(uri);
+  const { host } = parseMongoUri(uri);
 
-  // Gate (b): allowlist (host/db at a label boundary, or FITTED_ALLOW_WIPE=1). See lib/wipeGuard.
-  if (!isWipeAllowed(host, dbName)) {
+  // Gate (b): host allowlist (label boundary, or FITTED_ALLOW_WIPE=1). See lib/wipeGuard —
+  // the db name is intentionally NOT consulted, so a `fitted-dev`-named db on the shared
+  // team Atlas host cannot authorize a wipe.
+  if (!isWipeAllowed(host)) {
     console.error(
       `Refusing to wipe: MONGODB_URI host "${host}" is not on the localhost/fitted-dev allowlist.\n` +
         `If this really is a throwaway dev DB, re-run with FITTED_ALLOW_WIPE=1.`,
@@ -82,18 +84,21 @@ async function main() {
     console.error("No database handle after connect — aborting.");
     process.exit(1);
   }
+  // Confirm against the ACTUALLY-connected db, not the URI-parsed path: a URI with no
+  // path connects to Mongo's default db, so the parsed name could differ from reality.
+  const connectedDbName = db.databaseName;
 
   console.log(`\n🎯 Target host : ${host}`);
-  console.log(`🎯 Target db   : ${dbName}`);
+  console.log(`🎯 Target db   : ${connectedDbName}`);
   console.log("📊 Collections to wipe (current doc counts):");
   for (const name of WIPE_COLLECTIONS) {
     const count = await db.collection(name).countDocuments();
     console.log(`     ${name.padEnd(20)} ${count}`);
   }
 
-  // Gate (c): type the DB name back.
-  const answer = await ask(`\nType the db name "${dbName}" to confirm the wipe: `);
-  if (answer.trim() !== dbName) {
+  // Gate (c): type the (real, connected) DB name back.
+  const answer = await ask(`\nType the db name "${connectedDbName}" to confirm the wipe: `);
+  if (answer.trim() !== connectedDbName) {
     console.error("Confirmation did not match — aborting, nothing wiped.");
     await mongoose.disconnect();
     process.exit(1);

@@ -1041,6 +1041,21 @@ otherwise the knit collapses to **`top`** (row 5 lists them by name) — a knit 
 a valid base top, and `outer_layer` is an *optional* slot, so a misfiled true-outer still yields valid
 outfits. This is a deterministic classification rule, not a "fallback."
 
+**Trap-guard — the bare `dress` keyword (row 1) must exclude ADJECTIVAL "dress".** "dress" is both a
+one-piece HEAD noun ("wrap dress", "shirt dress") and a common MODIFIER ("dress shoes", "dress shirt",
+"dress pants"). A naïve whole-word `dress` match mis-partitions the **"Dress Shoes"** footwear subcategory
+(a real upload-form option) as a one-piece. The principle is the **head-noun-last rule of English compounds**:
+"dress X" is an X; "X dress" is a dress. The classifier matches `dress`/`dresses` as a one-piece only when it
+is **not immediately followed by a garment noun**; a head-noun or standalone "dress" — including a
+miscategorized "wrap dress" — still classifies as `dress` (preserving "name beats a coarse category").
+`jumpsuit`/`romper`/`sundress`/`gown`/`frock` are never adjectival → matched unconditionally (the closed
+compound `sundress` also dodges the `\bdress\b` boundary, like the bottoms rung's `sweatpants`). **Do not
+"simplify" this back toward a category-authoritative or cascade-reorder rule** — both regress real one-pieces
+("shirt dress"/"sweater dress" → top). The modifier noun set is **derived from the rung keyword arrays**
+(`SHOE_KEYWORDS`/`BOTTOM_KEYWORDS`/`OUTER_KEYWORDS`) so it cannot drift out of sync; a drift-guard test
+(`deriveWarmth.test.ts`) iterates those arrays asserting `"dress <rung-noun>" ≠ dress`. (`lib/clothingType.ts`
+`ADJECTIVAL_DRESS`.)
+
 **Trap-guard — re-derive from raw, never trust the stored `clothingType`.** `WardrobeItem.ts:7` defaults
 **every** existing row to `"top"`, so a stored `"top"` is the schema default, not evidence. The classifier
 re-derives purely from raw `category`/`name`/`subCategory`/`layerRole`; the only legacy non-default value
@@ -1477,9 +1492,14 @@ script committed to `fitted/scripts/` so it's re-runnable on Brian's local Mongo
   draft — it lives here, not C5, since it's an `OutfitInteraction` index.)*
 - **Wipe-script safety gate (mandatory).** The wipe script can destroy real data: the reused CS148
   `.env.local` `MONGODB_URI` may point at the **shared team Atlas cluster** the deployed team app uses.
-  Triple-gate: (a) require an explicit `--yes-wipe` flag; (b) refuse unless `MONGODB_URI` matches a
+  Triple-gate: (a) require an explicit `--yes-wipe` flag; (b) refuse unless the connection **HOST** matches a
   localhost/`fitted-dev` allowlist regex **or** `FITTED_ALLOW_WIPE=1` is set; (c) print the target host +
   per-collection doc-counts and require typed confirmation of the DB name.
+  - **Trap-guard (host, not db name):** authorize on the **host only** — the db NAME must NOT count, or a
+    `fitted-dev`-named database on the shared team Atlas host would self-authorize the very wipe the gate
+    exists to refuse. A genuine dev Atlas cluster is allowed via a `fitted-dev`-labelled host or the explicit
+    `FITTED_ALLOW_WIPE=1` override. Gate (c) confirms the **actually-connected** `db.databaseName` (not the
+    URI-parsed path — a path-less URI connects to Mongo's default db, which would otherwise diverge).
 
 **Acceptance:** jest tests for every new field's validation (enum acceptance/rejection; required-field
 rejection; co-presence guard rejects partial rows AND accepts all-absent legacy/empty rows; coalesce
