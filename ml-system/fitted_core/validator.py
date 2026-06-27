@@ -627,3 +627,48 @@ def validate_gpt_payload(
         ))
 
     return ValidationResult(candidates=candidates, rejections=rejections, warnings=warnings)
+
+
+# ============================================================================
+# M4b C6 — Option-B trace sibling (additive; the closed validator is untouched)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class ValidationTrace:
+    """``validate_gpt_payload`` + the raw parsed ``outfits[]`` (M4b C6 funnel capture, §8.4).
+
+    The closed ``ValidationResult`` carries only ``Issue``s (``code``/``candidate_index``/
+    ``detail`` — **never** the rejected outfit's content, ``validator.py`` line ~60), so a
+    snapshot built from it alone loses every rejected candidate's content: the H29(b) negative
+    training signal. ``parsed_outfits`` is the FULL ``payload["outfits"]`` array (UNSLICED — kept
+    before the ``candidate_requested`` cap, so an over-limit ``extraCandidatesIgnored`` candidate's
+    content survives too, §8.2-F), so a rejection's ``candidate_index`` recovers its outfit dict.
+    Empty when the root is malformed (no outfits to preserve). Additive — the validator is untouched.
+    """
+
+    result: ValidationResult
+    parsed_outfits: tuple[object, ...]
+
+
+def _extract_parsed_outfits(payload: object) -> tuple[object, ...]:
+    """The payload's ``outfits`` array as a tuple (empty unless the §13 root shape holds)."""
+    if isinstance(payload, dict):
+        outfits = payload.get("outfits")
+        if isinstance(outfits, list):
+            return tuple(outfits)
+    return ()
+
+
+def validate_gpt_payload_with_trace(
+    payload: object,
+    sampled_pool: Sequence[WardrobeItem],
+    candidate_requested: Optional[int] = None,
+) -> ValidationTrace:
+    """``validate_gpt_payload`` + the parsed ``outfits[]`` for snapshot content preservation.
+
+    The Option-B trace sibling (M4b C6): the closed ``validate_gpt_payload`` is called unchanged
+    and its result is paired with the raw outfit content the ``Issue`` log drops.
+    """
+    result = validate_gpt_payload(payload, sampled_pool, candidate_requested)
+    return ValidationTrace(result=result, parsed_outfits=_extract_parsed_outfits(payload))

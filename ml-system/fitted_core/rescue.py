@@ -39,19 +39,34 @@ from fitted_core.config import (
     N_SURFACED,
 )
 from fitted_core.generation import GenerationPrompt, Generator
-from fitted_core.models import ItemType, Role, SlotMap, Template, WardrobeItem
-from fitted_core.ranker import FallbackStage, RankerContext, RankerResult, rank
-from fitted_core.response import OutfitVariant, build_variants
+from fitted_core.models import IssueCode, ItemType, Role, SlotMap, Template, WardrobeItem
+from fitted_core.ranker import (
+    FallbackStage,
+    RankAudit,
+    RankerContext,
+    RankerResult,
+    rank,
+    rank_with_audit,
+)
+from fitted_core.response import (
+    BuildVariantsTrace,
+    OutfitVariant,
+    build_variants,
+    build_variants_with_trace,
+)
 from fitted_core.sampler import (
     ColdStartSignalScorer,
     RequestContext,
+    SamplerResult,
     build_candidate_pool,
     partition,
 )
 from fitted_core.validator import (
     ValidatedCandidate,
+    ValidationResult,
     parse_gpt_json,
     validate_gpt_payload,
+    validate_gpt_payload_with_trace,
 )
 
 
@@ -681,4 +696,200 @@ def rescue(request: RescueRequest, generator: Generator) -> RescueResult:
         spread_collapsed=spread_collapsed,
         reason_hint=_INSUFFICIENT_AFTER_GENERATION_HINT if insufficient else None,
         fallback_stage=ranked.fallback_stage,
+    )
+
+
+# ============================================================================
+# M4b C6 — Option-B trace orchestrator (additive; the closed rescue() is untouched)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class GenerationAttemptTrace:
+    """One generate→parse attempt — a root/attempt-level event (§8.2-E).
+
+    The raw generation text + whether it was the §12 repair retry + the parse outcome. Maps to a
+    snapshot ``generationAttempts[]`` entry; the snapshot writer applies the raw-text byte cap.
+    """
+
+    raw_text: str
+    is_repair: bool
+    parse_issue: Optional[IssueCode]
+    payload_parsed: bool
+
+
+@dataclass(frozen=True)
+class RescueDrop:
+    """A validated candidate dropped by the rescue-specific contract (forced-item / StyleMove)."""
+
+    candidate: ValidatedCandidate
+    drop_reason: str
+
+
+@dataclass(frozen=True)
+class RescueTrace:
+    """The full rescue funnel for snapshot building (M4b C6, §8.4).
+
+    Bundles the public ``RescueResult`` with every discard site §8.4 names: the generation
+    ``attempts`` (raw text), the ``sampler_result`` diagnostics, the validation funnel (rejections
+    + warnings + the parsed outfit content for content-preservation), the rescue-specific
+    ``rescue_drops``, the ``rank_audit`` (scored-but-unshown breakdowns), and the ``build_trace``
+    (non-selected variants). The ``None``/empty members reflect the pre-GPT ``not_enough_items``
+    exit (no generation/validation/rank reached). ``result`` is byte-equal to ``rescue()`` under
+    the same deterministic generator.
+    """
+
+    result: RescueResult
+    sampler_result: Optional[SamplerResult]
+    prompt_pool: tuple[WardrobeItem, ...]
+    candidate_requested: Optional[int]  # the rescue's actual GPT ask (prompt.candidate_requested)
+    attempts: tuple[GenerationAttemptTrace, ...]
+    validation: Optional[ValidationResult]
+    parsed_outfits: tuple[object, ...]
+    rescue_drops: tuple[RescueDrop, ...]
+    rank_audit: Optional[RankAudit]
+    build_trace: Optional[BuildVariantsTrace]
+
+
+def _generate_and_parse_with_trace(
+    generator: Generator, prompt: GenerationPrompt
+) -> tuple[Optional[object], tuple[GenerationAttemptTrace, ...]]:
+    """``_generate_and_parse`` capturing each attempt's raw text + repair flag (§8.2-E).
+
+    Mirrors the closed ``_generate_and_parse`` exactly (one §12 invalidJson repair) but records the
+    raw generation string of every attempt instead of discarding it. The closed function is untouched.
+    """
+    raw = generator.generate(prompt)
+    parsed = parse_gpt_json(raw)
+    attempts = [
+        GenerationAttemptTrace(
+            raw_text=raw,
+            is_repair=False,
+            parse_issue=parsed.issue.code if parsed.issue is not None else None,
+            payload_parsed=parsed.issue is None,
+        )
+    ]
+    if parsed.issue is None:
+        return parsed.payload, tuple(attempts)
+    raw_repair = generator.generate(_repair_prompt(prompt))
+    repaired = parse_gpt_json(raw_repair)
+    attempts.append(
+        GenerationAttemptTrace(
+            raw_text=raw_repair,
+            is_repair=True,
+            parse_issue=repaired.issue.code if repaired.issue is not None else None,
+            payload_parsed=repaired.issue is None,
+        )
+    )
+    return repaired.payload, tuple(attempts)
+
+
+def _drop_invalid_with_trace(
+    candidates: Sequence[ValidatedCandidate], forced_item_id: str
+) -> tuple[list[ValidatedCandidate], tuple[RescueDrop, ...]]:
+    """``_drop_invalid`` capturing WHICH candidates were dropped + why (decision 8, §8.2-F).
+
+    Same predicates + order as the closed ``_drop_invalid`` (so ``survivors`` is byte-identical),
+    but records each dropped candidate with its reason for the snapshot's negative-signal funnel.
+    """
+    survivors: list[ValidatedCandidate] = []
+    drops: list[RescueDrop] = []
+    for candidate in candidates:
+        if forced_item_id not in _filled_slot_ids(candidate.slot_map):
+            drops.append(RescueDrop(candidate, "rescue_forced_item_absent"))
+        elif candidate.style_move is None:
+            drops.append(RescueDrop(candidate, "rescue_stylemove_invalid"))
+        else:
+            survivors.append(candidate)
+    return survivors, tuple(drops)
+
+
+def rescue_with_trace(request: RescueRequest, generator: Generator) -> RescueTrace:
+    """``rescue()`` re-run with the Option-B trace siblings — the full funnel for the snapshot.
+
+    Mirrors ``rescue()``'s 10-step pipeline (spearhead.md §G) but uses the ``*_with_trace`` siblings
+    so every discard site is captured. The public ``rescue()`` is untouched; ``RescueTrace.result``
+    is byte-equal to ``rescue(request, generator)`` under the same deterministic generator.
+    """
+    # Steps 1–2 — resolve the forced item + the PRE-GPT structural sufficiency exit (no GPT call).
+    forced_item = _resolve_forced_item(request.wardrobe, request.forced_item_id)
+    _, valid_types = _resolve_shape(forced_item.type)
+    hint = _check_sufficiency(_partition_counts(request.wardrobe), forced_item.type)
+    if hint is not None:
+        result = RescueResult(
+            ranked=None,
+            variants=(),
+            not_enough_items=True,
+            insufficient_after_generation=False,
+            spread_collapsed=False,
+            reason_hint=hint,
+            fallback_stage=None,
+        )
+        return RescueTrace(
+            result=result,
+            sampler_result=None,
+            prompt_pool=(),
+            candidate_requested=None,
+            attempts=(),
+            validation=None,
+            parsed_outfits=(),
+            rescue_drops=(),
+            rank_audit=None,
+            build_trace=None,
+        )
+
+    # Steps 3–6 — cold-start pool, scope to the forced item, build the prompt.
+    sampler_result = build_candidate_pool(
+        request.wardrobe, _build_request_context(request), ColdStartSignalScorer()
+    )
+    scoped = _scope_pool_to_forced(sampler_result.pool, forced_item, valid_types)
+    prompt_pool = tuple(_flatten_pool(scoped))  # the exact items the engine conditioned on (§8.2-D)
+    prompt = _build_prompt(scoped, request, forced_item)
+
+    # Step 7 — generate + parse with the §12 repair, capturing every raw attempt.
+    payload, attempts = _generate_and_parse_with_trace(generator, prompt)
+
+    # Step 8 — validate (with the parsed-outfit content trace) + the rescue-specific drops.
+    if payload is None:
+        validation: Optional[ValidationResult] = None
+        parsed_outfits: tuple[object, ...] = ()
+        survivors: list[ValidatedCandidate] = []
+        rescue_drops: tuple[RescueDrop, ...] = ()
+    else:
+        validation_trace = validate_gpt_payload_with_trace(
+            payload, _flatten_pool(scoped), prompt.candidate_requested
+        )
+        validation = validation_trace.result
+        parsed_outfits = validation_trace.parsed_outfits
+        survivors, rescue_drops = _drop_invalid_with_trace(validation.candidates, forced_item.id)
+
+    # Step 9 — rank, capturing the full scored funnel (scored-but-unshown breakdowns).
+    rank_audit = rank_with_audit(survivors, _build_ranker_context(request))
+    ranked = rank_audit.result
+
+    # Step 10 — response layer, capturing every assembled variant (non-selected included).
+    items_by_id = {item.id: item for item in request.wardrobe}
+    build_trace = build_variants_with_trace(ranked, items_by_id, request, request.n_surfaced)
+
+    insufficient = len(ranked.outfits) < request.n_surfaced
+    result = RescueResult(
+        ranked=ranked,
+        variants=build_trace.selected,
+        not_enough_items=False,
+        insufficient_after_generation=insufficient,
+        spread_collapsed=build_trace.spread_collapsed,
+        reason_hint=_INSUFFICIENT_AFTER_GENERATION_HINT if insufficient else None,
+        fallback_stage=ranked.fallback_stage,
+    )
+    return RescueTrace(
+        result=result,
+        sampler_result=sampler_result,
+        prompt_pool=prompt_pool,
+        candidate_requested=prompt.candidate_requested,
+        attempts=attempts,
+        validation=validation,
+        parsed_outfits=parsed_outfits,
+        rescue_drops=rescue_drops,
+        rank_audit=rank_audit,
+        build_trace=build_trace,
     )

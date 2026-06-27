@@ -879,3 +879,81 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
         locked_survivor_count=step4.locked_survivor_count,
         insufficient_locked_candidates=step4.insufficient_locked_candidates,
     )
+
+
+# ============================================================================
+# M4b C6 — Option-B trace sibling (additive; the closed rank() is untouched)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class _FilteredCandidate:
+    """A validated candidate that entered ``rank()`` but was dropped BEFORE final scoring.
+
+    These never reach ``ordered`` (the scored funnel), so they carry no ``ScoreBreakdown`` — only
+    a ``drop_reason`` (an OPEN, append-only code-set string, §8.2-F). Distinct from the
+    scored-but-unshown candidates (``RankAudit.scored[k:]``), which WERE scored then truncated.
+    """
+
+    candidate: ValidatedCandidate
+    drop_reason: str
+
+
+@dataclass(frozen=True)
+class RankAudit:
+    """``rank()`` + the full pre-truncation funnel (M4b C6 — the H29(a) selection-bias capture).
+
+    ``result`` is the byte-stable public ``RankerResult`` (≤ k shown). ``scored`` is EVERY scored
+    candidate as a ``RankedOutfit`` in final ranked order — ``scored[:len(result.outfits)]`` are the
+    truncated top-k (identical to ``result.outfits``, determinism-guaranteed) and ``scored[k:]`` are
+    the scored-but-unshown that the public ``rank()`` discards (their ``ScoreBreakdown`` is the
+    selection-bias signal a trained scorer needs). ``filtered`` are candidates dropped by the Step-4
+    hard filters / diversity before scoring (no breakdown). Built by RE-RUNNING the closed,
+    deterministic ranker steps (seeded by ``context``) — ``rank()`` itself is never touched.
+    """
+
+    result: RankerResult
+    scored: tuple[RankedOutfit, ...]
+    filtered: tuple[_FilteredCandidate, ...]
+
+
+def _ranker_drop_reason(candidate: ValidatedCandidate, context: RankerContext) -> str:
+    """Re-derive why a candidate was dropped before scoring (the Step-4 predicates, §6 step 3).
+
+    Mirrors ``_apply_step4_filters``'s classification; the residual ``diversity_capped`` covers a
+    candidate that cleared all three Step-4 predicates but lost the BaseKey variant cap / fallback.
+    """
+    filled = set(_filled_slot_ids(candidate.slot_map))
+    if not (context.locked_item_ids <= filled):
+        return "ranker_lock_unsatisfied"
+    if not filled.isdisjoint(context.contextual_disliked_item_ids):
+        return "ranker_contextual_disliked"
+    if candidate.base_key in set(context.recent_disliked_base_keys):
+        return "ranker_cooldown_dropped"
+    return "ranker_diversity_capped"
+
+
+def rank_with_audit(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> RankAudit:
+    """``rank()`` + the full scored funnel + the pre-scoring drops (Option-B trace, M4b C6).
+
+    Re-runs the closed, deterministic ranker pipeline (``_apply_step4_filters`` →
+    ``_select_fallback_pool`` → ``_order_final_candidates``, all seeded by ``context``) to recover
+    ``ordered`` — every scored candidate, not just the truncated top-k — then labels the candidates
+    that never reached scoring. ``rank()`` is called for the public result and is itself untouched
+    (its M0–M3 tests stay byte-stable). Determinism guarantees ``scored[:len(result.outfits)] ==
+    result.outfits``.
+    """
+    result = rank(candidates, context)
+    if not candidates:
+        return RankAudit(result=result, scored=(), filtered=())
+    step4 = _apply_step4_filters(candidates, context)
+    pool, _ = _select_fallback_pool(step4, context)
+    ordered = _order_final_candidates(pool, context)
+    scored = tuple(_assemble_ranked_outfit(scored_candidate) for scored_candidate in ordered)
+    scored_source_indexes = {outfit.source_index for outfit in scored}
+    filtered = tuple(
+        _FilteredCandidate(candidate=candidate, drop_reason=_ranker_drop_reason(candidate, context))
+        for candidate in candidates
+        if candidate.source_index not in scored_source_indexes
+    )
+    return RankAudit(result=result, scored=scored, filtered=filtered)

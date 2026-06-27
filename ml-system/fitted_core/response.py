@@ -574,3 +574,44 @@ def build_variants(
     }
     selected, spread_collapsed = select_spread(ranked, variants_by_full_signature, n)
     return tuple(selected), spread_collapsed
+
+
+# ============================================================================
+# M4b C6 — Option-B trace sibling (additive; the closed build_variants is untouched)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class BuildVariantsTrace:
+    """``build_variants`` + EVERY assembled variant (M4b C6 — the non-selected-variant capture).
+
+    ``build_variants`` returns only the spread-SELECTED variants; the non-selected ones (built
+    from the same ranked pool, each carrying its own cold-start ``compatibility``/``visibility`` —
+    the H29(a) signal the snapshot must keep) are discarded. ``all_variants`` is every assembled
+    ``OutfitVariant`` (one per ranked survivor, keyed by ``full_signature``); ``selected`` is the
+    surfaced subset (== ``build_variants``'s first return — same pure assembly + ``select_spread``).
+    Additive: the closed ``build_variants`` is untouched; this re-runs its two pure steps.
+    """
+
+    selected: tuple[OutfitVariant, ...]
+    spread_collapsed: bool
+    all_variants: tuple[OutfitVariant, ...]
+
+
+def build_variants_with_trace(
+    ranked: RankerResult,
+    items_by_id: Mapping[str, WardrobeItem],
+    request: LensRequest,
+    n: int,
+) -> BuildVariantsTrace:
+    """``build_variants`` + every assembled variant, incl. the non-selected ones it discards."""
+    variants_by_full_signature = {
+        outfit.full_signature: _assemble_variant(outfit, items_by_id, request)
+        for outfit in ranked.outfits
+    }
+    selected, spread_collapsed = select_spread(ranked, variants_by_full_signature, n)
+    return BuildVariantsTrace(
+        selected=tuple(selected),
+        spread_collapsed=spread_collapsed,
+        all_variants=tuple(variants_by_full_signature.values()),
+    )
