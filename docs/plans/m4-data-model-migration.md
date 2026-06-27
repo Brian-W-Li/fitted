@@ -1,13 +1,12 @@
 # M4 — Data-model migration (planning conductor)
 
-> **ACTIVE — design CLOSED.** S1–S7 + §13 closed the original design; the post-freeze scope expansion
-> (2026-06-26) added the W-track data-path pull-forward, the DB wipe, the PreferenceSummary rip, the cascade
-> extension, and the surgical recommend-route excision. **§14 is the build authority** — the C1–C8 ladder;
-> where any earlier text disagrees, §14 wins. Canonical contracts live in the spec: **§15.1** (snapshot) +
-> **§15.2** (adapter) + **§6.1** (clothingType + columns) + **§6.6/§16/Appendix B** (interaction binding +
-> reducer constants + scope vocab) + **§18** (W-track split) + **§19** (deletion table) + **§23** (holes).
-> This plan holds rationale, trap-guards, query/index notes, and the ladder, and *points* to the spec for
-> every canonical decision (single-home). Plan retires post-implementation.
+> **COMPLETED 2026-06-27.** The full C1–C8 ladder shipped: M4a (data path, C1–C3) live + M4b (the dormant
+> GenerationSnapshot substrate, C4–C8) additive. **§14 was the build authority** — the C1–C8 ladder; where any
+> earlier text disagrees, §14 wins. Canonical contracts live in the spec: **§15.1** (snapshot) + **§15.2**
+> (adapter) + **§6.1** (clothingType + columns) + **§6.6/§16/Appendix B** (interaction binding + reducer
+> constants + scope vocab) + **§18** (W-track split) + **§19** (deletion table) + **§23** (holes). M4b ships
+> dormant; M5 owns the live cutover — see the **§14.5 M5-handoff note**. Retired from the default reading list;
+> kept as the M4 reference (rationale, trap-guards, query/index notes, the ladder, the handoff).
 
 ## 0. One-way door + reversibility posture
 
