@@ -296,7 +296,14 @@ GenerationSnapshotSchema {
   `candidateId`, the three required version constants (§8.2-C), `interactionCountAtRequest`.
 - **Case + id boundary (pinned):** Python snake_case → serializer camelCase, **finite floats only** (no
   `NaN`/`Infinity`), no `undefined`; item/candidate ids cross as **opaque strings** (no `ref`/`populate`,
-  H10); `user` stored as `ObjectId`.
+  H10); `user` stored as `ObjectId`. **Only structural field *names* are re-cased** — the engineVisible
+  renames (incl. `type`→`clothingType`) apply **only inside an `engine_visible` object**, and **data-valued
+  Map keys** (`constraints`, `samplerPerType`, the rejection/warning histograms — keyed by an `ItemType` like
+  `outer_layer`, an `IssueCode` value, or an arbitrary constraint name) plus **verbatim Mixed blobs**
+  (`rawEmitted`/`rawAttributes`/`styleProfileSnapshot`/`generatorVisible`) are **preserved key-for-key**.
+  Blanket-casing them would diverge the wire from the `ItemType` member value (`outer_layer`→`outerLayer`),
+  silently corrupting training truth. Implemented in `fitted_core/snapshot_serde.py` (C4); the opaque-field
+  set must grow when C6/M5 adds a new Map/Mixed field.
 
 ### 8.8 Index / query plan
 

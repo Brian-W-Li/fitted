@@ -10,6 +10,9 @@ Sources:
   - docs/plans/m0-m1-substrate.md §1.5    (constant inventory)
 """
 
+import hashlib
+import json
+
 # --- Recommendation output size ---
 DEFAULT_K = 10  # v2 Appendix B — outfits returned per request
 
@@ -136,3 +139,54 @@ RISK_SAFE_MAX = 0.33  # visibility ≤ this → safe; between → noticeable
 WEATHER_WARMTH_BAND: dict[str, tuple[int, int]] = {"hot": (0, 3), "mild": (3, 6), "cold": (6, 10)}
 WEATHER_TARGET_BAND: dict[str, int] = {"hot": 0, "mild": 1, "cold": 2}
 WEATHER_MISMATCH_PENALTY = 0.5
+
+# --- Provenance / versioning (M4b C4, spec §15.1 group C) ----------------------
+# Every GenerationSnapshot stores a (fittedCoreVersion, promptVersion, rankerConfigVersion)
+# triple so the M6 trainer never conflates behaviorally-distinct corpora. Each constant
+# covers a different axis (the full policy is the comment block in fitted_core/__init__.py):
+#   - fitted_core.__version__  → coarse, hand-bumped semver (substrate *logic* changes)
+#   - PROMPT_VERSION           → prompt *text* changes (a reword shifts generations with no code change)
+#   - RANKER_CONFIG_VERSION    → auto sha256 over THIS module's Appendix B constants (catches a
+#                                one-constant tuning change __version__/PROMPT_VERSION would miss)
+
+# Bump on ANY edit to the §D rescue prompt text (rescue._build_system_prompt /
+# rescue._build_user_message — the only prompt builders today). Hand-maintained and
+# orthogonal to __version__; forgetting to bump it is the silent failure the policy warns of.
+PROMPT_VERSION = "spearhead-d.v1"
+
+
+def _canonical_for_digest(obj: object) -> object:
+    """JSON ``default`` hook: render a (frozen)set deterministically for the digest.
+
+    Sorting makes the digest invariant to set-member iteration order. Every Appendix B
+    value is a JSON primitive, a tuple of ints (json renders tuples as ordered arrays),
+    a (frozen)set of strings, or a dict of those — so this single hook covers the whole
+    namespace; anything else is an un-anticipated constant shape and must fail loudly.
+    """
+    if isinstance(obj, (frozenset, set)):
+        return sorted(obj)
+    raise TypeError(f"un-digestible config constant of type {type(obj).__name__}")
+
+
+def _compute_ranker_config_version() -> str:
+    """sha256 over every Appendix B tuning constant in this module (auto-provenance).
+
+    Reads the module globals at *call* time so a single constant move — one a coarse
+    hand-bumped ``__version__`` would miss — still shifts the digest (the spec §8.2-C
+    "one-constant tuning change is still caught" guarantee; tested by monkeypatching a
+    constant and recomputing). Includes only ``UPPER_SNAKE`` names; excludes the two
+    version strings (``PROMPT_VERSION`` is its own axis; the digest can't include itself)
+    and private/dunder names. Canonical serialization (sorted keys + ``_canonical_for_digest``)
+    keeps the digest byte-stable across runs and processes.
+    """
+    excluded = {"PROMPT_VERSION", "RANKER_CONFIG_VERSION"}
+    constants = {
+        name: value
+        for name, value in globals().items()
+        if name.isupper() and not name.startswith("_") and name not in excluded
+    }
+    payload = json.dumps(constants, sort_keys=True, default=_canonical_for_digest)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+RANKER_CONFIG_VERSION = _compute_ranker_config_version()
