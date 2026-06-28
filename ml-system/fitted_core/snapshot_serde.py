@@ -170,32 +170,54 @@ def _convert(
     key_context: str | None = None,
     opaque: bool = False,
     in_engine: bool = False,
+    id_sequence_element: bool = False,
 ) -> Any:
     """Recursively re-case keys and validate the boundary guarantees.
 
     ``key_context`` is the *source* key the value sat under (for id-string enforcement and
     error messages). ``opaque`` (inside a data-Map / Mixed blob) preserves nested keys
     verbatim; ``in_engine`` (immediately inside an ``engine_visible`` object) enables the
-    engineVisible rename table. Ordering matters: the id guard runs before type dispatch,
-    and the ``bool`` check precedes the ``int``/``float`` branches (``bool`` ⊂ ``int``).
+    engineVisible rename table. ``id_sequence_element`` distinguishes a plural-id field's
+    outer container from its string elements. Ordering matters: the id guard runs before
+    type dispatch, and the ``bool`` check precedes the ``int``/``float`` branches
+    (``bool`` ⊂ ``int``).
     """
     if not opaque and key_context in _ID_KEYS and value is not None and not isinstance(value, str):
         raise ValueError(
             f"id field {key_context!r} must cross the wire as an opaque string, "
             f"got {type(value).__name__}: {value!r}"
         )
-    if (
-        not opaque
-        and key_context in _ID_SEQUENCE_KEYS
-        and value is not None
-        and not isinstance(value, (str, list, tuple))
-    ):
-        # The list/tuple container itself passes; each element recurses with this same
-        # key_context, so a non-string element (numeric/object/bool) is what trips this guard.
-        raise ValueError(
-            f"id-sequence field {key_context!r} must hold opaque strings, "
-            f"got element {type(value).__name__}: {value!r}"
-        )
+    if not opaque and key_context in _ID_SEQUENCE_KEYS:
+        if value is None:
+            if id_sequence_element:
+                raise ValueError(
+                    f"id-sequence field {key_context!r} must hold opaque strings, "
+                    "got element NoneType: None"
+                )
+            return None
+        if id_sequence_element:
+            if not isinstance(value, str):
+                raise ValueError(
+                    f"id-sequence field {key_context!r} must hold opaque strings, "
+                    f"got element {type(value).__name__}: {value!r}"
+                )
+        else:
+            if not isinstance(value, (list, tuple)):
+                raise ValueError(
+                    f"id-sequence field {key_context!r} must be a list/tuple of opaque strings, "
+                    f"got {type(value).__name__}: {value!r}"
+                )
+            return [
+                _convert(
+                    v,
+                    to_wire=to_wire,
+                    key_context=key_context,
+                    opaque=opaque,
+                    in_engine=in_engine,
+                    id_sequence_element=True,
+                )
+                for v in value
+            ]
     if isinstance(value, bool):
         return value
     if isinstance(value, Mapping):
@@ -203,7 +225,12 @@ def _convert(
         for raw_key, raw_val in value.items():
             if opaque:
                 # data/blob keys are preserved byte-for-byte; values stay opaque too
-                result[raw_key] = _convert(raw_val, to_wire=to_wire, key_context=raw_key, opaque=True)
+                result[raw_key] = _convert(
+                    raw_val,
+                    to_wire=to_wire,
+                    key_context=raw_key,
+                    opaque=True,
+                )
                 continue
             result[_map_key(raw_key, to_wire=to_wire, in_engine=in_engine)] = _convert(
                 raw_val,

@@ -182,6 +182,54 @@ def test_rescue_request_defaults():
     assert request.date is None
 
 
+@pytest.mark.parametrize(
+    ("value", "exc"),
+    [(0, ValueError), (-1, ValueError), (True, TypeError), (1.5, TypeError), ("3", TypeError)],
+)
+def test_rescue_request_rejects_invalid_n_surfaced(value, exc):
+    with pytest.raises(exc, match="n_surfaced"):
+        RescueRequest(
+            wardrobe=[_item("t1", ItemType.top)],
+            forced_item_id="t1",
+            occasion="casual",
+            weather="mild",
+            session_id="s",
+            wardrobe_version=1,
+            n_surfaced=value,
+        )
+
+
+@pytest.mark.parametrize(
+    ("value", "exc"),
+    [(0, ValueError), (-1, ValueError), (False, TypeError), (1.5, TypeError), ("10", TypeError)],
+)
+def test_rescue_request_rejects_invalid_k_up_front(value, exc):
+    with pytest.raises(exc, match="k"):
+        RescueRequest(
+            wardrobe=[_item("t1", ItemType.top)],
+            forced_item_id="t1",
+            occasion="casual",
+            weather="mild",
+            session_id="s",
+            wardrobe_version=1,
+            k=value,
+        )
+
+
+@pytest.mark.parametrize("value", [None, True, 1.5, "0"])
+def test_rescue_request_rejects_non_int_generation_index_up_front(value):
+    with pytest.raises(TypeError, match="generation_index"):
+        RescueRequest(
+            wardrobe=[_item("t1", ItemType.top)],
+            forced_item_id="t1",
+            occasion="casual",
+            weather="mild",
+            session_id="s",
+            wardrobe_version=1,
+            generation_index=value,
+        )
+
+
 # ============================================================================
 # §G step 4 — _scope_pool_to_forced + _flatten_pool (the rescue "pin")
 # ============================================================================

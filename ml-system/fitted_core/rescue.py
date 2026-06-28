@@ -94,6 +94,40 @@ class RescueRequest:
     n_surfaced: int = N_SURFACED
     date: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        self._validate_generation_index()
+        self._validate_k()
+        self._validate_n_surfaced()
+
+    def _validate_generation_index(self) -> None:
+        gi = self.generation_index
+        if gi is None:
+            raise TypeError("generation_index must be a non-bool int, got None")
+        if isinstance(gi, bool):
+            raise TypeError("generation_index must be a non-bool int, got bool")
+        if not isinstance(gi, int):
+            raise TypeError(
+                f"generation_index must be a non-bool int, got {type(gi).__name__}"
+            )
+
+    def _validate_k(self) -> None:
+        k = self.k
+        if isinstance(k, bool):
+            raise TypeError("k must be a non-bool int, got bool")
+        if not isinstance(k, int):
+            raise TypeError(f"k must be a non-bool int, got {type(k).__name__}")
+        if k <= 0:
+            raise ValueError(f"k must be a positive int, got {k}")
+
+    def _validate_n_surfaced(self) -> None:
+        n = self.n_surfaced
+        if isinstance(n, bool):
+            raise TypeError("n_surfaced must be a non-bool int, got bool")
+        if not isinstance(n, int):
+            raise TypeError(f"n_surfaced must be a non-bool int, got {type(n).__name__}")
+        if n <= 0:
+            raise ValueError(f"n_surfaced must be a positive int, got {n}")
+
 
 # ============================================================================
 # §G step 1 — resolve the forced item + its template/valid-type shape (H22)
@@ -626,8 +660,8 @@ def rescue(request: RescueRequest, generator: Generator) -> RescueResult:
     """
     # Caller-contract precondition (R12): duplicate logical ids corrupt key equality, so fail loud
     # HERE — before the pre-GPT sufficiency exit, which would otherwise mask the misuse on an
-    # insufficient closet by returning not_enough_items. (generation_index/k are caller-validated at
-    # ranking time via RankerContext and are unused on the pre-GPT exit.)
+    # insufficient closet by returning not_enough_items. RescueRequest validates the numeric request
+    # controls at construction time so the pre-GPT exit cannot mask an invalid budget/index either.
     reject_duplicate_ids(request.wardrobe)
 
     # Step 1 — resolve the forced item (ValueError on a missing id: caller misuse, fail loud)
@@ -821,6 +855,7 @@ def rescue_with_trace(request: RescueRequest, generator: Generator) -> RescueTra
     """
     # Caller-contract precondition (R12) — fail loud before the pre-GPT sufficiency exit (mirrors
     # rescue(); the insufficient path would otherwise mask a duplicate-id misuse).
+    # RescueRequest already guards the numeric request controls at construction time.
     reject_duplicate_ids(request.wardrobe)
 
     # Steps 1–2 — resolve the forced item + the PRE-GPT structural sufficiency exit (no GPT call).

@@ -257,6 +257,27 @@ def test_numeric_entry_in_shown_candidate_ids_raises():
         serde.to_wire(payload)
 
 
+def test_scalar_shown_candidate_ids_raises():
+    payload = _sample_payload()
+    payload["shown_candidate_ids"] = "c0"
+    with pytest.raises(ValueError, match="list/tuple"):
+        serde.to_wire(payload)
+
+
+def test_nested_shown_candidate_ids_raises():
+    payload = _sample_payload()
+    payload["shown_candidate_ids"] = ["c0", ["c1"]]
+    with pytest.raises(ValueError, match="opaque strings"):
+        serde.to_wire(payload)
+
+
+def test_none_entry_in_shown_candidate_ids_raises():
+    payload = _sample_payload()
+    payload["shown_candidate_ids"] = ["c0", None]
+    with pytest.raises(ValueError, match="opaque strings"):
+        serde.to_wire(payload)
+
+
 def test_numeric_entry_in_shown_full_signatures_raises():
     payload = _sample_payload()
     payload["shown_full_signatures"] = [456]
@@ -297,3 +318,9 @@ def test_from_wire_rejects_numeric_shown_candidate_id():
     # the id-sequence guard fires in the camel→snake direction too (key_context is the wire key)
     with pytest.raises(ValueError):
         serde.from_wire({"shownCandidateIds": ["c0", 123]})
+
+
+def test_from_wire_rejects_scalar_shown_candidate_ids():
+    # the field itself must be an array; a bare string is valid only as an element.
+    with pytest.raises(ValueError, match="list/tuple"):
+        serde.from_wire({"shownCandidateIds": "c0"})
