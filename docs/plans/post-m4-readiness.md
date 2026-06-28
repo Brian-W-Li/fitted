@@ -455,6 +455,40 @@ poison), but **the M5 live-write path must isolate the snapshot write** (it is b
 user-facing) and decide drop-`raw_emitted`-and-retry vs. skip-the-snapshot, so one bad GPT payload can't break the
 recommendation. Pair with H48–H51 as an M5-live-write robustness item.
 
+### 9.2 Targeted full-read of the M4a ingestion classifiers + the M4b model guards (2026-06-27, follow-up #2)
+
+Focused reads (scope = code changed since M4a C1 `8b62d7e4`) of three key areas not covered by 9.1. Two
+verified **correct**; one real finding in the partition-key classifier.
+
+**FINDING — `deriveClothingType` mis-classifies the *unlisted number form* of a rung keyword → `top` (IMPORTANT, bounded).**
+The rung keyword sets (`BOTTOM_KEYWORDS`/`SHOE_KEYWORDS`/…) are matched whole-word with **no pluralization**, so a
+garment word in the form NOT listed falls through to the `top` default. Verified by adversarial probe (5 failing cases):
+`"pleated skirts"` (plural of singular-listed `skirt`), `"wide-leg pant"` / `"linen short"` / `"wool trouser"` /
+`"legging"` (singulars of plural-listed `pants`/`shorts`/`trousers`/`leggings`) all → `top`, should be `bottom`. This is
+the **sampler partition key**, held to higher precision than warmth by design (`deriveWarmth.ts:46-49`).
+- **Why bounded, not a blocker:** `category` is required at ingestion (`route.ts:146`), and the cascade's category
+  checks (`["bottom","bottoms"].includes(cat)`, `cat==="footwear"`, …) catch canonical categories *before* the
+  name-keyword fallback — so this only bites when category is **non-canonical** (`misc`/`clothing`/`accessory`) AND the
+  name uses the unlisted number form. Also user-correctable (form-supplied `clothingType` wins) + a stopgap the W-track
+  VLM CV supersedes.
+- **Why the obvious fix is a TRAP:** the plural-only choice is partly deliberate — adding bare `"short"` (or a blanket
+  `s?` like `ADJECTIVAL_DRESS` uses) would misfire on "short-sleeve shirt" → `bottom`. A safe fix adds only
+  collision-free forms (`skirts`, `trouser`, `legging`, `jegging`, `jogger`, `chino`, probably `pant`) and must keep
+  `short`/`shorts` plural-only. **Brian's call** (partition-key change + collision trap = design decision; not fixed unilaterally).
+
+**VERIFIED CORRECT (no action):**
+- **GenerationSnapshot immutability guard** (`models/GenerationSnapshot.ts`): all mutating query/save/replace paths
+  covered (`updateOne`/`updateMany`/`findOneAndUpdate` whitelist-guarded; `replaceOne`/`findOneAndReplace` rejected;
+  `save` guarded; `findByIdAndUpdate` covered transitively). `$rename` checks both source keys AND destination values;
+  pipeline updates rejected wholesale; nested training-truth edits caught via `path.split(".")[0]`. Documented `bulkWrite`
+  gap is real (M5 must avoid). Two minor notes: hard **deletion** isn't guarded (separate lifecycle), and an
+  **`upsert:true` update would be rejected** by the update guard (can't tell insert-via-upsert from mutation) — both
+  align with the documented "M5 inserts via `.create()`/`.insert`" intent; worth an explicit M5 line.
+- **OutfitInteraction co-presence guard** (`models/OutfitInteraction.ts`): all-4-present-or-all-absent over
+  {snapshotId, candidateId, baseKey, fullSignature}, empty-string-as-absent, on `pre('validate')`. Correct; authenticity
+  binding (ownership/candidate-existence) correctly deferred to the M5 feedback-authenticity gate (Codex #2). A shown
+  candidate always carries all four, so a legit bound row never trips it.
+
 ---
 
 ## Appendix — lane agent IDs (this session, for continuation)
