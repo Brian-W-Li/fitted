@@ -70,13 +70,13 @@ fallback arm, not behavioral truth; v2 wins when they disagree.
 | `fitted/app/api/recommend/route.ts` | Legacy main recommendation endpoint; rewritten at M5 |
 | `fitted/app/api/recommend/regenerate/route.ts` | Legacy re-roll variant; folded into the single route at M5 |
 | `fitted/lib/weather.ts` | Legacy weather helper; v2 re-derives weather as the bucketed Lens field |
-| `fitted/models/*.ts` | Mongo schemas: `User`, `WardrobeItem`, `OutfitInteraction`, `WardrobeImage` |
+| `fitted/models/*.ts` | Mongo schemas: `User`, `WardrobeItem`, `OutfitInteraction`, `WardrobeImage`, `GenerationSnapshot` (M4b; registered dormant) |
 | `fitted/docs/ML_OVERVIEW.md` | Legacy deployed-app writeup. Prefer source code; v2 wins. |
 | `fitted/docs/database.md` | Deployed-schema reference. Prefer `fitted/models/*.ts`; v2 wins for targets. |
 
 ## Current focus: `ml-system/` rewrite
 
-Goal: build the v2 recommendation substrate first, then use it as the seam for the trained style-graph scorer. The immediate work is `ml-system/fitted_core/`: pure contracts, sampler, validator, ranker, cache/logging contracts, and later the M5 service boundary.
+Goal: build the v2 recommendation substrate first, then use it as the seam for the trained style-graph scorer. The substrate (`ml-system/fitted_core/` M0–M3 + the Spearhead rescue vertical) and the M4 data/snapshot layer are **built**. The immediate work is the **H26 compatibility spike** (offline, `/spec`-pending — the zero-user demonstrable ML result) and then the **M5 service cutover** (deploy + `USE_ML_SHORTLISTER` + live snapshot write). Sequence: consolidation → H26 → M5 (Spec §20).
 
 Maps to team issues **#84** (Brian's own: *"LLM prompts make it better"*) and **#112** (*"Shortlisting strategy for LLM context"*). The team's brainstorm in `ml-system/mlWhatWeAreGoingTodo` essentially specced it.
 
@@ -85,7 +85,7 @@ Sketch of the arc:
 1. ✅ `fitted_core` M0-M3: sampler, validation boundary, ranker, regen controls, deterministic tests; closed.
 2. ✅ Spearhead: orphan-item rescue end-to-end on the v2 pipeline (C1–C6; done 2026-06-25, specced in `docs/plans/spearhead.md`) — three new modules `generation`/`rescue`/`response` + the `Generator` seam + the C6 `evaluation`/`cli` eval surface, over the closed M0–M3 substrate. C6/H40 live-eval recorded in the plan's §E. Deferred feedback storage to M4.
 3. M4: **✅ done** (C1–C8, `docs/plans/m4-data-model-migration.md` §14). **M4a** (data path — DB wipe, 5-value `clothingType` + keyword-derived `warmth`, PreferenceSummary rip, ingestion rebuild; C1–C3) committed + live-verified. **M4b** (dormant snapshot substrate — fitted_core version constants + `snapshot_serde` wire layer, the GenerationSnapshot model + immutability guard + indexes, the Python `GenerationSnapshotPayload` + Option-B trace siblings, the `wardrobeimages` cascade, the e2e contract fixture; C4–C8) committed + heavy-audited, ships dormant. `material`/`formality`/`styleTags` columns + cascade-redaction wiring scope-trimmed to later milestones. **M5 owns the live cutover — see the plan's §14.5 M5-handoff note.** Current suite floor: **≥706 pytest green / ≥359 jest** (floors grow, never pins).
-4. **H26 compatibility spike (offline, `/spec`-pending):** a public-corpus content-compatibility baseline (Polyvore disjoint split; AUC + FITB vs a GPT-4o-as-judge baseline) — the zero-user demonstrable ML result + the go/no-go on the trained scorer; settles the H28 seam shape (pairwise/edge) before M5 wires it. Not gated behind M5; slot before/around M4b. (Spec §20 + §23-H26/H28.)
+4. **H26 compatibility spike (offline, `/spec`-pending):** a public-corpus content-compatibility baseline (Polyvore disjoint split; AUC + FITB vs a GPT-4o-as-judge baseline) — the zero-user demonstrable ML result + the go/no-go on the trained scorer; settles the H28 seam shape (pairwise/edge) before M5 wires it. Not gated behind M5; it is the **immediate next rung after this consolidation** (consolidation → H26 → M5), slotted before M5 wires the scorer call. The honest thesis is **cost/latency parity, not quality-superiority** (GPT-4o is already the production stylist); a no-go still ships a result. (Spec §20 + §23-H26/H28.)
 5. M5: deploy the Python service; wire the Next app behind `USE_ML_SHORTLISTER`; live GenerationSnapshot write + the runtime authenticity gate; full recommend/regenerate rewrite.
 6. M6: train the style-graph scorer at the `SignalScorer` seam (gated by the spike); evaluate with GenerationSnapshots + feedback.
 7. Writeup: architecture diagram, methodology, before/after numbers.
@@ -103,7 +103,7 @@ This is an **overhaul**. The product direction is the **lens-first personal styl
 - This `CLAUDE.md` — project conventions and scope.
 
 **Authoritative for data shape:**
-- `fitted/models/*.ts` — actual deployed Mongo schemas. These are what exists today; M4/M5 will migrate them to support the v2 contracts. Reference them for data shape, not for behavioral baselines.
+- `fitted/models/*.ts` — actual deployed Mongo schemas. **M4 already migrated them** (5-value `clothingType`, the `warmth` column, the `GenerationSnapshot` model, the `OutfitInteraction` binding/scope fields); M5 extends them further (the request adapter + the live snapshot write). Reference them for data shape, not for behavioral baselines.
 
 **Historical context only — do not mine for architectural truth:**
 - `docs/Fitted_Spec_v2_recovered_appendix.md` — preserved ambition, anecdotes, dream notes, user-story inventory, and north-star concepts from the Codex brainstorm. It is intentionally separate from the implementation-facing spec.
