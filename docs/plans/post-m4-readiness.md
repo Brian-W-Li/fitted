@@ -414,9 +414,10 @@ the main loop before acting. Baseline & after: **pytest 715→718, jest 366→36
 
 **Tracked, NOT fixed (unreachable today / dies at M5 — do not churn):**
 - serde **flatness gap** (a nested all-*string* list slips the id-sequence guard) + **`slotMap` id-values** and
-  **scalar `fullSignature`** are not in `_ID_KEYS`/`_ID_SEQUENCE_KEYS`. Same "guard every id" intent, but all
-  sources are typed `str` (`WardrobeItem.id`, `full_signature`) — unreachable in normal flow. Defense-in-depth
-  parity gaps; close opportunistically when serde is next touched for M5.
+  the **scalar `fullSignature`/`baseKey`** are not in `_ID_KEYS`/`_ID_SEQUENCE_KEYS`. Same "guard every id" intent,
+  but all sources are typed `str` (`WardrobeItem.id`, `full_signature`, `base_key`) — unreachable in normal flow,
+  and signatures/keys aren't populatable item refs (H10's guard targets item/candidate ids), so arguably by-design.
+  Defense-in-depth parity gaps; close opportunistically when serde is next touched for M5.
 - `response.py` `_neutral_anchor`/`_statement_tags`/`_occasion_overlap` would `ZeroDivisionError` on an all-`None`
   SlotMap — unreachable (M2 `is_valid_slotmap` guarantees a base before ranking). One-line precondition guard if touched.
 - `endToEndRecommendationFlow.test.ts` is tautological (zero imports; re-implements the logic it "tests"). Its
@@ -431,6 +432,28 @@ the main loop before acting. Baseline & after: **pytest 715→718, jest 366→36
 Everything else audited (sampler/validator/ranker determinism, keys/seed framing, snapshot immutability, rescue
 dup-guard across both entries, clear-wardrobe cascade parity, config single-home, engineVisible field map,
 OutfitInteraction scope/binding fields) verified **clean and faithful to the north-star** — no silent narrowing.
+
+### 9.1 Targeted full-read of `snapshot.py` ↔ `snapshot_serde.py` (2026-06-27, follow-up)
+
+A deeper line-by-line read of the dormant snapshot builder (no excerpt-reading), since today's serde lane found two
+real latent bugs in that exact area. **Result: the two highest-risk invariants are provably correct, not just
+asserted:**
+- **`source_index` join base is shared across every funnel stage.** Validator's cap is a *prefix* slice
+  (`validator.py:583`) so survivor indices are unchanged; `source_index`/`candidate_index` are positions in the
+  original `outfits` array (`validator.py:621`); the ranker carries that index forward (`ranker.py:766`); and
+  `parsed_outfits` is the FULL unsliced array (`validator.py:644`). So `enumerate(parsed_outfits)` in
+  `_build_candidates` shares the exact join key — no score/rejection is mis-attributed to the wrong outfit.
+- **No shown candidate is silently dropped by the `full_signature` join.** `_build_candidates` skips a variant whose
+  signature isn't in `rank_audit.scored` (`snapshot.py:335`), but `result.outfits ⊆ scored` is guaranteed
+  (`ranker.py:907-908,943-944`: `scored[:len(result.outfits)] == result.outfits`) and variants are built from
+  `result.outfits` (`response.py:571/608`), so the skip never fires for a shown candidate. `shownCandidateIds` is faithful.
+
+**One new M5 note (not previously registered):** `raw_emitted` holds a raw parsed GPT outfit, and Python's
+`json.loads` parses `NaN`/`Infinity` by default — so a pathological GPT payload would make `to_wire` **correctly
+raise** at the M5 live write (`snapshot_serde.py` non-finite-float guard). That is right behavior (reject, don't
+poison), but **the M5 live-write path must isolate the snapshot write** (it is best-effort training capture, not
+user-facing) and decide drop-`raw_emitted`-and-retry vs. skip-the-snapshot, so one bad GPT payload can't break the
+recommendation. Pair with H48–H51 as an M5-live-write robustness item.
 
 ---
 
