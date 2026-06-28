@@ -353,8 +353,12 @@ class SamplerResult:
     scorer_available: bool
 
 
-def _reject_duplicate_ids(wardrobe: list[WardrobeItem]) -> None:
-    """Raise if any logical item id repeats (R12) — the sampler-entry backstop.
+def reject_duplicate_ids(wardrobe: list[WardrobeItem]) -> None:
+    """Raise if any logical item id repeats (R12) — the in-engine precondition guard.
+
+    Public: called at the sampler entry (``build_candidate_pool``) and early in the rescue
+    entry (``rescue``/``rescue_with_trace``), before their pre-GPT exits, so a duplicate-id
+    misuse always fails loud regardless of which vertical runs.
 
     A duplicate id collapses M2's sampled-pool lookup and breaks key equality (§7),
     and partition's id-sort is only permutation-invariant under unique ids (R4). M0
@@ -426,7 +430,7 @@ def build_candidate_pool(
     ``candidate_requested == 0`` the result is flagged ``not_enough_items`` so the M5
     caller short-circuits to notEnoughItems before any GPT call (v2 §10/§12).
     """
-    _reject_duplicate_ids(wardrobe)  # R12 — before partition
+    reject_duplicate_ids(wardrobe)  # R12 — before partition
     scorer_available = _resolve_scorer_availability(scorer)  # once per request (R11)
 
     seed = session_seed(

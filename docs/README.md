@@ -7,7 +7,7 @@ read by authority level, not by filename age or folder location.
 
 - `../CLAUDE.md` - repo operating guide and default reading list for AI/code sessions.
 - `Fitted_Spec_v2.md` - canonical product and technical spec. This wins over every older doc.
-- `plans/m4-data-model-migration.md` - **active milestone plan.** §14 is the live C1–C8 ladder. **M4a (C1–C3) ✅ done; M4b (C4–C8) is the current build target** (`Fitted_Spec_v2.md` §20).
+- `plans/m4-data-model-migration.md` - **completed M4 reference** (C1–C8 ✅ done; §14 is the ladder, §14.5 the M5-handoff). **Next active work: the H26 compatibility spike (`/spec`-pending), then the M5 cutover** — sequence consolidation → H26 → M5 (`Fitted_Spec_v2.md` §20). Forward-readiness gaps for those rungs live in `plans/post-m4-readiness.md`.
 - `plans/spearhead.md` - completed Spearhead plan: orphan-item rescue cold-start vertical (C1–C6 ladder, done 2026-06-25); reference. The C6/H40 live-eval results are in its §E.
 - `plans/m3-ranker.md` - completed M3 ranker plan (C1-C6); reference. See the §11 checkpoint table for per-checkpoint detail.
 - `plans/m2-validator.md` - completed M2 validator plan; reference.

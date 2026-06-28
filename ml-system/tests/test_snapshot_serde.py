@@ -218,3 +218,55 @@ def test_from_wire_rejects_objectid_id_too():
     wire = {"itemId": FakeObjectId()}
     with pytest.raises((ValueError, TypeError)):
         serde.from_wire(wire)
+
+
+# --- id-sequence + scalar-id guards (plural/container id fields, not just the scalar itemId) ----
+
+
+def test_numeric_entry_in_shown_candidate_ids_raises():
+    payload = _sample_payload()
+    payload["shown_candidate_ids"] = ["c0", 123]
+    with pytest.raises(ValueError):
+        serde.to_wire(payload)
+
+
+def test_numeric_entry_in_shown_full_signatures_raises():
+    payload = _sample_payload()
+    payload["shown_full_signatures"] = [456]
+    with pytest.raises(ValueError):
+        serde.to_wire(payload)
+
+
+def test_numeric_changed_item_id_in_style_move_raises():
+    payload = _sample_payload()
+    payload["candidates"][0]["style_move"] = {
+        "move_type": "swap",
+        "changed_item_ids": ["abc123", 789],  # a non-string id inside the sequence
+        "one_sentence": "x",
+    }
+    with pytest.raises(ValueError):
+        serde.to_wire(payload)
+
+
+def test_non_string_scalar_forced_item_id_raises():
+    payload = _sample_payload()
+    payload["forced_item_id"] = 999
+    with pytest.raises(ValueError):
+        serde.to_wire(payload)
+
+
+def test_string_id_sequences_round_trip_cleanly():
+    payload = _sample_payload()
+    payload["shown_candidate_ids"] = ["c0", "c1"]
+    payload["shown_full_signatures"] = ["t1:b1|outer=none|shoes=none"]
+    payload["forced_item_id"] = "t1"
+    wire = serde.to_wire(payload)
+    assert wire["shownCandidateIds"] == ["c0", "c1"]
+    assert wire["forcedItemId"] == "t1"
+    assert serde.from_wire(wire)["shown_candidate_ids"] == ["c0", "c1"]
+
+
+def test_from_wire_rejects_numeric_shown_candidate_id():
+    # the id-sequence guard fires in the camel→snake direction too (key_context is the wire key)
+    with pytest.raises(ValueError):
+        serde.from_wire({"shownCandidateIds": ["c0", 123]})

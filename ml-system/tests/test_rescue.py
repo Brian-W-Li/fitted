@@ -33,6 +33,7 @@ from fitted_core.rescue import (
     _scope_pool_to_forced,
     _serialize_pool_item,
     rescue,
+    rescue_with_trace,
 )
 from fitted_core.sampler import (
     ColdStartSignalScorer,
@@ -700,6 +701,56 @@ def test_rescue_success_returns_ranked_validated_candidates():
     # 3 distinct outfits ≥ n_surfaced → no post-generation shortfall.
     assert result.insufficient_after_generation is False
     assert result.reason_hint is None
+
+
+# --- caller-contract precondition: duplicate ids fail loud BEFORE the pre-GPT sufficiency exit ---
+
+
+def test_rescue_raises_on_duplicate_ids_before_the_insufficiency_exit():
+    # Forced top + NO bottom is the pre-GPT insufficient case (would return not_enough_items).
+    # A duplicate logical id must STILL fail loud (R12): the early guard fires before the
+    # sufficiency exit that would otherwise mask the caller misuse on an insufficient closet.
+    wardrobe = [
+        _item("t1", ItemType.top),
+        _item("s1", ItemType.shoes),
+        _item("s1", ItemType.shoes),  # duplicate id
+    ]
+    request = RescueRequest(
+        wardrobe=wardrobe,
+        forced_item_id="t1",
+        occasion="x",
+        weather="mild",
+        session_id="sess-dup",
+        wardrobe_version=1,
+    )
+    with pytest.raises(ValueError, match="duplicate logical item id"):
+        rescue(request, StubGenerator(_three_distinct_outfits()))
+
+
+def test_rescue_with_trace_also_rejects_duplicate_ids_before_sufficiency():
+    wardrobe = [
+        _item("t1", ItemType.top),
+        _item("s1", ItemType.shoes),
+        _item("s1", ItemType.shoes),  # duplicate id
+    ]
+    request = RescueRequest(
+        wardrobe=wardrobe,
+        forced_item_id="t1",
+        occasion="x",
+        weather="mild",
+        session_id="sess-dup2",
+        wardrobe_version=1,
+    )
+    with pytest.raises(ValueError, match="duplicate logical item id"):
+        rescue_with_trace(request, StubGenerator(_three_distinct_outfits()))
+
+
+def test_rescue_insufficient_without_dup_still_returns_not_enough_items():
+    # Control: the same insufficient closet (forced top, no bottom) WITHOUT a duplicate id returns
+    # the graceful not_enough_items — proving the raise above is the dup, not the insufficiency.
+    request = _forced_top_request(n_bottoms=0)
+    result = rescue(request, StubGenerator(_three_distinct_outfits()))
+    assert result.not_enough_items is True
 
 
 def test_rescue_calls_generator_with_a_generation_prompt():

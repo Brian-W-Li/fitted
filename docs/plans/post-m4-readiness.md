@@ -348,6 +348,43 @@ the provenance triple is the *joint* generation+ranking key (§4.5); H28 "not ye
 
 ---
 
+## 8. Codex independent audit (2026-06-27) — verified dispositions
+
+A parallel Codex read-only audit surfaced 10 findings; **all verified against source** this session (and
+re-reviewed clean by a fresh-context agent). Disposition:
+
+**Fixed now (cheap closes in code/substrate we KEEP — `pytest 706→715`, `jest 363→366`):**
+- **#3** clear-wardrobe orphaned image docs → extracted `lib/clearWardrobe.ts` deletes items **and** images
+  (the §23-H14 clear arm, parallel to `cascadeDeleteUserData`), test added. (H14's clear arm now closed; the
+  image-replace-ordering arm stays W-track.)
+- **#7** serde guarded only *scalar* ids → added `_ID_SEQUENCE_KEYS` element-guard for `shownCandidateIds`/
+  `shownFullSignatures`/`changedItemIds`/`baseOutfitItemIds` + scalar `forcedItemId`, tests added. **This was a
+  gap this session's own Lane 7 (serde parity) missed** — the value of two independent reads.
+- **#8** rescue pre-GPT exit masked duplicate-id misuse → `_reject_duplicate_ids` promoted to public
+  `reject_duplicate_ids`, called early in `rescue()`/`rescue_with_trace()` before the sufficiency exit, tests +
+  control test added.
+- **#9** `docs/README.md` + `CODEX_HANDOFF.md` banner said "M4b is the current build target" → updated to
+  "M4 done; next H26 → M5".
+
+**Tracked, deferred by design (NOT M4 blockers — do not polish code M5 rewrites):**
+- **#1** `auth/sync` + `account` routes trust body `firebaseUid` with no token verify — already §19 trust-boundary
+  gates ("Release blocker, not an M0 blocker"). KEPT routes, a real account-takeover vector, but zero users on
+  this fork (the live app is the team's separate repo). **Open decision:** fix in a focused trust-boundary pass —
+  now if the fork is to be shared (the someday-launch path), else at M5.
+- **#2** `interactions` persists client `items`/`perItemFeedback.itemId` unowned — §16 feedback-authenticity
+  gate, M5 binds feedback by `{snapshotId,candidateId}` and server-sets items from the re-read snapshot.
+- **#4** regen lock∩dislike unsatisfiable — **already designed** (`regen-controls.md` table → `400`); legacy
+  route, M5's single route implements it.
+- **#5** legacy recommend `.every` on malformed itemIds + **#6** dashboard `sessionStorage` cache not
+  user-scoped — both in legacy `recommend/route.ts` / `dashboard/page.tsx`, deleted/rewritten at M5 (§19).
+- **#10** duplicate clear handlers in `wardrobe/page.tsx` — nit; consolidate when the page is next touched.
+
+Codex's "solid — don't break" list independently confirms the GenerationSnapshot immutability guards, the serde
+scoped-casing, sampler/ranker determinism, the response-layer bucket-not-gate posture, and the H47 warmth fix —
+consistent with this session's lanes.
+
+---
+
 ## Appendix — lane agent IDs (this session, for continuation)
 
 L1 H26 `a14870f494fa73cdd` · L2 integration `aee2f0d481d9e377f` · L3 eval-data `aa2825af27f94121c` ·

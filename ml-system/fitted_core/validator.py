@@ -341,7 +341,7 @@ def _build_pool_index(sampled_pool: Sequence[WardrobeItem]) -> set[str]:
 
     The pool is the bounded set GPT was shown; candidate ids are validated against it
     (never the wider wardrobe). A **duplicate id** is caller-contract misuse →
-    ``ValueError`` (mirrors ``sampler._reject_duplicate_ids``): a duplicate collapses
+    ``ValueError`` (mirrors ``sampler.reject_duplicate_ids``): a duplicate collapses
     the membership lookup and breaks key equality (§7/R12). A clean M1 path can never
     produce this, so raising surfaces the upstream bug loudly instead of silently
     mis-validating. Built up front — before the root envelope — so this caller-contract

@@ -21,7 +21,7 @@ directly); the path/risk scoring + ``select_spread`` themselves live in ``respon
 closed M0–M3 ranker is never touched).
 
 Error model (package ``__init__.py``): a forced item absent from the wardrobe is
-**caller-contract misuse → ``ValueError``** (matches ``sampler._reject_duplicate_ids``); the
+**caller-contract misuse → ``ValueError``** (matches ``sampler.reject_duplicate_ids``); the
 data-driven "can't build around this orphan" outcome is the sufficiency **hint** (routine
 control flow, surfaced as ``not_enough_items`` by the C4 orchestration — never a raise).
 
@@ -60,6 +60,7 @@ from fitted_core.sampler import (
     SamplerResult,
     build_candidate_pool,
     partition,
+    reject_duplicate_ids,
 )
 from fitted_core.validator import (
     ValidatedCandidate,
@@ -623,6 +624,12 @@ def rescue(request: RescueRequest, generator: Generator) -> RescueResult:
     is pure, and the ranker is seeded by the request context (spearhead.md §J). The ``generator``
     is the only impurity; the real ``OpenAIGenerator`` is never imported here.
     """
+    # Caller-contract precondition (R12): duplicate logical ids corrupt key equality, so fail loud
+    # HERE — before the pre-GPT sufficiency exit, which would otherwise mask the misuse on an
+    # insufficient closet by returning not_enough_items. (generation_index/k are caller-validated at
+    # ranking time via RankerContext and are unused on the pre-GPT exit.)
+    reject_duplicate_ids(request.wardrobe)
+
     # Step 1 — resolve the forced item (ValueError on a missing id: caller misuse, fail loud)
     # and its template/valid-type shape (H22).
     forced_item = _resolve_forced_item(request.wardrobe, request.forced_item_id)
@@ -812,6 +819,10 @@ def rescue_with_trace(request: RescueRequest, generator: Generator) -> RescueTra
     so every discard site is captured. The public ``rescue()`` is untouched; ``RescueTrace.result``
     is byte-equal to ``rescue(request, generator)`` under the same deterministic generator.
     """
+    # Caller-contract precondition (R12) — fail loud before the pre-GPT sufficiency exit (mirrors
+    # rescue(); the insufficient path would otherwise mask a duplicate-id misuse).
+    reject_duplicate_ids(request.wardrobe)
+
     # Steps 1–2 — resolve the forced item + the PRE-GPT structural sufficiency exit (no GPT call).
     forced_item = _resolve_forced_item(request.wardrobe, request.forced_item_id)
     _, valid_types = _resolve_shape(forced_item.type)

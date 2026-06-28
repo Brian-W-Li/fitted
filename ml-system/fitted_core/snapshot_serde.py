@@ -71,6 +71,21 @@ _ID_KEYS: frozenset[str] = frozenset(
         "snapshotId", "snapshot_id",
         "sourceAttemptId", "source_attempt_id",
         "attemptId", "attempt_id",
+        "forcedItemId", "forced_item_id",
+    }
+)
+
+# Fields whose VALUE is a sequence of opaque-string ids/signatures. The scalar _ID_KEYS guard
+# above cannot reach list elements, so a numeric entry in shownCandidateIds / shownFullSignatures
+# / changedItemIds / baseOutfitItemIds would otherwise cross the wire as a number and weaken the
+# M5 snapshot/feedback identity contract (§15.1). Both casings listed (key_context is the SOURCE
+# key — snake on to_wire, camel on from_wire), same convention as _ID_KEYS.
+_ID_SEQUENCE_KEYS: frozenset[str] = frozenset(
+    {
+        "shownCandidateIds", "shown_candidate_ids",
+        "shownFullSignatures", "shown_full_signatures",
+        "changedItemIds", "changed_item_ids",
+        "baseOutfitItemIds", "base_outfit_item_ids",
     }
 )
 
@@ -139,6 +154,18 @@ def _convert(
         raise ValueError(
             f"id field {key_context!r} must cross the wire as an opaque string, "
             f"got {type(value).__name__}: {value!r}"
+        )
+    if (
+        not opaque
+        and key_context in _ID_SEQUENCE_KEYS
+        and value is not None
+        and not isinstance(value, (str, list, tuple))
+    ):
+        # The list/tuple container itself passes; each element recurses with this same
+        # key_context, so a non-string element (numeric/object/bool) is what trips this guard.
+        raise ValueError(
+            f"id-sequence field {key_context!r} must hold opaque strings, "
+            f"got element {type(value).__name__}: {value!r}"
         )
     if isinstance(value, bool):
         return value
