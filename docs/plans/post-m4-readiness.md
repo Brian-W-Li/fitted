@@ -474,7 +474,9 @@ the **sampler partition key**, held to higher precision than warmth by design (`
 - **Why the obvious fix is a TRAP:** the plural-only choice is partly deliberate — adding bare `"short"` (or a blanket
   `s?` like `ADJECTIVAL_DRESS` uses) would misfire on "short-sleeve shirt" → `bottom`. A safe fix adds only
   collision-free forms (`skirts`, `trouser`, `legging`, `jegging`, `jogger`, `chino`, probably `pant`) and must keep
-  `short`/`shorts` plural-only. **Brian's call** (partition-key change + collision trap = design decision; not fixed unilaterally).
+  `short`/`shorts` plural-only. **DECIDED (2026-06-27): leave as-is.** This is the known-broken keyword CV stopgap the
+  W-track VLM CV replaces wholesale — not worth hardening. Kept here as a watch-item only: if the W-track slips and this
+  classifier has to live longer than expected, revisit the safe-subset fix.
 
 **VERIFIED CORRECT (no action):**
 - **GenerationSnapshot immutability guard** (`models/GenerationSnapshot.ts`): all mutating query/save/replace paths
