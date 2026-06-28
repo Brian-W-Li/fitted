@@ -1209,7 +1209,7 @@ map is their forwarding address.
 
 ## Appendix B — Config constants (single home, §22)
 
-`DEFAULT_K=10` · per-type caps `TOPS=35, BOTTOMS=30, DRESSES=25, OUTER=20, SHOES=25` ·
+`DEFAULT_K=10` · per-type caps `CAP_TOPS=35, CAP_BOTTOMS=30, CAP_DRESSES=25, CAP_OUTER=20, CAP_SHOES=25` (the `CAP_` prefix is the live `config.py` name — import by it) · `BASEKEY_VARIANT_CAP=2` (the ranker's first diversity gate — top-2 variants per BaseKey by pre-penalty score, §14) ·
 `MAX_PROMPT_ITEMS=135` (= cap sum, asserted) · `MAX_CANDIDATES=40` · `MIN_SIGNAL_THRESHOLD=5` ·
 `MAX_AFFINITY=20` · `OVERUSE_MIN_POOL=15` · `OVERUSE_THRESHOLD=0.40` · `OVERUSE_PENALTY=0.5` (magnitude, per
 overused item, subtracted — S4) · `COOLDOWN_PENALTY=-2.0` (stored
@@ -1221,7 +1221,7 @@ reducer; provisional, M5-tunable — §15.1) ·
 `FEEDBACK_DEDUP_WINDOW` (S6: read-time window collapsing same-`{snapshotId,candidateId,action}` feedback rows
 in the compute-live affinity projection — accidental retry counts once, repeat-events outside it each count;
 provisional, M5-tunable — §16/H11) ·
-`REPETITION_PENALTY=1.0` (flat magnitude on a re-shown FullSignature, subtracted — S4) · cache TTL 15 min. The 70/30 split
+`REPETITION_PENALTY=1.0` (flat magnitude on a re-shown FullSignature, subtracted — S4) · cache TTL 15 min (M5 — no caching layer in the substrate yet; not a `config.py` constant). The 70/30 split
 is **not** a constant — it is the sampler-owned `random_count` helper (§10/R6). *(Note: deployed K default is
 5, not 10; v2 sets 10.)*
 
