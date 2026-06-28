@@ -369,8 +369,9 @@ re-reviewed clean by a fresh-context agent). Disposition:
 **Tracked, deferred by design (NOT M4 blockers — do not polish code M5 rewrites):**
 - **#1** `auth/sync` + `account` routes trust body `firebaseUid` with no token verify — already §19 trust-boundary
   gates ("Release blocker, not an M0 blocker"). KEPT routes, a real account-takeover vector, but zero users on
-  this fork (the live app is the team's separate repo). **Open decision:** fix in a focused trust-boundary pass —
-  now if the fork is to be shared (the someday-launch path), else at M5.
+  this fork (the live app is the team's separate repo). **Decided (2026-06-27): folded into M5** — the §20 M5
+  *trust-boundary gates* deliverable owns the hardening (verify the Firebase token, derive identity from it,
+  enforce ownership); recorded in spec §19. Not actioned now (zero users on this fork).
 - **#2** `interactions` persists client `items`/`perItemFeedback.itemId` unowned — §16 feedback-authenticity
   gate, M5 binds feedback by `{snapshotId,candidateId}` and server-sets items from the re-read snapshot.
 - **#4** regen lock∩dislike unsatisfiable — **already designed** (`regen-controls.md` table → `400`); legacy

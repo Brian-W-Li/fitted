@@ -41,7 +41,13 @@ This project uses MongoDB via Mongoose for user accounts, wardrobe items, and ou
 Authentication is handled via Firebase Auth (Google sign-in).
 Each developer must create a `.env.local` with Firebase config values.
 
-### Schemas (current lean version)
+### Schemas (overview — `models/*.ts` is authoritative; this list predates M4)
+
+> Orientation only, not current truth. The deployed schemas now carry the M4 additions —
+> `clothingType` (5-value) + `warmth` on `WardrobeItem`, the `GenerationSnapshot` model, and the
+> `OutfitInteraction` snapshot-binding + scope fields. Read `models/*.ts` for the live shape and
+> `docs/Fitted_Spec_v2.md` §6 for the v2 targets.
+
 - `User` (`models/User.ts`)
   - `authProvider` + `authId`: links to auth (e.g., Firebase UID) and is unique.
   - `email`, `displayName`, `photoURL`: basic profile.

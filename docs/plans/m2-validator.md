@@ -243,7 +243,7 @@ the "missing/non-string/unknown role" requirement without M2 re-implementing rol
 ## 6. Invalid `candidate_requested` decision
 
 **Decision D6 — caller-contract semantics** (mirrors the package convention: caller misuse raises; matches
-the existing `sampler._reject_duplicate_ids` and `_is_finite_score` bool-rejection precedents). Order the
+the existing `sampler.reject_duplicate_ids` and `_is_finite_score` bool-rejection precedents). Order the
 guard as type-first, then value:
 
 | Input | Behavior |
@@ -326,7 +326,7 @@ reproducible for downstream snapshots/logging.
 - Candidate ids are validated **only against the sampled pool**, never the full wardrobe (the pool is the
   bounded set GPT was shown; §8/§12).
 - **Duplicate ids in `sampled_pool` are caller-contract misuse → `ValueError`** (mirrors
-  `sampler._reject_duplicate_ids`, R12: a duplicate id collapses the membership lookup and breaks key
+  `sampler.reject_duplicate_ids`, R12: a duplicate id collapses the membership lookup and breaks key
   equality). A clean M1 path can never produce this; raising surfaces the upstream bug loudly.
 
 The contract is **flat `Sequence[WardrobeItem]`, no variant** — a caller holding the sampler's per-type
