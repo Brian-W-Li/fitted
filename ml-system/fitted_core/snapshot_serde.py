@@ -99,6 +99,22 @@ _ID_SEQUENCE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Required array fields from the §15.1 snapshot contract. The serializer is not a full
+# schema validator (it does not require absent keys on arbitrary partial dicts), but if one
+# of these contract arrays is present it must cross as an array, never null/scalar. This
+# preserves the spec distinction "absent != empty" instead of letting a writer smuggle
+# ``None`` through the wire and relying on storage to discover it later.
+_REQUIRED_SEQUENCE_KEYS: frozenset[str] = frozenset(
+    {
+        "itemSnapshots", "item_snapshots",
+        "generationAttempts", "generation_attempts",
+        "candidates",
+        "shownCandidateIds", "shown_candidate_ids",
+        "shownFullSignatures", "shown_full_signatures",
+        "changedItemIds", "changed_item_ids",
+    }
+)
+
 # Fields whose VALUE is opaque to the casing pass: a Map keyed by data (ItemType /
 # IssueCode value / arbitrary constraint name) or a verbatim Mixed blob (raw GPT / CV
 # payloads, the embedded style-profile snapshot). The field name itself IS re-cased; only
@@ -171,6 +187,7 @@ def _convert(
     opaque: bool = False,
     in_engine: bool = False,
     id_sequence_element: bool = False,
+    sequence_element: bool = False,
 ) -> Any:
     """Recursively re-case keys and validate the boundary guarantees.
 
@@ -178,8 +195,10 @@ def _convert(
     error messages). ``opaque`` (inside a data-Map / Mixed blob) preserves nested keys
     verbatim; ``in_engine`` (immediately inside an ``engine_visible`` object) enables the
     engineVisible rename table. ``id_sequence_element`` distinguishes a plural-id field's
-    outer container from its string elements. Ordering matters: the id guard runs before
-    type dispatch, and the ``bool`` check precedes the ``int``/``float`` branches
+    outer container from its string elements; ``sequence_element`` prevents required-array
+    container checks from re-firing on each object inside arrays like ``item_snapshots``.
+    Ordering matters: the id guard runs before type dispatch, and the ``bool`` check precedes
+    the ``int``/``float`` branches
     (``bool`` ⊂ ``int``).
     """
     if not opaque and key_context in _ID_KEYS and value is not None and not isinstance(value, str):
@@ -187,6 +206,22 @@ def _convert(
             f"id field {key_context!r} must cross the wire as an opaque string, "
             f"got {type(value).__name__}: {value!r}"
         )
+    if (
+        not opaque
+        and key_context in _REQUIRED_SEQUENCE_KEYS
+        and not id_sequence_element
+        and not sequence_element
+    ):
+        if value is None:
+            raise ValueError(
+                f"required array field {key_context!r} must cross the wire as a list/tuple, "
+                "got NoneType: None"
+            )
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(
+                f"required array field {key_context!r} must cross the wire as a list/tuple, "
+                f"got {type(value).__name__}: {value!r}"
+            )
     if not opaque and key_context in _ID_SEQUENCE_KEYS:
         if value is None:
             if id_sequence_element:
@@ -215,6 +250,7 @@ def _convert(
                     opaque=opaque,
                     in_engine=in_engine,
                     id_sequence_element=True,
+                    sequence_element=True,
                 )
                 for v in value
             ]
@@ -242,7 +278,14 @@ def _convert(
         return result
     if isinstance(value, (list, tuple)):
         return [
-            _convert(v, to_wire=to_wire, key_context=key_context, opaque=opaque, in_engine=in_engine)
+            _convert(
+                v,
+                to_wire=to_wire,
+                key_context=key_context,
+                opaque=opaque,
+                in_engine=in_engine,
+                sequence_element=True,
+            )
             for v in value
         ]
     if isinstance(value, float):

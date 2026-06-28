@@ -45,6 +45,10 @@ const validBase = () => ({
   itemSnapshots: [],
   generationAttempts: [],
   candidates: [],
+  shownCandidateIds: [],
+  shownFullSignatures: [],
+  nSurfaced: 0,
+  spreadCollapsed: false,
 });
 
 // ---------------------------------------------------------------------------
@@ -66,11 +70,38 @@ describe("GenerationSnapshot — validation", () => {
     "interactionCountAtRequest",
     "fittedCoreVersion",
     "rankerConfigVersion",
+    "nSurfaced",
+    "spreadCollapsed",
   ])("requires %s", (path) => {
     const doc = validBase() as Record<string, unknown>;
     delete doc[path];
     const err = new GenerationSnapshot(doc).validateSync();
     expect(err?.errors[path]).toBeDefined();
+  });
+
+  it.each(["itemSnapshots", "generationAttempts", "candidates", "shownCandidateIds", "shownFullSignatures"])(
+    "requires %s to be present as an array, while [] is a valid empty value",
+    (path) => {
+      const missing = validBase() as Record<string, unknown>;
+      delete missing[path];
+      expect(new GenerationSnapshot(missing).validateSync()?.errors[path]).toBeDefined();
+
+      const nulled = { ...validBase(), [path]: null };
+      expect(new GenerationSnapshot(nulled).validateSync()?.errors[path]).toBeDefined();
+
+      const empty = { ...validBase(), [path]: [] };
+      expect(new GenerationSnapshot(empty).validateSync()?.errors[path]).toBeUndefined();
+    },
+  );
+
+  it("accepts nSurfaced=0 and spreadCollapsed=false, but rejects null/negative shown-history counts", () => {
+    expect(new GenerationSnapshot({ ...validBase(), nSurfaced: 0, spreadCollapsed: false }).validateSync()).toBeUndefined();
+
+    expect(new GenerationSnapshot({ ...validBase(), nSurfaced: null }).validateSync()?.errors.nSurfaced).toBeDefined();
+    expect(
+      new GenerationSnapshot({ ...validBase(), spreadCollapsed: null }).validateSync()?.errors.spreadCollapsed,
+    ).toBeDefined();
+    expect(new GenerationSnapshot({ ...validBase(), nSurfaced: -1 }).validateSync()?.errors.nSurfaced).toBeDefined();
   });
 
   it.each(["provider", "model", "temperature", "promptVersion"])(

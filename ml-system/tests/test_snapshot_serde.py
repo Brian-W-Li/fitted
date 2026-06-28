@@ -264,6 +264,45 @@ def test_scalar_shown_candidate_ids_raises():
         serde.to_wire(payload)
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        "item_snapshots",
+        "generation_attempts",
+        "candidates",
+        "shown_candidate_ids",
+        "shown_full_signatures",
+    ],
+)
+def test_required_snapshot_arrays_reject_none_on_to_wire(key):
+    payload = _sample_payload()
+    payload[key] = None
+    with pytest.raises(ValueError, match="required array"):
+        serde.to_wire(payload)
+
+
+@pytest.mark.parametrize(
+    "wire_key",
+    ["itemSnapshots", "generationAttempts", "candidates", "shownCandidateIds", "shownFullSignatures"],
+)
+def test_required_snapshot_arrays_reject_none_from_wire(wire_key):
+    with pytest.raises(ValueError, match="required array"):
+        serde.from_wire({wire_key: None})
+
+
+@pytest.mark.parametrize("key", ["item_snapshots", "generation_attempts", "candidates"])
+def test_required_snapshot_arrays_reject_scalar_containers(key):
+    payload = _sample_payload()
+    payload[key] = "not-an-array"
+    with pytest.raises(ValueError, match="required array"):
+        serde.to_wire(payload)
+
+
+def test_optional_base_outfit_item_ids_may_be_none():
+    assert serde.to_wire({"base_outfit_item_ids": None}) == {"baseOutfitItemIds": None}
+    assert serde.from_wire({"baseOutfitItemIds": None}) == {"base_outfit_item_ids": None}
+
+
 def test_nested_shown_candidate_ids_raises():
     payload = _sample_payload()
     payload["shown_candidate_ids"] = ["c0", ["c1"]]
@@ -293,6 +332,17 @@ def test_numeric_changed_item_id_in_style_move_raises():
         "one_sentence": "x",
     }
     with pytest.raises(ValueError):
+        serde.to_wire(payload)
+
+
+def test_none_changed_item_ids_in_style_move_raises_when_present():
+    payload = _sample_payload()
+    payload["candidates"][0]["style_move"] = {
+        "move_type": "swap",
+        "changed_item_ids": None,
+        "one_sentence": "x",
+    }
+    with pytest.raises(ValueError, match="required array"):
         serde.to_wire(payload)
 
 

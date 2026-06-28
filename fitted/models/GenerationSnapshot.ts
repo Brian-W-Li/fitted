@@ -318,11 +318,13 @@ const GenerationSnapshotSchema = new Schema(
     },
 
     // --- D: item feature snapshots ---
-    itemSnapshots: { type: [ItemSnapshotSchema], required: true }, // required array, may be empty
+    // `default: undefined` is load-bearing: Mongoose otherwise materializes omitted arrays as
+    // [] before `required` runs, collapsing "writer forgot this field" into "valid empty render".
+    itemSnapshots: { type: [ItemSnapshotSchema], required: true, default: undefined }, // required array, may be empty
 
     // --- E/F: candidate funnel ---
-    generationAttempts: { type: [GenerationAttemptSchema], required: true },
-    candidates: { type: [CandidateSnapshotSchema], required: true },
+    generationAttempts: { type: [GenerationAttemptSchema], required: true, default: undefined },
+    candidates: { type: [CandidateSnapshotSchema], required: true, default: undefined },
 
     // --- G: request-level diagnostics. samplerPerType/histograms are DATA-keyed Maps
     // (preserved key-for-key by snapshot_serde, C4). ranker/rescue are flexible Mixed —
@@ -356,10 +358,10 @@ const GenerationSnapshotSchema = new Schema(
 
     // --- H: shown history (H19's queryable home) — denormalized so the repetition-window
     // query never unwinds candidates[]. shownBaseKeys intentionally NOT stored (derivable). ---
-    shownCandidateIds: { type: [String], default: [] },
-    shownFullSignatures: { type: [String], default: [] },
-    nSurfaced: { type: Number },
-    spreadCollapsed: { type: Boolean },
+    shownCandidateIds: { type: [String], required: true, default: undefined },
+    shownFullSignatures: { type: [String], required: true, default: undefined },
+    nSurfaced: { type: Number, required: true, min: 0 },
+    spreadCollapsed: { type: Boolean, required: true },
 
     // --- K: redaction seam (H43, [STAGED]) — the only post-insert-mutable fields AT M4.
     // M4 reserves them + does NOT wire the User cascade (premature with zero users — §14.4).

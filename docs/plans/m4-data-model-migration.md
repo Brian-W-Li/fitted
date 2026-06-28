@@ -106,9 +106,9 @@ until B-track), not just points at it.
 provenance; the backstop for the engine-vs-evidence boundary): `fittedCoreVersion`, `generator{provider,model,
 temperature,promptVersion}`, `rankerConfigVersion`(a hash of the Appendix B constants), `scorer{kind:
 cold_start|trained, modelId?, available}`. `promptVersion` also decodes the generator-visible subset of
-`engineVisible`, so no separate `generatorVisible` store at `[NOW]`. **None of the three version constants
-exist in `fitted_core` today** (absent from `__init__.py`/`config.py`) → add before the first live write (S9
-ob. 1).
+`engineVisible`, so no separate `generatorVisible` store at `[NOW]`. **C4 implements the three provenance
+constants in `fitted_core`** (`__version__`, `PROMPT_VERSION`, `RANKER_CONFIG_VERSION`); M5 must merge their
+values into every live snapshot before insert (S9 ob. 1).
 
 **D — item feature snapshots (`itemSnapshots[]`, the H10/H25 core) — the C+D provenance split (the
 one-way-door correction).** A **flat verbatim copy** of the deployed item doc is **REJECTED**: a future M6
@@ -245,14 +245,14 @@ GenerationSnapshotSchema {
   generator:{provider:String (REQUIRED), model:String (REQUIRED), temperature:Number (REQUIRED), promptVersion:String (REQUIRED)} (REQUIRED),  // §8.2-C: the full generator is required non-null provenance
   rankerConfigVersion:String (REQUIRED),
   scorer:{kind:String enum[cold_start,trained] (REQUIRED), modelId?:String, available:Boolean (REQUIRED)} (REQUIRED),  // §15.1 groups scorer in the non-null provenance block; modelId null at cold start
-  itemSnapshots:[ItemSnapshotSchema] (required),
-  generationAttempts:[GenerationAttemptSchema] (required),                      // root/attempt-level trace
-  candidates:[CandidateSnapshotSchema] (required),
+  itemSnapshots:[ItemSnapshotSchema] (required array, may be empty; default undefined so absent is invalid),
+  generationAttempts:[GenerationAttemptSchema] (required array, may be empty; default undefined),  // root/attempt-level trace
+  candidates:[CandidateSnapshotSchema] (required array, may be empty; default undefined),
   diagnostics:{ samplerPerType:Map, candidateRequested:Number, promptItemCount:Number,
     notEnoughItems:Boolean, scorerAvailable:Boolean, ranker:{...5...}, rescue?:{...5...},
     parse:{parseSuccess,repairUsed:Boolean, generatorCalls:Number}, rejectionHistogram:Map, warningHistogram:Map },
-  shownCandidateIds:[String] (default []), shownFullSignatures:[String] (default []),
-  nSurfaced:Number, spreadCollapsed:Boolean,                                    // shownBaseKeys NOT stored — derive from shownCandidateIds+candidates[].baseKey (spec §15.1)
+  shownCandidateIds:[String] (required array, may be empty; default undefined), shownFullSignatures:[String] (required array, may be empty; default undefined),
+  nSurfaced:Number (required, min 0), spreadCollapsed:Boolean (required),        // shownBaseKeys NOT stored — derive from shownCandidateIds+candidates[].baseKey (spec §15.1)
   redacted:Boolean (default false), redactedAt?:Date, redactionReason?:String
 }  with { timestamps:true }
 ```
@@ -933,4 +933,3 @@ Concrete state M5 inherits and owns, after C1–C8. The full data contract is pr
   blocks, being non-opaque, are camelCased normally).
 - The Privacy `[STAGED]` milestone wires the snapshot redaction cascade + **extends** the guard whitelist to null the
   PII fields (`occasion`/`location`/`weatherRaw`/raw text) while preserving keys/scores/itemSnapshots (§14.4/§23-H43).
-
