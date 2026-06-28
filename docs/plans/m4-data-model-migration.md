@@ -583,12 +583,12 @@ dependency on C1/C2, and C4 is pure Python independent of all TS work.
 
 | # | Decision | Effect on M4 scope |
 |---|---|---|
-| 1 | **Persist only the `warmth` column** (`fitted_core` requires it non-null; `models.py:116/132`), keyword-derived at ingestion. **SCOPE-TRIMMED 2026-06-26 (audit round 3):** `material`/`formality`/`styleTags` are **deferred to the W-track** — the engine treats them optional (`models.py:121-122`), today's CV produces none, and nothing reads them before the W-track CV; they ship with that CV + the review form as one unit. The snapshot `engineVisible` contract keeps all three field-slots (adapter emits `null`/`[]`). | C1 adds only the `warmth` column + the `clothingType` widen; C2 drops the soft-field plumbing; §15.2 adapter emits `null`/`[]` for the three deferred fields |
+| 1 | **Persist only the `warmth` column** (`fitted_core` requires it non-null; `models.py:116/132`), keyword-derived at ingestion. **SCOPE-TRIMMED:** `material`/`formality`/`styleTags` are **deferred to the W-track** — the engine treats them optional (`models.py:121-122`), today's CV produces none, and nothing reads them before the W-track CV; they ship with that CV + the review form as one unit. The snapshot `engineVisible` contract keeps all three field-slots (adapter emits `null`/`[]`). | C1 adds only the `warmth` column + the `clothingType` widen; C2 drops the soft-field plumbing; §15.2 adapter emits `null`/`[]` for the three deferred fields |
 | 2 | **Rip top/bottom-only ingestion now** | Kill the create-coerce in `wardrobe/route.ts` + the edit-coerce in `wardrobe/[id]/route.ts` + the `"top" \| "bottom"` typing in `wardrobe/page.tsx` + the GET response type in `wardrobe/route.ts`; widen to the 5-value enum end-to-end *(C2-deleted — names, not lines; the old line numbers are gone)* |
 | 3 | **Rip PreferenceSummary wholesale** | Delete the collection + summarize endpoint + `/account` UI section + `runPersonalizationSummary` + the `getOrRefreshPreferenceSummary` def + call in `recommend/route.ts` and `regenerate/route.ts`; plus `db.ts`/`gemini.ts`/dashboard consumers + 5 test files (C3 has the full list) *(C3-deleted — names, not lines)* |
 | 4 | **Write the C1–Cn ladder before any code** | §14.2 below; supersedes the scattered S9 obligation lists |
 | 5 | **Wipe the Mongo collections** (`wardrobeitems` + `outfitinteractions` + `preferencesummaries`) | No backfill classifier needed; §9.1 co-presence guard runs strict from row 0; the §10 standalone backfill harness collapses out (§10 is now the ingestion classification rule, used by CV, not a separate workstream) |
-| 6 | **Cascade — trimmed (audit round 3).** `cascadeDeleteUserData` (`User.ts:40-42`, the `deleteMany` calls, registered via `UserSchema.pre(...)` at `User.ts:59`) also gains a **hard-delete of `wardrobeimages`** (closes H14's cascade arm). The **GenerationSnapshot redaction-cascade wiring is DEFERRED to the Privacy `[STAGED]` milestone** (transaction-threading a session-less hook for data that doesn't exist on a no-users fork is premature); M4 only **reserves** the redaction schema fields (free in C5). | C7 slims to the `wardrobeimages` arm + the reserved seam; spec §22/§23-H43 reverted to SEAM-RESERVED |
+| 6 | **Cascade — trimmed.** `cascadeDeleteUserData` (`User.ts:40-42`, the `deleteMany` calls, registered via `UserSchema.pre(...)` at `User.ts:59`) also gains a **hard-delete of `wardrobeimages`** (closes H14's cascade arm). The **GenerationSnapshot redaction-cascade wiring is DEFERRED to the Privacy `[STAGED]` milestone** (transaction-threading a session-less hook for data that doesn't exist on a no-users fork is premature); M4 only **reserves** the redaction schema fields (free in C5). | C7 slims to the `wardrobeimages` arm + the reserved seam; spec §22/§23-H43 reverted to SEAM-RESERVED |
 | 7 | **W-track scope.** Only `warmth` + the `clothingType` widen pull into M4 (the engine-required minimum). `material`/`formality`/`styleTags` **columns** + CV fill + review surface stay a coherent W-track unit; async queue / item-state machine also W-track (§18). | C1/C2 add only `warmth` + the enum widen |
 | 8 | **Recommend routes — surgical PreferenceSummary excision** | Delete only the `getOrRefreshPreferenceSummary` calls in M4; the full route rewrite stays in M5 behind `USE_ML_SHORTLISTER` |
 
@@ -628,8 +628,8 @@ script committed to `fitted/scripts/` so it's re-runnable on Brian's local Mongo
 - `OutfitInteraction` scope-vocab fields: `scopeTarget:enum?[outfit/board/routine/global/lens]`,
   `learningDisposition:enum?[normal/exception/do_not_learn]` (both nullable; behavior `[STAGED]`).
 - **`OutfitInteraction` binding index** `{ snapshotId:1, candidateId:1 }` (snapshot→feedback
-  joins for M6 training reads). Additive; builds via autoIndex. *(This was homeless in the first ladder
-  draft — it lives here, not C5, since it's an `OutfitInteraction` index.)*
+  joins for M6 training reads). Additive; builds via autoIndex. *(Homed here, not C5 — it's an
+  `OutfitInteraction` index.)*
 - **Wipe-script safety gate (mandatory).** The wipe script can destroy real data: the reused CS148
   `.env.local` `MONGODB_URI` may point at the **shared team Atlas cluster** the deployed team app uses.
   Triple-gate: (a) require an explicit `--yes-wipe` flag; (b) refuse unless the connection **HOST** matches a
@@ -686,7 +686,7 @@ live data path. Manual e2e: Brian re-uploads a test wardrobe and confirms every 
 ---
 
 #### C3 — PreferenceSummary rip (TS)
-**The consumer graph is wider than the first draft listed** (audit-verified). Full touch set:
+**The consumer graph is wide (audit-verified) — full touch set:**
 - **Delete:** `models/PreferenceSummary.ts`, `app/api/preferences/summarize/route.ts`,
   `lib/runPersonalizationSummary.ts`. Drop the `preferencesummaries` collection (C1's wipe does this).
 - **`lib/db.ts`** (`:7` import, `:20` `.init()`, `:23` return from `initDatabase()`) — remove the model from
@@ -713,8 +713,8 @@ live data path. Manual e2e: Brian re-uploads a test wardrobe and confirms every 
 **Acceptance:** `grep -rn "PreferenceSummary\|runPersonalizationSummary\|getOrRefreshPreferenceSummary\|
 generatePersonalizationSummary" fitted/` returns zero hits in source **and tests**. `/account` + `/dashboard`
 still render (minus the summary). Legacy recommend/regenerate still respond 200. **`npm run build` + `npm run
-lint` + `npm test` all clean** (the first draft's gate omitted `npm test`, which would have failed on the 5
-suites).
+lint` + `npm test` all clean** — the gate **must** include `npm test` (it catches the 5 affected test
+suites a build-only gate would miss).
 
 **Dependencies:** none file-wise (independent of C1/C2; C1's wipe handles the collection drop).
 
@@ -817,7 +817,7 @@ edit/delete after the payload is built does not alter the already-built `itemSna
 ---
 
 #### C7 — `wardrobeimages` cascade (the cheap H14 arm)
-**Touches:** `fitted/models/User.ts`. **Trimmed by audit round 3** — only the cheap, no-transaction arm
+**Touches:** `fitted/models/User.ts`. **Trimmed** — only the cheap, no-transaction arm
 lands in M4.
 - Extend `User.ts` cascade hook (the `deleteMany` lines at `:33-34`, inside the `pre(['deleteOne',
   'findOneAndDelete'])` query hook at `:27`): on user delete, also **hard-delete `wardrobeimages`** rows. Closes
@@ -871,7 +871,7 @@ not vibes.
   co-presence guard runs strict from row 0.
 - **The four request-time grep sites in recommend/regenerate** — they survive M4 (only PreferenceSummary
   calls are excised), and are deleted at the M5 cutover as part of the wholesale route rewrite (§19).
-- **Deferred by audit round 3 (out of M4, not lost):**
+- **Deferred (out of M4, not lost):**
   - **`material`/`formality`/`styleTags` columns** → W-track, shipped with their CV + review surface as one
     unit (engine treats them optional; nothing reads them pre-CV; the snapshot contract reserves the slots).
   - **GenerationSnapshot redaction-cascade wiring** → Privacy `[STAGED]` (transaction work for zero users);
@@ -883,7 +883,7 @@ not vibes.
 
 - **H43 (cascade + redaction):** stays **SEAM-RESERVED (M4)** → redaction-wiring + retention
   `DEFERRED-Privacy[STAGED]`. M4 reserves the schema fields + closes H14's `wardrobeimages` arm but does
-  **not** wire snapshot redaction (audit round 3: premature with zero users). Spec §23-H43 updated.
+  **not** wire snapshot redaction (premature with zero users). Spec §23-H43 updated.
 - **H14 (cascade arm):** `wardrobeimages` now in cascade (C7); image-replacement delete-before-commit
   ordering bug stays W-track.
 - **No new hole.** The deferred columns + the deferred redaction/gate are by-design scope trims (decisions
