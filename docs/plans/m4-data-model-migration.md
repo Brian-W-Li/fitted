@@ -179,8 +179,9 @@ row-stored**. Client echoes `{snapshotId,candidateId}` **only**; the server re-r
 (impl split §9.5): exists ∧ owned ∧ membership (`candidateId ∈ shownCandidateIds`) ∧ items⊆candidate.
 
 **K — redaction seam (H43, D4; behavior `[STAGED]`).** Reserve `redacted`(default false)/`redactedAt?`/
-`redactionReason?` (lineage, posture rule 3); M4 does **not** wire the `User` cascade (`User.ts:27` hook covers
-only `wardrobeitems`+`outfitinteractions`). A rebuildable-projection affinity (OQ2) rebuilds clean after
+`redactionReason?` (lineage, posture rule 3); M4 does **not** wire the `User` snapshot-redaction
+cascade (`cascadeDeleteUserData` in `User.ts` covers `wardrobeitems`/`outfitinteractions`/`wardrobeimages`,
+never the snapshot collection). A rebuildable-projection affinity (OQ2) rebuilds clean after
 redaction (D4/D6). **Recorded privacy-milestone intent:** the snapshot's user-context PII (`occasion`,
 `location`, `weatherRaw`, `rawText`/`rawEmitted`) is structurally separable from training signal — redaction
 MAY null those while preserving keys/scores/`itemSnapshots`, the designed exit for the
@@ -284,7 +285,7 @@ GenerationSnapshotSchema {
 - **The full-funnel capture obligation — THREE substrate discard sites, not one.** All three must reach the
   snapshot via an **additive, read-only** trace surface that does **not** reopen the closed
   `rescue()`/`rank()`/`build_variants()` contracts:
-  1. **`rescue()`** (`rescue.py:653/656/676`) drops `rejections`/`warnings` + the raw/parsed payload → the
+  1. **`rescue()`** (`rescue.py:610`) drops `rejections`/`warnings` + the raw/parsed payload → the
      rejected pool + attempt trace (H29(b)).
   2. **`rank()`** returns top-k only (`ranker.py:834`); the scored-but-unshown `_ScoredCandidate`s + their
      `ScoreBreakdown`s die → the H29(a) selection bias.
@@ -402,7 +403,7 @@ server re-reads keys/items from the immutable snapshot, never the client echo (t
 
 The reducer output is an **ordered `Sequence[str]`/`tuple`, NOT a frozenset** (`ranker.py:191`/`:247` — it is
 a recency-faithful window, deliberately distinct from the frozenset `liked_full_signatures:190`), and the sig
-cap **reuses the shipped `REPETITION_WINDOW_SIZE = 10`** (`config.py:64`), **never a new 200 cap** (which would
+cap **reuses the shipped `REPETITION_WINDOW_SIZE = 10`** (`config.py:67`), **never a new 200 cap** (which would
 contradict the shipped ≤10 M3 contract = a code↔spec conflict). Mandated by "don't reopen the closed M3
 contract." Only `REPETITION_WINDOW_SNAPSHOTS = 20` is a new constant (Appendix B, M5-tunable).
 
@@ -482,7 +483,7 @@ compound `sundress` also dodges the `\bdress\b` boundary, like the bottoms rung'
 (`deriveWarmth.test.ts`) iterates those arrays asserting `"dress <rung-noun>" ≠ dress`. (`lib/clothingType.ts`
 `ADJECTIVAL_DRESS`.)
 
-**Trap-guard — re-derive from raw, never trust the stored `clothingType`.** `WardrobeItem.ts:7` defaults
+**Trap-guard — re-derive from raw, never trust the stored `clothingType`.** `WardrobeItem.ts:10` defaults
 **every** existing row to `"top"`, so a stored `"top"` is the schema default, not evidence. The classifier
 re-derives purely from raw `category`/`name`/`subCategory`/`layerRole`; the only legacy non-default value
 possible (`"bottom"`, the sole other enum member) is consistent with re-derivation anyway. This makes the
@@ -515,7 +516,7 @@ append-only, so any dedup rule re-derives by re-projection.
 ### 11.1 H11 duplicate-feedback dedup — read-time reducer, append-only writes
 
 Canonical rule = spec §16 + Appendix B `FEEDBACK_DEDUP_WINDOW`. Affinity is never stored; the M5 adapter folds
-append-only rows into the ranker's three signals (`ranker.py:188`) — `liked_full_signatures` (frozenset,
+append-only rows into the ranker's three signals (`ranker.py:189`) — `liked_full_signatures` (frozenset,
 idempotent), the cooldown buffer (recency, idempotent), and the **counted** `item_affinity` (the one shape
 that double-counts). **Decision: dedup the counted `item_affinity` by `{snapshotId, candidateId, action}`
 within the window** (set/recency projections need no dedup); same-key rows *outside* the window are genuine
@@ -583,11 +584,11 @@ dependency on C1/C2, and C4 is pure Python independent of all TS work.
 | # | Decision | Effect on M4 scope |
 |---|---|---|
 | 1 | **Persist only the `warmth` column** (`fitted_core` requires it non-null; `models.py:116/132`), keyword-derived at ingestion. **SCOPE-TRIMMED 2026-06-26 (audit round 3):** `material`/`formality`/`styleTags` are **deferred to the W-track** — the engine treats them optional (`models.py:121-122`), today's CV produces none, and nothing reads them before the W-track CV; they ship with that CV + the review form as one unit. The snapshot `engineVisible` contract keeps all three field-slots (adapter emits `null`/`[]`). | C1 adds only the `warmth` column + the `clothingType` widen; C2 drops the soft-field plumbing; §15.2 adapter emits `null`/`[]` for the three deferred fields |
-| 2 | **Rip top/bottom-only ingestion now** | Kill `wardrobe/route.ts:149` create-coerce + the edit-coerce at `wardrobe/[id]/route.ts:75-77` (+ `:54`/`:102`) + the `"top" \| "bottom"` typing in `wardrobe/page.tsx:14` + the GET response type at `wardrobe/route.ts:61` (mapped `:87`); widen to the 5-value enum end-to-end |
-| 3 | **Rip PreferenceSummary wholesale** | Delete the collection + summarize endpoint + `/account` UI section + `runPersonalizationSummarize` + the calls from `recommend/route.ts` (def `:294`, call `:436`) and `regenerate/route.ts` (def `:283`, call `:411`); plus `db.ts`/`gemini.ts`/dashboard consumers + 5 test files (C3 has the full list) |
+| 2 | **Rip top/bottom-only ingestion now** | Kill the create-coerce in `wardrobe/route.ts` + the edit-coerce in `wardrobe/[id]/route.ts` + the `"top" \| "bottom"` typing in `wardrobe/page.tsx` + the GET response type in `wardrobe/route.ts`; widen to the 5-value enum end-to-end *(C2-deleted — names, not lines; the old line numbers are gone)* |
+| 3 | **Rip PreferenceSummary wholesale** | Delete the collection + summarize endpoint + `/account` UI section + `runPersonalizationSummary` + the `getOrRefreshPreferenceSummary` def + call in `recommend/route.ts` and `regenerate/route.ts`; plus `db.ts`/`gemini.ts`/dashboard consumers + 5 test files (C3 has the full list) *(C3-deleted — names, not lines)* |
 | 4 | **Write the C1–Cn ladder before any code** | §14.2 below; supersedes the scattered S9 obligation lists |
 | 5 | **Wipe the Mongo collections** (`wardrobeitems` + `outfitinteractions` + `preferencesummaries`) | No backfill classifier needed; §9.1 co-presence guard runs strict from row 0; the §10 standalone backfill harness collapses out (§10 is now the ingestion classification rule, used by CV, not a separate workstream) |
-| 6 | **Cascade — trimmed (audit round 3).** `User.ts:33-34` (the two `deleteMany` lines in the `:27` hook) also gains a **hard-delete of `wardrobeimages`** (closes H14's cascade arm). The **GenerationSnapshot redaction-cascade wiring is DEFERRED to the Privacy `[STAGED]` milestone** (transaction-threading a session-less hook for data that doesn't exist on a no-users fork is premature); M4 only **reserves** the redaction schema fields (free in C5). | C7 slims to the `wardrobeimages` arm + the reserved seam; spec §22/§23-H43 reverted to SEAM-RESERVED |
+| 6 | **Cascade — trimmed (audit round 3).** `cascadeDeleteUserData` (`User.ts:40-42`, the `deleteMany` calls, registered via `UserSchema.pre(...)` at `User.ts:59`) also gains a **hard-delete of `wardrobeimages`** (closes H14's cascade arm). The **GenerationSnapshot redaction-cascade wiring is DEFERRED to the Privacy `[STAGED]` milestone** (transaction-threading a session-less hook for data that doesn't exist on a no-users fork is premature); M4 only **reserves** the redaction schema fields (free in C5). | C7 slims to the `wardrobeimages` arm + the reserved seam; spec §22/§23-H43 reverted to SEAM-RESERVED |
 | 7 | **W-track scope.** Only `warmth` + the `clothingType` widen pull into M4 (the engine-required minimum). `material`/`formality`/`styleTags` **columns** + CV fill + review surface stay a coherent W-track unit; async queue / item-state machine also W-track (§18). | C1/C2 add only `warmth` + the enum widen |
 | 8 | **Recommend routes — surgical PreferenceSummary excision** | Delete only the `getOrRefreshPreferenceSummary` calls in M4; the full route rewrite stays in M5 behind `USE_ML_SHORTLISTER` |
 

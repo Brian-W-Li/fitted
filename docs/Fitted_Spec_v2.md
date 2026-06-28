@@ -652,7 +652,7 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   (dislikes excluded), then merged into the cached pool (dedup by FullSignature, key unchanged). M5 owns the
   exact lock-scoping shape; invariant: no M0–M3 module reopens. Failure = partial + explicit notice, never
   a silently dropped lock. **Dropped from the legacy
-  regen contract:** `changeTarget` and `feedbackNotes` (the deployed `regenerate/route.ts:349-358` has them;
+  regen contract:** `changeTarget` and `feedbackNotes` (the deployed `regenerate/route.ts:298-299` destructures them;
   locks express the intent, notes persist via the feedback flow). The legacy `regenerate/route.ts` is
   deleted at cutover (§19).
 
