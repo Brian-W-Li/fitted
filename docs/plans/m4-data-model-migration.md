@@ -332,14 +332,13 @@ GenerationSnapshotSchema {
 *Candidate-level `fullSignature` inside `candidates[]` gets a multikey index **only if M6 proves it queries
 candidates directly** rather than batch-scanning — deferred, not now (Fable).*
 
-### 8.11 — S9 implementation obligations: superseded by the §14 C1–C8 ladder (the build authority)
+### 8.11 Rejected traps (keep rejected)
 
-The S3 dual review's design changes are folded into §8.2/§8.4/§15.1 (the C+D `engineVisible`/`evidence`
-provenance split; the three-site funnel obligation + the Option-B trace siblings; `generationAttempts[]` for
-root/attempt events; the content-preservation invariant; required non-null version fields; the **non-unique**
-cache-key index, H7-deferred; raw caps + server/client split). **Rejected traps (keep rejected):** a flat
-item-copy (provenance foreclosure); a per-field provenance bool; editing the closed return shapes for the
-trace (→ Option-B siblings); locking the `embeddingRef` shape now.
+Forward warnings for any M5+ re-implementer — these were considered and rejected for cause; do not
+reintroduce them: a **flat verbatim item-copy** (provenance foreclosure — §8.2-D); a **per-field provenance
+bool** (the namespaced `engineVisible`/`evidence` buckets *are* the visibility marker); **editing the closed
+`rank()`/`build_variants()`/`rescue()` return shapes** for the trace (→ the Option-B `*_with_trace` siblings,
+§8.4); **locking the `embeddingRef` shape now**.
 
 ---
 
@@ -555,16 +554,6 @@ keyword-map mechanic relocated from the adapter to **C2 ingestion**; the adapter
 
 ---
 
-## 13. Consolidation pass — superseded by §14
-
-S10 alignment + S11 design-freeze passed: the M4 design coheres with the M0–M3 substrate, Spearhead, and the
-spec — `engineVisible` names match `fitted_core.WardrobeItem`; the compute-live affinity projection + the H19
-reducer feed exactly the pre-reduced `RankContext` signals (`ranker.py:188` — never raw `OutfitInteraction`,
-already windowed); no closed contract reopened. The **no-live-route invariant applies to M4b only**; the
-`> COMPLETED` retirement header lands post-implementation (the plan stays active through the C-ladder build).
-
----
-
 ## 14. Post-design-freeze scope expansion + C1–C8 ladder (2026-06-26)
 
 Pre-implementation audit (multiple rounds of parallel subagents across plan, spec, and codebase) surfaced
@@ -607,6 +596,11 @@ dependency on C1/C2, and C4 is pure Python independent of all TS work.
 Ordered + dependency-tracked. Each checkpoint = a coherent commit (or short series), acceptance criteria,
 and a test plan. **Run C1 → C8 in order**; the dependency notes flag what genuinely blocks vs what could
 parallelize. **C1–C3 = M4a (ships partly live); C4–C8 = M4b (dormant substrate).**
+
+> **Shipped — read the cites as pre-implementation targets, not current truth.** The per-checkpoint
+> `file:line` references below are where the work was *aimed* before C1–C8 landed; the M4 edits then shifted
+> those lines. The authoritative shipped state is the C1–C8 commits + the **§14.5 handoff** (which uses
+> greppable symbol names). When a cite below doesn't resolve, grep the named symbol — don't trust the line.
 
 > **Index mechanism (applies to C1 + C5).** The codebase already auto-builds indexes: `mongodb.ts` sets
 > `autoIndex:true` and `db.ts` calls `Model.init()` per model at connect. So every index declared below

@@ -170,7 +170,7 @@ scoring forms in §G define how those constants are consumed.
 
 `ranker.py`, `sampler.py`, `validator.py`, `keys.py`, `slotmap.py`, `seed.py`, `models.py` (**none**
 touched — `OptionPath`/`Risk` are homed in `response.py`, not `models.py`, to keep the M0 contract
-closed). The 486 existing tests must stay green and unchanged.
+closed). The existing M0–M3 tests must stay green and unchanged.
 
 ---
 
@@ -276,7 +276,7 @@ cases (`tiny_insufficient` is the 1 pre-GPT case → 0 calls): **55 real generat
 - **Believability:** the §E rubric is **descriptive evidence**, captured by hand against the surfaced
   ways-to-wear — never a gate. The text-only viability bet (H40) held mechanically, so the vision-input
   escape hatch (H33) was **not** triggered. *(These figures are the recorded live run; the milestone-close
-  audit itself re-ran only the hermetic 666-test suite, never the live API.)*
+  audit itself re-ran only the hermetic suite, never the live API.)*
 
 ---
 
@@ -507,7 +507,7 @@ Any change to M0–M3 modules.
 
 ## J. Verification plan
 
-- `cd ml-system && python3 -m pytest -q` — full suite green (the 486 unchanged + new
+- `cd ml-system && python3 -m pytest -q` — full suite green (the M0–M3 suite unchanged + new
   `test_generation.py` / `test_rescue.py` / `test_response.py`).
 - Per-checkpoint gates: the §C "Tests" column.
 - **Determinism:** two identical `rescue(...)` calls compare equal **when the injected stub's output is a
