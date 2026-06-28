@@ -343,8 +343,12 @@ describe("GenerationSnapshot — index plan (§8.8)", () => {
 });
 
 // ---------------------------------------------------------------------------
-describe("GenerationSnapshot — BSON size guard (OQ1)", () => {
-  it("a worst-case doc with all raw fields at cap stays under 16 MB", () => {
+describe("GenerationSnapshot — BSON size headroom (OQ1)", () => {
+  // NOTE: this proves the caps are SUFFICIENT (a worst-case capped doc fits under 16 MB), NOT that
+  // writes are ENFORCED. Truncation-to-cap is the M5 writer's job (model header + §23-H29); a true
+  // enforcement test belongs around that writer helper when it lands. Do not read this as "oversized
+  // docs are rejected" — the Mongoose schema accepts unbounded raw fields today.
+  it("a worst-case doc with all raw fields at cap stays under 16 MB (headroom, not enforcement)", () => {
     const big = (bytes: number) => "x".repeat(bytes);
 
     const worstCase = {
