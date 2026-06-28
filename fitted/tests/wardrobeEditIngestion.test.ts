@@ -27,7 +27,7 @@ function makeRequest(body: Record<string, unknown>): NextRequest {
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 
 /** Capture the $set passed to findOneAndUpdate and echo it back as the updated doc. */
-function setupMocks() {
+function setupMocks(existing: Record<string, unknown> = { name: "Cotton Tee", category: "top" }) {
   const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
   const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
     adminAuth: { verifyIdToken: jest.Mock };
@@ -44,17 +44,25 @@ function setupMocks() {
     }),
   );
 
+  // The warmth re-derivation path reads the existing row (merge baseline) via
+  // findOne(...).select(...).lean().exec().
+  const findOne = jest.fn().mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      lean: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(existing) }),
+    }),
+  });
+
   initDatabase.mockResolvedValue({
     User: {
       findOne: jest.fn().mockReturnValue({
         exec: jest.fn().mockResolvedValue({ _id: { toString: () => "user-id" } }),
       }),
     },
-    WardrobeItem: { findOneAndUpdate },
+    WardrobeItem: { findOneAndUpdate, findOne },
     WardrobeImage: { deleteOne: jest.fn() },
   });
 
-  return { findOneAndUpdate };
+  return { findOneAndUpdate, findOne };
 }
 
 describe("PATCH /api/wardrobe/[id] — M4 ingestion (edit round-trip)", () => {
@@ -102,5 +110,45 @@ describe("PATCH /api/wardrobe/[id] — M4 ingestion (edit round-trip)", () => {
     const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
     await PATCH(makeRequest({ name: "Just a rename" }), params("item-1"));
     expect("clothingType" in findOneAndUpdate.mock.calls[0][1].$set).toBe(false);
+  });
+
+  // §23-H47: warmth is stored, never read-time-derived — so an edit must not leave it stale.
+  it("re-derives warmth from the merged item when a warmth-driving field (name) changes", async () => {
+    // existing is a light tee (would derive hot ~2); rename to a wool sweater → cold center 8.
+    const { findOneAndUpdate } = setupMocks({ name: "Cotton Tee", category: "top" });
+
+    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    const res = await PATCH(makeRequest({ name: "Wool Sweater" }), params("item-1"));
+    expect(res.status).toBe(200);
+    expect(findOneAndUpdate.mock.calls[0][1].$set.warmth).toBe(8);
+    expect((await res.json()).item.warmth).toBe(8);
+  });
+
+  it("honors a valid explicit warmth (the correction path) over re-derivation", async () => {
+    const { findOneAndUpdate, findOne } = setupMocks({ name: "Cotton Tee", category: "top" });
+
+    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    // Even though the name changes to a warm garment, an explicit warmth=3 must win.
+    await PATCH(makeRequest({ name: "Wool Sweater", warmth: 3 }), params("item-1"));
+    expect(findOneAndUpdate.mock.calls[0][1].$set.warmth).toBe(3);
+    expect(findOne).not.toHaveBeenCalled(); // explicit value short-circuits the merge read
+  });
+
+  it("rejects an out-of-range explicit warmth by falling back to re-derivation", async () => {
+    const { findOneAndUpdate } = setupMocks({ name: "Cotton Tee", category: "top" });
+
+    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    await PATCH(makeRequest({ name: "Wool Sweater", warmth: 99 }), params("item-1"));
+    // 99 is invalid → ignored → re-derived from the new name (cold 8), never persisted as 99.
+    expect(findOneAndUpdate.mock.calls[0][1].$set.warmth).toBe(8);
+  });
+
+  it("does not re-derive (or read) warmth when no warmth-driving field changes", async () => {
+    const { findOneAndUpdate, findOne } = setupMocks();
+
+    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    await PATCH(makeRequest({ isAvailable: false }), params("item-1"));
+    expect("warmth" in findOneAndUpdate.mock.calls[0][1].$set).toBe(false);
+    expect(findOne).not.toHaveBeenCalled();
   });
 });

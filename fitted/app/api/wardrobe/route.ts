@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
       _id: { toString(): string };
       name: string;
       clothingType?: ClothingType;
+      warmth?: number;
       category: string;
       subCategory?: string;
       pattern?: string;
@@ -87,6 +88,7 @@ export async function GET(request: NextRequest) {
         id: item._id.toString(),
         name: item.name,
         clothingType: item.clothingType,
+        warmth: item.warmth,
         category: item.category,
         subCategory: item.subCategory ?? "",
         pattern: item.pattern ?? "",

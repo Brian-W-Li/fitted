@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { normalizeClothingType } from "@/lib/clothingType";
+import { deriveWarmth } from "@/lib/deriveWarmth";
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -82,6 +83,34 @@ export async function PATCH(
       }
     }
 
+    // warmth (§6.1): stored, NOT read-time-derived — so an edit must not leave it stale, since it
+    // feeds training truth via the snapshot (§15.1) and the ranker's warmth band. Honor a valid
+    // explicit warmth (the correction path — W-track review form / user); else re-derive when a
+    // warmth-driving field changes, from the merged (update-over-existing) values. Mirrors the POST
+    // handler; closes the §23-H47 staleness gap.
+    const suppliedWarmth = body.warmth;
+    if (
+      typeof suppliedWarmth === "number" &&
+      Number.isInteger(suppliedWarmth) &&
+      suppliedWarmth >= 0 &&
+      suppliedWarmth <= 10
+    ) {
+      update.warmth = suppliedWarmth;
+    } else if (["name", "category", "subCategory", "seasons"].some((f) => f in body)) {
+      const existing = await WardrobeItem.findOne({ _id: itemId, user: userId })
+        .select("name category subCategory seasons")
+        .lean<{ name?: string; category?: string; subCategory?: string; seasons?: string[] }>()
+        .exec();
+      if (existing) {
+        update.warmth = deriveWarmth({
+          name: (update.name as string) ?? existing.name,
+          category: (update.category as string) ?? existing.category,
+          subCategory: (update.subCategory as string) ?? existing.subCategory,
+          seasons: (update.seasons as string[]) ?? existing.seasons,
+        });
+      }
+    }
+
     const doc = await WardrobeItem.findOneAndUpdate(
       { _id: itemId, user: userId },
       { $set: update },
@@ -100,6 +129,7 @@ export async function PATCH(
         id: doc._id.toString(),
         name: doc.name,
         clothingType: doc.clothingType ?? "top",
+        warmth: (doc as unknown as { warmth?: number }).warmth,
         category: doc.category,
         subCategory: doc.subCategory ?? "",
         pattern: doc.pattern ?? "",
