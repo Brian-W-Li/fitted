@@ -31,6 +31,16 @@ must survive byte-for-byte, or the stored training truth is corrupted:
 — a payload survives ``to_wire`` → JSON → ``from_wire`` byte-equal (modulo float canonical
 form). The engineVisible field map is listed in full below (spec §15.1: "list all of these,
 not only the three tags").
+
+**The mechanical snake↔camel pair is only inverse for names whose every segment starts with
+a letter** (matching ``^[a-z][a-z0-9]*(_[a-z][a-z0-9]*)*$``). A segment that starts with a
+non-letter — a digit-after-underscore (``gpt_4o`` → ``gpt4o`` → ``gpt4o``), a trailing
+underscore, or a double underscore — silently loses its word boundary and would corrupt the
+stored training truth. Rather than overstate the guarantee, ``_map_key`` *enforces* it: a
+structural key that does not round-trip raises at author time, so a future field like
+``gpt_4o_score`` fails loud instead of mangling the wire. (engineVisible renames go through the
+explicit table, and data-Map / Mixed keys go through the ``opaque`` path — neither is subject to
+this constraint; it binds only mechanically-converted structural field names.)
 """
 
 from __future__ import annotations
@@ -131,7 +141,26 @@ def _map_key(key: str, *, to_wire: bool, in_engine: bool) -> str:
         mapped = table.get(key)
         if mapped is not None:
             return mapped
-    return _snake_to_camel(key) if to_wire else _camel_to_snake(key)
+    # Mechanical conversion is only inverse when every segment starts with a letter (see the
+    # module docstring). Guard the structural key here so a non-round-tripping name (a future
+    # ``gpt_4o_score`` etc.) fails loud at author time instead of silently corrupting the wire.
+    if to_wire:
+        camel = _snake_to_camel(key)
+        if _camel_to_snake(camel) != key:
+            raise ValueError(
+                f"structural field name {key!r} is not round-trip-safe through the snake↔camel "
+                f"wire converter (a segment starts with a non-letter — digit-after-underscore, "
+                f"trailing/double underscore). Rename it, list it in ENGINE_VISIBLE_TO_WIRE, or "
+                f"nest it under an opaque-value parent."
+            )
+        return camel
+    snake = _camel_to_snake(key)
+    if _snake_to_camel(snake) != key:
+        raise ValueError(
+            f"wire field name {key!r} is not round-trip-safe through the snake↔camel converter; "
+            f"a malformed or unexpected wire key reached from_wire."
+        )
+    return snake
 
 
 def _convert(

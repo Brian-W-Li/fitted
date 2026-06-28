@@ -196,6 +196,9 @@ export async function POST(request: NextRequest) {
           id: itemDoc._id.toString(),
           name: itemDoc.name,
           clothingType: itemDoc.clothingType ?? "top",
+          // Return the warmth we just derived+stored so the client mirrors GET/PATCH (no
+          // refetch needed); warmth is authoritative + feeds training truth (§6.1/§15.1).
+          warmth: (itemDoc as unknown as { warmth?: number }).warmth,
           category: itemDoc.category,
           subCategory: itemDoc.subCategory ?? "",
           pattern: itemDoc.pattern ?? "",
@@ -207,6 +210,7 @@ export async function POST(request: NextRequest) {
           occasions: itemDoc.occasions ?? [],
           notes: itemDoc.notes ?? "",
           isAvailable: itemDoc.isAvailable ?? true,
+          imagePath: itemDoc.imagePath ?? undefined,
           createdAt: (itemDoc as unknown as { createdAt?: Date }).createdAt?.toISOString(),
           updatedAt: (itemDoc as unknown as { updatedAt?: Date }).updatedAt?.toISOString(),
         },

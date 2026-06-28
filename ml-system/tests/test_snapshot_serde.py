@@ -134,6 +134,33 @@ def test_round_trip_byte_equal_through_json():
     assert restored == payload
 
 
+def test_non_round_trippable_structural_key_raises_on_to_wire():
+    # The latent corruption the guard closes: a structural field whose segment starts with a
+    # non-letter (digit-after-underscore / trailing / double underscore) loses its boundary
+    # under the mechanical snake->camel and would silently mangle stored training truth. It
+    # must fail loud at author time, not round-trip-corrupt.
+    # (note: "score_v2" is *fine* — "v2" starts with a letter, so the boundary survives; only a
+    # segment that starts with a non-letter breaks.)
+    for bad_key in ("gpt_4o_score", "trailing_", "double__under"):
+        with pytest.raises(ValueError, match="round-trip-safe"):
+            serde.to_wire({bad_key: 1.0})
+
+
+def test_non_round_trippable_key_is_fine_inside_an_opaque_blob():
+    # Inside a Mixed/data-Map blob, keys are preserved verbatim (never converted), so a digit
+    # key is legal there — only mechanically-converted *structural* names are constrained.
+    wire = serde.to_wire({"raw_emitted": {"gpt_4o": "ok", "score_v2": 1}})
+    assert wire["rawEmitted"] == {"gpt_4o": "ok", "score_v2": 1}
+
+
+def test_from_wire_rejects_non_round_trippable_wire_key():
+    # A genuine camel wire key round-trips (gpt4oScore -> gpt4o_score -> gpt4oScore); the guard
+    # fires on a malformed wire key that smuggles an underscore (e.g. TS sent snake by mistake).
+    serde.from_wire({"gpt4oScore": 1.0})  # well-formed: must NOT raise
+    with pytest.raises(ValueError, match="round-trip-safe"):
+        serde.from_wire({"score_v2": 1.0})
+
+
 def test_data_map_keys_preserved_verbatim_on_the_wire():
     # The regression this guards: a blanket snake->camel would mangle the ItemType key
     # "outer_layer" -> "outerLayer", silently diverging the wire from the ItemType member

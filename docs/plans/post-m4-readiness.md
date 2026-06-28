@@ -386,6 +386,54 @@ consistent with this session's lanes.
 
 ---
 
+## 9. Final pre-M5 heavy audit (2026-06-27) — verified dispositions
+
+Six cold-context parallel lanes (core-engine correctness, newer-modules correctness, spec↔code fidelity,
+recent-change ripple, test-quality, ambition-merit). Every load-bearing finding re-verified against source by
+the main loop before acting. Baseline & after: **pytest 715→718, jest 366→367, all green**.
+
+**Fixed now (load-bearing, safe):**
+- **POST `/api/wardrobe` response dropped `warmth`** (ripple lane + independent main-loop read). POST derives +
+  stores `warmth` but its response object omitted it, while GET/PATCH expose it — a missed sibling from the
+  a61a3801 H47 fix. Warmth is authoritative + training truth (§6.1/§15.1). Added `warmth` (+ `imagePath` for
+  shape parity) to the POST response; test asserts the response warmth equals the stored value.
+- **`snapshot_serde` snake↔camel converters are not inverse for non-letter-leading segments** (newer-modules +
+  test-quality lanes; reproduced: `gpt_4o_score`→`gpt4oScore`→`gpt4o_score`). All *current* contract fields
+  round-trip, so latent — but a future structural field (`gpt_4o_*`) would silently corrupt the M5/M6 training
+  truth this dormant layer exists to protect. `_map_key` now **enforces** round-trip on every mechanically
+  converted structural key (raises at author time, both directions); docstring corrected to state the real
+  guarantee; tests pin the raise + the opaque-blob exemption.
+
+**Doc conflict fixed (conflicts are bugs):**
+- **§20 had no ladder rung for the H28 outfit-level scorer hook** that §23-H28 explicitly says it "needs … between
+  H26 and M5." Added the **"Scorer-seam shape" rung** to §20 (additive default-None pairwise hook on
+  `rank()`/`RankerContext`, shape settled by H26) as a §20 table row + H28's back-reference; the headline sequence
+  stays `consolidation → H26 → M5` (the rung is a sub-step of the H26→M5 transition, not a milestone — kept consistent
+  with the other "H26 → M5" statements across the spec/CLAUDE.md). **Brian: confirm the rung's placement/emphasis when
+  the H26 `/spec` runs.**
+
+**Tracked, NOT fixed (unreachable today / dies at M5 — do not churn):**
+- serde **flatness gap** (a nested all-*string* list slips the id-sequence guard) + **`slotMap` id-values** and
+  **scalar `fullSignature`** are not in `_ID_KEYS`/`_ID_SEQUENCE_KEYS`. Same "guard every id" intent, but all
+  sources are typed `str` (`WardrobeItem.id`, `full_signature`) — unreachable in normal flow. Defense-in-depth
+  parity gaps; close opportunistically when serde is next touched for M5.
+- `response.py` `_neutral_anchor`/`_statement_tags`/`_occasion_overlap` would `ZeroDivisionError` on an all-`None`
+  SlotMap — unreachable (M2 `is_valid_slotmap` guarantees a base before ranking). One-line precondition guard if touched.
+- `endToEndRecommendationFlow.test.ts` is tautological (zero imports; re-implements the logic it "tests"). Its
+  header is honest about being pure-logic-invariant, and it covers the **legacy recommend/regenerate arm M5
+  deletes** — delete or relabel as part of the M5 route rewrite, not before.
+- `models.py` "warmth=True precedent" comments slightly overstate current bool-warmth handling (deliberately
+  deferred to the M5 Mongo adapter); tighten the comment when the M5 adapter guard lands.
+- `WardrobeItem.clothingType` keeps `default: "top"` — **not** the §6.1/§19 legacy 2-value coerce funnel (that
+  died: real 5-value `deriveClothingType` replaced it); the residual is the documented out-of-ontology fallback.
+  Spec is literally satisfied; optional one-line §6.1 clarification if desired.
+
+Everything else audited (sampler/validator/ranker determinism, keys/seed framing, snapshot immutability, rescue
+dup-guard across both entries, clear-wardrobe cascade parity, config single-home, engineVisible field map,
+OutfitInteraction scope/binding fields) verified **clean and faithful to the north-star** — no silent narrowing.
+
+---
+
 ## Appendix — lane agent IDs (this session, for continuation)
 
 L1 H26 `a14870f494fa73cdd` · L2 integration `aee2f0d481d9e377f` · L3 eval-data `aa2825af27f94121c` ·

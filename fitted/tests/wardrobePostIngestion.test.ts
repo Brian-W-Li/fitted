@@ -167,6 +167,24 @@ describe("POST /api/wardrobe — M4 ingestion", () => {
     expect(mockCreate.mock.calls[0][0].clothingType).toBe("shoes");
   });
 
+  it("returns the derived warmth in the response body (mirrors GET/PATCH, no refetch needed)", async () => {
+    const mockCreate = okCreate();
+    setupMocks(mockCreate);
+
+    const { POST } = await import("@/app/api/wardrobe/route");
+    const res = await POST(
+      makeRequest({ name: "Wool overcoat", category: "outer", clothingType: "outer_layer", seasons: ["winter"] }),
+    );
+    expect(res.status).toBe(201);
+
+    const stored = mockCreate.mock.calls[0][0].warmth;
+    const body = await res.json();
+    // The response must surface the same warmth that was stored — the GET/PATCH responses
+    // already do; the POST response previously dropped it (§6.1/§15.1 authoritative warmth).
+    expect(typeof body.item.warmth).toBe("number");
+    expect(body.item.warmth).toBe(stored);
+  });
+
   it("still 400s when name/category are missing (no create attempted)", async () => {
     const mockCreate = okCreate();
     setupMocks(mockCreate);
