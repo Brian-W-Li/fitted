@@ -100,7 +100,8 @@ class RequestContext:
     session_id: str
     wardrobe_version: int
     date: Optional[str] = None  # N2/C1 daily re-seed; None until M5 activates it
-    interaction_count: int = 0  # this user's interaction count; 0 until M4 exists
+    interaction_count: int = 0  # this user's interaction count; 0 until M5 wires the read-time
+    # feedback reducer (M4 landed the OutfitInteraction binding fields, not the affinity projection)
 
 
 @runtime_checkable

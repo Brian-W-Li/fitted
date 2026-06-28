@@ -257,11 +257,23 @@ describe("GenerationSnapshot — immutability guard fires on the registered hook
       immutableReplaceGuard((err) => (err ? reject(err) : resolve()));
     });
 
-  it("a guard is registered for every mutating query op + save", () => {
-    const pres = (GenerationSnapshot.schema as unknown as { s: { hooks: { _pres: Map<string, unknown[]> } } })
-      .s.hooks._pres;
-    for (const op of ["updateOne", "updateMany", "findOneAndUpdate", "replaceOne", "findOneAndReplace", "save"]) {
-      expect((pres.get(op) || []).length).toBeGreaterThan(0);
+  it("the EXACT guard fn is wired to every mutating query op + save (not just a timestamps hook)", () => {
+    // {timestamps:true} also registers a pre-hook on each of these ops, so a bare length>0 check
+    // would stay green even if the guard registration (the .pre(...) calls) were deleted — masking
+    // a silent de-wiring of a one-way-door guard. Assert the specific guard FUNCTION is present.
+    const pres = (
+      GenerationSnapshot.schema as unknown as { s: { hooks: { _pres: Map<string, { fn: unknown }[]> } } }
+    ).s.hooks._pres;
+    const wiring: [string, unknown][] = [
+      ["updateOne", immutableUpdateGuard],
+      ["updateMany", immutableUpdateGuard],
+      ["findOneAndUpdate", immutableUpdateGuard],
+      ["replaceOne", immutableReplaceGuard],
+      ["findOneAndReplace", immutableReplaceGuard],
+      ["save", immutableSaveGuard],
+    ];
+    for (const [op, guard] of wiring) {
+      expect((pres.get(op) || []).some((h) => h.fn === guard)).toBe(true);
     }
   });
 

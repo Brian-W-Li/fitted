@@ -203,7 +203,8 @@ def _build_request_context(request: RescueRequest) -> RequestContext:
 
     ``interaction_count=0`` pins cold start (rung 1): the sampler's 30% signal slot stays
     unreachable (R11), so every type rides the seeded-random fallback — the determinism the
-    whole rescue inherits. M4 feedback is what later lifts this above 0.
+    whole rescue inherits. M5's feedback reducer is what later lifts this above 0 (M4 landed the
+    OutfitInteraction binding fields, not yet the read-time affinity projection that derives it).
     """
     return RequestContext(
         occasion=request.occasion,

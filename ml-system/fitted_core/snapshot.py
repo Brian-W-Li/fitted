@@ -520,7 +520,7 @@ def build_snapshot_payload(
         session_id=request.session_id,
         candidate_cache_key=candidate_cache_key,
         generation_index=request.generation_index,
-        intent="rescue_item",
+        intent="rescue_item",  # M5: parameterize from request.intent when daily/upgrade/translate land (TS enum lists all four)
         occasion=request.occasion,
         weather=request.weather,
         forced_item_id=request.forced_item_id,
@@ -534,6 +534,7 @@ def build_snapshot_payload(
             "prompt_version": prompt_version,
         },
         ranker_config_version=ranker_config_version,
+        # M6: a trained scorer flips kind/model_id/available here (cold-start until then)
         scorer={"kind": "cold_start", "model_id": None, "available": False},
         item_snapshots=item_snapshots,
         generation_attempts=_build_attempts(trace),
