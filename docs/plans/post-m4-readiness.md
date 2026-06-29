@@ -1,5 +1,15 @@
 # Post-M4 Forward-Readiness & Pre-Mortem
 
+> **⚠️ Partial supersession (2026-06-28).** **§2 (the H26 pre-registration sketch) AND §6's H26-artifact framing
+> — both `GPT-4o`-as-judge, `Δ ≤ 0.03 AUC` parity, "before the H26 `/spec`" — are SUPERSEDED by
+> `h26-compatibility-spike-v2.md`** (the finalized H26 build doc: judge = `gpt-5.4-mini`, parity = **FITB
+> non-inferiority** (δ = 5 pts)). Read them only as historical input that fed that doc — do **not** treat the
+> judge model, parity metric, or "before the /spec" framing as current. *(§6's references to the Spearhead §E
+> **gpt-4o** eval are correct historical fact — that eval really ran on gpt-4o; only the H26 **artifact** framing
+> is superseded.)* **Still active (the M5 `/spec` inheritance):** §3/§4 (M5 cutover readiness — H49/H50/H51, the
+> generator + interaction-count provenance single-source rules, the §15.2-parallel Lens adapter table) and §7's
+> M5-forward punch-list items.
+>
 > **Purpose.** Forward-looking pre-mortem run after M4 + the doc-consolidation session. Everything M4 and
 > earlier was *backward*-looking ("is what we built sound? — yes, see the 2026-06-26 post-audit"). This
 > session is purely *forward*: is the project ready for, and correctly pointed at, the next rungs
