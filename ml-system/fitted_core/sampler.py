@@ -3,7 +3,8 @@
 partition() groups a wardrobe by ItemType and establishes the canonical input
 ordering the whole sampler depends on (id-sorted within each type, enum order
 across types — v2 §10 / Appendix A R4). sample_type() (M1-3) is the over-cap 70/30
-sampler and the SignalScorer seam M6 plugs into; it returns the uniform
+sampler and the item-level SignalScorer seam (the behavioral/personalization slot,
+§23-H28 — NOT where M6's content-compatibility prior lands); it returns the uniform
 TypeSampleResult (R13). candidate_requested() (M1-4) scales how many outfit drafts
 to ask GPT for from the post-cap pool counts. build_candidate_pool() (M1-5) is the
 entry point that ties it all together.
@@ -75,8 +76,10 @@ def partition(wardrobe: list[WardrobeItem]) -> dict[ItemType, list[WardrobeItem]
 # ============================================================================
 # M1-3 — the 70/30 sampler + the SignalScorer seam (v2 §10/§11, R6/R11/R13)
 #
-# This is the single most important structural deliverable: the slot M6 plugs the
-# trained scorer into. Until then 100% of traffic rides the seeded-random fallback,
+# This is the single most important structural deliverable: the item-level scorer
+# slot (the behavioral/personalization seam, §23-H28 — distinct from M6's content-
+# compatibility prior, which lands on the separate pairwise rank() hook). Until a
+# scorer fills it, 100% of traffic rides the seeded-random fallback,
 # so the v2 §10/§15 determinism promise rides entirely on canonical ordering (R4) +
 # one shared seeded RNG.
 # ============================================================================
@@ -110,8 +113,13 @@ class SignalScorer(Protocol):
 
     is_available() is the model-presence gate (R11): the 30% signal slot runs only
     when a scorer is loaded. score() returns a relevance float (higher = more
-    relevant). M1 ships ColdStartSignalScorer (never available); M6 plugs in a
-    TrainedSignalScorer (available once loaded) with no other sampler change.
+    relevant). M1 ships ColdStartSignalScorer (never available). This **item-level**
+    slot is the behavioral/personalization seam (filled later by a scorer over
+    user-interaction signal — the user-dependent arm, spec §20-M6/§23-H28); it is
+    NOT where M6's universal content-compatibility prior lands — that is a separate,
+    additive pairwise/outfit-level hook on the ranker (rank()/RankerContext, §23-H28),
+    distinct from this slot. Whatever scorer fills this slot plugs in with no other
+    sampler change.
     """
 
     def is_available(self) -> bool: ...
@@ -122,8 +130,9 @@ class SignalScorer(Protocol):
 class ColdStartSignalScorer:
     """M1's scorer: never available, so the 30% signal slot is unreachable.
 
-    Until M6 plugs in a scorer whose is_available() returns True, every type takes a
-    seeded-random fallback path. score() must never be called (the is_available()
+    Until a scorer whose is_available() returns True is loaded (the behavioral/
+    personalization arm — spec §23-H28), every type takes a seeded-random fallback
+    path. score() must never be called (the is_available()
     gate forecloses it); calling it is a contract violation, so it raises loudly
     rather than returning a sentinel that could silently bias selection.
     """
