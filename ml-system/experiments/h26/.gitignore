@@ -1,0 +1,28 @@
+# H26 spike — keep large/raw/secret artifacts out of git (§14 PII, §8 raw payloads).
+
+# Dataset bundle (Polyvore-Disjoint: multi-GB images + JSON). Brian provides it locally;
+# data_loader.py reads $H26_DATA_ROOT (default ./data/polyvore_outfits/). Never commit.
+data/
+*.jpg
+*.jpeg
+*.png
+
+# Embedding cache (§5 embedding_manifest.json freezes the hashes; the cache blobs stay out).
+*.npy
+*.npz
+.cache/
+embeddings/
+
+# Raw judge payloads + images sent to the API (§8/§14 — only the de-identified
+# judge_runs.ndjson ledger is committed; raw request/response payloads are not).
+raw_payloads/
+*.payload.json
+
+# Closet probe photos (§10/§14 — local, consented, redacted; never egress to git).
+closet/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/

@@ -1,0 +1,28 @@
+# H26 compatibility spike — ISOLATED deps (docs/plans/h26-compatibility-spike-v2.md §15).
+# Deliberately separate from ml-system/requirements.txt: the spike pulls heavy CV/ML deps
+# (torch + a SigLIP backbone) that the hermetic fitted_core suite must never import.
+# Nothing here touches the core package or its >=715-test floor.
+#
+# SKELETON ONLY (C1). The exact dependency LOCK — pinned versions + the HF model revision
+# SHA + preprocessing hash — FREEZES AT C2 (§15, "dependency lock"). The lower bounds below
+# are provisional; do not treat them as frozen.
+
+# --- Embeddings (C2: embed.py) ---
+# FashionSigLIP backbone. The load path (open_clip vs transformers) is pinned at C2 after
+# verifying the emitted embedding dim (§5 risk). Both candidate stacks are listed until then.
+torch>=2.0
+open_clip_torch>=2.24      # candidate: open_clip.create_model_from_pretrained('hf-hub:Marqo/marqo-fashionSigLIP')
+transformers>=4.40         # candidate: AutoModel / AutoProcessor
+Pillow>=9.0
+
+# --- Metrics / stats (C2: metrics.py) ---
+numpy>=1.20
+scipy>=1.10                # cluster bootstrap CIs
+scikit-learn>=1.3          # roc_auc_score
+
+# --- LLM-as-judge baseline (C4: gpt_judge.py) ---
+# gpt-5.4-mini dated snapshot, temp 0 (§7/§8). Lazy import — only a live judge run needs it.
+openai>=1.0
+
+# --- Test / tooling ---
+pytest>=7.4

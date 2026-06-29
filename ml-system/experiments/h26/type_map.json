@@ -1,0 +1,1546 @@
+{
+  "_policy": "Polyvore category_id -> Fitted 5-value clothingType {top,bottom,dress,outer_layer,shoes} | excluded (§4). category_id is the PER-ITEM fine-grained key and the same-category equivalence class for negatives (matches Vasileva 2018's 153-category grain — that anchor comparability, NOT 'no finer label exists', is why it is the key). TRAP-GUARD: metadata also carries a finer 'catgeories' breadcrumb (present ~30% of items, brand-noisy, partial coverage) — do NOT switch the negative key to it; it would over-harden negatives and break comparability to the published anchors. NOTE: categories.csv's fine-name column is NON-INJECTIVE — one category_id spans several fine names (e.g. id 11 = shirt/sleeveless top/sweater/top), so 'fines' is a list and is documentation only, never a logic key. EXCLUSION CARVE-OUT (excluded_reason on each row): base type from semantic_category, then exclude (a) non-garment accessory semantics (bags/jewellery/sunglasses/hats/scarves/accessories); (b) swimwear; (c) sleepwear/loungewear sleep-garments (pyjama tops AND pyjama pants, slip/chemise); (d) lingerie/intimates + underwear. Kept-by-design boundary cases: slippers/male slippers -> shoes ('slip' is a substring false-positive; they are footwear); sports bra -> top (athleisure upper garment, unlike excluded lingerie). PRODUCTION-MATCH OVERRIDES: the 5-type is semantic-derived by default, but where it materially disagreed with production clothingType.ts (verified by porting deriveClothingType over every fine name), the row is overridden to the app's serving-time label and carries an 'override_reason' (so the trained type-conditioning matches what the app assigns): cardigan (18) -> top and track jacket (256/289) -> outer_layer. The other apparent divergences are port artifacts where type_map is correct and production needs its category field (e.g. pump/booties/flip-flops/slippers -> shoes via category=='footwear'; 'pant' singular). A few tiny genuinely-ambiguous cases stay on the Polyvore semantic pending the C2 freeze: set/suit + male suit (30/281, ~27 items) -> dress, coverup (1607) -> outer_layer, male vest (4457) -> outer_layer. Authored at C1; FROZEN at C2 before any model number.",
+  "_version": "h26-c1",
+  "_enum": [
+    "top",
+    "bottom",
+    "dress",
+    "outer_layer",
+    "shoes",
+    "excluded"
+  ],
+  "categories": {
+    "2": {
+      "fines": [
+        "undefined"
+      ],
+      "semantics": [
+        ""
+      ],
+      "type": "excluded",
+      "excluded_reason": "undefined"
+    },
+    "3": {
+      "fines": [
+        "dress"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "dress"
+    },
+    "4": {
+      "fines": [
+        "dress"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "dress"
+    },
+    "5": {
+      "fines": [
+        "dress"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "dress"
+    },
+    "6": {
+      "fines": [
+        "gown"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "dress"
+    },
+    "7": {
+      "fines": [
+        "skirt"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "8": {
+      "fines": [
+        "skirt"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "9": {
+      "fines": [
+        "skirt"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "10": {
+      "fines": [
+        "long skirt"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "11": {
+      "fines": [
+        "shirt",
+        "sleeveless top",
+        "sweater",
+        "top"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "15": {
+      "fines": [
+        "tunic"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "17": {
+      "fines": [
+        "blouse",
+        "long-sleeve shirt",
+        "sleeveless top",
+        "sweater"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "18": {
+      "fines": [
+        "cardigan"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "top",
+      "override_reason": "production-match: deriveClothingType collapses cardigan (mid-layer knit, no layerRole) -> top; benchmark matches the app's serving-time label, not Polyvore's 'outerwear' semantic"
+    },
+    "19": {
+      "fines": [
+        "sweater",
+        "turtleneck sweater"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "21": {
+      "fines": [
+        "male T-shirt",
+        "tshirt"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "23": {
+      "fines": [
+        "jacket/coat"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "24": {
+      "fines": [
+        "coat",
+        "trench coat"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "25": {
+      "fines": [
+        "blazer",
+        "jacket",
+        "parka"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "26": {
+      "fines": [
+        "vest"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "27": {
+      "fines": [
+        "jeans"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "28": {
+      "fines": [
+        "pant",
+        "pants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "29": {
+      "fines": [
+        "shorts"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "30": {
+      "fines": [
+        "set/suit"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "dress"
+    },
+    "31": {
+      "fines": [
+        "swimsuit bottom"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "excluded",
+      "excluded_reason": "swimwear"
+    },
+    "35": {
+      "fines": [
+        "backpack"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "36": {
+      "fines": [
+        "purse",
+        "tote"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "37": {
+      "fines": [
+        "bag",
+        "handbag",
+        "purse"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "38": {
+      "fines": [
+        "clutch"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "39": {
+      "fines": [
+        "purse"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "40": {
+      "fines": [
+        "purse"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "41": {
+      "fines": [
+        "closed shoes",
+        "flat sandals",
+        "heels"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "42": {
+      "fines": [
+        "boots"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "43": {
+      "fines": [
+        "heels",
+        "pump"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "46": {
+      "fines": [
+        "heels",
+        "sandals"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "47": {
+      "fines": [
+        "flats"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "48": {
+      "fines": [
+        "flip-flops"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "49": {
+      "fines": [
+        "flats",
+        "sneakers"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "50": {
+      "fines": [
+        "slippers"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "51": {
+      "fines": [
+        "gloves",
+        "scarf"
+      ],
+      "semantics": [
+        "accessories",
+        "scarves"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "52": {
+      "fines": [
+        "belt"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "53": {
+      "fines": [
+        "gloves"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "55": {
+      "fines": [
+        "baseball cap",
+        "beanie",
+        "hat",
+        "straw hat",
+        "winter hat"
+      ],
+      "semantics": [
+        "hats"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "56": {
+      "fines": [
+        "tie"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "57": {
+      "fines": [
+        "sunglasses"
+      ],
+      "semantics": [
+        "accessories",
+        "sunglasses"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "58": {
+      "fines": [
+        "headband"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "59": {
+      "fines": [
+        "umbrella"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "61": {
+      "fines": [
+        "watch"
+      ],
+      "semantics": [
+        "accessories",
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "62": {
+      "fines": [
+        "necklace"
+      ],
+      "semantics": [
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "64": {
+      "fines": [
+        "earrings"
+      ],
+      "semantics": [
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "65": {
+      "fines": [
+        "ring"
+      ],
+      "semantics": [
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "68": {
+      "fines": [
+        "stockings"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "69": {
+      "fines": [
+        "socks"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "104": {
+      "fines": [
+        "sleeveless top",
+        "tank"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "105": {
+      "fines": [
+        "scarf"
+      ],
+      "semantics": [
+        "scarves"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "106": {
+      "fines": [
+        "bracelet"
+      ],
+      "semantics": [
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "107": {
+      "fines": [
+        "pendant"
+      ],
+      "semantics": [
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "231": {
+      "fines": [
+        "pouch"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "236": {
+      "fines": [
+        "blazer"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "237": {
+      "fines": [
+        "jeans"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "238": {
+      "fines": [
+        "jeans"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "239": {
+      "fines": [
+        "jeans"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "240": {
+      "fines": [
+        "jeans"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "241": {
+      "fines": [
+        "pants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "243": {
+      "fines": [
+        "jumpsuit"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "dress"
+    },
+    "244": {
+      "fines": [
+        "romper"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "dress"
+    },
+    "245": {
+      "fines": [
+        "lingerie top"
+      ],
+      "semantics": [
+        ""
+      ],
+      "type": "excluded",
+      "excluded_reason": "undefined"
+    },
+    "246": {
+      "fines": [
+        "lingerie bottom"
+      ],
+      "semantics": [
+        ""
+      ],
+      "type": "excluded",
+      "excluded_reason": "undefined"
+    },
+    "247": {
+      "fines": [
+        "lingerie top"
+      ],
+      "semantics": [
+        ""
+      ],
+      "type": "excluded",
+      "excluded_reason": "undefined"
+    },
+    "248": {
+      "fines": [
+        "pyjama/slip/chemise"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "excluded",
+      "excluded_reason": "sleepwear"
+    },
+    "249": {
+      "fines": [
+        "pyjama pants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "excluded",
+      "excluded_reason": "sleepwear"
+    },
+    "250": {
+      "fines": [
+        "kimono"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "251": {
+      "fines": [
+        "hosiery"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "252": {
+      "fines": [
+        "sports long-sleeve shirt"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "253": {
+      "fines": [
+        "sweatpants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "254": {
+      "fines": [
+        "tennis skirt"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "255": {
+      "fines": [
+        "shorts"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "256": {
+      "fines": [
+        "track jacket"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "outer_layer",
+      "override_reason": "production-match: deriveClothingType routes 'track jacket' -> outer_layer (jacket keyword); benchmark matches the app, not Polyvore's 'tops' semantic"
+    },
+    "257": {
+      "fines": [
+        "sports bra"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "258": {
+      "fines": [
+        "purse"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "259": {
+      "fines": [
+        "backpack",
+        "basket bag"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "260": {
+      "fines": [
+        "satchel"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "261": {
+      "fines": [
+        "booties",
+        "heels"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "262": {
+      "fines": [
+        "flat boots"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "263": {
+      "fines": [
+        "heeled boots"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "264": {
+      "fines": [
+        "over-the-knee boots"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "265": {
+      "fines": [
+        "flats"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "266": {
+      "fines": [
+        "closed shoes"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "267": {
+      "fines": [
+        "platform shoes"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "268": {
+      "fines": [
+        "sneakers"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "269": {
+      "fines": [
+        "suspenders"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "270": {
+      "fines": [
+        "activity wristband"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "272": {
+      "fines": [
+        "male shirt"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "273": {
+      "fines": [
+        "male sweater"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "275": {
+      "fines": [
+        "male T-shirt"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "277": {
+      "fines": [
+        "male suit jacket"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "278": {
+      "fines": [
+        "male jeans"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "279": {
+      "fines": [
+        "male suit pants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "280": {
+      "fines": [
+        "male knee-length shorts"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "281": {
+      "fines": [
+        "male suit"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "dress"
+    },
+    "282": {
+      "fines": [
+        "male swim shorts"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "excluded",
+      "excluded_reason": "swimwear"
+    },
+    "283": {
+      "fines": [
+        "male boxers"
+      ],
+      "semantics": [
+        ""
+      ],
+      "type": "excluded",
+      "excluded_reason": "undefined"
+    },
+    "284": {
+      "fines": [
+        "male sweatpants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "285": {
+      "fines": [
+        "male sports shirt/track suit"
+      ],
+      "semantics": [
+        ""
+      ],
+      "type": "excluded",
+      "excluded_reason": "undefined"
+    },
+    "286": {
+      "fines": [
+        "male sports shirt"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "287": {
+      "fines": [
+        "male track pants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "288": {
+      "fines": [
+        "male sports shorts"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "289": {
+      "fines": [
+        "male track jacket"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "outer_layer",
+      "override_reason": "production-match: deriveClothingType routes 'track jacket' -> outer_layer (jacket keyword); benchmark matches the app, not Polyvore's 'tops' semantic"
+    },
+    "290": {
+      "fines": [
+        "messenger bag"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "291": {
+      "fines": [
+        "male shoes"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "292": {
+      "fines": [
+        "male shoes"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "293": {
+      "fines": [
+        "male flip-flops"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "294": {
+      "fines": [
+        "male flip-flops"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "295": {
+      "fines": [
+        "male loafers"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "296": {
+      "fines": [
+        "male formal shoes"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "297": {
+      "fines": [
+        "male sneakers"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "298": {
+      "fines": [
+        "male sneakers"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "299": {
+      "fines": [
+        "male accessories"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "300": {
+      "fines": [
+        "male belt"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "301": {
+      "fines": [
+        "male gloves"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "302": {
+      "fines": [
+        "male scarves"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "303": {
+      "fines": [
+        "male baseball caps"
+      ],
+      "semantics": [
+        "hats"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "304": {
+      "fines": [
+        "male sunglasses"
+      ],
+      "semantics": [
+        "sunglasses"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "305": {
+      "fines": [
+        "male watch"
+      ],
+      "semantics": [
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "306": {
+      "fines": [
+        "male suspenders"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "307": {
+      "fines": [
+        "cufflings"
+      ],
+      "semantics": [
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "309": {
+      "fines": [
+        "tank top"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "310": {
+      "fines": [
+        "jeans"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "315": {
+      "fines": [
+        "bodie"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "318": {
+      "fines": [
+        "handbag",
+        "purse"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "332": {
+      "fines": [
+        "pants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "341": {
+      "fines": [
+        "male shirt"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "342": {
+      "fines": [
+        "male polos"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "343": {
+      "fines": [
+        "tank top"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "1605": {
+      "fines": [
+        "swimsuit"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "excluded",
+      "excluded_reason": "swimwear"
+    },
+    "1606": {
+      "fines": [
+        "one-piece swimsuit"
+      ],
+      "semantics": [
+        "all-body"
+      ],
+      "type": "excluded",
+      "excluded_reason": "swimwear"
+    },
+    "1607": {
+      "fines": [
+        "coverup"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "4452": {
+      "fines": [
+        "jeans"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "4454": {
+      "fines": [
+        "male shirt"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "4455": {
+      "fines": [
+        "male formal jacket"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "4456": {
+      "fines": [
+        "male jacket"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "4457": {
+      "fines": [
+        "male vest"
+      ],
+      "semantics": [
+        "outerwear"
+      ],
+      "type": "outer_layer"
+    },
+    "4458": {
+      "fines": [
+        "male pants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "4459": {
+      "fines": [
+        "male pants"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "bottom"
+    },
+    "4460": {
+      "fines": [
+        "male socks"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4461": {
+      "fines": [
+        "travel bag"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4462": {
+      "fines": [
+        "laptop bag"
+      ],
+      "semantics": [
+        "bags"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4463": {
+      "fines": [
+        "wallet"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4464": {
+      "fines": [
+        "male shoes"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "4465": {
+      "fines": [
+        "male slippers"
+      ],
+      "semantics": [
+        "shoes"
+      ],
+      "type": "shoes"
+    },
+    "4466": {
+      "fines": [
+        "brooch"
+      ],
+      "semantics": [
+        "jewellery"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4467": {
+      "fines": [
+        "key chain"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4468": {
+      "fines": [
+        "money clip"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4470": {
+      "fines": [
+        "bowtie"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4472": {
+      "fines": [
+        "smartphone cases/tech items"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4473": {
+      "fines": [
+        "umbrella"
+      ],
+      "semantics": [
+        "accessories"
+      ],
+      "type": "excluded",
+      "excluded_reason": "non-garment"
+    },
+    "4495": {
+      "fines": [
+        "sweater",
+        "sweathirt"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "4496": {
+      "fines": [
+        "hoodie"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "top"
+    },
+    "4517": {
+      "fines": [
+        "swimsuit top"
+      ],
+      "semantics": [
+        "tops"
+      ],
+      "type": "excluded",
+      "excluded_reason": "swimwear"
+    },
+    "4518": {
+      "fines": [
+        "swimsuit bottom"
+      ],
+      "semantics": [
+        "bottoms"
+      ],
+      "type": "excluded",
+      "excluded_reason": "swimwear"
+    }
+  }
+}

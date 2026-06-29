@@ -113,19 +113,29 @@ becomes an explicit **M6 re-measure entry condition** on real-ingestion data (th
 
 ## 2. Dataset & split
 
-**Headline = Polyvore Outfits-D (item-disjoint).** Item-level disjointness is the only Polyvore variant that
-blocks the scorer from winning by **memorizing items**, so its AUC/FITB is an honest *generalization* number —
-the correct cold-start analog.
+**Headline = Polyvore Outfits-D, purged to strict item-disjoint.** Item-level disjointness is the only Polyvore
+variant that blocks the scorer from winning by **memorizing items**, so its AUC/FITB is an honest
+*generalization* number — the correct cold-start analog. *(The shipped `disjoint/` files are only
+**near**-disjoint; the headline purges the residual test leak to make this literally true — see the disjointness
+caveat below.)*
 
-- **Counts (verified, arXiv:1803.09196 §3):** 32,140 outfits / 175,485 items; 16,995 train; **15,145 combined
-  valid+test** (the paper says "16,995 … for training and 15,145 for testing and validation"; 16,995 + 15,145
-  = 32,140 reconciles exactly). The **internal valid-vs-test split is read off the shipped JSON**, not
-  re-derived. **C1 prints the actual raw / post-filter / dropped counts at load** — the spec never asserts a
-  corpus size in prose (a wrong headline-dataset count is a cheap credibility nick).
+- **Counts (measured off the shipped JSON at C1):** train **16,995** / valid **3,000** / test **15,145** outfits
+  (**35,140** total; 251,008 items in the metadata pool). Valid and test arrive **pre-separated** in the shipped
+  `disjoint/` files — there is **no** internal valid-vs-test re-derivation. *(The paper's prose "16,995 … for
+  training and 15,145 for testing and validation" counts the **test** set only; the shipped release adds a
+  separate 3,000-outfit valid — the shipped data is authoritative.)* **C1 prints the actual raw / post-filter /
+  dropped counts at load** — the spec never asserts a corpus size in prose (a wrong headline-dataset count is a
+  cheap credibility nick).
 - **Non-disjoint variant** (68,306 outfits / 365,054 items, Vasileva 2018) is computed **once as a
   ceiling/sanity readout only** — items recur across splits, so it is the easy regime, never the gate.
 - **Disjointness caveat (keep):** item-disjoint ≠ *visual*-disjoint — near-duplicate product photos and brand
   co-occurrence still bleed. Report it as "the strongest publicly-shipped split," not "leakage-free."
+- **Shipped-split item leakage (measured at C1) + purge:** the shipped `disjoint/` files are only **near**-disjoint
+  — the gated **test** set shares **84 items / 47 outfits (0.12%)** with train, and **valid** shares **25.8%** of
+  its items with train. The headline runs `load_corpus(strict_disjoint=True)`, which **purges the 47
+  train-overlapping test outfits** (15,145 → **15,098**) so the reported test set is **literally item-disjoint**.
+  Valid's overlap is **disclosed, not purged** — valid is sealed-checkpoint-selection only, never the reported
+  number. The purge freezes in the C2 pre-registration.
 - **Attribution (corrected):** the 68,306-outfit / 365,054-item figure is **Vasileva 2018**. **Han 2017
   (Maryland Polyvore)** is a *different, smaller* set — 21,889 outfits (17,316 / 1,497 / 3,076) with
   **random-category** negatives (the easy protocol Vasileva's same-category negatives were built to fix). Do
@@ -139,6 +149,18 @@ The license tag (CC BY 4.0) covers the *curation/annotations* only; the authors 
 `Marqo/polyvore` mirror (Maryland-21K lineage, images + text, outfit groupings preserved) is the **bring-up
 fallback** — fine for pipeline wiring and a quick CLIP-embedding smoke test, **never the honest headline**
 (it is the easier lineage, no item-disjoint split).
+
+**Image source (verified at C1 — read before C2 `embed.py`).** The gated `mvasil/polyvore-outfits` HF repo ships
+**no loose `{item_id}.jpg` files**; the images are **embedded in the parquet configs** (`config="disjoint"` /
+`"nondisjoint"`, an `image` column of JPEG bytes keyed by `item_id`; ~4.3 GB whole repo, ~1.5 GB for the
+`disjoint` config C2 needs). The C1 loader reads only the loose `disjoint/*.json` (outfit structure — no images,
+correct, C1 doesn't embed). **C2 `embed.py` must source images from the parquet**
+(`load_dataset("mvasil/polyvore-outfits", "disjoint")` → per-item `item_id` + image bytes), **not** from an
+`images/` directory. **Split-name note:** the parquet split is `validation` (HF convention), not C1's `valid` —
+C2 maps it. The disjoint parquet item-splits (train 71,967 / `validation` 14,657 / test 70,035) match C1's
+measured per-split distinct-item counts, so every disjoint-outfit item has its image; C2 should still **assert
+per-`item_id` resolution** at embed time (count-match ≠ id-match) and fail loud on a miss. (Earlier confusion —
+"images missing" — was the loose-file view; access via the parquet is complete.)
 
 ---
 
@@ -205,13 +227,17 @@ audit kept catching "not-in-the-outfit" vs "never-co-occur" drift).
   (preserves the disjoint guarantee).
 - **5-value type space.** Apply the Polyvore-fine-category → 5-value `clothingType`
   (`top` / `bottom` / `dress` / `outer_layer` / `shoes`; the canonical enum, `fitted/lib/clothingType.ts`)
-  mapping, **excluding** non-clothing accessories (bags/jewelry/sunglasses) so the type space matches the
-  production wardrobe exactly. **The mapping is an enumerated committed artifact — `type_map.json`, one row per
+  mapping, **excluding** (a) non-garment accessories (bags/jewellery/sunglasses/hats/scarves/accessories),
+  (b) swimwear, (c) sleepwear/loungewear sleep-garments, and (d) lingerie/intimates + underwear — so the type
+  space matches the production 5-type wardrobe. (Boundary cases kept by design: slippers → shoes — footwear, not
+  sleepwear; sports bra → top — athleisure upper garment. Each row carries an `excluded_reason`; the carve-out
+  policy + the production-divergence note for ambiguous layering knits, e.g. cardigan, live in `type_map.json`'s
+  `_policy`.) **The mapping is an enumerated committed artifact — `type_map.json`, one row per
   Polyvore fine category → {5-type | excluded} — authored at C1 and frozen in the C2 pre-registration (§15)**
   (asserting "frozen" without a concrete table is the drift this single-home rule kills). Outfits left with
   **< 2 clothing items** after the exclusion have no edge → **dropped** (dropped count reported). The **excluded
   item/edge share is reported** (the literature anchors are full-Polyvore figures, so the filtered task's
-  comparability is disclosed, not hidden).
+  comparability is disclosed, not hidden — measured at C1: ~45% of item slots).
 
 **Outfit-level negatives (the gate-D / literature-band input) — single home, here.** Gate D (§12) and the §6
 honest-band readout are **outfit-level**, so they need negative *outfits*, not just negative edges. Construction
@@ -933,7 +959,9 @@ the paired two-stage bootstrap reads `judge_runs.ndjson` directly, not just the 
 enumerates exactly this set.
 
 **Risks / open questions (settle against measurement, not opinion):**
-- Internal valid-vs-test split of the 15,145 non-train outfits — read off the shipped JSON at load.
+- Valid and test arrive **pre-separated** in the shipped `disjoint/` files (valid 3,000 / test 15,145) — no
+  internal split to derive; read off the shipped JSON at load. The headline test set is additionally purged to
+  strict item-disjoint (§2, `strict_disjoint=True`).
 - `gpt-5.4-mini` exact dated snapshot + confirm it is still what the app serves at spike time.
 - FashionSigLIP emitted embedding dim + open_clip-vs-transformers load path — verify at C2 before fixing head
   shape.
