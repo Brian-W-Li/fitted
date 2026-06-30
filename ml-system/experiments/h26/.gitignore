@@ -30,6 +30,12 @@ data/
 .cache/
 embeddings/
 
+# Trained-head checkpoints (C3 train_head.py). selection.json commits the checkpoint HASH + config
+# + manifest binding; the .pt weight blob is regenerable bit-for-bit from the seed (like the
+# embedding cache), so it stays out of git. selection.json itself IS committed.
+checkpoints/
+*.pt
+
 # Raw judge payloads + images sent to the API (§8/§14 — only the de-identified
 # judge_runs.ndjson ledger is committed; raw request/response payloads are not).
 raw_payloads/

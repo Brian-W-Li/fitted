@@ -30,6 +30,9 @@ numpy==2.5.0
 scipy==1.18.0              # tie-averaged ranks (AUC); cluster bootstrap CIs
 scikit-learn==1.9.0        # roc_auc cross-check in tests
 
+# --- Schema validation (C3: train_head.py selection.json; C4: evaluate.py unlock files) ---
+jsonschema==4.26.0         # Draft 2020-12 — selection.schema.json + the C4 unlock/closet schemas
+
 # --- LLM-as-judge baseline (C4: gpt_judge.py) ---
 # gpt-5.4-mini dated snapshot, temp 0 (§7/§8). Lazy import — only a live judge run needs it.
 # Lower bound until C4 pins the verified version with the judge addendum.

@@ -459,6 +459,109 @@ def _write_manifest_preserving_freeze(path: str, fresh: dict, require_existing: 
 
 
 # --------------------------------------------------------------------------- #
+# Cache reader (C3 — baselines.py / train_head.py / evaluate.py read the frozen cache)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class EmbeddingCache:
+    """The frozen, tamper-verified embedding cache: `matrix[index[item_id]]` is the L2-normalized
+    768-d embedding for `item_id`. Built once by `build_cache` (the multi-hour one-time pass) and
+    read here by every C3 scorer — no module re-embeds. `manifest` is the committed
+    `embedding_manifest_<key>.json` the cache was loaded against (and verified against)."""
+
+    key: str
+    ids: list[str]
+    matrix: np.ndarray            # (N, dim) float32, row i == ids[i]'s embedding
+    index: dict[str, int]         # item_id -> row
+    dim: int
+    manifest: dict
+
+    def vec(self, item_id: str) -> np.ndarray:
+        """The (dim,) float32 embedding row for `item_id` (KeyError if absent — callers resolving the
+        corpus must guarantee coverage, the §2 build-time fail-loud guarantee)."""
+        return self.matrix[self.index[item_id]]
+
+    def has(self, item_id: str) -> bool:
+        return item_id in self.index
+
+
+def cache_manifest_path(key: str = HEADLINE, root_dir: str = ROOT_DIR) -> str:
+    return os.path.join(root_dir, f"embedding_manifest_{key}.json")
+
+
+def load_cache(
+    key: str = HEADLINE, cache_dir: str = DEFAULT_CACHE_DIR, root_dir: str = ROOT_DIR,
+    verify: bool = True,
+) -> EmbeddingCache:
+    """Load the frozen embedding cache for `key`, tamper-verifying it against its committed manifest.
+
+    Reads `embedding_manifest_<key>.json` (root_dir, committed) + `embeddings_<key>.npy` /
+    `<key>_ids.json` (cache_dir, gitignored, regenerable). The manifest's cache-content fields are
+    null until `build_cache` runs the one-time pass, so a not-yet-built cache fails loud with a clear
+    pointer rather than a confusing FileNotFound. `verify=True` re-checks the order-sensitive
+    `ids_list_sha256` + the content `embeddings_content_sha256` against the loaded blobs (so a swapped
+    or truncated cache is caught before it silently corrupts every downstream score), plus the
+    embedding dim, dtype, n_items, the duplicate-id guard, and that the rows really are L2-normalized
+    (the manifest's `normalization: l2` is load-bearing, not a decoupled constant)."""
+    manifest_path = cache_manifest_path(key, root_dir)
+    if not os.path.exists(manifest_path):
+        raise RuntimeError(f"missing embedding manifest {manifest_path!r}")
+    manifest = load_json_strict(manifest_path)
+    if manifest.get("embeddings_path") is None or manifest.get("ids_path") is None:
+        raise RuntimeError(
+            f"embedding cache for {key!r} is not built: the cache-content fields of "
+            f"{os.path.basename(manifest_path)} are still null. Run embed.build_cache (the C3 "
+            f"one-time pass over the disjoint parquet) before reading the cache."
+        )
+
+    npy_path = os.path.join(cache_dir, manifest["embeddings_path"])
+    ids_path = os.path.join(cache_dir, manifest["ids_path"])
+    ids = load_json_strict(ids_path)
+    if not isinstance(ids, list):
+        raise ValueError(f"{ids_path!r} must hold a JSON list of item_ids, got {type(ids).__name__}")
+    matrix = np.load(npy_path)
+
+    if verify:
+        _verify_cache(manifest, ids, matrix, key)
+
+    index: dict[str, int] = {}
+    for row, item_id in enumerate(ids):
+        if item_id in index:  # ids is a LIST (load_json_strict only de-dups object KEYS), so guard here
+            raise ValueError(f"duplicate item_id {item_id!r} at rows {index[item_id]} and {row} in {ids_path!r}")
+        index[item_id] = row
+    return EmbeddingCache(
+        key=key, ids=list(ids), matrix=matrix, index=index, dim=int(matrix.shape[1]), manifest=manifest
+    )
+
+
+def _verify_cache(manifest: dict, ids: list[str], matrix: np.ndarray, key: str) -> None:
+    """Tamper-check the loaded cache against its committed manifest hashes/shape (§5). A mismatch is a
+    corrupted/stale/wrong cache — fail loud rather than score against it."""
+    n = manifest.get("n_items")
+    if n is not None and len(ids) != n:
+        raise ValueError(f"cache {key!r}: ids length {len(ids)} != manifest n_items {n}")
+    if matrix.ndim != 2 or matrix.shape[0] != len(ids):
+        raise ValueError(f"cache {key!r}: matrix shape {matrix.shape} does not align to {len(ids)} ids")
+    exp_dim = manifest.get("embedding_dim")
+    if exp_dim is not None and matrix.shape[1] != exp_dim:
+        raise ValueError(f"cache {key!r}: embedding_dim {matrix.shape[1]} != manifest {exp_dim}")
+    exp_dtype = manifest.get("dtype")
+    if exp_dtype is not None and str(matrix.dtype) != exp_dtype:
+        raise ValueError(f"cache {key!r}: dtype {matrix.dtype} != manifest {exp_dtype}")
+    ids_sha = hashlib.sha256(json.dumps(ids).encode()).hexdigest()
+    if manifest.get("ids_list_sha256") not in (None, ids_sha):
+        raise ValueError(f"cache {key!r}: ids_list_sha256 mismatch (manifest vs loaded ids order)")
+    content_sha = hashlib.sha256(np.ascontiguousarray(matrix).tobytes()).hexdigest()
+    if manifest.get("embeddings_content_sha256") not in (None, content_sha):
+        raise ValueError(f"cache {key!r}: embeddings_content_sha256 mismatch (matrix bytes differ from manifest)")
+    if manifest.get("normalization") == "l2" and matrix.shape[0]:
+        norms = np.linalg.norm(matrix, axis=1)
+        if not np.allclose(norms, 1.0, atol=1e-4):
+            raise ValueError(
+                f"cache {key!r}: rows are not L2-normalized (norm range {norms.min():.4f}..{norms.max():.4f})"
+            )
+
+
+# --------------------------------------------------------------------------- #
 # Smoke (C2 dim/SHA pin) — `python embed.py`
 # --------------------------------------------------------------------------- #
 def _smoke() -> None:

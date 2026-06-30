@@ -894,12 +894,17 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   degenerate, where **no** gates run at all — §15 risks.)
 - **C3 — Baselines + trained head + eval driver.** `baselines.py` (zero-shot cosine floor; co-occurrence sanity
   assertion); `train_head.py` (pairwise-edge head, type conditioning, BCE, valid-selected; **the capacity-matched
-  item-level ablation arm**, §6); `evaluate.py` (metric-computation half). **Valid-split selection is mechanical
-  (argmax over the frozen grid); C3 writes `selection.json` only — checkpoint id + config + checkpoint hash + a
-  convergence/early-stop indicator, *no metric values* — and the held-out *test*-set metric values (gate-D
-  outfit-AUC, gate-A/B pair-level + FITB) are never materialized to `metrics.json` until the C4 unlock (the §1
-  blindness guard). Valid-split metric values remain outside `metrics.json`; C3 exposes only `selection.json`
-  provenance, so no human-visible model number exists at C3 to tune the judge against.**
+  item-level ablation arm**, §6); `evaluate.py` (metric-computation half); `fitb_order.py` (the §12 gate-B order
+  materialization). **Valid-split selection is mechanical
+  (argmax over the frozen grid); the only files C3 commits are `selection.json` (checkpoint id + config + checkpoint
+  hash + a convergence/early-stop indicator) and `fitb_order.json` (the gate-B seed-ordered FITB question list +
+  its content hash — the §12 tripwire C4's prefix binds to; needs only the corpus + frozen seed, NOT the embedding
+  cache, so it materializes at C3 before any model number). **Both carry *no metric value of any split*** — the
+  held-out *test*-set metric values (gate-D outfit-AUC, gate-A/B pair-level + FITB) are never materialized to
+  `metrics.json` until the C4 unlock (the §1 blindness guard). Valid-split metric values remain outside
+  `metrics.json`; C3 exposes only `selection.json` + `fitb_order.json` provenance, so no human-visible model number
+  exists at C3 to tune the judge against.** *(`selection.json` needs the trained checkpoint, so it materializes once
+  the one-time embedding cache is built; `fitb_order.json` needs no cache and is committed first.)*
 - **C4 — LLM-as-judge.** `gpt_judge.py` (`gpt-5.4-mini` dated snapshot; **native FITB@4**, both orders,
   consistent-only; image-only / image+title / text-attribute arms; the determinism envelope + logprob
   escape-hatch; **a live API smoke test *re-checking whether image logprobs are available* (§8 verified them
@@ -952,7 +957,10 @@ the multi-run distribution + two-stage bootstrap read it, joined on `question_id
 §8/§14 — **the committed ledger stays scalar-only: opaque `question_id` + choice index + flags, never the judge's
 free-text rationale or any photo-derived caption (those route only to the gitignored `raw_payloads/`), so the
 closet judge slice cannot leak person-describing text into the public repo**), `fitb_manifest.json` (the C2 freeze: eligibility, held-out-item rule, distractor
-rule, seed, constructor/source hashes, gate-B vs gate-D subset allocation — §12), `stl_ctl_probe.py`, `domain_probe.py`,
+rule, seed, constructor/source hashes, gate-B vs gate-D subset allocation — §12),
+`fitb_order.py` + `fitb_order.json` (the C3 materialization of the gate-B seed-ordered FITB question list +
+its content hash — the §12 tripwire C4's prefix binds to; built from the corpus + frozen seed, NOT the embedding
+cache, so committed at C3 before any model number), `stl_ctl_probe.py`, `domain_probe.py`,
 `closet_metrics.json` (the C5 intermediate — `domain_probe.py` writes the closet/transfer fields here and
 `evaluate.py` merges it into `metrics.json`; artifact-dataflow note above),
 `evaluate.py`, `selection.json` (the C3 sealed-selection artifact: checkpoint id/config/hash/convergence, **no
