@@ -7,7 +7,7 @@ read by authority level, not by filename age or folder location.
 
 - `../CLAUDE.md` - repo operating guide and default reading list for AI/code sessions.
 - `Fitted_Spec_v2.md` - canonical product and technical spec. This wins over every older doc.
-- `plans/m4-data-model-migration.md` - **completed M4 reference** (C1–C8 ✅ done; §14 is the ladder, §14.5 the M5-handoff). **Next active work: the H26 compatibility spike (`/spec` complete + heavy-audited → ready to implement; `plans/h26-compatibility-spike-v2.md`), then the M5 cutover** — sequence consolidation → H26 → M5 (`Fitted_Spec_v2.md` §20). M5-forward readiness gaps live in `plans/post-m4-readiness.md` (its H26 §2 is superseded by the v2 H26 build doc; only its M5 sections stay active).
+- `plans/m4-data-model-migration.md` - **completed M4 reference** (C1–C8 ✅ done; §14 is the ladder, §14.5 the M5-handoff). **Next active work: the H26 compatibility spike (in build — C1–C3 committed; `selection.json` deferred to the embedding-cache run; next C4 (LLM judge); `plans/h26-compatibility-spike-v2.md`), then the M5 cutover** — sequence consolidation → H26 → M5 (`Fitted_Spec_v2.md` §20). M5-forward readiness gaps live in `plans/post-m4-readiness.md` (its H26 §2 is superseded by the v2 H26 build doc; only its M5 sections stay active).
 - `plans/spearhead.md` - completed Spearhead plan: orphan-item rescue cold-start vertical (C1–C6 ladder, done 2026-06-25); reference. The C6/H40 live-eval results are in its §E.
 - `plans/m3-ranker.md` - completed M3 ranker plan (C1-C6); reference. See the §11 checkpoint table for per-checkpoint detail.
 - `plans/m2-validator.md` - completed M2 validator plan; reference.

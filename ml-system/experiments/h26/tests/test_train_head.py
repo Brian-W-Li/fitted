@@ -342,3 +342,30 @@ def test_training_is_deterministic_across_processes():
     in_process = train_one_config(PairwiseEdgeHead, t, v, GRID[0], "grid_0", seed=SEED, max_epochs=2)
     assert len(other_process_sha) == 64
     assert other_process_sha == checkpoint_sha256(in_process.best_state)  # bit-identical across processes
+
+
+def test_set_determinism_activates_the_envelope():
+    # The cross-process test above proves selection.json re-derives, but on ONE machine it would still
+    # pass if set_num_threads(1) / use_deterministic_algorithms(True) were deleted from set_determinism
+    # (both runs default to the same thread count, and the tiny model is deterministic anyway). This
+    # guards the envelope's PRESENCE directly, so the §9 bit-determinism headline claim cannot be
+    # silently removed — deleting either call makes this fail.
+    th.set_determinism(th.SEED)
+    assert torch.are_deterministic_algorithms_enabled() is True
+    assert torch.get_num_threads() == 1
+
+
+def test_committed_selection_binds_frozen_sources_when_present():
+    # selection.json is the sealed C3 artifact; it materializes only after the one-time (multi-hour)
+    # embedding-cache training run, so it is DEFERRED and this SKIPS until then. Once it lands it guards
+    # two one-way-door properties (mirroring the committed-fitb_order guards): (1) it still validates
+    # against selection.schema.json (no metric leak, sealed ids), and (2) its manifest_hashes still bind
+    # the CURRENT frozen artifacts — so editing any of the four bound files (preregistration.json /
+    # fitb_manifest.json / embedding_manifest_fashionsiglip.json / type_map.json) without re-running the
+    # selection is caught here, not silently desynced.
+    path = os.path.join(H26, "selection.json")
+    if not os.path.exists(path):
+        pytest.skip("selection.json not yet materialized (deferred: needs the embedding-cache training run)")
+    selection = json.load(open(path, encoding="utf-8"))
+    validate_selection(selection, root_dir=H26)
+    assert selection["manifest_hashes"] == manifest_hashes(H26)

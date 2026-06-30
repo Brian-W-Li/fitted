@@ -41,8 +41,9 @@ from data_loader import Edge, FitbQuestion, Item, OutfitPair, SplitData
 from embed import EmbeddingCache
 from metrics import EdgeScore, auc_pos_neg, fitb_candidate_scores, fitb_hit, mean_edge_score
 
-# The §C.6 popularity blind margin (frozen in preregistration.json). Imported by evaluate.py for the
-# diagnostic trigger; defined here next to the score forms it gates.
+# The §C.6 popularity blind margin (frozen in preregistration.json), defined here next to the score
+# forms it gates. The diagnostic-trigger comparison against this margin is the C6 gate-application half
+# (not yet built); evaluate.py (C3) only computes AUC_pop_edge/outfit, it does not read this constant.
 POPULARITY_BLIND_MARGIN = 0.55
 
 

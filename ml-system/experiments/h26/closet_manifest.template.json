@@ -40,7 +40,7 @@
     "items": [
       {"item_id": "c001", "clothing_type": "top", "polyvore_category_id": "11", "fine_label_human": "oxford shirt", "photo_path": "closet/c001.jpg", "photo_sha256": "<filled at freeze>", "coarsening_note": null},
       {"item_id": "c014", "clothing_type": "bottom", "polyvore_category_id": "28", "fine_label_human": "chinos", "photo_path": "closet/c014.jpg", "photo_sha256": "<filled at freeze>", "coarsening_note": null},
-      {"item_id": "c027", "clothing_type": "shoes", "polyvore_category_id": "4496", "fine_label_human": "white sneakers", "photo_path": "closet/c027.jpg", "photo_sha256": "<filled at freeze>", "coarsening_note": "no exact Polyvore analog for this exact silhouette; nearest fine-category used"}
+      {"item_id": "c027", "clothing_type": "shoes", "polyvore_category_id": "49", "fine_label_human": "white sneakers", "photo_path": "closet/c027.jpg", "photo_sha256": "<filled at freeze>", "coarsening_note": null}
     ],
     "outfits": [
       {"set_id": "o01", "item_ids": ["c001", "c014", "c027"]}

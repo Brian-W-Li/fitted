@@ -10,6 +10,12 @@
 > OpenAI **mini-tier** model on **text attributes only** (`imageUrl` stripped — spec §12 / §23-H33;
 > `recommend/route.ts:450`, `regenerate/route.ts:461`). The H26 judge baseline mirrors it — a mini judge
 > hardens the cost bar (§8).
+>
+> **Build progress (2026-06-30):** C1–C3 committed — data layer (§C1), the C2 pre-registration freeze, and
+> C3 baselines + both trained heads + the eval-driver **metric half** (`evaluate.py`, computation only) + the
+> materialized gate-B `fitb_order.json`. **`selection.json` is deferred** — it needs the one-time (multi-hour)
+> FashionSigLIP embedding-cache pass; everything else is committed + tested (130 green, 1 skipped). **Next: C4**
+> (LLM-as-judge + the four-file unlock that first materializes `metrics.json`). Per-checkpoint state is in §15.
 
 ---
 
@@ -937,9 +943,18 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   itself froze before the C4 unlock — local labeling, no egress). **Code-gate (not honor-system): the C5 egress
   code MUST fail loud unless `closet_manifest.json._consent.third_party_api_processing` is true AND every provider
   it would transmit to is enumerated in `providers_photos_may_reach`** — a missing/false consent is a hard stop.
+  **Label-integrity cross-check (added 2026-06-30):** `domain_probe.py` must cross-check each closet item's
+  `clothing_type` against `type_map[polyvore_category_id].type` and fail loud on a mismatch — neither
+  `closet_manifest.schema.json` (enum + regex only) nor the C4 referential check (category-id existence only)
+  catches a label slip, which would silently mis-condition the head's type-pair embedding on the closet.
 - **C6 — Report + mechanical gate.** Extend `evaluate.py` (gate-application half + the one near-gate rule);
   write `results.md`. **Sub-milestone boundary — heavier review pass** on every `results.md` claim vs
-  `metrics.json` before declaring done.
+  `metrics.json` before declaring done. **The §4 popularity-matched-negative sensitivity re-run is now a
+  MANDATORY C6 deliverable, not conditional:** the pre-registered item-popularity diagnostic fires on the real
+  test split (outfit-level popularity-only AUC ≈ 0.56 > the 0.55 blind margin, measured 2026-06-30 — a
+  model-independent confound diagnostic computed from popularity counts, not a trained-head metric, so recording
+  it carries no §1 blindness concern), so `results.md` carries the §4 "popularity-confounded (disclosed)" label
+  and reports the popularity-matched re-run (gate numbers do not move).
 
 **Files** (all new, under `ml-system/experiments/h26/`; touches no existing code): `README.md`,
 `requirements.txt` (isolated), `preregistration.md`, `data_loader.py`, `embed.py`,
