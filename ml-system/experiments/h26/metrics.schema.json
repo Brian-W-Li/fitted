@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "h26/metrics.schema.json",
+  "title": "H26 metrics.json field set",
+  "description": "Enumerates the metrics.json fields the gate authority (evaluate.py) reads (build doc §12/§15). SKELETON authored at C2 with metrics.py; FINALIZED at C6 with the gate-application half. Every metric value is a CI {point, low, high, b}. All AUC/FITB values are FRACTIONS (FITB is a fraction, not a percent). metrics.json itself is emission-gated: nothing at C3 (only selection.json), gate/judge fields unlock at C4, closet/transfer fields merge at C5, finalized at C6 (build doc §15 artifact-dataflow). The paired gate-difference CIs are required because raw component CIs cannot reconstruct the paired bootstrap.",
+  "type": "object",
+
+  "$defs": {
+    "ci": {
+      "type": "object",
+      "description": "A point estimate with a 95% percentile cluster-bootstrap interval (metrics.CI). half_width is derived (high-low)/2, not stored.",
+      "properties": {
+        "point": {"type": "number"},
+        "low": {"type": "number"},
+        "high": {"type": "number"},
+        "b": {"type": "integer", "minimum": 1}
+      },
+      "required": ["point", "low", "high", "b"],
+      "additionalProperties": false
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_blob_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40,64}$"
+    },
+    "unlock_file": {
+      "type": "object",
+      "description": "Committed unlock-file identity recorded before metrics.json emission.",
+      "properties": {
+        "path": {
+          "enum": [
+            "preregistration.md",
+            "preregistration.json",
+            "judge_addendum.md",
+            "closet_manifest.json",
+            "selection.json"
+          ]
+        },
+        "git_blob_sha": {"$ref": "#/$defs/git_blob_sha"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "validated": {"const": true}
+      },
+      "required": ["path", "git_blob_sha", "sha256", "validated"],
+      "additionalProperties": false
+    }
+  },
+
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "description": "Provenance, unlock identity, and sealed checkpoint binding. Unlock files are validation+hash records, not a presence boolean.",
+      "properties": {
+        "stage": {"enum": ["C4", "C5", "C6"]},
+        "seed": {"type": "integer"},
+        "split_loader": {"const": "load_corpus(strict_disjoint=True)"},
+        "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "unlock_files": {
+          "type": "object",
+          "properties": {
+            "preregistration.md": {"$ref": "#/$defs/unlock_file"},
+            "preregistration.json": {"$ref": "#/$defs/unlock_file"},
+            "judge_addendum.md": {"$ref": "#/$defs/unlock_file"},
+            "closet_manifest.json": {"$ref": "#/$defs/unlock_file"}
+          },
+          "required": [
+            "preregistration.md",
+            "preregistration.json",
+            "judge_addendum.md",
+            "closet_manifest.json"
+          ],
+          "additionalProperties": false
+        },
+        "selection": {
+          "type": "object",
+          "description": "The sealed C3 selection artifact whose checkpoint this metrics.json evaluates.",
+          "properties": {
+            "path": {"const": "selection.json"},
+            "schema": {"const": "selection.schema.json"},
+            "git_blob_sha": {"$ref": "#/$defs/git_blob_sha"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "validated": {"const": true},
+            "checkpoint_id": {"type": "string", "minLength": 1},
+            "checkpoint_sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "required": [
+            "path",
+            "schema",
+            "git_blob_sha",
+            "sha256",
+            "validated",
+            "checkpoint_id",
+            "checkpoint_sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": ["stage", "seed", "split_loader", "git_commit", "unlock_files", "selection"],
+      "additionalProperties": false
+    },
+
+    "AUC_catalog_pair": {"$ref": "#/$defs/ci", "description": "Gate A + reported transfer. Pooled pair-level ROC-AUC of the trained head on the strict-disjoint test pairs. Cluster = (positive,negative) pair."},
+    "AUC_zero_shot_cosine": {"$ref": "#/$defs/ci", "description": "Gate A floor. Pooled pair-level ROC-AUC of the same-backbone zero-shot cosine, same test pairs (paired with AUC_catalog_pair)."},
+    "gate_A_diff": {"$ref": "#/$defs/ci", "description": "Paired CI of AUC_catalog_pair - AUC_zero_shot_cosine. GO iff CI_low > 0."},
+
+    "fitb_trained_gateB": {"$ref": "#/$defs/ci", "description": "Gate B. Trained-head FITB@4 on the gate-B prefix (the judge-scored set)."},
+    "fitb_judge_gateB": {"$ref": "#/$defs/ci", "description": "Gate B. gpt-5.4-mini image-only FITB@4 on the same gate-B prefix. The paired two-stage bootstrap reads judge_runs.ndjson joined on question_id, not just this scalar."},
+    "gate_B_diff_inconsistent_miss": {"$ref": "#/$defs/ci", "description": "Paired CI of fitb_trained_gateB - fitb_judge_gateB under inconsistent=miss. GO iff CI_low >= -0.05 AND half_width <= 0.05."},
+    "gate_B_diff_inconsistent_half": {"$ref": "#/$defs/ci", "description": "Same diff under inconsistent=0.5 (the second convention; B-pass conservative only if both agree)."},
+
+    "outfit_auc": {"$ref": "#/$defs/ci", "description": "Gate D. Pooled outfit-level ROC-AUC (mean-edge score; positive vs same-fine-category-corrupted negative outfit). Cluster = source outfit. GO iff CI_low >= 0.81."},
+    "fitb_trained_full": {"$ref": "#/$defs/ci", "description": "Gate D. Trained-head FITB@4 over the full eligible held-out test set. GO iff CI_low >= 0.50."},
+
+    "AUC_closet_pair": {"$ref": "#/$defs/ci", "description": "Reported transfer (NOT gated). Pair-level closet AUC; read CI_low against the >= 0.70 band. Added at C5."},
+    "catalog_closet_drop": {"$ref": "#/$defs/ci", "description": "Reported transfer (NOT gated). AUC_catalog_pair - AUC_closet_pair, unpaired two-independent bootstrap; read CI_high against the <= 0.12 band. Added at C5."},
+
+    "AUC_cooccurrence_edge": {"$ref": "#/$defs/ci", "description": "Leak detector (must be ~0.50). Category-pair co-occurrence edge score; a deviation reveals category leakage in the negative sampler. Outside the reported ladder."},
+    "AUC_cooccurrence_outfit": {"$ref": "#/$defs/ci", "description": "Leak detector (must be ~0.50). Category-only outfit-level score on the gate-D corruption."},
+    "fitb_cooccurrence": {"$ref": "#/$defs/ci", "description": "Leak detector (must be ~0.25). Category-only FITB."},
+    "AUC_pop_edge": {"$ref": "#/$defs/ci", "description": "Popularity-confound diagnostic. Item-popularity-only pair-level AUC; > 0.55 (the blind margin) -> headline labeled popularity-confounded + sensitivity re-run."},
+    "AUC_pop_outfit": {"$ref": "#/$defs/ci", "description": "Popularity-confound diagnostic at outfit-level; same 0.55 margin."},
+
+    "fitb_zero_shot_cosine": {"$ref": "#/$defs/ci", "description": "Baseline ladder readout: zero-shot cosine FITB@4 (non-learned floor)."},
+
+    "AUC_pair_item_level": {"$ref": "#/$defs/ci", "description": "Seam ablation (§6/§C.2). The capacity-matched item-level head's pooled PAIR-level AUC on the identical test pairs (item-level per-edge score = 0.5*(g(i)+g(j))). The item-level term of the PINNED seam-falsification metric."},
+    "outfit_auc_item_level": {"$ref": "#/$defs/ci", "description": "Seam ablation (§6) — REPORTED DESCRIPTIVELY, NOT the falsification statistic. The item-level head's outfit-level AUC."},
+    "fitb_item_level_full": {"$ref": "#/$defs/ci", "description": "Seam ablation (§6) — REPORTED DESCRIPTIVELY, NOT the falsification statistic. Item-level head FITB on the full set."},
+    "seam_diff_pairwise_minus_item_level": {"$ref": "#/$defs/ci", "description": "The PINNED seam-falsification metric (§C.2): paired CI of AUC_catalog_pair - AUC_pair_item_level (pooled PAIR-level AUC, shared (pos,neg) pair clusters). 'Falsified' requires Holm-adjusted p < 0.05 AND this CI_low > 0 (build doc §6/§11). See seam_holm_adjusted_p."},
+    "seam_holm_adjusted_p": {"type": "number", "description": "Holm-Bonferroni-adjusted bootstrap two-sided p for the shape-diff hypothesis on pair-level AUC (not a CI)."}
+  },
+
+  "_stage_requirements": {
+    "_note": "The root `required` list is the C4 A^B^D gate input set. `allOf` below makes C5 transfer fields and C6 seam-ablation fields real schema requirements, keyed by _meta.stage.",
+    "fields": ["AUC_pair_item_level", "seam_diff_pairwise_minus_item_level", "seam_holm_adjusted_p", "AUC_closet_pair", "catalog_closet_drop"]
+  },
+
+  "required": [
+    "_meta",
+    "AUC_catalog_pair",
+    "AUC_zero_shot_cosine",
+    "gate_A_diff",
+    "fitb_trained_gateB",
+    "fitb_judge_gateB",
+    "gate_B_diff_inconsistent_miss",
+    "gate_B_diff_inconsistent_half",
+    "outfit_auc",
+    "fitb_trained_full"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "_meta": {
+            "properties": {"stage": {"enum": ["C5", "C6"]}},
+            "required": ["stage"]
+          }
+        },
+        "required": ["_meta"]
+      },
+      "then": {
+        "required": ["AUC_closet_pair", "catalog_closet_drop"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "_meta": {
+            "properties": {"stage": {"const": "C6"}},
+            "required": ["stage"]
+          }
+        },
+        "required": ["_meta"]
+      },
+      "then": {
+        "required": ["AUC_pair_item_level", "seam_diff_pairwise_minus_item_level", "seam_holm_adjusted_p"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

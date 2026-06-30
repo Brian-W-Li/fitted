@@ -1,0 +1,589 @@
+{
+ "_doc": "Closet labeling picker (\u00a710 taxonomy-match): assign each closet garment a polyvore_category_id from THIS list so its same-fine-category negatives draw from the SAME fine grain the catalog negatives use. Generated from type_map.json (clothing categories only; excluded accessory/swim/sleep/lingerie ids omitted). category_id is the negative-sampling key; 'fines' are human breadcrumbs (non-injective \u2014 one id spans several fine names).",
+ "categories": {
+  "7": {
+   "type": "bottom",
+   "fines": [
+    "skirt"
+   ]
+  },
+  "8": {
+   "type": "bottom",
+   "fines": [
+    "skirt"
+   ]
+  },
+  "9": {
+   "type": "bottom",
+   "fines": [
+    "skirt"
+   ]
+  },
+  "10": {
+   "type": "bottom",
+   "fines": [
+    "long skirt"
+   ]
+  },
+  "27": {
+   "type": "bottom",
+   "fines": [
+    "jeans"
+   ]
+  },
+  "28": {
+   "type": "bottom",
+   "fines": [
+    "pant",
+    "pants"
+   ]
+  },
+  "29": {
+   "type": "bottom",
+   "fines": [
+    "shorts"
+   ]
+  },
+  "237": {
+   "type": "bottom",
+   "fines": [
+    "jeans"
+   ]
+  },
+  "238": {
+   "type": "bottom",
+   "fines": [
+    "jeans"
+   ]
+  },
+  "239": {
+   "type": "bottom",
+   "fines": [
+    "jeans"
+   ]
+  },
+  "240": {
+   "type": "bottom",
+   "fines": [
+    "jeans"
+   ]
+  },
+  "241": {
+   "type": "bottom",
+   "fines": [
+    "pants"
+   ]
+  },
+  "253": {
+   "type": "bottom",
+   "fines": [
+    "sweatpants"
+   ]
+  },
+  "254": {
+   "type": "bottom",
+   "fines": [
+    "tennis skirt"
+   ]
+  },
+  "255": {
+   "type": "bottom",
+   "fines": [
+    "shorts"
+   ]
+  },
+  "278": {
+   "type": "bottom",
+   "fines": [
+    "male jeans"
+   ]
+  },
+  "279": {
+   "type": "bottom",
+   "fines": [
+    "male suit pants"
+   ]
+  },
+  "280": {
+   "type": "bottom",
+   "fines": [
+    "male knee-length shorts"
+   ]
+  },
+  "284": {
+   "type": "bottom",
+   "fines": [
+    "male sweatpants"
+   ]
+  },
+  "287": {
+   "type": "bottom",
+   "fines": [
+    "male track pants"
+   ]
+  },
+  "288": {
+   "type": "bottom",
+   "fines": [
+    "male sports shorts"
+   ]
+  },
+  "310": {
+   "type": "bottom",
+   "fines": [
+    "jeans"
+   ]
+  },
+  "332": {
+   "type": "bottom",
+   "fines": [
+    "pants"
+   ]
+  },
+  "4452": {
+   "type": "bottom",
+   "fines": [
+    "jeans"
+   ]
+  },
+  "4458": {
+   "type": "bottom",
+   "fines": [
+    "male pants"
+   ]
+  },
+  "4459": {
+   "type": "bottom",
+   "fines": [
+    "male pants"
+   ]
+  },
+  "3": {
+   "type": "dress",
+   "fines": [
+    "dress"
+   ]
+  },
+  "4": {
+   "type": "dress",
+   "fines": [
+    "dress"
+   ]
+  },
+  "5": {
+   "type": "dress",
+   "fines": [
+    "dress"
+   ]
+  },
+  "6": {
+   "type": "dress",
+   "fines": [
+    "gown"
+   ]
+  },
+  "30": {
+   "type": "dress",
+   "fines": [
+    "set/suit"
+   ]
+  },
+  "243": {
+   "type": "dress",
+   "fines": [
+    "jumpsuit"
+   ]
+  },
+  "244": {
+   "type": "dress",
+   "fines": [
+    "romper"
+   ]
+  },
+  "281": {
+   "type": "dress",
+   "fines": [
+    "male suit"
+   ]
+  },
+  "23": {
+   "type": "outer_layer",
+   "fines": [
+    "jacket/coat"
+   ]
+  },
+  "24": {
+   "type": "outer_layer",
+   "fines": [
+    "coat",
+    "trench coat"
+   ]
+  },
+  "25": {
+   "type": "outer_layer",
+   "fines": [
+    "blazer",
+    "jacket",
+    "parka"
+   ]
+  },
+  "236": {
+   "type": "outer_layer",
+   "fines": [
+    "blazer"
+   ]
+  },
+  "256": {
+   "type": "outer_layer",
+   "fines": [
+    "track jacket"
+   ]
+  },
+  "277": {
+   "type": "outer_layer",
+   "fines": [
+    "male suit jacket"
+   ]
+  },
+  "289": {
+   "type": "outer_layer",
+   "fines": [
+    "male track jacket"
+   ]
+  },
+  "1607": {
+   "type": "outer_layer",
+   "fines": [
+    "coverup"
+   ]
+  },
+  "4455": {
+   "type": "outer_layer",
+   "fines": [
+    "male formal jacket"
+   ]
+  },
+  "4456": {
+   "type": "outer_layer",
+   "fines": [
+    "male jacket"
+   ]
+  },
+  "4457": {
+   "type": "outer_layer",
+   "fines": [
+    "male vest"
+   ]
+  },
+  "41": {
+   "type": "shoes",
+   "fines": [
+    "closed shoes",
+    "flat sandals",
+    "heels"
+   ]
+  },
+  "42": {
+   "type": "shoes",
+   "fines": [
+    "boots"
+   ]
+  },
+  "43": {
+   "type": "shoes",
+   "fines": [
+    "heels",
+    "pump"
+   ]
+  },
+  "46": {
+   "type": "shoes",
+   "fines": [
+    "heels",
+    "sandals"
+   ]
+  },
+  "47": {
+   "type": "shoes",
+   "fines": [
+    "flats"
+   ]
+  },
+  "48": {
+   "type": "shoes",
+   "fines": [
+    "flip-flops"
+   ]
+  },
+  "49": {
+   "type": "shoes",
+   "fines": [
+    "flats",
+    "sneakers"
+   ]
+  },
+  "50": {
+   "type": "shoes",
+   "fines": [
+    "slippers"
+   ]
+  },
+  "261": {
+   "type": "shoes",
+   "fines": [
+    "booties",
+    "heels"
+   ]
+  },
+  "262": {
+   "type": "shoes",
+   "fines": [
+    "flat boots"
+   ]
+  },
+  "263": {
+   "type": "shoes",
+   "fines": [
+    "heeled boots"
+   ]
+  },
+  "264": {
+   "type": "shoes",
+   "fines": [
+    "over-the-knee boots"
+   ]
+  },
+  "265": {
+   "type": "shoes",
+   "fines": [
+    "flats"
+   ]
+  },
+  "266": {
+   "type": "shoes",
+   "fines": [
+    "closed shoes"
+   ]
+  },
+  "267": {
+   "type": "shoes",
+   "fines": [
+    "platform shoes"
+   ]
+  },
+  "268": {
+   "type": "shoes",
+   "fines": [
+    "sneakers"
+   ]
+  },
+  "291": {
+   "type": "shoes",
+   "fines": [
+    "male shoes"
+   ]
+  },
+  "292": {
+   "type": "shoes",
+   "fines": [
+    "male shoes"
+   ]
+  },
+  "293": {
+   "type": "shoes",
+   "fines": [
+    "male flip-flops"
+   ]
+  },
+  "294": {
+   "type": "shoes",
+   "fines": [
+    "male flip-flops"
+   ]
+  },
+  "295": {
+   "type": "shoes",
+   "fines": [
+    "male loafers"
+   ]
+  },
+  "296": {
+   "type": "shoes",
+   "fines": [
+    "male formal shoes"
+   ]
+  },
+  "297": {
+   "type": "shoes",
+   "fines": [
+    "male sneakers"
+   ]
+  },
+  "298": {
+   "type": "shoes",
+   "fines": [
+    "male sneakers"
+   ]
+  },
+  "4464": {
+   "type": "shoes",
+   "fines": [
+    "male shoes"
+   ]
+  },
+  "4465": {
+   "type": "shoes",
+   "fines": [
+    "male slippers"
+   ]
+  },
+  "11": {
+   "type": "top",
+   "fines": [
+    "shirt",
+    "sleeveless top",
+    "sweater",
+    "top"
+   ]
+  },
+  "15": {
+   "type": "top",
+   "fines": [
+    "tunic"
+   ]
+  },
+  "17": {
+   "type": "top",
+   "fines": [
+    "blouse",
+    "long-sleeve shirt",
+    "sleeveless top",
+    "sweater"
+   ]
+  },
+  "18": {
+   "type": "top",
+   "fines": [
+    "cardigan"
+   ]
+  },
+  "19": {
+   "type": "top",
+   "fines": [
+    "sweater",
+    "turtleneck sweater"
+   ]
+  },
+  "21": {
+   "type": "top",
+   "fines": [
+    "male T-shirt",
+    "tshirt"
+   ]
+  },
+  "26": {
+   "type": "top",
+   "fines": [
+    "vest"
+   ]
+  },
+  "104": {
+   "type": "top",
+   "fines": [
+    "sleeveless top",
+    "tank"
+   ]
+  },
+  "250": {
+   "type": "top",
+   "fines": [
+    "kimono"
+   ]
+  },
+  "252": {
+   "type": "top",
+   "fines": [
+    "sports long-sleeve shirt"
+   ]
+  },
+  "257": {
+   "type": "top",
+   "fines": [
+    "sports bra"
+   ]
+  },
+  "272": {
+   "type": "top",
+   "fines": [
+    "male shirt"
+   ]
+  },
+  "273": {
+   "type": "top",
+   "fines": [
+    "male sweater"
+   ]
+  },
+  "275": {
+   "type": "top",
+   "fines": [
+    "male T-shirt"
+   ]
+  },
+  "286": {
+   "type": "top",
+   "fines": [
+    "male sports shirt"
+   ]
+  },
+  "309": {
+   "type": "top",
+   "fines": [
+    "tank top"
+   ]
+  },
+  "315": {
+   "type": "top",
+   "fines": [
+    "bodie"
+   ]
+  },
+  "341": {
+   "type": "top",
+   "fines": [
+    "male shirt"
+   ]
+  },
+  "342": {
+   "type": "top",
+   "fines": [
+    "male polos"
+   ]
+  },
+  "343": {
+   "type": "top",
+   "fines": [
+    "tank top"
+   ]
+  },
+  "4454": {
+   "type": "top",
+   "fines": [
+    "male shirt"
+   ]
+  },
+  "4495": {
+   "type": "top",
+   "fines": [
+    "sweater",
+    "sweathirt"
+   ]
+  },
+  "4496": {
+   "type": "top",
+   "fines": [
+    "hoodie"
+   ]
+  }
+ }
+}

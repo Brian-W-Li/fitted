@@ -1,0 +1,207 @@
+{
+  "_README": "Machine-readable mirror of preregistration.md (the human authority). evaluate.py parses THIS for gate thresholds + headline-cell values so no hand-copied constant drifts from the prose (build doc §1). If this and preregistration.md ever disagree, the .md wins and the divergence is a bug. FROZEN at C2 (2026-06-29), before any model number. All accuracy/AUC values are FRACTIONS (FITB is a fraction, not a percent): '5 FITB points' = delta 0.05, the '50%' floor = 0.50.",
+  "spike": "h26",
+  "frozen_at": "C2",
+  "frozen_date": "2026-06-29",
+  "build_doc": "docs/plans/h26-compatibility-spike-v2.md",
+  "unit_convention": "fraction",
+
+  "headline_cell": {
+    "split": "polyvore_outfits_disjoint",
+    "split_loader": "load_corpus(strict_disjoint=True)",
+    "backbone": "fashionsiglip",
+    "modality": "image",
+    "head_shape": "pairwise_type_conditioned_edge",
+    "outfit_aggregation": "mean_over_edges",
+    "objective": "pointwise_bce",
+    "negatives": "same_fine_category_anchor_no_cooccurrence",
+    "auc_neg_ratio": "1:1",
+    "fitb_distractors": 3,
+    "tie_policy": {"fitb": "1/k", "auc": 0.5},
+    "seed": 20260629,
+    "ci": {"method": "cluster_bootstrap_percentile", "level": 0.95, "b": 10000},
+    "judge": {"model_family": "gpt-5.4-mini", "snapshot_rule": "dated_snapshot_pinned_at_C4", "temperature": 0, "arm": "image_only", "fitb_both_orders": true}
+  },
+
+  "gates": {
+    "verdict_rule": "A AND B AND D",
+    "near_gate_rule": "each conjunct passes only if its 95% CI is wholly on the pass side; a straddle fails",
+    "A": {
+      "name": "added_value",
+      "metric": "AUC_catalog_pair - AUC_zero_shot_cosine",
+      "fields": ["AUC_catalog_pair", "AUC_zero_shot_cosine"],
+      "rule": "CI_low > threshold",
+      "threshold": 0.0,
+      "paired": true,
+      "unit": "pair_level_auc"
+    },
+    "B": {
+      "name": "fitb_non_inferiority",
+      "metric": "fitb_trained_gateB - fitb_judge_gateB",
+      "fields": ["fitb_trained_gateB", "fitb_judge_gateB"],
+      "rule": "CI_low >= -delta",
+      "delta": 0.05,
+      "delta_fitb_points": 5,
+      "power_rule": "half_width <= delta",
+      "underpowered_is_no_go": true,
+      "paired": true,
+      "one_sided": true,
+      "report_both_conventions": ["inconsistent_is_miss", "inconsistent_is_half"],
+      "adjudication_convention": "inconsistent_is_miss",
+      "conservative_cross_check_convention": "inconsistent_is_half",
+      "conservative_only_if_both_agree": true,
+      "vacuity_guard": "if the C4 judge-above-chance pilot finds the image-only judge ~ chance, gate B passes trivially but is labeled vacuous and the GO decision rests on A AND D; the frozen A AND B AND D gate does not change",
+      "unit": "fitb_fraction"
+    },
+    "D": {
+      "name": "absolute_floor",
+      "conjuncts": [
+        {"metric": "outfit_auc", "rule": "CI_low >= floor", "floor": 0.81, "unit": "outfit_level_auc"},
+        {"metric": "fitb_trained_full", "rule": "CI_low >= floor", "floor": 0.50, "unit": "fitb_fraction"}
+      ],
+      "comparability": "0.81 is the disjoint Vasileva-2018 untyped-SiameseNet outfit-level AUC anchor; the 0.50 FITB floor sits BELOW SiameseNet's 0.518 disjoint FITB anchor (a rounded-down floor, not an anchor value). Both anchors are full-Polyvore; this task excludes accessories + uses outfit-corruption negatives; treat 0.81 as approximate, disclose the excluded share, never move the floor post-hoc; residual incomparability direction not assumed conservative"
+    }
+  },
+
+  "reported_transfer": {
+    "gated": false,
+    "former_gate": "C",
+    "m6_re_measure_entry_condition": true,
+    "drop": {"metric": "AUC_catalog_pair - AUC_closet_pair", "read": "CI_high", "healthy_if_leq": 0.12, "unit": "pair_level_auc"},
+    "closet_floor": {"metric": "AUC_closet_pair", "read": "CI_low", "healthy_if_geq": 0.70, "unit": "pair_level_auc"},
+    "combine": "unpaired_two_independent_bootstraps",
+    "coverage_caveat": "single-wardrobe effective-N approx #worn outfits; percentile coverage at ~15-25 clusters is weak; directional only"
+  },
+
+  "analyst_pins": {
+    "edge_head": {
+      "feature": "[emb_i (+) emb_j, |emb_i - emb_j|, emb_i * emb_j]",
+      "feature_dim": 3072,
+      "type_pair_embedding": {"n_pairs": 15, "dim": 32, "indexed_by": "unordered_type_pair_over_5_types"},
+      "mlp_input_dim": 3104,
+      "mlp": "Linear(3104,256) -> GELU -> Linear(256,1)",
+      "hidden_width": 256,
+      "activation": "gelu",
+      "symmetrization": "average_half_f_ij_plus_f_ji",
+      "param_count": 795617
+    },
+    "item_level_ablation_head": {
+      "mlp": "Linear(768,1024) -> GELU -> Linear(1024,1)",
+      "hidden_width": 1024,
+      "per_edge_score": "0.5*(g(emb_i)+g(emb_j))",
+      "outfit_aggregation": "mean_of_per_item_scalars",
+      "type_pair_embedding": false,
+      "param_count": 788481,
+      "capacity_match_pct_vs_pairwise": -0.0090,
+      "capacity_match_tolerance": 0.05,
+      "shared_with_pairwise": ["frozen_embedding_cache", "optimizer", "grid", "epoch_budget", "early_stopping", "valid_split", "test_pairs"],
+      "seam_metric": "pooled pair-level ROC-AUC: AUC_catalog_pair - AUC_pair_item_level (paired cluster bootstrap over shared (pos,neg) pair clusters) — PINNED to close the forking path; non-transitivity is a pairwise property and pair-level AUC is the headline+selection unit",
+      "seam_claim_rule": "item-level independently falsified iff Holm-adjusted p < 0.05 AND CI_low(AUC_catalog_pair - AUC_pair_item_level) > 0; else 'consistent with literature, not decisive at this power'; pairwise stays the headline either way. The item-level head's outfit-level AUC + FITB are reported descriptively but are NOT the falsification statistic."
+    },
+    "objective": {"headline": "pointwise_bce", "ablation_only": "margin_ranking_bpr"},
+    "optimizer": {
+      "name": "adam",
+      "betas": [0.9, 0.999],
+      "eps": 1e-8,
+      "lr_grid": [1e-3, 3e-4, 1e-4],
+      "weight_decay_grid": [0.0, 1e-4],
+      "n_configs": 6,
+      "batch_size": 1024,
+      "max_epochs": 50,
+      "early_stop_patience": 5,
+      "selection_metric": "valid_pooled_pair_level_roc_auc",
+      "selection": "mechanical_argmax",
+      "deterministic": "torch.use_deterministic_algorithms(True)",
+      "seed": 20260629
+    },
+    "family_wise_correction": {
+      "method": "holm_bonferroni",
+      "alpha_fw": 0.05,
+      "p_value_source": "percentile_bootstrap_two_sided",
+      "p_formula": "2 * min(Pr*[delta<=0], Pr*[delta>=0]) clamped to [0,1]",
+      "family_members": ["shape_diff_pairwise_minus_item_level_on_pair_level_auc", "fine_tuning_delta_matched_base_minus_fashionsiglip_on_pair_level_auc", "modality_gaps_on_fitb"],
+      "family_membership_rule": "executed rungs only, fixed by a pre-committed execution decision (headline-ships-first + budget), never by an ablation's own measured value",
+      "scoped_out": ["gate_A", "gate_B", "gate_D", "reported_transfer"],
+      "seam_metric": "pair_level_auc: AUC_catalog_pair - AUC_pair_item_level",
+      "seam_claim_requires": ["holm_adjusted_p < 0.05", "CI_low(AUC_catalog_pair - AUC_pair_item_level) > 0"]
+    },
+    "popularity_confound_response": {
+      "headline_protocol": "same_fine_category_anchor_no_cooccurrence",
+      "not_popularity_matched_as_headline": true,
+      "diagnostic": "item_popularity_only_baseline",
+      "blind_margin_auc": 0.55,
+      "applies_to": ["AUC_pop_edge", "AUC_pop_outfit"],
+      "diagnostic_score_form": {
+        "popularity": "item split outfit-frequency (SplitData.popularity)",
+        "edge": "popularity of the varying endpoint: pop(replaced) for the positive vs pop(b_prime) for the matched negative (shared anchor cancels); pooled pair-level AUC",
+        "outfit": "mean item-popularity over the outfit's items (positive: originals; negative: replacements); pooled outfit-level AUC",
+        "uses_embeddings": false
+      },
+      "trigger": "AUC_pop_edge > 0.55 OR AUC_pop_outfit > 0.55",
+      "on_trigger": "label headline 'popularity-confounded (disclosed)' + report popularity-matched-negative sensitivity re-run; gate numbers do NOT move",
+      "sensitivity_rerun": "re-draw same-fine-category negatives matched on the replaced positive partner's popularity-decile, still anchor-non-co-occurring; recompute gate-A/gate-D AUC as a sensitivity row only",
+      "sensitivity_decile_basis": "deciles over the split's full item-popularity distribution; matched negative drawn same-fine-category within +/-1 decile of the replaced positive partner's decile"
+    },
+    "seed": {"headline": 20260629, "robustness_footnote": [20260629, 20260630, 20260701], "footnote_rule": "gate verdict (A/B/D pass/fail) must agree across all 3 seeds"}
+  },
+
+  "embedding": {
+    "manifest": "embedding_manifest_fashionsiglip.json",
+    "open_clip_id": "hf-hub:Marqo/marqo-fashionSigLIP",
+    "revision_sha": "c56244cc94f92419e8369fa71efdaf403b124ce8",
+    "embedding_dim": 768,
+    "dtype": "float32",
+    "normalization": "l2",
+    "preprocess_sha256": "fb80278db5fd5efcddc5a736a9095f34ed28da48e270cce5e12df162248404f6",
+    "dependency_lock": "requirements.txt"
+  },
+
+  "negatives": {
+    "contract": "build_doc_section_4",
+    "type_map": "type_map.json",
+    "fitb_manifest": "fitb_manifest.json",
+    "scarcity_rule": "exhausted same-fine-category pool -> drop edge/slot + report count. The C2 Polyvore headline FITB choice is skip-and-count only (fitb_manifest.json); no coarse-5-type broadened question enters gates B or D, so every reported headline FITB question remains cleanly chance@4 = 0.25. Never broaden to coarse 5-type on the AUC set.",
+    "leak_detector": {"co_occurrence_must_be_approx": {"pair_auc": 0.50, "fitb": 0.25, "outfit_auc": 0.50}}
+  },
+
+  "split": {
+    "loader": "load_corpus(strict_disjoint=True)",
+    "counts_outfits": {"train": 16995, "valid": 3000, "test": 15145},
+    "strict_disjoint_purged_test_outfits": 47,
+    "test_outfits_after_purge": 15098,
+    "valid_train_item_overlap_disclosed_not_purged": "25.8%",
+    "non_disjoint": "ceiling_readout_only_never_gated"
+  },
+
+  "calibration_set": {
+    "label_kind": "actual_human_forced_choice",
+    "not": "polyvore_cooccurrence_ground_truth",
+    "disjoint_from": ["gate_B_set", "gate_D_full_fitb"],
+    "size_floor": 50,
+    "single_annotator": true,
+    "intra_annotator_stability_check": true,
+    "only_use": "select_judge_envelope_never_scores_trained_head",
+    "source_constraint": "gate D consumes every eligible test outfit, so a Polyvore-sourced calibration set must draw from valid/train outfits (or test outfits used by no gate-D question); the closet is the other admissible source; exact source + size pinned at C4",
+    "manifest_and_hash_freeze_at": "C4_judge_addendum"
+  },
+
+  "stl_ctl": {
+    "gating": false,
+    "optional": true,
+    "build_or_drop_threshold": {"min_collage_resolve_rate": 0.60, "min_resolvable_pairs": 500, "both_required": true},
+    "type_map_policy": "collapse CTL 21 categories to 5-value clothingType by the same semantic rule as type_map.json (tops->top, bottoms->bottom, all-body->dress, outerwear->outer_layer, shoes->shoes), excluding bags/jewellery/accessories/hats/swim/sleep/lingerie; per-row materialized at C5 as stl_ctl_type_map.json iff built",
+    "yield_computed_at": "C5"
+  },
+
+  "unlock_files": ["preregistration.md", "preregistration.json", "judge_addendum.md", "closet_manifest.json"],
+  "unlock_validation": {
+    "requires_committed_files": true,
+    "record_hashes_in_metrics_json": true,
+    "preregistration_json_agrees_with_md": true,
+    "closet_manifest_schema": "closet_manifest.schema.json",
+    "judge_addendum_schema": "pinned_at_C4",
+    "selection_schema": "selection.schema.json"
+  },
+  "metrics_schema": "metrics.schema.json",
+  "selection_schema": "selection.schema.json"
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "h26/selection.schema.json",
+  "title": "H26 selection.json sealed C3 artifact",
+  "description": "Schema for the C3 sealed-selection artifact. It intentionally permits checkpoint/config/hash/convergence provenance and manifest hashes, but no metric values, losses, AUC/FITB fields, or grid score tables.",
+  "type": "object",
+  "$defs": {
+    "sealedString": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          {"pattern": "([Aa][Uu][Cc]|[Ff][Ii][Tt][Bb]|[Mm][Ee][Tt][Rr][Ii][Cc]|[Ss][Cc][Oo][Rr][Ee]|[Ll][Oo][Ss][Ss]|[Aa][Cc][Cc][Uu][Rr][Aa][Cc][Yy]|[Cc][Ii]|[Bb][Oo][Oo][Tt][Ss][Tt][Rr][Aa][Pp]|[Vv][Aa][Ll][Ii][Dd]|[Tt][Ee][Ss][Tt])"},
+          {"pattern": "[0-9]+\\.[0-9]+"}
+        ]
+      }
+    }
+  },
+  "required": [
+    "checkpoint_id",
+    "checkpoint_sha256",
+    "training_config",
+    "converged",
+    "early_stop_epoch",
+    "manifest_hashes"
+  ],
+  "properties": {
+    "checkpoint_id": {"$ref": "#/$defs/sealedString"},
+    "checkpoint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "training_config": {
+      "type": "object",
+      "required": ["head", "optimizer", "seed"],
+      "properties": {
+        "head": {"enum": ["pairwise_type_conditioned_edge"]},
+        "optimizer": {"$ref": "#/$defs/sealedString"},
+        "seed": {"type": "integer"},
+        "config_id": {"$ref": "#/$defs/sealedString"},
+        "learning_rate": {"type": "number", "exclusiveMinimum": 0},
+        "weight_decay": {"type": "number", "minimum": 0},
+        "batch_size": {"type": "integer", "minimum": 1},
+        "epoch_budget": {"type": "integer", "minimum": 1},
+        "early_stop_patience": {"type": "integer", "minimum": 1},
+        "selection_metric": {"const": "valid_pooled_pair_level_roc_auc"},
+        "deterministic_algorithms": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "converged": {"type": "boolean"},
+    "early_stop_epoch": {"type": "integer", "minimum": 0},
+    "manifest_hashes": {
+      "type": "object",
+      "required": [
+        "preregistration_json_sha256",
+        "fitb_manifest_sha256",
+        "embedding_manifest_sha256",
+        "type_map_sha256"
+      ],
+      "properties": {
+        "preregistration_json_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "fitb_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "embedding_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "type_map_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "patternProperties": {
+    "([Aa][Uu][Cc]|[Ff][Ii][Tt][Bb]|[Mm][Ee][Tt][Rr][Ii][Cc]|[Ss][Cc][Oo][Rr][Ee]|[Ll][Oo][Ss][Ss]|[Aa][Cc][Cc][Uu][Rr][Aa][Cc][Yy]|[Cc][Ii]|[Bb][Oo][Oo][Tt][Ss][Tt][Rr][Aa][Pp]|[Vv][Aa][Ll][Ii][Dd]|[Tt][Ee][Ss][Tt])": false
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,58 @@
+{
+  "_README": "FITB@4 construction freeze (build doc §4/§12). FROZEN at C2 (2026-06-29), before any model number. This encodes the RULES + seed, NOT materialized questions — the questions are regenerated deterministically from the seed by data_loader.build_fitb at C3/C4. Gate D = the full held-out test FITB set; gate B = a seed-ordered candidate prefix the judge also scores (prefix length N chosen at C4, never the SET re-chosen). chance@4 = 0.25.",
+  "spike": "h26",
+  "frozen_at": "C2",
+  "frozen_date": "2026-06-29",
+  "build_doc": "docs/plans/h26-compatibility-spike-v2.md",
+  "constructor": "data_loader.build_fitb",
+  "constructor_source_sha256": "1c28bfe654389881c28316b71e2491aeb74b0cb073d5a66725b3c34f9aad23ca",
+  "type_map_sha256": "d29c03c8f338abe7e335c63d367be57f7b4d5e7d175024db24515c67b8d61b27",
+  "seed": 20260629,
+
+  "fitb_at": 4,
+  "chance": 0.25,
+
+  "eligibility": {
+    "rule": "a type-filtered test outfit (>= 2 clothing items, strict_disjoint=True) is eligible iff its seed-chosen held-out item's category_id pool can supply 3 distractors under the distractor rule",
+    "ineligible_handling": "skipped + counted (the §4/§15 scarcity disclosure); not silently dropped",
+    "scarcity_choice": "the FROZEN C2 Polyvore headline choice is SKIP-AND-COUNT (data_loader.build_fitb). No coarse-5-type FITB-distractor broadening enters gates B or D, so every reported FITB question is cleanly @4-chance 0.25."
+  },
+
+  "held_out_item_rule": {
+    "rule": "rng.choice(outfit.item_ids) with the committed seed (matches build_fitb)",
+    "retained": "all other clothing items of the outfit"
+  },
+
+  "distractor_rule": {
+    "count": 3,
+    "same_category": "same category_id (the Vasileva 153-category fine grain) as the held-out answer",
+    "multi_anchor_non_cooccurrence": "each distractor must NEVER co-occur (anywhere in the split) with ANY item remaining in the partial outfit — the §4 multi-anchor generalization, not merely one designated anchor",
+    "split_scoped": "drawn only from the test split pool (no cross-split leak)",
+    "tie_policy": "a k-way top tie scores 1/k (deterministic, seed-independent at scoring time)"
+  },
+
+  "candidate_order": "answer + 3 distractors, then seeded shuffle (build_fitb); correct_index recorded",
+
+  "allocation": {
+    "_note": "gate B is a SUBSET of gate D's full set — same questions, like-for-like (build doc §12).",
+    "gate_D": {
+      "name": "fitb_trained_full",
+      "set": "every eligible held-out test FITB question, one per distinct test outfit",
+      "purpose": "maximal-N absolute floor, anchored against Vasileva's 51.8% disjoint FITB with exclusions/protocol differences disclosed",
+      "floor": 0.50,
+      "scored_by": ["trained_head"]
+    },
+    "gate_B": {
+      "name": "fitb_trained_gateB / fitb_judge_gateB",
+      "set": "the first up to 500 questions from the deterministic seed-ordered construction frozen here (constructor + source hashes + seed 20260629); C3 materializes and hashes the ordered question list before any model number",
+      "cap": 500,
+      "pilot_prefix": 100,
+      "C4_freedom": "ONLY the prefix length N (a deterministic prefix of the C2-frozen order) chosen to reach paired-diff half_width <= delta (0.05); the ~100-Q pilot is the first prefix; the SET/order is never re-selected",
+      "underpowered": "if N caps at 500 and half_width > 0.05, gate B = underpowered -> no-go (never widen delta)",
+      "effective_N": "one question per distinct outfit so effective-N = N",
+      "scored_by": ["trained_head", "gpt_5_4_mini_judge_image_only"]
+    }
+  },
+
+  "distinct_names_invariant": "metrics.json names the trained reads distinctly (fitb_trained_full / fitb_trained_gateB) and the judge read as fitb_judge_gateB; no gate reads an ambiguous 'FITB_trained' (build doc §12)"
+}

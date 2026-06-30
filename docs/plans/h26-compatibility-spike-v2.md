@@ -60,10 +60,12 @@ re-pinning the same value in five competing homes — here the table is the sing
 copies, and `evaluate.py` reads that file, so there is exactly one authority.) **So that "`evaluate.py` reads
 that file" is literally enforceable** (not a hand-copied constant that silently drifts from the prose — the
 two-authorities trap this single-home rule exists to kill), **the frozen gate thresholds + headline-cell values
-carry a machine-readable form `evaluate.py` parses directly** — YAML front-matter in `preregistration.md` or a
-sidecar `preregistration.json`; pick one at C2. `judge_addendum.md`'s determinism envelope gets the same
-treatment; `fitb_manifest.json` / `closet_manifest.json` / `metrics.schema.json` are already JSON. (The *unlock*
-check stays a plain file-existence test — §12; only the *threshold values* need machine-readability.)
+carry a machine-readable form `evaluate.py` parses directly**: the C2-frozen sidecar
+`preregistration.json`. `judge_addendum.md`'s determinism envelope gets the same treatment at C4;
+`fitb_manifest.json` / `closet_manifest.json` / `metrics.schema.json` are already JSON. The C4
+unlock is **not** mere existence: `evaluate.py` validates the unlock files (including `.md`/`.json`
+prereg agreement and `closet_manifest.json` against `closet_manifest.schema.json`), binds the sealed
+C3 `selection.json`, and records git blob hashes / sha256s before emitting sealed metrics (§12/§15).
 
 **The frozen headline cell** (one cell — no post-hoc selection across a grid; Gelman & Loken's
 garden-of-forking-paths makes post-hoc cell choice a multiple-comparisons problem even without conscious
@@ -94,10 +96,12 @@ inspection of the metric *values*), and **the valid-split metric values stay sea
 *test*-set trained-head number — including the gate-D outfit-level AUC and the gate-B FITB — until the C4 judge
 addendum is committed**. **"Sealed" is a concrete artifact contract, not a verbal promise:** C3 writes **only
 `selection.json`** — chosen checkpoint id + training config + checkpoint hash + a convergence/early-stop boolean,
-**no metric values of any split** — and the valid- and test-split metric *values* are **never materialized to the
-committed `metrics.json`** until `evaluate.py` confirms all three unlock files exist (C4); there is no
+validated against `selection.schema.json`, **no metric values of any split** — and the valid- and test-split metric *values* are **never materialized to the
+committed `metrics.json`** until `evaluate.py` validates and records all three unlock files (C4); there is no
 human-readable metric file before C4. `evaluate.py` refuses to emit any sealed metric unless `preregistration.md`,
-`judge_addendum.md`, **and** the frozen `closet_manifest.json` exist (§15 C3/C4, §12).
+`judge_addendum.md`, **and** the frozen, schema-valid `closet_manifest.json` validate and have their hashes recorded
+(including C4 referential checks that every outfit item id is declared and every `polyvore_category_id` exists in
+`closet_category_reference.json`; §15 C3/C4, §12).
 Everything else freezes at C2, before any model number exists.
 
 **The go/no-go is one mechanical AND-gate** in `evaluate.py` reading `metrics.json` (§12). **Its three decision
@@ -265,15 +269,13 @@ real co-worn item (selection-biased toward popular items that appear in many out
 same-category negative `b′` is on average *less* popular, so an **item**-level "candidate's marginal
 outfit-frequency" feature can discriminate positive from negative **without any compatibility signal**. Add an
 **item-popularity-only baseline** as a second sanity rung — the category-pair sanity assertion reads ≈ 0.50 and
-**misses this**. **The firm rigor now: ONE response must be pre-registered at C2, fixed *before* any number (no
-post-hoc fork — choosing the protocol after seeing the diagnostic is the forbidden path).** *Which* response is an
-open C2 decision. **Recommended (ratify at C2):** keep the same-fine-category + anchor-no-cooccurrence protocol as
+**misses this**. **C2-frozen response:** keep the same-fine-category + anchor-no-cooccurrence protocol as
 the frozen headline (it matches Vasileva's published protocol → comparable to the anchors), treat the
-item-popularity-only baseline as a pre-registered diagnostic, and if it exceeds a **pre-set margin (also fixed at
-C2)** over chance, `results.md` labels the headline **"popularity-confounded (disclosed)"** and reports a
-pre-specified **popularity-matched-negative sensitivity re-run** — gate numbers don't move. *(Alternative, if
-preferred: adopt popularity-matched negatives as the headline protocol outright.)* Either way the response is
-frozen at C2, never chosen after the diagnostic. **The diagnostic + response extend to the gate-D outfit-level
+item-popularity-only baseline as a pre-registered diagnostic with blind margin **0.55 AUC**, and if edge
+or outfit popularity AUC exceeds that margin, `results.md` labels the headline
+**"popularity-confounded (disclosed)"** and reports a pre-specified **popularity-matched-negative
+sensitivity re-run** — gate numbers don't move. The response is frozen at C2, never chosen after the
+diagnostic. **The diagnostic + response extend to the gate-D outfit-level
 negatives, not just edges/FITB:** full-item-replacement negatives (§4 above) preserve the category multiset but
 draw uniformly-sampled (on-average less-popular) replacements for **every** slot, *amplifying* the same
 item-popularity confound — so an embedding-mediated popularity signal could lift `outfit_auc` without compatibility
@@ -303,7 +305,7 @@ L2-normalized image embeddings. The H26 compatibility head is a small trained **
   feasible, ~ms per edge" is the **per-edge serving** latency the thesis rides on. The **one-time** embedding pass
   over the ~175k disjoint-corpus items (plus the non-disjoint ceiling readout) is a separate up-front cost — a
   multi-hour CPU batch job (minutes on a commodity GPU / free Colab), run **once** and cached
-  (`embedding_manifest.json`, §15), not on the serving path. Budget it explicitly at C2 bring-up; it is a real
+  (`embedding_manifest_fashionsiglip.json`; config freezes at C2, cache-content hashes populate at C3, §15), not on the serving path. Budget it explicitly at C2 bring-up; it is a real
   schedule line for a solo fork, not a hidden free lunch.
 
 **De-confounded ablation (a fix over the existing spec).** The existing spec's vanilla-CLIP-B/32 → Marqo-B/16
@@ -325,11 +327,11 @@ compatibility-transfer-unproven — an optional rung, never the headline.)*
 ## 6. Trained edge head + the seam verdict
 
 **The scorer = a pairwise, type-conditioned edge head over the frozen embedding pair:**
-`score(item_i, item_j, type_pair) → float` — a small **2-layer MLP** (pin width/depth at C2; **not** "MLP-or-
-bilinear" — one architecture, frozen) on `[emb_i ⊕ emb_j, |emb_i−emb_j|, emb_i*emb_j]` plus a **learned type-pair
-embedding** indexed by the *unordered* `{type_i, type_j}` pair (15 pairs over the 5-value space, incl. same-type).
-The edge is unordered, so the order-sensitive `emb_i ⊕ emb_j` term is **symmetrized** — `score = ½[f(i,j)+f(j,i)]`
-(or a fixed id-canonical endpoint order); pin the choice at C2. **Outfit score = mean aggregation over edges;
+`score(item_i, item_j, type_pair) → float` — the C2-frozen **2-layer MLP**
+`Linear(3104,256) → GELU → Linear(256,1)` on `[emb_i ⊕ emb_j, |emb_i−emb_j|, emb_i*emb_j]`
+plus a learned **15×32 unordered type-pair embedding** indexed by `{type_i, type_j}` over the
+5-value space (incl. same-type). The edge is unordered, so the order-sensitive `emb_i ⊕ emb_j`
+term is symmetrized by the frozen average **`score = ½[f(i,j)+f(j,i)]`**. **Outfit score = mean aggregation over edges;
 FITB = the candidate maximizing mean edge-compat with the partial outfit.** Objective = pointwise **BCE** on
 positive vs same-fine-category negative edges (margin-ranking BPR is an ablation-only rung, never the headline —
 picking the better objective post-hoc is a forking path). Head hyperparameters / epochs / checkpoint are selected
@@ -630,10 +632,10 @@ readout is never a term in the drop).
      same-category negatives, so a mislabel silently produces an easier/invalid negative on the load-bearing
      transfer measurement. Add a lightweight second-pass label audit on a sample + a check that **any fine-category
      used for a negative has ≥ N members.** Where a closet fine-category has too few non-co-occurring same-fine-
-     category members to draw a valid §4 **AUC** negative, **drop that edge + report the count** (the §15 Polyvore
-     scarcity rule); broadening to coarse 5-type is reserved for **FITB-distractor** scarcity only, and those
-     broadened questions are no longer cleanly 25%-chance, so **report the same-fine-category-only subset
-     separately.**
+  category members to draw a valid §4 **AUC** negative, **drop that edge + report the count** (the §15 Polyvore
+     scarcity rule). The frozen C2 Polyvore headline FITB gates use **skip-and-count only**; no coarse-5-type
+     broadened question enters gates B or D, so every headline FITB question remains cleanly 25%-chance. Any later
+     non-gating broadened diagnostic must be reported separately.
    - **Taxonomy match (transfer comparability — a fix this pass):** the catalog→closet drop is like-for-like
      **only if both sides draw same-fine-category negatives from the *same* fine-category taxonomy.** So the
      closet hand-labels must map onto the **same Polyvore fine-category tree** used for the catalog negatives — not
@@ -642,7 +644,8 @@ readout is never a term in the drop).
      `closet_manifest.json`; where the owner's wardrobe has no clean Polyvore-fine-category analog, record the
      coarsening and report those edges separately.
    - **This whole closet definition — labels + the Polyvore-fine-category mapping + mechanical negatives + the
-     audit — is `closet_manifest.json`, frozen at C2 before any test-metric unlock (§12), so the transfer probe's
+     audit — is `closet_manifest.json`, frozen before the C4 test-metric unlock (§12) — not necessarily at the C2
+     design-freeze commit (the labels do not exist until Brian labels his worn outfits), so the transfer probe's
      dataset cannot be selected after A/B/D are seen.**
 
 **(3) A second wardrobe is a genuinely-optional stretch** — justified by **`dress`-type coverage** (absent from
@@ -691,9 +694,10 @@ right shape.
   merely that the point estimates are close — a seed that flips a gate is a finding, not noise.)*
 - **Family-wise control across the ablation suite.** The headline cell is one frozen point (§1), but the spike
   reports several CI-adjudicated *ablation* inferences — the shape difference (pairwise − item-level, §6), the
-  fashion-fine-tuning delta (matched-base − FashionSigLIP, §5), and the modality gaps (§8). Pre-register a
-  family-wise correction at C2 (Holm over the ablation family, or report each at a widened level) so the
-  load-bearing "item-level falsified" seam claim is not a 1-in-20 false positive. The three decision **gates**
+  fashion-fine-tuning delta (matched-base − FashionSigLIP, §5), and the modality gaps (§8). The C2-frozen
+  correction is **Holm-Bonferroni at family-wise α = 0.05 over the executed ablation family**, using
+  percentile-bootstrap two-sided p-values, so the load-bearing "item-level falsified" seam claim is not a
+  1-in-20 false positive. The three decision **gates**
   (A/B/D) are the decision and are scoped out of this family (the reported transfer is descriptive, not a
   CI-adjudicated ablation inference).
 
@@ -702,17 +706,17 @@ right shape.
 ## 12. Go/no-go gates, near-gate rule, no-go deliverable
 
 **One mechanical AND-gate** in `evaluate.py` reading `metrics.json` (single source of truth; `results.md`
-restates it). `evaluate.py` **refuses to emit or read any held-out *test*-set metric (or any sealed valid-split
-value) until `preregistration.md`, the C4 judge addendum (`judge_addendum.md`), and the frozen
+restates it). `evaluate.py` **refuses to emit any held-out *test*-set metric through `metrics.json`
+until `preregistration.md`, the C4 judge addendum (`judge_addendum.md`), and the frozen
 `closet_manifest.json` (the transfer-probe dataset, former gate C: included outfits, fine-category labels, inclusion/exclusion +
-negative-construction + label-audit protocol) all exist on disk** — the build-order enforcement of §1's blindness
+negative-construction + label-audit protocol) are committed, validated, and hash-recorded** — the build-order enforcement of §1's blindness
 (C3 produces a mechanical valid-split selection only — `selection.json`: checkpoint id/config/hash/convergence,
-**no metric values** — and `metrics.json`'s test-set fields begin emission (staged C4→C6, §15 artifact-dataflow
-note) only after the three unlock files exist). Freezing
+**no metric values**, validated against `selection.schema.json`). `metrics.json`'s test-set fields begin emission
+(staged C4→C6, §15 artifact-dataflow note) only after the three unlock files pass validation. Freezing
 `closet_manifest.json` before the unlock stops the transfer-probe dataset from being selected after A/B/D are seen
 (local hand-labeling — no photos leave the machine, so it costs no third-party egress):
 
-> **GO** iff **[A]** `CI_low(AUC_catalog_pair − AUC_zero-shot-cosine) > 0` (pair-level — training added value over
+> **GO** iff **[A]** `CI_low(AUC_catalog_pair − AUC_zero_shot_cosine) > 0` (pair-level — training added value over
 > the frozen backbone floor) **AND** **[B]** `CI_low(fitb_trained_gateB − fitb_judge_gateB) ≥ −δ` on the **powered
 > Polyvore image-only set** (FITB **non-inferiority** vs the `gpt-5.4-mini` image-only judge — at parity or better;
 > A/B paired; the closet gives non-Polyvore corroboration, **not** the gate input — §8) **AND** **[D]** the
@@ -746,14 +750,16 @@ note) only after the three unlock files exist). Freezing
   like-for-like parity) while gate D wants a held-out FITB comparable to the whole-test-set literature anchor.
   **This subset allocation is an open pre-registration decision settled in `fitb_manifest.json` at C2** — it freezes
   *before* any model number, so deferring it to C2 costs no rigor; only the *naming-must-be-distinct* invariant is
-  firm now. **Recommended allocation (ratify at C2):** gate D = the **full held-out FITB manifest** (every
-  eligible test outfit, one Q — maximal-N, directly comparable to Vasileva's 51.8%); gate B = a **C2-frozen,
-  seed-ordered candidate list of up to ~500 questions**. **Resolving the C2-freeze-vs-C4-N tension:** the gate-B
-  set is frozen at C2 as an *ordered* list, and the C4 pilot's only degree of freedom is the **prefix length** —
-  N is the size of a **deterministic prefix** of that frozen order chosen to reach `HW ≤ δ` (the ~100-Q pilot is
-  itself the first prefix of the same order), never a post-hoc re-selection of *which* questions. If the full
-  ~500 list still has `HW > δ`, gate B is underpowered → no-go (below). So "test-N moves" means "the prefix
-  grows within a C2-frozen ordered set," not "the set is unfrozen at C4." Whichever allocation is chosen,
+  firm now. **C2 allocation:** gate D = the **full held-out FITB manifest** (every eligible test outfit, one Q —
+  maximal-N, anchored against Vasileva's 51.8% with the §12 exclusions/protocol caveat); gate B = the first
+  up-to-500 questions from a **deterministic seed-ordered construction**. **Resolving the C2-freeze-vs-C4-N tension:**
+  C2 freezes the constructor (`data_loader.build_fitb`), seed, strict-disjoint loader, `type_map.json`, and source
+  hashes in `fitb_manifest.json`; C3 materializes/hashes the regenerated ordered question list before any model
+  number, and C4's only degree of freedom is the **prefix length** — N is the size of a **deterministic prefix** of
+  that frozen order chosen to reach `HW ≤ δ` (the ~100-Q pilot is itself the first prefix of the same order), never
+  a post-hoc re-selection of *which* questions. If the full ~500 list still has `HW > δ`, gate B is underpowered
+  → no-go (below). So "test-N moves" means "the prefix grows within the frozen ordered construction," not "the set
+  is re-selected at C4." Whichever allocation is chosen,
   `metrics.json` names the trained reads distinctly (`fitb_trained_full` / `fitb_trained_gateB`) and the judge read
   as `fitb_judge_gateB` (the gate-B difference is `fitb_trained_gateB − fitb_judge_gateB`).
 - **δ is pre-committed at C2 on substantive grounds — δ = 5 FITB points** (a 5-point FITB gap is the
@@ -836,7 +842,7 @@ control, and — if it scores the closet slice — the §8 cross-family secondar
 Required: **explicit per-owner consent for third-party-API processing** (not just local use; enumerating every
 provider the photos reach); a committed
 **closet manifest** (item IDs, `clothingType` + fine-category labels, outfit membership, photo **paths +
-content hashes** — tamper-evident, `closet_manifest.json`; **frozen at C2 before any test-metric unlock (§12)** —
+content hashes** — tamper-evident, `closet_manifest.json`; **frozen before the C4 test-metric unlock (§12)** —
 necessarily before the head ever scores it) while the **photos themselves stay
 gitignored**; **anonymized opaque owner IDs** + relative paths; **faces + people blurred** (or cropped out only
 where that does not lose the garment's on-body context, plus any identifying PII) **but the garment kept in its
@@ -862,7 +868,8 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   **each outfit-level negative preserves its positive's category multiset and shares no co-worn item with it**;
   valid/train/test pools never cross-leak; mapping drops non-clothing). Commit `preregistration.md` **skeleton**.
 - **C2 — Embeddings + metrics + FREEZE.** `embed.py` (FashionSigLIP frozen + ablation backbones incl. the
-  matched WebLI SigLIP ViT-B/16 base, cached); `metrics.py` (pooled pair-level AUC, **outfit-level AUC
+  matched WebLI SigLIP ViT-B/16 base; C2 freezes backbone/config, while full cache-content hashes stage to C3
+  before training); `metrics.py` (pooled pair-level AUC, **outfit-level AUC
   (mean-edge score, source-outfit cluster — the gate-D input, §4)**, FITB@4, cluster bootstrap);
   `tests/test_metrics.py` (known-answer fixtures + co-occurrence-is-chance + item-popularity sanity +
   paired-vs-independent-bootstrap shape). **Freeze `preregistration.md`** — the §1 headline cell **+ the §12 gate
@@ -870,22 +877,29 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   analyst choices** (head architecture + symmetrization + type-pair embedding, **the item-level ablation head +
   its ±5 % capacity-match rule (§6)**, optimizer/grid/epochs/early-stopping/Torch-determinism, the family-wise
   correction §11, the **pinned HF model revision SHA + preprocessing hash + dependency lock**, the calibration-set
-  spec, **the `fitb_manifest.json` (eligibility, held-out-item rule, distractor rule, seed, and the gate-B
-  vs gate-D subset allocation — the gate-B side as a **seed-ordered candidate list**, prefix-selected at C4, §12), the `type_map.json` Polyvore-fine-category → 5-type mapping (§4), and the frozen pre-registered popularity-confound response (edge **and** outfit-level, §4)**) — all before any model number.
+  spec, **the `fitb_manifest.json` (eligibility, held-out-item rule, distractor rule, seed, constructor/source
+  hashes, and the gate-B vs gate-D subset allocation — the gate-B side as a deterministic seed-ordered
+  construction whose materialized order is hashed at C3 before any model number, prefix-selected at C4, §12), the
+  `type_map.json` Polyvore-fine-category → 5-type mapping (§4), and the frozen pre-registered
+  popularity-confound response (edge **and** outfit-level, §4)**) — all before any model number.
   **`closet_manifest.json` (the §10/§14 labels + negatives + label-audit protocol — local hand-labeling, no
-  photo egress) freezes here too — unconditionally, before any test-metric unlock (§12):** the closet transfer
-  probe is in the **minimal headline path** (§15), and although the transfer is **reported, not gated** (§12), it
-  is a load-bearing deliverable **and** the M6 re-measure entry condition (§13), so freezing its dataset before the
-  unlock still matters (no post-hoc dataset selection) — the manifest is a mandatory C2 artifact, not a conditional
-  one. (The only path with no closet manifest is the dataset-access-denied "blocked — no disjoint headline"
+  photo egress) freezes **before the C4 test-metric unlock** (§12) — necessarily before the head ever scores the
+  closet, so no post-hoc dataset selection:** the closet transfer probe is in the **minimal headline path** (§15),
+  and although the transfer is **reported, not gated** (§12), it is a load-bearing deliverable **and** the M6
+  re-measure entry condition (§13), so freezing its dataset before the unlock still matters. It is a **mandatory
+  unlock artifact**, not a conditional one — but it does **not** freeze at the **C2 design-freeze commit**: the
+  closet labels do not exist until Brian labels his own worn outfits (he is away from his wardrobe at C2), so the
+  C2 commit ships only `closet_manifest.template.json` and the manifest freezes from it before C4. (The only path
+  with no closet manifest is the dataset-access-denied "blocked — no disjoint headline"
   degenerate, where **no** gates run at all — §15 risks.)
 - **C3 — Baselines + trained head + eval driver.** `baselines.py` (zero-shot cosine floor; co-occurrence sanity
   assertion); `train_head.py` (pairwise-edge head, type conditioning, BCE, valid-selected; **the capacity-matched
   item-level ablation arm**, §6); `evaluate.py` (metric-computation half). **Valid-split selection is mechanical
   (argmax over the frozen grid); C3 writes `selection.json` only — checkpoint id + config + checkpoint hash + a
-  convergence/early-stop indicator, *no metric values* — and the valid-split *and* held-out *test*-set metric
-  values (gate-D outfit-AUC, gate-A/B pair-level + FITB) are never materialized to `metrics.json` until the C4
-  unlock (the §1 blindness guard): no human-visible model number exists at C3 to tune the judge against.**
+  convergence/early-stop indicator, *no metric values* — and the held-out *test*-set metric values (gate-D
+  outfit-AUC, gate-A/B pair-level + FITB) are never materialized to `metrics.json` until the C4 unlock (the §1
+  blindness guard). Valid-split metric values remain outside `metrics.json`; C3 exposes only `selection.json`
+  provenance, so no human-visible model number exists at C3 to tune the judge against.**
 - **C4 — LLM-as-judge.** `gpt_judge.py` (`gpt-5.4-mini` dated snapshot; **native FITB@4**, both orders,
   consistent-only; image-only / image+title / text-attribute arms; the determinism envelope + logprob
   escape-hatch; **a live API smoke test *re-checking whether image logprobs are available* (§8 verified them
@@ -900,12 +914,14 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   rule + envelope, never the trained head's numbers) and **committed before any gate-B `fitb_trained −
   fitb_judge` comparison is computed**; after the freeze the only post-hoc freedom is the deterministic **prefix
   length N** over the C2-frozen ordered gate-B list (§12), chosen to reach `HW ≤ δ` — never a re-selection of
-  questions or a re-tuning of the judge. `evaluate.py` **first unlocks emission of
-  `metrics.json`** (the sealed valid-split values + the held-out *test*-set trained-head/judge metrics; closet/transfer
+  questions or a re-tuning of the judge. `evaluate.py` validates the three unlock files, records their git blob
+  hashes / sha256s in `metrics.json`, and **first unlocks emission of
+  `metrics.json`** (the held-out *test*-set trained-head/judge metrics; closet/transfer
   fields are added at C5 and the file is finalized at C6 — see the artifact-dataflow note) only once all three of §12's
-  unlock files (`preregistration.md` + `judge_addendum.md` + `closet_manifest.json`) are committed** (§1/§12).
+  unlock files (`preregistration.md` + `judge_addendum.md` + schema-valid `closet_manifest.json`, including the
+  closet referential checks) are committed** (§1/§12).
 - **C5 — Domain gap.** `domain_probe.py` scores the closet from the **already-frozen `closet_manifest.json`** (its
-  labels + mechanical negatives + label-audit froze at C2, before the test-metric unlock — §12; only the
+  labels + mechanical negatives + label-audit froze before the C4 test-metric unlock — §12; only the
   *scoring* runs here): worn outfits → edges; pair-level closet AUC + FITB; catalog→closet drop,
   cluster-bootstrapped (all local FashionSigLIP — the transfer probe needs no third-party API). **Writes
   `closet_metrics.json`, which `evaluate.py` merges into `metrics.json`** (artifact-dataflow note above).
@@ -913,15 +929,18 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   (Pinterest STL/CTL fetch + **resolvable-yield check**; pair-level scene↔product drop) is the optional
   task-shifted supplement. Run the **optional** GPT closet memorization-control slice. **Precondition (before any
   closet photo leaves for a third-party API): the §14 consent + face/PII redaction are in place** (the manifest
-  itself already froze at C2 — local labeling, no egress).
+  itself froze before the C4 unlock — local labeling, no egress). **Code-gate (not honor-system): the C5 egress
+  code MUST fail loud unless `closet_manifest.json._consent.third_party_api_processing` is true AND every provider
+  it would transmit to is enumerated in `providers_photos_may_reach`** — a missing/false consent is a hard stop.
 - **C6 — Report + mechanical gate.** Extend `evaluate.py` (gate-application half + the one near-gate rule);
   write `results.md`. **Sub-milestone boundary — heavier review pass** on every `results.md` claim vs
   `metrics.json` before declaring done.
 
 **Files** (all new, under `ml-system/experiments/h26/`; touches no existing code): `README.md`,
-`requirements.txt` (isolated), `preregistration.md`, `data_loader.py`, `embed.py`, `embedding_manifest.json`
-(the C2 embedding-cache freeze: item order, image hashes, cache hash/path, embedding dim + dtype, normalization,
-backbone revision SHA, preprocessing hash — §5), `metrics.py`, `baselines.py`,
+`requirements.txt` (isolated), `preregistration.md`, `data_loader.py`, `embed.py`,
+`embedding_manifest_fashionsiglip.json` (the C2 headline embedding **config** freeze: embedding dim + dtype,
+normalization, backbone revision SHA, preprocessing hash, dependency lock; item order, image hashes, cache
+hash/path, and content hash are populated/verified at C3 before training — §5), `metrics.py`, `baselines.py`,
 `train_head.py`, `gpt_judge.py` (smaller — drops the per-edge continuous-score Monte-Carlo AUC, but keeps the per-question temp-0 sample-and-vote + both-orders), `judge_addendum.md` (the C4 freeze:
 judge prompt + prompt hash, dated model snapshot, calibration-set manifest + hash, temperature 0 + K-sample rule,
 both-order policy, `max_tokens`, retry/drop policy, payload-logging policy, commit hash — `evaluate.py`'s
@@ -930,15 +949,18 @@ category — §4; the STL/CTL 21→5-type map is a sibling), `judge_runs.ndjson`
 question × order × sample: **`question_id`, `order` (forward/reverse)**, parsed choice, consistency flag,
 retry/drop status, model snapshot, `system_fingerprint`, payload-log hash; the K×2 → per-question collapse (§8),
 the multi-run distribution + two-stage bootstrap read it, joined on `question_id`; raw payloads stay gitignored,
-§8/§14), `fitb_manifest.json` (the C2 freeze: eligibility, held-out-item rule, distractor
-rule, seed, gate-B vs gate-D subset allocation — §12), `stl_ctl_probe.py`, `domain_probe.py`,
+§8/§14 — **the committed ledger stays scalar-only: opaque `question_id` + choice index + flags, never the judge's
+free-text rationale or any photo-derived caption (those route only to the gitignored `raw_payloads/`), so the
+closet judge slice cannot leak person-describing text into the public repo**), `fitb_manifest.json` (the C2 freeze: eligibility, held-out-item rule, distractor
+rule, seed, constructor/source hashes, gate-B vs gate-D subset allocation — §12), `stl_ctl_probe.py`, `domain_probe.py`,
 `closet_metrics.json` (the C5 intermediate — `domain_probe.py` writes the closet/transfer fields here and
 `evaluate.py` merges it into `metrics.json`; artifact-dataflow note above),
 `evaluate.py`, `selection.json` (the C3 sealed-selection artifact: checkpoint id/config/hash/convergence, **no
-metric values** — §1/§12), `results.md`, `metrics.json` (the gate authority's data; first emission unlocked at C4,
+metric values**, validated against `selection.schema.json` — §1/§12), `selection.schema.json`, `results.md`, `metrics.json` (the gate authority's data; first emission unlocked at C4,
 closet/transfer fields added at C5, finalized at C6 — see the artifact-dataflow note below), `metrics.schema.json`
 (the field-set schema the gate authority needs — skeleton authored at C2 with `metrics.py`, finalized at C6 with
-the gate-application half; enumerates the `metrics.json` field set), `closet_manifest.json` (the §10/§14 manifest, frozen at C2 before the test-metric unlock: item ids,
+the gate-application half; enumerates the `metrics.json` field set), `closet_manifest.schema.json`,
+`closet_manifest.json` (the §10/§14 manifest, frozen before the C4 test-metric unlock — not at the C2 commit, which ships only `closet_manifest.template.json`: item ids,
 `clothingType` + fine-category labels + the Polyvore-fine-category mapping (§10), outfit membership, the mechanical-negative + label-audit protocol, photo
 paths + content hashes; photos stay gitignored), `tests/`, `.gitignore`. **Frozen — not touched:** all
 `fitted_core/`, `ml-system/tests/`, `outfit_recommender.py`, the root `requirements.txt`, everything under
@@ -947,14 +969,18 @@ counts are floors that grow, never pins).
 
 **Artifact dataflow (`metrics.json` write-lifecycle — the gate authority's read contract).** `metrics.json` is
 **not** fully written at one checkpoint; its emission is gated and staged: **(C3)** nothing materializes — only
-`selection.json` (sealed, no metric values). **(C4)** once all three unlock files (`preregistration.md` +
-`judge_addendum.md` + `closet_manifest.json`) are committed, `evaluate.py` **first unlocks emission** of the
-sealed valid-split values + the held-out *test*-set trained-head/judge fields. **(C5)** `domain_probe.py` writes
+`selection.json` (sealed, no metric values, validated against `selection.schema.json`). **(C4)** once all four unlock files (`preregistration.md` +
+`preregistration.json` + `judge_addendum.md` + schema-valid `closet_manifest.json`, including the closet referential
+checks) are committed and hash-recorded, `evaluate.py`
+**first unlocks emission** of the
+held-out *test*-set trained-head/judge fields. Valid-split metric values stay outside `metrics.json`; C3/C4 expose
+only the `selection.json` provenance needed to bind the checkpoint. **(C5)** `domain_probe.py` writes
 the closet/transfer fields (`AUC_closet_pair` + the catalog→closet drop) — it writes a `closet_metrics.json` that
 `evaluate.py` merges, so the closet scoring is a separate script from the gate authority. **(C6)** `evaluate.py`'s
 gate-application half reads the finalized file and prints the verdict. The full field set each read needs (all
-with CIs): `AUC_catalog_pair`, `AUC_zero-shot-cosine` (gate A); `fitb_trained_gateB`, `fitb_judge_gateB` (gate B —
-the paired two-stage bootstrap reads `judge_runs.ndjson` directly, not just the scalar, joined on `question_id`);
+with CIs): `AUC_catalog_pair`, `AUC_zero_shot_cosine`, `gate_A_diff` (gate A);
+`fitb_trained_gateB`, `fitb_judge_gateB`, `gate_B_diff_inconsistent_miss`,
+`gate_B_diff_inconsistent_half` (gate B — the paired two-stage bootstrap reads `judge_runs.ndjson` directly, not just the scalar, joined on `question_id`);
 `outfit_auc`, `fitb_trained_full` (gate D); `AUC_closet_pair` + the drop (reported transfer). `metrics.schema.json`
 enumerates exactly this set.
 

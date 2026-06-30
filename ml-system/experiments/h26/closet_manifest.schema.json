@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "h26/closet_manifest.schema.json",
+  "title": "H26 closet_manifest.json",
+  "description": "C4-unlock schema for the hand-labeled closet transfer manifest. The C2 commit ships only closet_manifest.template.json; the filled closet_manifest.json must validate against this schema and be committed before evaluate.py unlocks sealed metrics.",
+  "type": "object",
+  "required": ["_schema_version", "_consent", "_taxonomy", "label_audit", "items", "outfits"],
+  "$defs": {
+    "nonPlaceholderString": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "^([Tt][Bb][Dd]|[Tt][Oo][Dd][Oo]|[Pp][Ll][Aa][Cc][Ee][Hh][Oo][Ll][Dd][Ee][Rr]|[Ee][Xx][Aa][Mm][Pp][Ll][Ee]|[Uu][Nn][Kk][Nn][Oo][Ww][Nn]|[Nn]/[Aa]|[Nn][Oo][Nn][Ee]|[Xx]+)$"
+      }
+    }
+  },
+  "properties": {
+    "_schema_version": {"const": 1},
+    "_protocol": {"type": "object"},
+    "_consent": {
+      "type": "object",
+      "required": ["owner_id", "third_party_api_processing", "providers_photos_may_reach"],
+      "properties": {
+        "owner_id": {"$ref": "#/$defs/nonPlaceholderString"},
+        "third_party_api_processing": {"type": "boolean"},
+        "providers_photos_may_reach": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "_consent_note": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "_taxonomy": {
+      "type": "object",
+      "required": ["fine_category_key", "reference", "coarsening_policy"],
+      "properties": {
+        "fine_category_key": {"const": "polyvore_category_id"},
+        "reference": {"const": "closet_category_reference.json"},
+        "coarsening_policy": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "label_audit": {
+      "type": "object",
+      "required": ["second_pass_completed", "items_rechecked", "agreement_rate"],
+      "properties": {
+        "second_pass_completed": {"const": true},
+        "items_rechecked": {"type": "integer", "minimum": 1},
+        "agreement_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "notes": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "clothing_type",
+          "polyvore_category_id",
+          "fine_label_human",
+          "photo_path",
+          "photo_sha256",
+          "coarsening_note"
+        ],
+        "properties": {
+          "item_id": {
+            "allOf": [
+              {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.-]+$"},
+              {"$ref": "#/$defs/nonPlaceholderString"}
+            ]
+          },
+          "clothing_type": {"enum": ["top", "bottom", "dress", "outer_layer", "shoes"]},
+          "polyvore_category_id": {
+            "anyOf": [
+              {"type": "string", "pattern": "^[0-9]{1,4}$"},
+              {"type": "null"}
+            ]
+          },
+          "fine_label_human": {"$ref": "#/$defs/nonPlaceholderString"},
+          "photo_path": {
+            "type": "string",
+            "pattern": "^closet/[^/].*",
+            "not": {"pattern": "(^/|\\.\\.)"}
+          },
+          "photo_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "coarsening_note": {
+            "anyOf": [
+              {"type": "string", "minLength": 1},
+              {"type": "null"}
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {"polyvore_category_id": {"type": "null"}},
+              "required": ["polyvore_category_id"]
+            },
+            "then": {
+              "properties": {"coarsening_note": {"$ref": "#/$defs/nonPlaceholderString"}},
+              "required": ["coarsening_note"]
+            }
+          }
+        ]
+      }
+    },
+    "outfits": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["set_id", "item_ids"],
+        "properties": {
+          "set_id": {"$ref": "#/$defs/nonPlaceholderString"},
+          "item_ids": {
+            "type": "array",
+            "minItems": 2,
+            "items": {"$ref": "#/$defs/nonPlaceholderString"},
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -3,26 +3,37 @@
 # (torch + a SigLIP backbone) that the hermetic fitted_core suite must never import.
 # Nothing here touches the core package or its >=715-test floor.
 #
-# SKELETON ONLY (C1). The exact dependency LOCK — pinned versions + the HF model revision
-# SHA + preprocessing hash — FREEZES AT C2 (§15, "dependency lock"). The lower bounds below
-# are provisional; do not treat them as frozen.
+# DEPENDENCY LOCK (C2). The embed + metrics + stats stack below is pinned to the versions verified
+# to load FashionSigLIP and run the harness on macOS/arm64 (2026-06-29). The C4 judge dep (openai)
+# stays a lower bound until C4 verifies it. The full pre-registration freeze
+# (preregistration.md / embedding_manifest_fashionsiglip.json) records the backbone revision SHA + preprocess hash
+# alongside this lock.
+#
+# Verified headline backbone (embed.py): open_clip "hf-hub:Marqo/marqo-fashionSigLIP"
+#   revision SHA  = c56244cc94f92419e8369fa71efdaf403b124ce8
+#   embedding dim = 768 (float32, L2-normalized); preprocess = Resize(224,bicubic)->Normalize(0.5,0.5,0.5)
+#   preprocess repr sha256[:16] = fb80278db5fd5efc
 
 # --- Embeddings (C2: embed.py) ---
-# FashionSigLIP backbone. The load path (open_clip vs transformers) is pinned at C2 after
-# verifying the emitted embedding dim (§5 risk). Both candidate stacks are listed until then.
-torch>=2.0
-open_clip_torch>=2.24      # candidate: open_clip.create_model_from_pretrained('hf-hub:Marqo/marqo-fashionSigLIP')
-transformers>=4.40         # candidate: AutoModel / AutoProcessor
-Pillow>=9.0
+# FashionSigLIP via open_clip (the verified load path; transformers AutoModel is the documented
+# fallback per the Marqo card but is NOT needed — do not add it unless the open_clip path breaks).
+torch==2.12.1
+open_clip_torch==3.3.0
+timm==1.0.27               # open_clip backbone registry dep (pulled transitively; pinned for the lock)
+safetensors==0.8.0
+Pillow==12.2.0
+datasets==5.0.0            # gated mvasil parquet image source (build-doc §2)
+huggingface_hub==1.21.0    # backbone revision-SHA resolution
 
 # --- Metrics / stats (C2: metrics.py) ---
-numpy>=1.20
-scipy>=1.10                # cluster bootstrap CIs
-scikit-learn>=1.3          # roc_auc_score
+numpy==2.5.0
+scipy==1.18.0              # tie-averaged ranks (AUC); cluster bootstrap CIs
+scikit-learn==1.9.0        # roc_auc cross-check in tests
 
 # --- LLM-as-judge baseline (C4: gpt_judge.py) ---
 # gpt-5.4-mini dated snapshot, temp 0 (§7/§8). Lazy import — only a live judge run needs it.
+# Lower bound until C4 pins the verified version with the judge addendum.
 openai>=1.0
 
 # --- Test / tooling ---
-pytest>=7.4
+pytest==9.1.1

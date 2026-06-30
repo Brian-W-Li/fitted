@@ -1,0 +1,52 @@
+{
+  "_README": "TEMPLATE — copy to closet_manifest.json and fill `items` + `outfits` with your real worn outfits, then it FREEZES before the C4 test-metric unlock (§10/§12/§14), not at the C2 design-freeze commit. The filled manifest must validate against closet_manifest.schema.json; the template's example block must be deleted before freeze. The catalog->closet transfer is REPORTED, not gated (a single wardrobe cannot power a veto), and is the M6 re-measure entry condition. Photos stay gitignored; only this manifest commits. Build doc: docs/plans/h26-compatibility-spike-v2.md §10 (domain gap) / §14 (privacy).",
+
+  "_schema_version": 1,
+
+  "_protocol": {
+    "what_to_collect": "~15-25 of your REAL worn outfits as phone photos (the genuine target distribution public catalog data cannot reach). More outfits = more cluster-bootstrap power, but effective-N is the #outfits, not #edges (edges from one outfit are near-perfectly correlated) — so this is directional corroboration, and a power-limited no-go is an acceptable outcome.",
+    "photos": "Keep each garment in its REAL as-photographed context (on-body, on-hanger, laid-out, real lighting/clutter). Do NOT crop to a clean garment cutout, re-shoot, or clean into flat-lays — that erases the very catalog->real domain gap this probe measures (§14). Faces + identifying PII blurred or cropped, but the garment's on-body context kept. Photos live under closet/ (gitignored).",
+    "labeling": {
+      "clothing_type": "the 5-value clothingType (top|bottom|dress|outer_layer|shoes).",
+      "polyvore_category_id": "the SAME fine grain the catalog §4 negatives key on (taxonomy-match, §10). Pick from closet_category_reference.json (94 clothing categories). If no clean analog exists, set null + fill coarsening_note (those edges report separately).",
+      "fine_label_human": "your plain-English label (oxford shirt, chelsea boot, ...) — documentation only, never a logic key."
+    },
+    "negatives": {
+      "construction": "MECHANICAL same-fine-category (same polyvore_category_id), anchor-non-co-occurring (§4) — NOT hand-curated 'looks incompatible' (that removes the hard near-compatible negatives and inflates closet AUC, shrinking the very drop being measured).",
+      "min_members_per_fine_category_for_negative": 4,
+      "auc_scarcity_rule": "a fine-category with too few non-co-occurring same-category members to draw a §4 AUC negative -> DROP that edge + report the count (the Polyvore scarcity rule, §15).",
+      "fitb_broaden_rule": "headline-compatible default is skip-and-count for FITB scarcity too; no coarse-5-type broadened question enters gates B or D. Any later non-gating broadened diagnostic must be explicitly marked and reported separately."
+    },
+    "label_audit": {
+      "second_pass": "re-label a sample of items on a separate pass; report intra-annotator agreement (a noisy labeler is caught before it tunes the negatives). Single-annotator: frame results as 'matched to a single owner's taste', NOT inter-annotator 'human agreement'.",
+      "check": "any fine-category used to draw a negative must have >= min_members_per_fine_category_for_negative members."
+    }
+  },
+
+  "_consent": {
+    "owner_id": "FILL: an opaque, stable owner id (not your name/email).",
+    "third_party_api_processing": false,
+    "providers_photos_may_reach": [],
+    "_consent_note": "Set third_party_api_processing=true and enumerate EVERY provider in providers_photos_may_reach (e.g. 'openai:gpt-5.4-mini') ONLY with explicit per-owner consent, and ONLY before the optional C5 GPT closet memorization-control slice sends any photo off the machine. The transfer probe itself is all-local FashionSigLIP and needs no third-party API. ENFORCEMENT (C5 contract, not honor-system): the C5 egress code MUST fail loud unless third_party_api_processing is true AND every provider it would transmit to is listed here — a missing/false consent is a hard stop, not a warning."
+  },
+
+  "_taxonomy": {
+    "fine_category_key": "polyvore_category_id",
+    "reference": "closet_category_reference.json",
+    "coarsening_policy": "where a garment has no clean Polyvore category_id analog, set polyvore_category_id=null, set clothing_type, and write coarsening_note; such edges are reported separately (§10)."
+  },
+
+  "_examples_DELETE_BEFORE_FREEZE": {
+    "items": [
+      {"item_id": "c001", "clothing_type": "top", "polyvore_category_id": "11", "fine_label_human": "oxford shirt", "photo_path": "closet/c001.jpg", "photo_sha256": "<filled at freeze>", "coarsening_note": null},
+      {"item_id": "c014", "clothing_type": "bottom", "polyvore_category_id": "28", "fine_label_human": "chinos", "photo_path": "closet/c014.jpg", "photo_sha256": "<filled at freeze>", "coarsening_note": null},
+      {"item_id": "c027", "clothing_type": "shoes", "polyvore_category_id": "4496", "fine_label_human": "white sneakers", "photo_path": "closet/c027.jpg", "photo_sha256": "<filled at freeze>", "coarsening_note": "no exact Polyvore analog for this exact silhouette; nearest fine-category used"}
+    ],
+    "outfits": [
+      {"set_id": "o01", "item_ids": ["c001", "c014", "c027"]}
+    ]
+  },
+
+  "items": [],
+  "outfits": []
+}

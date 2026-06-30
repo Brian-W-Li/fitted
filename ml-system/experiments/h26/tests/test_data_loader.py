@@ -7,6 +7,7 @@ smoke test behind the same guard. Reference: docs/plans/h26-compatibility-spike-
 """
 
 import csv
+import inspect
 import json
 import os
 
@@ -84,8 +85,8 @@ def test_pairwise_same_category_and_anchor_non_cooccurrence(test_split):
         edges, skipped = build_pairwise(split, idx, seed=seed)
         pos = [e for e in edges if e.label == 1]
         neg = [e for e in edges if e.label == 0]
-        # balanced 1:1 modulo skips (positives with an exhausted category pool)
-        assert len(pos) == len(neg) + skipped
+        # balanced 1:1: skipped positives are dropped entirely, not retained as orphan positives
+        assert len(pos) == len(neg)
         assert len(neg) > 0
         for e in neg:
             # same fine category as the item it replaced
@@ -264,7 +265,7 @@ def test_skip_accounting_counts_exhausted_pools():
     pos = [e for e in edges if e.label == 1]
     neg = [e for e in edges if e.label == 0]
     assert skipped > 0                       # the (t1,t2) edge: no eligible T negative
-    assert len(pos) == len(neg) + skipped    # the "modulo skips" balance is actually exercised
+    assert len(pos) == len(neg)              # skipped positives are not kept in the scored pool
     # FITB / outfit-level also surface their scarcity counts (the T pool can never supply 3)
     _, fitb_skipped = build_fitb(split, idx, seed=1)
     _, outfit_skipped = build_outfit_level(split, idx, seed=1)
@@ -292,6 +293,18 @@ def test_duplicate_item_ids_are_deduplicated():
     assert any(e.label == 0 for e in edges)
 
 
+def test_strict_json_loader_rejects_duplicate_keys_and_nonfinite(tmp_path):
+    dup = tmp_path / "dup.json"
+    dup.write_text('{"a": 1, "a": 2}', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        dl.load_json_strict(str(dup))
+
+    nan = tmp_path / "nan.json"
+    nan.write_text('{"a": NaN}', encoding="utf-8")
+    with pytest.raises(ValueError, match="non-finite JSON constant"):
+        dl.load_json_strict(str(nan))
+
+
 # --------------------------------------------------------------------------- #
 # Strict-disjoint purge (§2 headline option)
 # --------------------------------------------------------------------------- #
@@ -315,6 +328,11 @@ _HAS_DATA = os.path.isdir(dl.DEFAULT_DATA_ROOT) and os.path.exists(
 _HAS_CATS = os.path.exists(os.path.join(dl.DEFAULT_DATA_ROOT, "categories.csv"))
 
 
+def test_load_corpus_default_is_headline_strict_disjoint():
+    param = inspect.signature(dl.load_corpus).parameters["strict_disjoint"]
+    assert param.default is True
+
+
 @pytest.mark.skipif(not _HAS_CATS, reason="local Polyvore categories.csv absent")
 def test_type_map_covers_real_category_vocabulary():
     cats = dl.load_type_map()
@@ -329,7 +347,7 @@ def test_type_map_covers_real_category_vocabulary():
 
 @pytest.mark.skipif(not _HAS_DATA, reason="local Polyvore dataset absent")
 def test_real_corpus_load_smoke():
-    corpus = dl.load_corpus(verbose=False)
+    corpus = dl.load_corpus(verbose=False, strict_disjoint=False)
     # the disjoint split sizes shipped in the JSON (read off at load, never hard-split)
     assert corpus.splits["train"].raw_outfits == 16995
     assert corpus.splits["valid"].raw_outfits == 3000
@@ -373,7 +391,8 @@ def test_real_corpus_no_false_negatives_all_constructions():
         edges, skipped = build_pairwise(split, idx, seed=0)   # must NOT crash on train (B1)
         pos = [e for e in edges if e.label == 1]
         neg = [e for e in edges if e.label == 0]
-        assert len(neg) > 0 and len(pos) == len(neg) + skipped
+        assert skipped >= 0
+        assert len(neg) > 0 and len(pos) == len(neg)
         for e in neg:
             assert idx[e.b].category_id == idx[e.replaced].category_id
             assert e.b not in cooc.get(e.anchor, set())        # no pairwise false negative

@@ -3,9 +3,26 @@
 # Dataset bundle (Polyvore-Disjoint: multi-GB images + JSON). Brian provides it locally;
 # data_loader.py reads $H26_DATA_ROOT (default ./data/polyvore_outfits/). Never commit.
 data/
+# Extension backstop (second layer under the closet/ + data/ dir guards): catch a stray photo
+# saved OUTSIDE those dirs. Cover the iPhone default (HEIC/HEIF) + WebP + common formats,
+# case-insensitively — the §10/§14 protocol collects real face-bearing phone photos, so a leak
+# here is irreversible in a public repo.
 *.jpg
 *.jpeg
 *.png
+*.JPG
+*.JPEG
+*.PNG
+*.heic
+*.heif
+*.HEIC
+*.HEIF
+*.webp
+*.WEBP
+*.gif
+*.bmp
+*.tif
+*.tiff
 
 # Embedding cache (§5 embedding_manifest.json freezes the hashes; the cache blobs stay out).
 *.npy

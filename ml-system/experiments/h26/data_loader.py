@@ -29,6 +29,7 @@ import json
 import os
 import random
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 DEFAULT_DATA_ROOT = os.path.join(os.path.dirname(__file__), "data", "polyvore_outfits")
@@ -84,6 +85,7 @@ class Edge:
 class FitbQuestion:
     """Fill-in-the-blank@4: `retained` partial outfit + 4 `candidates` (one correct)."""
 
+    set_id: str
     retained: tuple[str, ...]
     candidates: tuple[str, ...]
     correct_index: int
@@ -128,8 +130,7 @@ class Corpus:
 def load_type_map(data_root: str = DEFAULT_DATA_ROOT) -> dict[str, dict]:
     """Load the frozen fine-category -> 5-type mapping (`categories` block of type_map.json)."""
     path = os.path.join(os.path.dirname(__file__), "type_map.json")
-    with open(path, encoding="utf-8") as f:
-        doc = json.load(f)
+    doc = load_json_strict(path)
     cats = doc["categories"]
     for cid, row in cats.items():
         if row["type"] not in FIVE_TYPES and row["type"] != EXCLUDED:
@@ -140,8 +141,7 @@ def load_type_map(data_root: str = DEFAULT_DATA_ROOT) -> dict[str, dict]:
 def load_item_index(data_root: str, type_map: dict[str, dict]) -> dict[str, Item]:
     """Resolve every metadata item through `type_map`. Raises if a category_id is unmapped
     (the frozen map must cover the corpus — proven once, re-checked on every load)."""
-    with open(os.path.join(data_root, "polyvore_item_metadata.json"), encoding="utf-8") as f:
-        meta = json.load(f)
+    meta = load_json_strict(os.path.join(data_root, "polyvore_item_metadata.json"))
     index: dict[str, Item] = {}
     for item_id, m in meta.items():
         cid = m["category_id"]
@@ -164,9 +164,38 @@ def load_split(data_root: str, split: str, item_index: dict[str, Item]) -> Split
 
 def read_raw_outfits(data_root: str, split: str) -> list[tuple[str, list[str]]]:
     """Read one split's shipped outfit JSON as ``(set_id, [item_id, ...])`` tuples (no filtering)."""
-    with open(os.path.join(data_root, "disjoint", f"{split}.json"), encoding="utf-8") as f:
-        raw = json.load(f)
+    raw = load_json_strict(os.path.join(data_root, "disjoint", f"{split}.json"))
     return [(o["set_id"], [it["item_id"] for it in o["items"]]) for o in raw]
+
+
+def _reject_json_constant(value: str) -> None:
+    """Reject NaN/Infinity in JSON inputs; those are not valid benchmark constants."""
+    raise ValueError(f"non-finite JSON constant {value!r} is not allowed")
+
+
+def _no_duplicate_object_pairs(pairs: Iterable[tuple[str, object]]) -> dict[str, object]:
+    """Strict JSON object hook: duplicate keys are source corruption, not a last-wins merge."""
+    out: dict[str, object] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        out[key] = value
+    return out
+
+
+def load_json_strict(path: str):
+    """Load JSON with duplicate-key and non-finite-number rejection.
+
+    The H26 manifests and Polyvore source JSONs are benchmark inputs. Python's default
+    ``json.load`` accepts duplicate keys with last-wins semantics and accepts NaN/Infinity; both
+    silently corrupt a pre-registration artifact, so every local JSON path routes through this.
+    """
+    with open(path, encoding="utf-8") as f:
+        return json.load(
+            f,
+            object_pairs_hook=_no_duplicate_object_pairs,
+            parse_constant=_reject_json_constant,
+        )
 
 
 def purge_train_overlap(
@@ -243,16 +272,17 @@ def make_split_data(
 
 
 def load_corpus(
-    data_root: str = DEFAULT_DATA_ROOT, verbose: bool = True, strict_disjoint: bool = False
+    data_root: str = DEFAULT_DATA_ROOT, verbose: bool = True, strict_disjoint: bool = True
 ) -> Corpus:
     """Load the full disjoint corpus and (verbose) print the raw/post-filter/dropped counts
     the build doc requires be printed at load (§15 C1).
 
-    `strict_disjoint=False` (default) loads the shipped JSON faithfully — the split is only
-    near-disjoint (test shares 84 items / 47 outfits with train). `strict_disjoint=True` is the
-    **pre-registered headline option** (§2): it purges those test outfits so the gated test set
-    is literally item-disjoint from train. Valid's larger train overlap is disclosed, not purged
-    (valid is sealed-selection-only)."""
+    `strict_disjoint=True` (default) is the **pre-registered headline option** (§2): it
+    purges the 47 overlapping test outfits so the gated test set is literally item-disjoint
+    from train. `strict_disjoint=False` loads the shipped JSON faithfully — the split is only
+    near-disjoint (test shares 84 items / 47 outfits with train) — and must be requested
+    explicitly for disclosed ceiling/sanity reads. Valid's larger train overlap is disclosed,
+    not purged (valid is sealed-selection-only)."""
     type_map = load_type_map(data_root)
     item_index = load_item_index(data_root, type_map)
     raw = {s: read_raw_outfits(data_root, s) for s in SPLITS}
@@ -269,6 +299,11 @@ def load_corpus(
         if strict_disjoint:
             print(f"  strict_disjoint: purged {purged} test outfits sharing an item with train")
     return corpus
+
+
+def load_headline_corpus(data_root: str = DEFAULT_DATA_ROOT, verbose: bool = True) -> Corpus:
+    """Load the frozen headline corpus (`strict_disjoint=True`) for C3+ evaluation code."""
+    return load_corpus(data_root=data_root, verbose=verbose, strict_disjoint=True)
 
 
 def _load_report(corpus: Corpus) -> str:
@@ -337,7 +372,6 @@ def build_pairwise(
     skipped = 0
     for pair in sorted(iter_positive_edges(split), key=lambda p: tuple(sorted(p))):
         i, j = sorted(pair)
-        edges.append(Edge(a=i, b=j, label=1))
         # pick which endpoint is the kept anchor; replace the other (seeded coin). If the
         # replaced endpoint's category pool is exhausted, try replacing the OTHER endpoint
         # before skipping — only drop the edge when neither orientation yields a negative.
@@ -353,6 +387,7 @@ def build_pairwise(
         if neg is None:
             skipped += 1
             continue
+        edges.append(Edge(a=i, b=j, label=1))
         edges.append(neg)
     return edges, skipped
 
@@ -382,12 +417,15 @@ def build_fitb(
         rng.shuffle(candidates)
         questions.append(
             FitbQuestion(
+                set_id=o.set_id,
                 retained=retained,
                 candidates=tuple(candidates),
                 correct_index=candidates.index(answer),
                 answer_category=cat,
             )
         )
+    order_rng = random.Random(seed + 10_000_019)
+    order_rng.shuffle(questions)
     return questions, skipped
 
 

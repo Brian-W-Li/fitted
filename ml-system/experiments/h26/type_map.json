@@ -1,6 +1,6 @@
 {
-  "_policy": "Polyvore category_id -> Fitted 5-value clothingType {top,bottom,dress,outer_layer,shoes} | excluded (§4). category_id is the PER-ITEM fine-grained key and the same-category equivalence class for negatives (matches Vasileva 2018's 153-category grain — that anchor comparability, NOT 'no finer label exists', is why it is the key). TRAP-GUARD: metadata also carries a finer 'catgeories' breadcrumb (present ~30% of items, brand-noisy, partial coverage) — do NOT switch the negative key to it; it would over-harden negatives and break comparability to the published anchors. NOTE: categories.csv's fine-name column is NON-INJECTIVE — one category_id spans several fine names (e.g. id 11 = shirt/sleeveless top/sweater/top), so 'fines' is a list and is documentation only, never a logic key. EXCLUSION CARVE-OUT (excluded_reason on each row): base type from semantic_category, then exclude (a) non-garment accessory semantics (bags/jewellery/sunglasses/hats/scarves/accessories); (b) swimwear; (c) sleepwear/loungewear sleep-garments (pyjama tops AND pyjama pants, slip/chemise); (d) lingerie/intimates + underwear. Kept-by-design boundary cases: slippers/male slippers -> shoes ('slip' is a substring false-positive; they are footwear); sports bra -> top (athleisure upper garment, unlike excluded lingerie). PRODUCTION-MATCH OVERRIDES: the 5-type is semantic-derived by default, but where it materially disagreed with production clothingType.ts (verified by porting deriveClothingType over every fine name), the row is overridden to the app's serving-time label and carries an 'override_reason' (so the trained type-conditioning matches what the app assigns): cardigan (18) -> top and track jacket (256/289) -> outer_layer. The other apparent divergences are port artifacts where type_map is correct and production needs its category field (e.g. pump/booties/flip-flops/slippers -> shoes via category=='footwear'; 'pant' singular). A few tiny genuinely-ambiguous cases stay on the Polyvore semantic pending the C2 freeze: set/suit + male suit (30/281, ~27 items) -> dress, coverup (1607) -> outer_layer, male vest (4457) -> outer_layer. Authored at C1; FROZEN at C2 before any model number.",
-  "_version": "h26-c1",
+  "_policy": "Polyvore category_id -> Fitted 5-value clothingType {top,bottom,dress,outer_layer,shoes} | excluded (§4). category_id is the PER-ITEM fine-grained key and the same-category equivalence class for negatives (matches Vasileva 2018's 153-category grain — that anchor comparability, NOT 'no finer label exists', is why it is the key). TRAP-GUARD: metadata also carries a finer 'catgeories' breadcrumb (present ~30% of items, brand-noisy, partial coverage) — do NOT switch the negative key to it; it would over-harden negatives and break comparability to the published anchors. NOTE: categories.csv's fine-name column is NON-INJECTIVE — one category_id spans several fine names (e.g. id 11 = shirt/sleeveless top/sweater/top), so 'fines' is a list and is documentation only, never a logic key. EXCLUSION CARVE-OUT (excluded_reason on each row): base type from semantic_category, then exclude (a) non-garment accessory semantics (bags/jewellery/sunglasses/hats/scarves/accessories); (b) swimwear; (c) sleepwear/loungewear sleep-garments (pyjama tops AND pyjama pants, slip/chemise); (d) lingerie/intimates + underwear. Kept-by-design boundary cases: slippers/male slippers -> shoes ('slip' is a substring false-positive; they are footwear); sports bra -> top (athleisure upper garment, unlike excluded lingerie). PRODUCTION-MATCH OVERRIDES: the 5-type is semantic-derived by default, but where it materially disagreed with production clothingType.ts (verified by porting deriveClothingType over every fine name), the row is overridden to the app's serving-time label and carries an 'override_reason' (so the trained type-conditioning matches what the app assigns): cardigan (18) -> top and track jacket (256/289) -> outer_layer. The other apparent divergences are port artifacts where type_map is correct and production needs its category field (e.g. pump/booties/flip-flops/slippers -> shoes via category=='footwear'; 'pant' singular). A few formerly-ambiguous cases are now RESOLVED-and-FROZEN at C2: set/suit + male suit (30/281, ~27 items) -> dress (the all-body semantic governs; no production override applies), coverup (1607) -> outer_layer, male vest (4457) -> outer_layer. Authored at C1; FROZEN at C2 (2026-06-29) before any model number — see preregistration.md §E.",
+  "_version": "h26-c2-frozen",
   "_enum": [
     "top",
     "bottom",
@@ -659,7 +659,7 @@
         ""
       ],
       "type": "excluded",
-      "excluded_reason": "undefined"
+      "excluded_reason": "lingerie"
     },
     "246": {
       "fines": [
@@ -669,7 +669,7 @@
         ""
       ],
       "type": "excluded",
-      "excluded_reason": "undefined"
+      "excluded_reason": "lingerie"
     },
     "247": {
       "fines": [
@@ -679,7 +679,7 @@
         ""
       ],
       "type": "excluded",
-      "excluded_reason": "undefined"
+      "excluded_reason": "lingerie"
     },
     "248": {
       "fines": [
@@ -989,7 +989,7 @@
         ""
       ],
       "type": "excluded",
-      "excluded_reason": "undefined"
+      "excluded_reason": "underwear"
     },
     "284": {
       "fines": [

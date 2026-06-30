@@ -1,7 +1,7 @@
 # H26 — Content-compatibility spike (offline)
 
 > Build doc: `docs/plans/h26-compatibility-spike-v2.md`. Spec context: `docs/Fitted_Spec_v2.md` §20, §23-H26/H28.
-> Status: **C1 (scaffold + data loader)** — scaffold + `data_loader.py` + `type_map.json` + invariant tests landed against the local Polyvore-Disjoint JSON (images deferred to C2).
+> Status: **C2 complete** — landed: C1 (scaffold + `data_loader.py` + `type_map.json` + invariant tests); the metric harness (`metrics.py` + `tests/test_metrics.py`: pooled AUC, outfit-level AUC, FITB@4, cluster bootstrap); `embed.py` + `tests/test_embed.py` (FashionSigLIP frozen via open_clip — verified emitted **dim 768**, revision `c56244cc`, L2-normalized; gated-parquet image source; cache builder + C2 config manifest); the `closet_manifest.template.json` + picker + schema; **and the pre-registration FREEZE** — `preregistration.md` + `preregistration.json` (headline cell + A/B/D gates δ=0.05 + analyst pins) + `fitb_manifest.json` + `embedding_manifest_fashionsiglip.json` (config; cache hashes stage to C3) + `metrics.schema.json`, all committed **before any model number**. **Next: C3** (baselines + trained head + sealed `selection.json`). `closet_manifest.json` freezes from the template before the C4 unlock (Brian labels his worn outfits then).
 
 ## What this is
 
