@@ -1014,7 +1014,19 @@ enumerates exactly this set.
   175k items, but pin the rule; never broaden to coarse type on the AUC set — that re-introduces a category-leaking
   easier negative).
 - **Test isolation:** `experiments/h26/tests/` must not leak into the root pytest collection (pin the collection
-  scope); H26's isolated deps are not added to the root `requirements.txt`.
+  scope); H26's isolated deps are not added to the root `requirements.txt`. *(Pinned via `ml-system/pytest.ini` +
+  `experiments/h26/pytest.ini`, both `testpaths = tests`; `cd ml-system && pytest` and `cd experiments/h26 && pytest`
+  are isolated. A config-less `pytest` from the **repo root** still recurses into the spike and errors on its heavy
+  deps — run from one of the two pinned dirs.)*
+- **Offline eval compute budget (measured at C3 — synthetic-cache timing on the real strict-disjoint test split,
+  audit 2026-06-29):** a full `evaluate.compute_metric_suite` pass is **~50 min**, dominated by the **B = 10,000
+  cluster bootstrap** (~5 min per pair-level AUC CI — each replicate re-ranks ~89 k pooled scores via
+  `scipy.rankdata`; ×~8 pair-level CIs ≈ 40 min) and the **batch-1 `head_edge_scorer`** (~215 k distinct edge
+  forwards at ~1 ms each ≈ 7 min). Feasible — completes, ~1 GB RAM, **no OOM** — but the **§C.7 3-seed footnote
+  triples it (~2.5 hr)**, so C4–C6 must budget eval wall-clock, not assume it is free. Two **deferrable** speedups
+  (neither required for correctness): a batched pre-pass via `train_head.score_edge_tensors` (batch 4096) to replace
+  the batch-1 scorer, and a vectorized AUC bootstrap (must reproduce the **same** B = 10,000 numbers; `metrics.py` is
+  frozen, so that one re-freezes).
 - **Scope (ship the verdict):** the **minimal headline path** = FashionSigLIP + the pairwise head + **the
   capacity-matched item-level-vs-pairwise shape ablation (§6 — it settles the H28 seam shape, one of H26's three
   pre-registered deliverables per §0, and canonical §20/§23-H28 require it; not optional)** + the image-only judge

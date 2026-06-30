@@ -298,3 +298,47 @@ def test_run_is_reproducible_bit_for_bit(tmp_path):
     r2 = run(cache, corpus, seed=SEED, root_dir=H26, write=False, train_kwargs=FAST)
     assert r1.selection == r2.selection                        # identical sealed artifact, incl. checkpoint_sha256
     assert r1.selection["checkpoint_sha256"] == r2.selection["checkpoint_sha256"]
+
+
+def test_training_is_deterministic_across_processes():
+    # The test above proves only SAME-process reproduction; the trust floor (the §9 "bit-determinism"
+    # headline win + the selection.json reproducibility claim) is CROSS-process — selection.json must
+    # reproduce when re-run in a fresh interpreter, not just twice in one. set_num_threads(1) +
+    # use_deterministic_algorithms(True) + the per-config re-seed are what fix CPU reduction/op order
+    # across processes; this asserts the resulting checkpoint hash is bit-identical to an in-process
+    # train of the same config. (A genuine cross-process drift here would be a real determinism
+    # finding, not a flaky test — both runs share one interpreter + BLAS via sys.executable.)
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(f"""
+        import sys
+        sys.path[:0] = [{H26!r}, {os.path.join(H26, "tests")!r}]
+        from synthetic import make_cache, make_corpus
+        from data_loader import build_pairwise
+        from train_head import (
+            GRID, PairwiseEdgeHead, build_edge_tensors, checkpoint_sha256, train_one_config,
+        )
+        c = make_corpus(seed=0)
+        cache = make_cache(c.item_index)
+        te, _ = build_pairwise(c.splits["train"], c.item_index, {SEED})
+        ve, _ = build_pairwise(c.splits["valid"], c.item_index, {SEED})
+        t = build_edge_tensors(te, cache, c.item_index)
+        v = build_edge_tensors(ve, cache, c.item_index)
+        r = train_one_config(PairwiseEdgeHead, t, v, GRID[0], "grid_0", seed={SEED}, max_epochs=2)
+        print(checkpoint_sha256(r.best_state))
+    """)
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert proc.returncode == 0, f"subprocess train failed:\n{proc.stderr}"
+    other_process_sha = proc.stdout.strip().splitlines()[-1]
+
+    corpus = make_corpus(seed=0)
+    cache = make_cache(corpus.item_index)
+    te, _ = build_pairwise(corpus.splits["train"], corpus.item_index, SEED)
+    ve, _ = build_pairwise(corpus.splits["valid"], corpus.item_index, SEED)
+    t = build_edge_tensors(te, cache, corpus.item_index)
+    v = build_edge_tensors(ve, cache, corpus.item_index)
+    in_process = train_one_config(PairwiseEdgeHead, t, v, GRID[0], "grid_0", seed=SEED, max_epochs=2)
+    assert len(other_process_sha) == 64
+    assert other_process_sha == checkpoint_sha256(in_process.best_state)  # bit-identical across processes
