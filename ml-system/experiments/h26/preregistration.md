@@ -307,8 +307,8 @@ only the measured *yield* is computed at C5.
 - **Pooled ROC-AUC**, never per-outfit-averaged. **Cluster bootstrap**, **percentile** (not BCa),
   **B = 10,000**, resampled at the cluster unit:
   - **pair-level AUC** (gate A, the transfer) → cluster = the **(positive, negative) pair** (positives
-    are distinct pairs deduped across outfits, so an edge has no unique source outfit — 38 of 44,759
-    test pairs recur; pinned here).
+    are distinct pairs deduped across outfits, so an edge has no unique source outfit — 38 of 44,627
+    strict-disjoint test pairs recur (the headline `strict_disjoint=True` split; pinned here).
   - **outfit-level AUC** (gate D) → cluster = the **source outfit**.
   - **FITB** → cluster = the **question** (one question per distinct outfit ⇒ effective-N = N).
 - **Difference CIs at the source:** gates A and B use a **paired** cluster bootstrap (shared resample,

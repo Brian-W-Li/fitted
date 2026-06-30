@@ -59,6 +59,12 @@ green tests):
    `preregistration.md` is a one-way-door freeze and `data_loader.py` is sha-tripwired
    (`fitb_manifest.constructor_source_sha256`), so a fix cascades a re-freeze of `fitb_manifest.json` +
    `fitb_order.json`. Human decision: accept 44,759 as a disclosed near-disjoint reference, or re-measure + re-freeze.
+   **RESOLVED 2026-06-29 (re-measure + re-freeze):** verified `strict_disjoint=True` = **44,627** pairs / 38 recur,
+   `strict_disjoint=False` = 44,759 / 38 recur (the 38 are coincidentally identical). Corrected both homes to
+   **44,627** + a `strict-disjoint` trap-guard; re-froze `data_loader.py` sha into `fitb_manifest.json` +
+   regenerated `fitb_order.json` (`order_sha256` unchanged 49a842b3… — behavior-neutral); added a hermetic
+   `fitb_order` provenance-binding guard. Done pre-model-number, so the freeze's "before any model number" property
+   is preserved. Floor 128→129.
 
 2. **[C4 budgeting — measured] Offline eval is ~50 min/pass, ~2.5 hr with the 3-seed footnote.** A full real-data
    `compute_metric_suite` is dominated by the frozen **B = 10,000 cluster bootstrap** (~5 min per pair-level AUC CI

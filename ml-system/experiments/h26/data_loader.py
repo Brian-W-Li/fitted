@@ -364,7 +364,7 @@ def build_pairwise(
     where skipped = positives with no eligible negative (category pool exhausted).
 
     Note for C2: positives are distinct pairs deduped across outfits (`iter_positive_edges`), so an
-    edge has no unique source outfit (38 of 44,759 test pairs are co-worn in >1 outfit). The §11
+    edge has no unique source outfit (38 of 44,627 strict-disjoint test pairs are co-worn in >1 outfit). The §11
     cluster-bootstrap unit for pair-level AUC is therefore the (positive, negative) pair, not the
     source outfit — pin this in the C2 preregistration."""
     rng = random.Random(seed)

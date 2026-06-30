@@ -5,7 +5,7 @@
   "frozen_date": "2026-06-29",
   "build_doc": "docs/plans/h26-compatibility-spike-v2.md",
   "constructor": "data_loader.build_fitb",
-  "constructor_source_sha256": "1c28bfe654389881c28316b71e2491aeb74b0cb073d5a66725b3c34f9aad23ca",
+  "constructor_source_sha256": "5777a3b7cf39f01db40dd3746fd233cb848565310f2da237bec9be51b962083c",
   "type_map_sha256": "d29c03c8f338abe7e335c63d367be57f7b4d5e7d175024db24515c67b8d61b27",
   "seed": 20260629,
 

@@ -68,6 +68,23 @@ def test_verify_detects_a_tampered_order_hash():
         verify_fitb_order(order, corpus, root_dir=H26)
 
 
+def test_committed_fitb_order_provenance_binds_the_frozen_sources():
+    # Hermetic: the committed fitb_order.json's source-hash provenance must bind the CURRENT frozen
+    # artifacts (constructor_source_sha256 -> data_loader.py, fitb_manifest_sha256 -> fitb_manifest.json,
+    # type_map_sha256 -> type_map.json). A stale provenance hash (e.g. after a data_loader.py edit that
+    # was re-frozen everywhere except here) is exactly the drift this guard catches.
+    import hashlib
+
+    committed = json.load(open(os.path.join(H26, "fitb_order.json"), encoding="utf-8"))
+    for field, fname in (
+        ("constructor_source_sha256", "data_loader.py"),
+        ("fitb_manifest_sha256", "fitb_manifest.json"),
+        ("type_map_sha256", "type_map.json"),
+    ):
+        with open(os.path.join(H26, fname), "rb") as f:
+            assert committed[field] == hashlib.sha256(f.read()).hexdigest(), f"{field} stale vs {fname}"
+
+
 def test_committed_fitb_order_reproduces_from_real_data():
     # The committed fitb_order.json must reproduce from the real strict-disjoint corpus (the artifact is
     # the real C3 tripwire). Skips cleanly when the gated dataset is not present (hermetic CI).
