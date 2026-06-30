@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "h26/selection.schema.json",
   "title": "H26 selection.json sealed C3 artifact",
-  "description": "Schema for the C3 sealed-selection artifact. It intentionally permits checkpoint/config/hash/convergence provenance and manifest hashes, but no metric values, losses, AUC/FITB fields, or grid score tables.",
+  "description": "Schema for the C3 sealed-selection artifact. It intentionally permits checkpoint/config/hash/convergence provenance and manifest hashes, but no metric values, losses, AUC/FITB fields, or grid score tables. C3 naming note: the free-string fields (checkpoint_id, config_id, optimizer) are sealedStrings that forbid embedded decimals and metric words — name configs grid_0..grid_5 (never e.g. 'lr0.001'); numeric hyperparameters go in their own typed fields (learning_rate, weight_decay).",
   "type": "object",
   "$defs": {
     "sealedString": {

@@ -35,8 +35,7 @@
             "preregistration.md",
             "preregistration.json",
             "judge_addendum.md",
-            "closet_manifest.json",
-            "selection.json"
+            "closet_manifest.json"
           ]
         },
         "git_blob_sha": {"$ref": "#/$defs/git_blob_sha"},

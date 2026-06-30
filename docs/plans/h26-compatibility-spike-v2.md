@@ -97,9 +97,9 @@ inspection of the metric *values*), and **the valid-split metric values stay sea
 addendum is committed**. **"Sealed" is a concrete artifact contract, not a verbal promise:** C3 writes **only
 `selection.json`** — chosen checkpoint id + training config + checkpoint hash + a convergence/early-stop boolean,
 validated against `selection.schema.json`, **no metric values of any split** — and the valid- and test-split metric *values* are **never materialized to the
-committed `metrics.json`** until `evaluate.py` validates and records all three unlock files (C4); there is no
+committed `metrics.json`** until `evaluate.py` validates and records all four unlock files (C4); there is no
 human-readable metric file before C4. `evaluate.py` refuses to emit any sealed metric unless `preregistration.md`,
-`judge_addendum.md`, **and** the frozen, schema-valid `closet_manifest.json` validate and have their hashes recorded
+`preregistration.json`, `judge_addendum.md`, **and** the frozen, schema-valid `closet_manifest.json` validate and have their hashes recorded
 (including C4 referential checks that every outfit item id is declared and every `polyvore_category_id` exists in
 `closet_category_reference.json`; §15 C3/C4, §12).
 Everything else freezes at C2, before any model number exists.
@@ -707,12 +707,12 @@ right shape.
 
 **One mechanical AND-gate** in `evaluate.py` reading `metrics.json` (single source of truth; `results.md`
 restates it). `evaluate.py` **refuses to emit any held-out *test*-set metric through `metrics.json`
-until `preregistration.md`, the C4 judge addendum (`judge_addendum.md`), and the frozen
+until `preregistration.md`, `preregistration.json`, the C4 judge addendum (`judge_addendum.md`), and the frozen
 `closet_manifest.json` (the transfer-probe dataset, former gate C: included outfits, fine-category labels, inclusion/exclusion +
 negative-construction + label-audit protocol) are committed, validated, and hash-recorded** — the build-order enforcement of §1's blindness
 (C3 produces a mechanical valid-split selection only — `selection.json`: checkpoint id/config/hash/convergence,
 **no metric values**, validated against `selection.schema.json`). `metrics.json`'s test-set fields begin emission
-(staged C4→C6, §15 artifact-dataflow note) only after the three unlock files pass validation. Freezing
+(staged C4→C6, §15 artifact-dataflow note) only after the four unlock files pass validation. Freezing
 `closet_manifest.json` before the unlock stops the transfer-probe dataset from being selected after A/B/D are seen
 (local hand-labeling — no photos leave the machine, so it costs no third-party egress):
 
@@ -914,11 +914,11 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   rule + envelope, never the trained head's numbers) and **committed before any gate-B `fitb_trained −
   fitb_judge` comparison is computed**; after the freeze the only post-hoc freedom is the deterministic **prefix
   length N** over the C2-frozen ordered gate-B list (§12), chosen to reach `HW ≤ δ` — never a re-selection of
-  questions or a re-tuning of the judge. `evaluate.py` validates the three unlock files, records their git blob
+  questions or a re-tuning of the judge. `evaluate.py` validates the four unlock files, records their git blob
   hashes / sha256s in `metrics.json`, and **first unlocks emission of
   `metrics.json`** (the held-out *test*-set trained-head/judge metrics; closet/transfer
-  fields are added at C5 and the file is finalized at C6 — see the artifact-dataflow note) only once all three of §12's
-  unlock files (`preregistration.md` + `judge_addendum.md` + schema-valid `closet_manifest.json`, including the
+  fields are added at C5 and the file is finalized at C6 — see the artifact-dataflow note) only once all four of §12's
+  unlock files (`preregistration.md` + `preregistration.json` + `judge_addendum.md` + schema-valid `closet_manifest.json`, including the
   closet referential checks) are committed** (§1/§12).
 - **C5 — Domain gap.** `domain_probe.py` scores the closet from the **already-frozen `closet_manifest.json`** (its
   labels + mechanical negatives + label-audit froze before the C4 test-metric unlock — §12; only the

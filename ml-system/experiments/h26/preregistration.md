@@ -192,7 +192,7 @@ decision / descriptive, not CI-adjudicated ablation inferences).
   within **±1 decile** of the replaced positive partner's decile, still anchor-non-co-occurring;
   recomputes gate-A / gate-D AUC; reported as a sensitivity row only.
 - The category-pair **co-occurrence** score is a **leak detector**, not a baseline rung: it must read
-  **≈ 0.50 / 0.25** by construction (a deviation = category leakage in the negative sampler); printed
+  **≈ 0.50 (edge) / 0.25 (FITB) / 0.50 (outfit-level)** by construction (a deviation = category leakage in the negative sampler); printed
   outside the ladder, never a beatable rung.
 
 ### C.7 Seed (ratified 2026-06-29)
@@ -373,7 +373,7 @@ finalized at C6).
 `selection.schema.json`,
 `closet_manifest.schema.json`, `type_map.json`.
 `closet_manifest.json` is a **mandatory unlock file** that must freeze **before the C4 test-metric
-unlock** (§12/§14 — the load-bearing blindness invariant), enforced by `evaluate.py`'s three-file
+unlock** (§12/§14 — the load-bearing blindness invariant), enforced by `evaluate.py`'s four-file
 unlock gate **plus schema/hash validation**, not by existence alone. It freezes from
 `closet_manifest.template.json` then, **not** at this C2 commit: the closet labels do not exist at
 the C2 design-freeze (Brian is away from his wardrobe), so it does not block authoring this prereg.
