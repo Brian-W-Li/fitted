@@ -2,9 +2,10 @@
 
 `gpt_judge` defines the `ContentProvider` seam (item_id -> `ItemContent`) and the unit suite mocks it;
 this is the **live** implementation both the RUN-phase judge and the Step-2 calibration viewer share. It
-streams the raw JPEG bytes for a fixed set of `item_id`s out of the gated `mvasil/polyvore-outfits`
-parquet (the same source `embed.py` uses, decode=False so the bytes are the raw source bytes) and reads
-the item titles/attributes from the local metadata. `get()` returns base64 image bytes + the item's
+reads the raw JPEG bytes for a fixed set of `item_id`s out of the gated `mvasil/polyvore-outfits` parquet
+(fetched once via a resumable, cached download — not streamed; see `_load_bytes` — the same source
+`embed.py` uses, decode=False so the bytes are the raw source bytes) and reads the item titles/attributes
+from the local metadata. `get()` returns base64 image bytes + the item's
 `url_name` title + a small structured attribute dict, arm-gated by `gpt_judge.build_messages`.
 
 Pure vs I/O: `item_content_from` (bytes + metadata -> `ItemContent`) is pure + hermetically testable;
@@ -73,7 +74,14 @@ class ParquetContentProvider:
         for split in splits:
             from embed import HF_DATASET, HF_SPLIT_FOR, ID_COLUMNS
 
-            ds = load_dataset(HF_DATASET, "disjoint", split=HF_SPLIT_FOR[split], streaming=True)
+            # Non-streaming, deliberately. `datasets` fetches the gated parquet via a RESUMABLE
+            # hf_hub_download and caches it to disk, so a dropped connection resumes from the partial
+            # file instead of restarting the ~648 MB train parquet from zero, and a later run (the judge)
+            # reuses the on-disk parquet instead of re-downloading it. Streaming (the prior default) reads
+            # one long HTTP stream, caches nothing, and cannot resume — fatal on a flaky link (2026-07-01).
+            # decode=False keeps the raw source JPEG bytes; rows are collected by id into a dict below, so
+            # the extra disk cost buys robustness with byte-identical output and no ordering dependence.
+            ds = load_dataset(HF_DATASET, "disjoint", split=HF_SPLIT_FOR[split])
             ds = ds.cast_column("image", HFImage(decode=False))
             id_col = None
             for row in ds:
