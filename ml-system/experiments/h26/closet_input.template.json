@@ -1,0 +1,24 @@
+{
+  "_README": "Step-3 INPUT (copy to closet_input.json and fill). One entry per real worn outfit; list its garments. assemble_closet.py maps this -> the schema-valid closet_manifest.json (photo hashes, taxonomy, consent, audit) and validates it. Photos go under closet/ (gitignored). Use suggest(clothing_type, query) to find the polyvore_category_id. Set polyvore_category_id to null + add coarsening_note if no clean analog. Delete this _README + fill real data.",
+  "owner_id": "FILL: an opaque, stable id (not your name/email)",
+  "consent": {
+    "owner_id": "FILL: same opaque id",
+    "third_party_api_processing": false,
+    "providers_photos_may_reach": []
+  },
+  "label_audit": {
+    "second_pass_completed": true,
+    "items_rechecked": 0,
+    "agreement_rate": 1.0
+  },
+  "outfits": [
+    {
+      "set_id": "o01",
+      "items": [
+        {"item_id": "c001", "clothing_type": "top", "polyvore_category_id": "11", "fine_label_human": "navy oxford shirt", "photo": "c001.jpg", "coarsening_note": null},
+        {"item_id": "c014", "clothing_type": "bottom", "polyvore_category_id": "28", "fine_label_human": "grey chinos", "photo": "c014.jpg", "coarsening_note": null},
+        {"item_id": "c027", "clothing_type": "shoes", "polyvore_category_id": "49", "fine_label_human": "white sneakers", "photo": "c027.jpg", "coarsening_note": null}
+      ]
+    }
+  ]
+}

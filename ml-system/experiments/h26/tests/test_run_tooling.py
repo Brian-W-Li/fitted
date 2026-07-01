@@ -1,0 +1,234 @@
+"""Hermetic tests for the RUN-phase tooling (Steps 2-4) — no parquet, no network, no OpenAI.
+
+Covers the PURE logic: the live content assembly (bytes+metadata -> ItemContent, egress-shaped per arm),
+the calibration draw (valid/train-sourced -> disjoint from the test gate sets) + answer assembly + the
+intra-annotator restability, the closet assembler (plain labels -> a schema-valid closet_manifest.json +
+the C4 referential checks + the mandatory label-audit block), and the live-judge DRIVER's blindness-critical
+pure wiring (run_judge.pilot_summary / gate_b_summary / require_frozen_envelope). The parquet/OpenAI I/O in
+these modules is exercised only by the RUN-phase commands, never here.
+"""
+
+import base64
+import json
+import os
+import shutil
+
+import pytest
+
+import assemble_closet as ac
+import make_calibration as mc
+import run_judge as rj
+from data_loader import FitbQuestion
+from gpt_judge import QuestionSamples
+from live_content import item_content_from
+from synthetic import make_corpus
+from test_evaluate_emission import FakeGit, _addendum_md, _frozen_envelope
+
+H26 = os.path.dirname(os.path.dirname(__file__))
+
+
+# --------------------------------------------------------------------------- #
+# live_content.item_content_from (pure)
+# --------------------------------------------------------------------------- #
+def test_item_content_from_encodes_image_and_surfaces_metadata():
+    ic = item_content_from("i1", b"\xff\xd8jpegbytes", {"url_name": "navy oxford", "semantic_category": "tops"})
+    assert base64.b64decode(ic.image_b64) == b"\xff\xd8jpegbytes"
+    assert ic.title == "navy oxford"
+    assert ic.attributes["category"] == "tops" and ic.attributes["name"] == "navy oxford"
+
+
+def test_item_content_from_handles_empty_title_and_no_image():
+    ic = item_content_from("i2", None, {"url_name": "", "title": "", "semantic_category": "shoes"})
+    assert ic.image_b64 is None and ic.title is None      # empty title stays None (not "")
+    assert ic.attributes["category"] == "shoes"
+
+
+# --------------------------------------------------------------------------- #
+# make_calibration — the draw is disjoint-by-construction + answers assemble
+# --------------------------------------------------------------------------- #
+def test_calibration_questions_are_disjoint_from_the_test_set():
+    corpus = make_corpus(seed=1)
+    qs = mc.build_calibration_questions(corpus, n=10, seed=99)
+    cal_ids = {q.set_id for q in qs}
+    test_ids = {o.set_id for o in corpus.splits["test"].outfits}
+    assert len(qs) == 10
+    assert cal_ids.isdisjoint(test_ids)                   # valid/train-sourced -> never a test (gated) question
+
+
+def test_assemble_calibration_maps_letters_to_indices_and_rejects_gaps():
+    qs = [
+        FitbQuestion("s1", ("r",), ("a", "b", "c", "d"), 0, "11"),
+        FitbQuestion("s2", ("r",), ("a", "b", "c", "d"), 2, "11"),
+    ]
+    manifest = mc.assemble_calibration(qs, {"s1": "A", "s2": "C"})
+    assert manifest["question_ids"] == ["s1", "s2"]
+    assert [q["human_choice"] for q in manifest["questions"]] == [0, 2]   # A->0, C->2
+    assert manifest["single_annotator"] is True
+    with pytest.raises(ValueError, match="no human answer"):
+        mc.assemble_calibration(qs, {"s1": "A"})           # s2 unanswered -> fail loud
+    with pytest.raises(ValueError, match="not a valid candidate"):
+        mc.assemble_calibration(qs, {"s1": "Z", "s2": "C"})  # out-of-range label
+
+
+# --------------------------------------------------------------------------- #
+# assemble_closet — plain labels -> a schema-valid manifest + referential checks
+# --------------------------------------------------------------------------- #
+def _real_category(clothing_type):
+    ref = json.load(open(os.path.join(H26, "closet_category_reference.json"), encoding="utf-8"))["categories"]
+    return next(cid for cid, r in ref.items() if r["type"] == clothing_type)
+
+
+def _closet_input(tmp, cats):
+    for name in ("c001.jpg", "c014.jpg"):
+        (tmp / name).write_bytes(b"\xff\xd8fakephoto" + name.encode())
+    return {
+        "owner_id": "owner-x",
+        "consent": {"owner_id": "owner-x", "third_party_api_processing": False, "providers_photos_may_reach": []},
+        "label_audit": {"second_pass_completed": True, "items_rechecked": 2, "agreement_rate": 1.0},
+        "outfits": [{"set_id": "o01", "items": [
+            {"item_id": "c001", "clothing_type": "top", "polyvore_category_id": cats[0],
+             "fine_label_human": "navy oxford", "photo": "c001.jpg", "coarsening_note": None},
+            {"item_id": "c014", "clothing_type": "bottom", "polyvore_category_id": cats[1],
+             "fine_label_human": "grey chinos", "photo": "c014.jpg", "coarsening_note": None},
+        ]}],
+    }
+
+
+def test_assemble_closet_builds_a_valid_manifest(tmp_path):
+    cats = [_real_category("top"), _real_category("bottom")]
+    manifest = ac.assemble_closet(_closet_input(tmp_path, cats), closet_dir=str(tmp_path))
+    assert len(manifest["items"]) == 2 and manifest["outfits"][0]["item_ids"] == ["c001", "c014"]
+    assert all(len(it["photo_sha256"]) == 64 for it in manifest["items"])
+    assert manifest["items"][0]["photo_path"] == "closet/c001.jpg"
+    ac.validate(manifest, root_dir=H26)                   # schema + C4 referential checks pass
+
+
+def test_assemble_closet_rejects_bad_type_and_category(tmp_path):
+    cats = [_real_category("top"), _real_category("bottom")]
+    bad_type = _closet_input(tmp_path, cats)
+    bad_type["outfits"][0]["items"][0]["clothing_type"] = "hat"
+    with pytest.raises(ValueError, match="invalid clothing_type"):
+        ac.assemble_closet(bad_type, closet_dir=str(tmp_path))
+    bad_cat = _closet_input(tmp_path, ["9999", cats[1]])
+    with pytest.raises(ValueError, match="absent from the reference"):
+        ac.assemble_closet(bad_cat, closet_dir=str(tmp_path))
+
+
+def test_assemble_closet_requires_coarsening_note_for_null_category(tmp_path):
+    cats = [_real_category("top"), _real_category("bottom")]
+    ci = _closet_input(tmp_path, cats)
+    ci["outfits"][0]["items"][0]["polyvore_category_id"] = None   # no analog, but no note -> fail loud
+    with pytest.raises(ValueError, match="coarsening_note"):
+        ac.assemble_closet(ci, closet_dir=str(tmp_path))
+
+
+def test_assemble_closet_requires_explicit_label_audit(tmp_path):
+    # §10 integrity: omitting label_audit must FAIL LOUD, never silently default to a passing audit
+    # (second_pass_completed=True / agreement_rate=1.0) — that would let the committed manifest assert an
+    # audit that never happened.
+    cats = [_real_category("top"), _real_category("bottom")]
+    ci = _closet_input(tmp_path, cats)
+    del ci["label_audit"]
+    with pytest.raises(ValueError, match="explicit label_audit"):
+        ac.assemble_closet(ci, closet_dir=str(tmp_path))
+    ci2 = _closet_input(tmp_path, cats)
+    ci2["label_audit"] = {"second_pass_completed": True}          # partial block -> still fail loud
+    with pytest.raises(ValueError, match="explicit label_audit"):
+        ac.assemble_closet(ci2, closet_dir=str(tmp_path))
+
+
+# --------------------------------------------------------------------------- #
+# make_calibration.restability — intra-annotator stability (§8/§F)
+# --------------------------------------------------------------------------- #
+def test_restability_computes_agreement_over_shared_questions(tmp_path):
+    first = tmp_path / "a1.json"
+    recheck = tmp_path / "a2.json"
+    first.write_text(json.dumps({"s1": "A", "s2": "B", "s3": "C", "s4": "D"}))
+    recheck.write_text(json.dumps({"s1": "A", "s2": "b", "s3": "D"}))   # s1,s2 agree (case-insensitive), s3 differs
+    rate = mc.restability(str(first), str(recheck))
+    assert rate == pytest.approx(2 / 3)                                 # over the 3 shared, 2 agree
+    with pytest.raises(ValueError, match="no shared"):
+        (tmp_path / "a3.json").write_text(json.dumps({"z9": "A"}))
+        mc.restability(str(first), str(tmp_path / "a3.json"))
+
+
+# --------------------------------------------------------------------------- #
+# run_judge pure wiring — the blindness-critical pilot/gate-b summaries + the freeze gate
+# --------------------------------------------------------------------------- #
+def _consistent_samples(qid, pick, correct):
+    # both orders agree on canonical `pick` (forward=pick, reverse=n-1-pick) -> a consistent verdict.
+    n = 4
+    return QuestionSamples(qid, (pick, pick, pick), (n - 1 - pick, n - 1 - pick, n - 1 - pick), correct, n)
+
+
+def test_pilot_summary_scores_human_not_polyvore():
+    # THE blindness-critical split (§F): human-agreement counts judge-vs-YOUR-label, above-chance counts
+    # judge-vs-Polyvore-answer — a mutation swapping them must change the counts. q1: judge picks 0, human
+    # 0 (agree), correct 0 (also poly-correct). q2: judge picks 0, human 0 (agree), correct 1 (poly-wrong).
+    per_q = [_consistent_samples("q1", 0, 0), _consistent_samples("q2", 0, 1)]
+    human = {"q1": 0, "q2": 0}
+    r = rj.pilot_summary(per_q, human)
+    assert r["consistent"] == 2
+    assert r["agree"] == 2               # both match the human label
+    assert r["correct_vs_polyvore"] == 1  # only q1 matches the Polyvore answer -> the swap-mutation flips this
+
+
+def test_pilot_summary_counts_dropped_and_inconsistent():
+    per_q = [
+        _consistent_samples("q1", 0, 0),
+        QuestionSamples("q2", (None,), (3,), 0, 4),        # forward all-None -> dropped
+        QuestionSamples("q3", (0, 0, 0), (0, 0, 0), 0, 4),  # reverse canonical 3 != 0 -> inconsistent
+    ]
+    r = rj.pilot_summary(per_q, {"q1": 0})                 # human only needs the consistent question
+    assert r["dropped"] == 1 and r["inconsistent"] == 1 and r["consistent"] == 1 and r["n"] == 3
+
+
+def test_gate_b_summary_counts_above_chance_hits():
+    per_q = [_consistent_samples("q1", 0, 0), _consistent_samples("q2", 0, 1),
+             QuestionSamples("q3", (None,), (3,), 0, 4)]
+    r = rj.gate_b_summary(per_q)
+    assert r["correct"] == 1 and r["consistent"] == 2 and r["dropped"] == 1 and r["n"] == 3
+
+
+def _frozen_addendum_dir(tmp_path, *, frozen=True):
+    root = tmp_path / "h26"
+    root.mkdir()
+    shutil.copy(os.path.join(H26, "judge_addendum.schema.json"), root / "judge_addendum.schema.json")
+    env = _frozen_envelope()
+    if not frozen:
+        env["frozen"] = False
+    (root / "judge_addendum.md").write_text(_addendum_md(env), encoding="utf-8")
+    return str(root)
+
+
+def test_require_frozen_envelope_accepts_committed_frozen(tmp_path):
+    root = _frozen_addendum_dir(tmp_path)
+    env = rj.require_frozen_envelope(root_dir=root, git=FakeGit())
+    assert env["k_samples"] == 3 and env["model_snapshot"] == "gpt-5.4-mini-2026-03-17"
+
+
+def test_require_frozen_envelope_refuses_scaffold(tmp_path):
+    # the committed SCAFFOLD (frozen:false) must be refused BEFORE any gate-B spend (§1 build-order teeth)
+    root = _frozen_addendum_dir(tmp_path, frozen=False)
+    with pytest.raises(SystemExit, match="FROZEN"):
+        rj.require_frozen_envelope(root_dir=root, git=FakeGit())
+
+
+def test_require_frozen_envelope_refuses_uncommitted(tmp_path):
+    # frozen-in-working-tree but NOT committed -> refuse (the judge freeze must provably precede gate-b)
+    root = _frozen_addendum_dir(tmp_path)
+    with pytest.raises(SystemExit, match="committed-clean"):
+        rj.require_frozen_envelope(root_dir=root, git=FakeGit(committed=False))
+
+
+def test_cmd_gate_b_refuses_scaffold_before_any_spend():
+    # The gate-b HANDLER's first act must be the freeze gate (require_frozen_envelope), BEFORE it builds a
+    # provider/client or loads the dataset — else a held-out-test judge number could be produced off an
+    # unfrozen addendum. Driving the REAL cmd_gate_b against the committed SCAFFOLD (guaranteed frozen:false
+    # by test_committed_judge_addendum_is_still_a_scaffold) pins that ordering: it must raise the freeze
+    # refusal, not fail later on a provider/dataset access. A regression moving run_arm before the guard
+    # would raise a different error here (mutation guard for the gate-b build-order teeth).
+    from types import SimpleNamespace
+
+    with pytest.raises(SystemExit, match="FROZEN"):
+        rj.cmd_gate_b(SimpleNamespace(n=100))
