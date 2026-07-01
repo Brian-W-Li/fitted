@@ -1,8 +1,8 @@
 """Hermetic tests for the RUN-phase tooling (Steps 2-4) — no parquet, no network, no OpenAI.
 
 Covers the PURE logic: the live content assembly (bytes+metadata -> ItemContent, egress-shaped per arm),
-the calibration draw (valid/train-sourced -> disjoint from the test gate sets) + answer assembly + the
-intra-annotator restability, the closet assembler (plain labels -> a schema-valid closet_manifest.json +
+the calibration draw (valid/train-sourced -> disjoint from the test gate sets) + panel answer aggregation
+(plurality/skip/drop + inter-annotator agreement), the closet assembler (plain labels -> a schema-valid closet_manifest.json +
 the C4 referential checks + the mandatory label-audit block), and the live-judge DRIVER's blindness-critical
 pure wiring (run_judge.pilot_summary / gate_b_summary / require_frozen_envelope). The parquet/OpenAI I/O in
 these modules is exercised only by the RUN-phase commands, never here.
@@ -55,19 +55,48 @@ def test_calibration_questions_are_disjoint_from_the_test_set():
     assert cal_ids.isdisjoint(test_ids)                   # valid/train-sourced -> never a test (gated) question
 
 
-def test_assemble_calibration_maps_letters_to_indices_and_rejects_gaps():
+def _pad_questions(n):
+    return [FitbQuestion(f"p{i}", ("r",), ("a", "b", "c", "d"), 0, "11") for i in range(n)]
+
+
+def test_assemble_panel_plurality_skips_and_drops():
     qs = [
-        FitbQuestion("s1", ("r",), ("a", "b", "c", "d"), 0, "11"),
-        FitbQuestion("s2", ("r",), ("a", "b", "c", "d"), 2, "11"),
-    ]
-    manifest = mc.assemble_calibration(qs, {"s1": "A", "s2": "C"})
-    assert manifest["question_ids"] == ["s1", "s2"]
-    assert [q["human_choice"] for q in manifest["questions"]] == [0, 2]   # A->0, C->2
-    assert manifest["single_annotator"] is True
-    with pytest.raises(ValueError, match="no human answer"):
-        mc.assemble_calibration(qs, {"s1": "A"})           # s2 unanswered -> fail loud
-    with pytest.raises(ValueError, match="not a valid candidate"):
-        mc.assemble_calibration(qs, {"s1": "Z", "s2": "C"})  # out-of-range label
+        FitbQuestion("s1", ("r",), ("a", "b", "c", "d"), 0, "11"),   # A,A,B -> plurality A
+        FitbQuestion("s2", ("r",), ("a", "b", "c", "d"), 2, "11"),   # A,B over 2 confident -> tie -> dropped
+        FitbQuestion("s3", ("r",), ("a", "b", "c", "d"), 1, "11"),   # 1 confident -> dropped
+    ] + _pad_questions(60)                                            # pad past the >=50 survivor floor
+    padded = {f"p{i}": "A" for i in range(60)}
+    a = {**padded, "s1": "A", "s2": "A", "s3": "A"}
+    b = {**padded, "s1": "A", "s2": "B", "s3": "SKIP"}
+    c = {**padded, "s1": "B", "s2": "SKIP", "s3": "SKIP"}
+    manifest = mc.assemble_panel(qs, {"alice": a, "bob": b, "cara": c})
+    assert manifest["single_annotator"] is False and manifest["n_annotators"] == 3
+    kept = {q["set_id"]: q["human_choice"] for q in manifest["questions"]}
+    assert kept["s1"] == 0                                            # plurality A,A,B -> A(0)
+    assert "s2" not in kept and "s3" not in kept                      # tie + too-few-confident both dropped
+    assert manifest["dropped_detail"] == {"too_few_confident": 1, "tie": 1}
+    assert manifest["question_ids"] == list(kept)                     # ids track the surviving questions
+    assert manifest["per_labeler_skip_rate"]["cara"] > 0             # abstentions are reported, not penalized
+
+
+def test_assemble_panel_requires_three_labelers_and_the_survivor_floor():
+    qs = _pad_questions(60)
+    votes = {q.set_id: "A" for q in qs}
+    with pytest.raises(ValueError, match="needs >= 3 labelers"):
+        mc.assemble_panel(qs, {"alice": votes, "bob": votes})        # 2 labelers -> fail loud
+    allskip = {q.set_id: "SKIP" for q in qs}                          # 3 labelers but all abstain -> 0 survivors
+    with pytest.raises(ValueError, match="reached panel consensus"):
+        mc.assemble_panel(qs, {"a": allskip, "b": allskip, "c": allskip})
+
+
+def test_inter_annotator_agreement_is_pairwise_over_co_confident():
+    qs = [FitbQuestion("s1", ("r",), ("a", "b", "c", "d"), 0, "11"),
+          FitbQuestion("s2", ("r",), ("a", "b", "c", "d"), 0, "11")]
+    a = {"s1": "A", "s2": "A"}
+    b = {"s1": "A", "s2": "B"}
+    c = {"s1": "B", "s2": "SKIP"}    # c abstains on s2 -> that pair is excluded, not counted as a miss
+    # s1 pairs: (a,b)match,(a,c)no,(b,c)no = 1/3 ; s2 pairs (c skipped): (a,b)no = 0/1 ; total 1 of 4
+    assert mc.inter_annotator_agreement({"a": a, "b": b, "c": c}, qs) == pytest.approx(1 / 4)
 
 
 # --------------------------------------------------------------------------- #
@@ -137,19 +166,8 @@ def test_assemble_closet_requires_explicit_label_audit(tmp_path):
         ac.assemble_closet(ci2, closet_dir=str(tmp_path))
 
 
-# --------------------------------------------------------------------------- #
-# make_calibration.restability — intra-annotator stability (§8/§F)
-# --------------------------------------------------------------------------- #
-def test_restability_computes_agreement_over_shared_questions(tmp_path):
-    first = tmp_path / "a1.json"
-    recheck = tmp_path / "a2.json"
-    first.write_text(json.dumps({"s1": "A", "s2": "B", "s3": "C", "s4": "D"}))
-    recheck.write_text(json.dumps({"s1": "A", "s2": "b", "s3": "D"}))   # s1,s2 agree (case-insensitive), s3 differs
-    rate = mc.restability(str(first), str(recheck))
-    assert rate == pytest.approx(2 / 3)                                 # over the 3 shared, 2 agree
-    with pytest.raises(ValueError, match="no shared"):
-        (tmp_path / "a3.json").write_text(json.dumps({"z9": "A"}))
-        mc.restability(str(first), str(tmp_path / "a3.json"))
+# make_calibration.restability was removed with the single-annotator path; the panel's human-agreement
+# ceiling is inter_annotator_agreement (tested above), not a self-relabel check.
 
 
 # --------------------------------------------------------------------------- #

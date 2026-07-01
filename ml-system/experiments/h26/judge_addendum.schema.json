@@ -75,7 +75,8 @@
         "source",
         "label_kind",
         "single_annotator",
-        "intra_annotator_agreement",
+        "n_annotators",
+        "inter_annotator_agreement",
         "disjoint_from",
         "judge_only_use"
       ],
@@ -90,8 +91,9 @@
         "size": {"type": "integer", "minimum": 50},
         "source": {"$ref": "#/$defs/nonPlaceholderString"},
         "label_kind": {"const": "actual_human_forced_choice"},
-        "single_annotator": {"const": true},
-        "intra_annotator_agreement": {"type": "number", "minimum": 0, "maximum": 1},
+        "single_annotator": {"const": false},
+        "n_annotators": {"type": "integer", "minimum": 3},
+        "inter_annotator_agreement": {"type": "number", "minimum": 0, "maximum": 1},
         "disjoint_from": {
           "type": "array",
           "items": {"enum": ["gate_B_set", "gate_D_full_fitb"]},

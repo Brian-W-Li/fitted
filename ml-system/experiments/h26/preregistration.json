@@ -178,11 +178,18 @@
     "not": "polyvore_cooccurrence_ground_truth",
     "disjoint_from": ["gate_B_set", "gate_D_full_fitb"],
     "size_floor": 50,
-    "single_annotator": true,
-    "intra_annotator_stability_check": true,
+    "single_annotator": false,
+    "panel_min_annotators": 3,
+    "diverse_panel": true,
+    "abstention_allowed": true,
+    "consensus_rule": "unique_plurality_over_confident_votes",
+    "min_confident_votes": 2,
+    "dropped_no_consensus_reported": true,
+    "inter_annotator_agreement_reported": true,
     "only_use": "select_judge_envelope_never_scores_trained_head",
     "source_constraint": "gate D consumes every eligible test outfit, so a Polyvore-sourced calibration set must draw from valid/train outfits (or test outfits used by no gate-D question); the closet is the other admissible source; exact source + size pinned at C4",
-    "manifest_and_hash_freeze_at": "C4_judge_addendum"
+    "manifest_and_hash_freeze_at": "C4_judge_addendum",
+    "amendment_2026_07_01": "Was single-annotator (owner's taste) + intra-annotator stability check; amended PRE-PILOT (before any judge or test number exists -- blind, no p-hacking) to a diverse >=3-person PANEL with per-question abstention ('not sure', never guess) and unique-plurality consensus over confident votes, reporting inter-annotator agreement as the human ceiling. Rationale: a single non-expert labeler makes the judge-selection target noisy, and the corpus is women's-fashion-heavy while some labelers can only judge a subset; abstention + a diverse panel route each question to competent judges. Shifts the claim from 'tracks the owner's taste' to 'tracks human consensus (measured ceiling).'"
   },
 
   "stl_ctl": {

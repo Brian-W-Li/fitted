@@ -531,7 +531,7 @@ this task.)*
 **The human-agreement calibration set (defined here — the judge-selection target).** The judge prompt / K /
 determinism envelope are tuned **solely** against this set (§1/§15-C4), so it must be pinned, not hand-waved.
 Firm invariant (the manifest + hash freeze in `judge_addendum.md` at C4): a **small held-out set of pairwise/FITB
-compatibility questions carrying an *actual human* compatibility label** — Brian's own forced-choice
+compatibility questions carrying an *actual human* compatibility label** — a **diverse human panel's** forced-choice
 compatibility judgments on a sample — **disjoint from the gate-B 500 *and* the gate-D full FITB set** (so judge
 tuning never touches a gated question), sized to a pre-set floor (pin at C4; e.g. ≥ ~50 questions). "Human-
 agreement" means a human label **on purpose**: it is **not** Polyvore co-occurrence ground-truth (using
@@ -539,10 +539,16 @@ co-occurrence would re-import the memorization confound into the very calibratio
 **only** use is selecting the judge envelope to best match the human labels; it never scores the trained head.
 *(Source corpus — Polyvore image-only items vs closet items — and the exact size are pinned at C4 with the
 addendum; the human-label, disjoint-from-gated, and judge-only-use invariants are firm now and freeze in the C2
-calibration-set spec, §15.)* **Single-annotator caveat (name the confound, per the spec's standard):** the labels
-are one owner's compatibility taste, so `results.md` frames the calibration as "matched to a single owner's
-judgments," **not** inter-annotator "human agreement"; add a cheap intra-annotator stability check (re-label a
-subset, report agreement) so a noisy/inconsistent labeler is caught before it tunes the judge.
+calibration-set spec, §15.)* **Diverse-panel labeling (amended 2026-07-01, pre-pilot — see preregistration.md §F
++ preregistration.json `calibration_set.amendment_2026_07_01`):** a diverse **≥3-person panel** each labels the
+SAME questions and may **abstain** ("not sure" — never guess) on questions outside their competence; the consensus
+label is the **unique plurality over confident votes** (kept only with ≥2 confident votes + no tie, else
+dropped-and-counted). `results.md` reports **inter-annotator agreement** (average pairwise, abstention-robust —
+Fleiss' κ is ill-defined under per-question skips) as the human-agreement ceiling, plus per-labeler skip rate +
+the realized garment mix. This **replaced** the original single-annotator spec (one owner's taste + an
+intra-annotator stability check) to de-noise the judge-selection target on a women's-fashion-heavy corpus where a
+lone non-expert labeler can't competently judge much of it; the claim becomes "tracks human consensus (measured
+ceiling)," not one owner's taste.
 
 **Judge-above-chance check (the ~100-Q pilot is the precondition; it gates the scale-up).** "FITB parity vs the
 judge" (gate B) is only *informative* if the judge is meaningfully **above chance** at image-based pairwise

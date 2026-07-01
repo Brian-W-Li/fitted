@@ -210,7 +210,9 @@ def test_judge_addendum_schema_is_the_c4_freeze_pin():
     assert "image_only" in props["arms"]["contains"]["const"]
     cal = props["calibration_set"]["properties"]
     assert cal["label_kind"]["const"] == "actual_human_forced_choice"
-    assert cal["single_annotator"]["const"] is True
+    assert cal["single_annotator"]["const"] is False          # amended 2026-07-01: a diverse PANEL, not one owner
+    assert cal["n_annotators"]["minimum"] == 3
+    assert "inter_annotator_agreement" in cal                 # the panel's human-agreement ceiling (§F)
     assert cal["size"]["minimum"] == 50
     assert set(cal["disjoint_from"]["items"]["enum"]) == {"gate_B_set", "gate_D_full_fitb"}
     assert "frozen" in s["required"] and "prompt_sha256" in s["required"] and "calibration_set" in s["required"]
@@ -237,7 +239,7 @@ def test_committed_judge_addendum_is_still_a_scaffold():
 def test_scaffold_freezes_to_a_schema_valid_envelope():
     # The scaffold must be freezable by filling ONLY the per-run fields the RUN recipe lists — that yields
     # a schema-valid frozen envelope. This pins scaffold<->schema<->recipe consistency: if a FIXED field
-    # (drop_policy/payload_logging_policy/calibration_set.{source,size}) is left as a FILL placeholder, or
+    # (drop_policy/payload_logging_policy/calibration_set.source) is left as a FILL placeholder, or
     # the recipe's fill-list drifts, freezing per the recipe would silently fail gate-b's schema gate.
     # (A real regression this guards — the recipe once told the operator to "leave the *_policy" fields
     # while they were still FILL placeholders that the schema rejects.)
@@ -254,7 +256,9 @@ def test_scaffold_freezes_to_a_schema_valid_envelope():
     env["k_samples"], env["max_tokens"], env["retry_budget"] = 3, 16, 2
     env["prompt_sha256"] = "a" * 64
     env["calibration_set"]["manifest_sha256"] = "b" * 64
-    env["calibration_set"]["intra_annotator_agreement"] = 0.9
+    env["calibration_set"]["size"] = 60                        # per-run: the surviving consensus count
+    env["calibration_set"]["n_annotators"] = 3                 # per-run: the panel size (>=3)
+    env["calibration_set"]["inter_annotator_agreement"] = 0.9
     env["above_chance_pilot"] = {"image_only_fitb_point": 0.55, "image_only_fitb_ci_low": 0.31, "above_chance": True}
     env["commit_hash"] = "c" * 40
     leftover = ["/".join(map(str, e.absolute_path)) for e in validator.iter_errors(env)]

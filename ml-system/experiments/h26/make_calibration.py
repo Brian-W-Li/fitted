@@ -1,18 +1,20 @@
 """Step-2 tooling: build the human-agreement calibration set (§8 / §F / build-doc calibration spec).
 
-The judge envelope (prompt / K / determinism) is tuned to best match Brian's *own* forced-choice
-compatibility judgments on a held-out set — a **human label on purpose**, disjoint from every gated
-question. This module: (1) draws ~N FITB questions from the **valid + train** splits (so they are
-automatically disjoint from the test-only gate-B/gate-D sets — the §F blindness guarantee), (2) exports
-a **self-contained HTML viewer** (garment photos + A–D radios + a "download my answers" button — the
-image-only modality that matches the headline judge), and (3) assembles the downloaded answers into the
-committed `calibration_set.json` (the `evaluate.py` unlock binds it by sha and asserts its `question_ids`
-touch no gated question).
+The judge envelope (prompt / K / determinism) is tuned to best match a **diverse human panel's**
+forced-choice compatibility judgments on a held-out set — a **human label on purpose**, disjoint from
+every gated question. This module: (1) draws N FITB questions from the **valid + train** splits,
+**stratified by garment category** (automatically disjoint from the test-only gate-B/gate-D sets — the §F
+blindness guarantee — and covering types evenly), (2) exports a **self-contained HTML viewer** (garment
+photos + A–D radios + a "Not sure" abstain option + a "download my answers" button — the image-only
+modality that matches the headline judge), and (3) aggregates every panelist's downloaded answers by
+unique-plurality consensus over confident (non-skip) votes into the committed `calibration_set.json` (the
+`evaluate.py` unlock binds it by sha and asserts its `question_ids` touch no gated question).
 
 Workflow (after the Step-1 cache/training run frees the parquet):
-    .venv/bin/python make_calibration.py            # writes calibration_viewer.html
-    # open calibration_viewer.html, pick A/B/C/D for each, click "Download my answers"
-    .venv/bin/python -c "import make_calibration as m; m.finalize('calibration_answers.json')"
+    .venv/bin/python make_calibration.py            # writes calibration_viewer.html — send to every panelist
+    # each panelist: open it, pick A/B/C/D (or "Not sure" — never guess), click "Download my answers";
+    # collect the downloads renamed per person (alice.json / bob.json / me.json), then:
+    .venv/bin/python -c "import make_calibration as m; m.finalize_panel(['alice.json','bob.json','me.json'])"
 
 Reference: docs/plans/h26-compatibility-spike-v2.md §8 / preregistration.md §F.
 """
@@ -22,13 +24,17 @@ from __future__ import annotations
 import html
 import json
 import os
+from collections import Counter
 
 from data_loader import Corpus, FitbQuestion, build_fitb, load_headline_corpus
 from gpt_judge import CHOICE_LABELS
 
 ROOT_DIR = os.path.dirname(__file__)
 CALIB_SEED = 424242          # distinct from the headline seed 20260629 (a separate draw)
-CALIB_SIZE = 60              # >= the §F floor of ~50
+CALIB_SIZE = 100             # RAW draw; skips + no-consensus drops leave the SURVIVING set (floored >=50, §F)
+MIN_CONFIDENT_VOTES = 2      # a kept question needs >= this many confident (non-skip) votes AND a unique plurality
+SKIP = "SKIP"                # viewer value for "not sure / outside my competence" — abstain, NEVER guess (§F panel)
+SURVIVOR_FLOOR = 50          # §F: the post-drop consensus set must still clear the size floor
 VIEWER = os.path.join(ROOT_DIR, "calibration_viewer.html")
 QUESTIONS_CACHE = os.path.join(ROOT_DIR, "calibration_questions.json")  # the drawn questions (regenerable)
 
@@ -38,17 +44,36 @@ def build_calibration_questions(
 ) -> list[FitbQuestion]:
     """Draw `n` FITB questions from valid + train (NEVER test — the gate-B/gate-D sets are test-only, so
     valid/train questions are disjoint by construction, §F). Deterministic from `seed`; one question per
-    distinct outfit. `build_fitb` already shuffles within a split; we concatenate valid-then-train and
-    take the first `n` so the set is stable."""
-    questions: list[FitbQuestion] = []
+    distinct outfit. **Stratified by `answer_category`** (round-robin across the category of the item being
+    completed) so the set covers garment types evenly instead of following the raw draw's skew — the judge
+    envelope is then selected against a representative slice, not a lopsided one (§F 'cover more ground').
+    `build_fitb` shuffles within a split; we pool valid-then-train, bucket by category preserving that
+    shuffled order, then round-robin one-per-category until `n` are taken."""
+    pool: list[FitbQuestion] = []
     for split in ("valid", "train"):
         qs, _ = build_fitb(corpus.splits[split], corpus.item_index, seed)
-        questions.extend(qs)
-        if len(questions) >= n:
+        pool.extend(qs)
+    buckets: dict[str, list[FitbQuestion]] = {}
+    for q in pool:                                  # keeps build_fitb's shuffled order within each bucket
+        buckets.setdefault(q.answer_category, []).append(q)
+    ordered_cats = sorted(buckets)                  # deterministic category order (stable across runs)
+    cursor = {c: 0 for c in ordered_cats}
+    picked: list[FitbQuestion] = []
+    while len(picked) < n:
+        made_progress = False
+        for c in ordered_cats:                      # one question per category per round -> balanced coverage
+            if cursor[c] < len(buckets[c]):
+                picked.append(buckets[c][cursor[c]])
+                cursor[c] += 1
+                made_progress = True
+                if len(picked) >= n:
+                    break
+        if not made_progress:                       # pool exhausted before n
             break
-    if len(questions) < n:
-        raise ValueError(f"only {len(questions)} calibration questions available, need {n}")
-    return questions[:n]
+    if len(picked) < n:
+        raise ValueError(f"only {len(picked)} calibration questions available across "
+                         f"{len(ordered_cats)} categories, need {n}")
+    return picked[:n]
 
 
 def _question_record(q: FitbQuestion) -> dict:
@@ -78,6 +103,10 @@ def export_viewer(questions: list[FitbQuestion], provider, *, out_path: str = VI
                 f'<label class="cand"><input type="radio" name="{html.escape(q.set_id)}" value="{label}">'
                 f'<span class="lab">{label}</span><img src="{provider.data_uri(c)}" class="thumb"></label>'
             )
+        cand_rows.append(                             # abstain, never guess (§F panel — women's-outfit competence gap)
+            f'<label class="cand skip"><input type="radio" name="{html.escape(q.set_id)}" value="{SKIP}">'
+            f'<span class="lab">Not&nbsp;sure</span></label>'
+        )
         cards.append(
             f'<div class="q"><div class="qn">Q{i} / {len(questions)}</div>'
             f'<div class="partial"><b>Partial outfit:</b>{retained_imgs}</div>'
@@ -90,85 +119,149 @@ def export_viewer(questions: list[FitbQuestion], provider, *, out_path: str = VI
     return out_path
 
 
-def assemble_calibration(questions: list[FitbQuestion], answers: dict[str, str]) -> dict:
-    """Turn `{set_id: 'A'..}` picks into the `calibration_set.json` dict: `question_ids` (the unlock's
-    disjointness input) + the full `questions` with the owner's `human_choice` (0-based index). Every
-    question must be answered with a valid in-range label. Raises on a missing/invalid answer so a
-    half-finished pass can't silently produce a short calibration set."""
-    label_index = {lab: i for i, lab in enumerate(CHOICE_LABELS)}
-    out_questions = []
+def _confident_index(label: str | None, n_candidates: int) -> int | None:
+    """Map one labeler's raw pick to a 0-based candidate index, or None for an ABSTENTION (SKIP / absent /
+    blank / out-of-range / unparseable). A confident vote must be a valid in-range A–D label — a skip is
+    never a guess, so it simply drops out of the tally (§F panel)."""
+    if label is None:
+        return None
+    s = str(label).strip().upper()
+    if s in ("", SKIP):
+        return None
+    idx = {lab: i for i, lab in enumerate(CHOICE_LABELS)}.get(s)
+    if idx is None or idx >= n_candidates:
+        return None
+    return idx
+
+
+def _plurality(indices: list[int]) -> int | None:
+    """The unique most-voted index, or None on a tie for the top (no clear human consensus -> dropped)."""
+    if not indices:
+        return None
+    ranked = Counter(indices).most_common()
+    if len(ranked) >= 2 and ranked[0][1] == ranked[1][1]:
+        return None
+    return ranked[0][0]
+
+
+def _skip_rate(answers: dict[str, str], questions: list[FitbQuestion]) -> float:
+    """Fraction of questions this labeler abstained on (SKIP/absent) — reported, never penalized (§F)."""
+    if not questions:
+        return 0.0
+    skipped = sum(1 for q in questions if _confident_index(answers.get(q.set_id), len(q.candidates)) is None)
+    return round(skipped / len(questions), 3)
+
+
+def inter_annotator_agreement(per_labeler: dict[str, dict[str, str]], questions: list[FitbQuestion]) -> float:
+    """The human ceiling (§F): average PAIRWISE agreement — over every (labeler_i, labeler_j, question)
+    where BOTH cast a confident (non-skip) vote, the fraction whose picks match. Abstention-robust, unlike
+    Fleiss' kappa (which assumes a fixed rater count per item — broken by per-question skips). Chance is
+    25% for a 4-way FITB. The judge can't be expected to track humans better than humans track each other,
+    so this bounds what a 'good' judge-agreement number even means."""
+    labeler_ids = sorted(per_labeler)
+    matches = pairs = 0
     for q in questions:
-        pick = answers.get(q.set_id)
-        if pick is None:
-            raise ValueError(f"no human answer for calibration question {q.set_id!r}")
-        idx = label_index.get(str(pick).strip().upper())
-        if idx is None or idx >= len(q.candidates):
-            raise ValueError(f"answer {pick!r} for {q.set_id!r} is not a valid candidate label")
+        confident = [
+            idx for lid in labeler_ids
+            if (idx := _confident_index(per_labeler[lid].get(q.set_id), len(q.candidates))) is not None
+        ]
+        for a in range(len(confident)):
+            for b in range(a + 1, len(confident)):
+                pairs += 1
+                if confident[a] == confident[b]:
+                    matches += 1
+    return matches / pairs if pairs else 0.0
+
+
+def assemble_panel(questions: list[FitbQuestion], per_labeler: dict[str, dict[str, str]]) -> dict:
+    """Aggregate N labelers' picks into the panel `calibration_set.json` (§F panel). Per question: gather
+    the CONFIDENT (non-skip) votes; keep it iff >= MIN_CONFIDENT_VOTES confident votes AND a unique
+    plurality winner — that winner is the consensus `human_choice`. Questions failing either test are
+    DROPPED and COUNTED (the disclosed human-disagreement signal). The surviving `question_ids` +
+    `human_choice` are the exact contract the single-annotator set exposed, so the pilot + the evaluate.py
+    unlock are unchanged; only the provenance (panel size, agreement, drops, skip rates) is new."""
+    labeler_ids = sorted(per_labeler)
+    if len(labeler_ids) < 3:
+        raise ValueError(f"panel needs >= 3 labelers (§F), got {len(labeler_ids)}: {labeler_ids}")
+    survivors: list[dict] = []
+    dropped_few = dropped_tie = 0
+    for q in questions:
+        votes = [
+            idx for lid in labeler_ids
+            if (idx := _confident_index(per_labeler[lid].get(q.set_id), len(q.candidates))) is not None
+        ]
+        if len(votes) < MIN_CONFIDENT_VOTES:
+            dropped_few += 1
+            continue
+        winner = _plurality(votes)
+        if winner is None:
+            dropped_tie += 1
+            continue
         rec = _question_record(q)
-        rec["human_choice"] = idx
-        out_questions.append(rec)
+        rec["human_choice"] = winner            # 0-based consensus index — the judge-selection target
+        rec["n_confident"] = len(votes)
+        survivors.append(rec)
+    if len(survivors) < SURVIVOR_FLOOR:
+        raise ValueError(
+            f"only {len(survivors)} questions reached panel consensus (need >= {SURVIVOR_FLOOR}, the §F "
+            f"floor); recruit more/broader labelers or draw more questions (dropped: {dropped_few} with "
+            f"<{MIN_CONFIDENT_VOTES} confident votes, {dropped_tie} tied)"
+        )
     return {
         "_README": (
-            "Human-agreement calibration set (§F): actual-human single-annotator forced-choice picks on "
-            "valid/train Polyvore FITB questions, image-only. question_ids feed the evaluate.py unlock "
-            "disjointness check; human_choice (0-based candidate index) is the judge-selection target. "
-            "NOT Polyvore co-occurrence ground truth. Judge-envelope selection only; never scores the head."
+            "Human-agreement calibration set (§F): a diverse PANEL's forced-choice picks on valid/train "
+            "Polyvore FITB questions, image-only, aggregated by unique-plurality consensus over confident "
+            "(non-skip) votes. question_ids feed the evaluate.py unlock disjointness check; human_choice "
+            "(0-based consensus index) is the judge-selection target. NOT Polyvore co-occurrence ground "
+            "truth. Judge-envelope selection only; never scores the trained head."
         ),
         "spike": "h26",
         "seed": CALIB_SEED,
-        "source": "polyvore_valid_train_image_only",
-        "single_annotator": True,
-        "question_ids": [q.set_id for q in questions],
-        "questions": out_questions,
+        "source": "polyvore_valid_train_image_only_panel",
+        "single_annotator": False,
+        "n_annotators": len(labeler_ids),
+        "consensus_rule": f"unique_plurality_over_confident_votes_min{MIN_CONFIDENT_VOTES}",
+        "min_confident_votes": MIN_CONFIDENT_VOTES,
+        "inter_annotator_agreement": inter_annotator_agreement(per_labeler, questions),
+        "dropped_no_consensus": dropped_few + dropped_tie,
+        "dropped_detail": {"too_few_confident": dropped_few, "tie": dropped_tie},
+        "per_labeler_skip_rate": {lid: _skip_rate(per_labeler[lid], questions) for lid in labeler_ids},
+        "question_ids": [r["set_id"] for r in survivors],
+        "questions": survivors,
     }
 
 
-def finalize(answers_path: str, *, root_dir: str = ROOT_DIR) -> str:
-    """Read the downloaded answers + the cached questions, write `calibration_set.json`. Run after the
-    viewer is filled in."""
+def finalize_panel(answer_paths: list[str], *, root_dir: str = ROOT_DIR) -> str:
+    """Aggregate the panel's downloaded answer files into `calibration_set.json`. Each path is one
+    labeler's `{set_id: 'A'..|'SKIP'}` download; the labeler id is the filename stem — so rename each
+    person's download (e.g. alice.json / bob.json / me.json) before collecting them here. Run after every
+    panelist labels the SAME calibration_viewer.html."""
     cache = json.load(open(os.path.join(root_dir, "calibration_questions.json"), encoding="utf-8"))
     questions = [
         FitbQuestion(r["set_id"], tuple(r["retained"]), tuple(r["candidates"]), r["correct_index"], r["answer_category"])
         for r in cache["questions"]
     ]
-    answers = json.load(open(answers_path, encoding="utf-8"))
-    manifest = assemble_calibration(questions, answers)
+    per_labeler = {
+        os.path.splitext(os.path.basename(p))[0]: json.load(open(p, encoding="utf-8")) for p in answer_paths
+    }
+    manifest = assemble_panel(questions, per_labeler)
     out = os.path.join(root_dir, "calibration_set.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=1)
-    print(f"[calibration] wrote {out} ({len(manifest['question_ids'])} questions)")
+    d = manifest["dropped_detail"]
+    print(f"[calibration] wrote {out}: {len(manifest['question_ids'])} consensus questions from "
+          f"{manifest['n_annotators']} labelers "
+          f"({manifest['dropped_no_consensus']} dropped: {d['too_few_confident']} thin, {d['tie']} tied)")
+    print(f"[calibration] inter-annotator agreement (human ceiling): "
+          f"{manifest['inter_annotator_agreement']:.1%} (chance 25%) -> write into judge_addendum.md "
+          f"calibration_set.inter_annotator_agreement")
+    print(f"[calibration] per-labeler skip rate: {manifest['per_labeler_skip_rate']}")
     return out
 
 
-def restability(first_answers_path: str, recheck_answers_path: str) -> float:
-    """Compute the §8 intra-annotator stability: the fraction of RE-LABELED calibration questions whose
-    second-pass pick matches the first pass. The judge_addendum.schema REQUIRES a real
-    `calibration_set.intra_annotator_agreement` number, and §8/§F make the re-label check a firm invariant
-    (catch a noisy labeler before it tunes the judge) — so this must be a measurement, not a hand-filled
-    constant. Workflow: re-open `calibration_viewer.html`, re-answer a subset (or all) with a fresh eye,
-    download the picks as `calibration_answers_recheck.json`, then run
-    `python -c "import make_calibration as m; m.restability('calibration_answers.json', 'calibration_answers_recheck.json')"`.
-    Reports the agreement over the shared questions to write into the frozen addendum."""
-    first = json.load(open(first_answers_path, encoding="utf-8"))
-    recheck = json.load(open(recheck_answers_path, encoding="utf-8"))
-    shared = [k for k in recheck if k in first]
-    if not shared:
-        raise ValueError(
-            "no shared re-labeled questions between the two passes — re-answer some of the SAME questions "
-            "in calibration_viewer.html and download them as calibration_answers_recheck.json"
-        )
-    agree = sum(1 for k in shared if str(first[k]).strip().upper() == str(recheck[k]).strip().upper())
-    rate = agree / len(shared)
-    print(f"[calibration] intra-annotator agreement over {len(shared)} re-labeled questions: "
-          f"{agree}/{len(shared)} = {rate:.3f}")
-    print("[calibration] write this into judge_addendum.md -> calibration_set.intra_annotator_agreement "
-          "(a low value flags a noisy labeler BEFORE it tunes the judge — §8/§F).")
-    return rate
-
-
 def main() -> None:
-    """Draw the calibration questions + export the viewer (streams the gated parquet — run AFTER the
-    Step-1 cache build finishes so it does not contend)."""
+    """Draw the calibration questions + export the panel viewer (reads the gated parquet via the resumable
+    cached fetch — run AFTER the Step-1 cache build so it does not contend)."""
     from live_content import ParquetContentProvider
 
     corpus = load_headline_corpus(verbose=False)
@@ -176,8 +269,11 @@ def main() -> None:
     item_ids = {i for q in questions for i in (*q.retained, *q.candidates)}
     provider = ParquetContentProvider(item_ids)
     path = export_viewer(questions, provider)
-    print(f"[calibration] wrote {path} — open it, pick A–D per question, click 'Download my answers',")
-    print("[calibration] then: python -c \"import make_calibration as m; m.finalize('calibration_answers.json')\"")
+    print(f"[calibration] wrote {path} ({len(questions)} questions) — send this ONE file to every panelist.")
+    print("[calibration] each: open it, pick A–D (or 'Not sure' — never guess), 'Download my answers'.")
+    print("[calibration] collect the downloads renamed per person, then:")
+    print('[calibration]   python -c "import make_calibration as m; '
+          "m.finalize_panel(['alice.json','bob.json','me.json'])\"")
 
 
 _VIEWER_TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">
@@ -189,12 +285,15 @@ body{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:20px
 .partial{margin:8px 0}.cands{display:flex;flex-wrap:wrap;gap:8px}
 .cand{display:inline-flex;flex-direction:column;align-items:center;border:2px solid transparent;border-radius:8px;padding:6px;cursor:pointer}
 .cand:has(input:checked){border-color:#2a7}.lab{font-weight:700}
+.cand.skip{opacity:.75;font-size:13px;align-self:center}.cand.skip:has(input:checked){border-color:#a55}.cand.skip .lab{color:#a55}
 #bar{position:sticky;top:0;background:#fff;border-bottom:1px solid #ddd;padding:12px;margin:-20px -20px 10px;z-index:9}
 button{background:#2a7;color:#fff;border:0;border-radius:6px;padding:10px 16px;font-size:15px;cursor:pointer}
 #count{font-weight:600;margin-right:12px}</style></head><body>
 <div id="bar"><span id="count">0 / __N__ answered</span>
 <button onclick="download_answers()">Download my answers</button></div>
-<p>Pick the item (A–D) that best completes each partial outfit — your own eye, no rules. Answer all __N__, then Download.</p>
+<p>Pick the item (A–D) that best completes each partial outfit — your own eye, no rules. If you can't
+confidently judge one (not your area), pick <b>Not&nbsp;sure</b> instead of guessing. Decide all __N__
+(a pick or Not sure), then Download.</p>
 __CARDS__
 <script>
 function tally(){let a=document.querySelectorAll('input[type=radio]:checked').length;

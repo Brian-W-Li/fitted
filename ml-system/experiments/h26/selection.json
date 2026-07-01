@@ -17,7 +17,7 @@
   "converged": false,
   "early_stop_epoch": 48,
   "manifest_hashes": {
-    "preregistration_json_sha256": "3ce2694496c7f08e18dadf374f8e20d941ba3a7b2ce8e02af257e7c052ce63e0",
+    "preregistration_json_sha256": "2c0992fe70998f2f8faaa3d5a01a60279efa3f7cf0124ddcb23ced7c32bb0ca5",
     "fitb_manifest_sha256": "6ae89dada8bd416d76a46609f8ac35bea07d7faf42f6c498bc64420d3dcc6bff",
     "embedding_manifest_sha256": "c8e4eab523a71a7ebb36b12708a9e952d473311a2a995ccf056ccb00d023e999",
     "type_map_sha256": "d29c03c8f338abe7e335c63d367be57f7b4d5e7d175024db24515c67b8d61b27"

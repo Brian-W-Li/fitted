@@ -103,10 +103,11 @@ def _frozen_envelope(*, cal_sha="b" * 64, **overrides):
             "manifest_path": "calibration_set.json",
             "manifest_sha256": cal_sha,
             "size": 60,
-            "source": "polyvore valid image-only",
+            "source": "polyvore_valid_train_image_only_panel",
             "label_kind": "actual_human_forced_choice",
-            "single_annotator": True,
-            "intra_annotator_agreement": 0.9,
+            "single_annotator": False,
+            "n_annotators": 3,
+            "inter_annotator_agreement": 0.9,
             "disjoint_from": ["gate_B_set", "gate_D_full_fitb"],
             "judge_only_use": "select_judge_envelope_never_scores_trained_head",
         },
@@ -354,13 +355,18 @@ def test_refuse_empty_closet_template(unlock_dir):
 # --------------------------------------------------------------------------- #
 # The REAL git seam (exercise it against the actually-committed freeze)
 # --------------------------------------------------------------------------- #
-def test_real_git_identity_distinguishes_committed_from_untracked():
+def test_real_git_identity_distinguishes_committed_from_untracked(tmp_path):
     git = ev.RealGit(H26)
     committed = git.identity(os.path.join(H26, "preregistration.json"))
     assert committed.committed is True and len(committed.git_blob_sha) == 40
-    # judge_addendum.md is a freshly-authored, not-yet-committed file -> NOT committed-clean (the teeth)
-    addendum = git.identity(os.path.join(H26, "judge_addendum.md"))
-    assert addendum.committed is False
+    # A genuinely-untracked file (exists on disk, absent from HEAD) is NOT committed-clean -> the emit
+    # teeth refuse it. judge_addendum.md can no longer stand in here: its scaffold is committed so the
+    # operator can freeze it in place (edit -> frozen:true -> commit), so RealGit reports it committed;
+    # the gate that blocks an unfrozen scaffold is the schema `frozen:true` check, not this git one.
+    probe = tmp_path / "untracked_probe.json"
+    probe.write_text("{}\n")
+    untracked = git.identity(str(probe))
+    assert untracked.committed is False
     assert len(git.head_commit()) == 40
 
 

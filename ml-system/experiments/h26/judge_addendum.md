@@ -13,9 +13,10 @@ unlock file. The headline cell, the A∧B∧D gates, δ, and the FITB constructi
 ## Freeze order is load-bearing (the blindness invariant, §1)
 
 1. Run the **judge-only** calibration pilot on the human-agreement calibration set (`preregistration.md`
-   §F): an actual-human, single-annotator, forced-choice label set, **disjoint from the gate-B 500 and
-   the gate-D full FITB set**, ≥ ~50 questions. Tune the prompt / K / determinism envelope to best match
-   the **human labels** — never any trained-head valid- or test-split number.
+   §F): an actual-human, **diverse ≥3-person panel's** forced-choice label set (unique-plurality consensus
+   over confident votes), **disjoint from the gate-B 500 and the gate-D full FITB set**, ≥ ~50 surviving
+   questions. Tune the prompt / K / determinism envelope to best match the **human labels** — never any
+   trained-head valid- or test-split number.
 2. The ~100-Q image-only **above-chance** pilot must clear 25% chance (CI low above chance); otherwise
    gate B is labeled **vacuous** (it still passes trivially, but the GO decision rests on A∧D — §8). This
    does not move the frozen gate.
@@ -36,7 +37,7 @@ unlock file. The headline cell, the A∧B∧D gates, δ, and the FITB constructi
 | `both_order_policy` / `adjudication_convention` | forward + exact-reverse, consistent-only; `inconsistent = miss` headline (`inconsistent = half` cross-check) |
 | `max_tokens` / `retry_budget` / `drop_policy` | the determinism envelope (unparseable-after-budget → drop + log) |
 | `payload_logging_policy` | full payloads → gitignored `raw_payloads/`; the committed `judge_runs.ndjson` stays scalar-only (§14) |
-| `calibration_set` | the manifest **path + hash** + size + source + intra-annotator agreement (the §F human set) |
+| `calibration_set` | the manifest **path + hash** + size + source + n_annotators + inter-annotator agreement (the §F human-panel set) |
 | `logprob_escape_hatch` | the C4 live re-check of whether image logprobs are available (found unavailable at design time, §8) |
 
 **Calibration manifest contract (`calibration_set.json`, committed + sha-bound by the envelope above).** A
@@ -70,11 +71,12 @@ gated set. Source it from valid/train Polyvore (or the closet) — never a test 
   "calibration_set": {
     "manifest_path": "calibration_set.json",
     "manifest_sha256": "<fill at C4: sha256 of the calibration manifest>",
-    "size": 60,
-    "source": "polyvore valid/train image-only",
+    "size": "<fill at C4: surviving consensus question count from finalize_panel>",
+    "source": "polyvore_valid_train_image_only_panel",
     "label_kind": "actual_human_forced_choice",
-    "single_annotator": true,
-    "intra_annotator_agreement": null,
+    "single_annotator": false,
+    "n_annotators": "<fill at C4: number of panel labelers (>=3)>",
+    "inter_annotator_agreement": null,
     "disjoint_from": ["gate_B_set", "gate_D_full_fitb"],
     "judge_only_use": "select_judge_envelope_never_scores_trained_head"
   },

@@ -266,20 +266,34 @@ The judge prompt / K / determinism envelope are tuned **solely** against this se
 freeze later, at C4, in `judge_addendum.md`). Firm invariants frozen now:
 
 - A **small held-out set of pairwise/FITB compatibility questions carrying an *actual human*
-  compatibility label** (Brian's own forced-choice judgments) — **a human label on purpose, NOT
-  Polyvore co-occurrence ground-truth** (co-occurrence would re-import the memorization confound into
+  compatibility label** (a diverse human panel's forced-choice judgments) — **a human label on purpose,
+  NOT Polyvore co-occurrence ground-truth** (co-occurrence would re-import the memorization confound into
   the very calibration the blindness rests on).
 - **Disjoint from the gate-B ≤500 set *and* the gate-D full FITB set** (judge tuning never touches a
   gated question).
 - **Sized to a pre-set floor ≥ ~50 questions** (the exact size + source corpus pin at C4).
-- **Single-annotator:** framed as "matched to a single owner's taste," **not** inter-annotator "human
-  agreement"; a cheap **intra-annotator stability check** (re-label a subset, report agreement) catches
-  a noisy labeler before it tunes the judge.
+- **Diverse panel (≥3 labelers), unique-plurality consensus:** every panelist labels the SAME questions;
+  each may **abstain** ("not sure" — never guess) on questions outside their competence. A question's
+  consensus label is the **unique plurality over the confident (non-skip) votes**, kept only with **≥2
+  confident votes and no tie** — else **dropped-and-counted** (the disclosed disagreement signal). The
+  reported human ceiling is **inter-annotator agreement** (average pairwise agreement over co-confident
+  votes — abstention-robust; Fleiss' κ is ill-defined under per-question skips). Report per-labeler skip
+  rate + the realized garment mix.
 - **Source constraint (so the disjointness is satisfiable — FC-6):** because gate D consumes **every
   eligible test outfit** (`fitb_manifest.json`), a Polyvore-sourced calibration set must draw from
   **valid/train** outfits (or test outfits used by no gate-D question); the closet is the other
   admissible source. The exact source corpus + size pin at C4.
 - **Only use:** selecting the judge envelope. It **never scores the trained head.**
+
+> **Amendment (2026-07-01, pre-pilot — blind, no p-hacking).** §F originally froze a **single-annotator**
+> set ("matched to the owner's taste") with an intra-annotator stability check. It was amended to the
+> diverse-panel spec above **before any judge or test-set number existed** (no `metrics.json`, no judge
+> run had been executed), so no result could have motivated the change. Cause: a single non-expert labeler
+> makes the judge-selection target noisy, and the Polyvore corpus is women's-fashion-heavy while some
+> labelers can only competently judge a subset — per-question abstention + a diverse panel route each
+> question to competent judges, and the panel yields a measurable human-agreement ceiling. The claim
+> shifts from "tracks the owner's taste" to "tracks human consensus (with a measured ceiling)." Mirrored
+> in `preregistration.json` `calibration_set`.
 
 ---
 

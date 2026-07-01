@@ -3,7 +3,7 @@
 Brian runs this; the OpenAI key stays in his shell (`OPENAI_API_KEY`), never with the assistant. Three
 subcommands mirror the §8/§12 RUN sequence (all image-only, the headline arm):
 
-    # 1. CALIBRATION PILOT — tune K against your own labels (calibration_set.json), BLIND to the test set.
+    # 1. CALIBRATION PILOT — tune K against the panel's consensus labels (calibration_set.json), BLIND to test.
     .venv/bin/python run_judge.py pilot --k 3            # try a few K; pick the most human-agreeing + stable
     # -> then freeze judge_addendum.md (fill the envelope from the pilot; commit it) BEFORE the next step.
 
@@ -14,8 +14,8 @@ subcommands mirror the §8/§12 RUN sequence (all image-only, the headline arm):
     # 3. EMIT — the four-file unlock -> metrics.json (needs selection.json + judge_addendum.md + closet_manifest.json).
     .venv/bin/python run_judge.py emit --n 500
 
-Blindness: the pilot scores the judge against YOUR labels + reports the judge's above-chance FITB — it
-never reads a trained-head number; the freeze (K/prompt) is fixed from the pilot BEFORE any gate-B trained
+Blindness: the pilot scores the judge against the panel's consensus labels + reports the judge's above-chance
+FITB — it never reads a trained-head number; the freeze (K/prompt) is fixed from the pilot BEFORE any gate-B trained
 vs judge comparison (`emit`). Reference: docs/plans/h26-compatibility-spike-v2.md §8/§11/§12/§15.
 """
 
@@ -66,8 +66,8 @@ def _calibration_questions() -> tuple[list[FitbQuestion], dict[str, int]]:
 
 
 def cmd_pilot(args) -> None:
-    """Run the judge on the calibration set (image-only) and report how well it matches YOUR labels +
-    its stability, for a given K — the envelope-selection signal (§8). Writes a throwaway pilot ledger."""
+    """Run the judge on the calibration set (image-only) and report how well it matches the PANEL's
+    consensus labels + its stability, for a given K — the envelope-selection signal (§8). Writes a throwaway pilot ledger."""
     questions, human = _calibration_questions()
     if os.path.exists(PILOT_LEDGER):
         os.remove(PILOT_LEDGER)                       # fresh pilot each run (K sweep)
@@ -92,7 +92,7 @@ def cmd_pilot(args) -> None:
 
 def pilot_summary(per_question, human: dict[str, int]) -> dict:
     """Pure: collapse the pilot's per-question judge verdicts into its BLIND report counts. Agreement is
-    judge-vs-`human` (the owner's own forced-choice label — the §F judge-selection target), and is kept
+    judge-vs-`human` (the panel's consensus forced-choice label — the §F judge-selection target), and is kept
     strictly separate from `correct_vs_polyvore` (judge-vs-the-Polyvore-answer, the above-chance check).
     Tuning K to the human label is the ONLY blind path; tuning to the Polyvore answer would re-import the
     co-occurrence memorization confound (§1/§8/§F) — so this split is load-bearing, hence its own tested
@@ -107,7 +107,7 @@ def pilot_summary(per_question, human: dict[str, int]) -> dict:
             inconsistent += 1
             continue
         consistent += 1
-        if v.forward_verdict == human[s.question_id]:     # judge-vs-YOUR label (the selection target)
+        if v.forward_verdict == human[s.question_id]:     # judge-vs-panel-consensus label (the selection target)
             agree += 1
         if v.forward_verdict == s.correct_index:          # judge-vs-Polyvore answer (above-chance only)
             correct_vs_polyvore += 1
