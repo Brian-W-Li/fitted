@@ -1,51 +1,72 @@
 {
-  "_README": "Canonical embedding freeze record for the headline backbone (build doc §5/§15). FROZEN at C2 (2026-06-29): CONFIG fields below are pinned to the actually-loaded weights (verified via embed.load_backbone). CACHE-CONTENT fields are null and STAGE TO C3, when embed.build_cache runs the one-time pass over the ~175k disjoint-corpus items (a multi-hour CPU batch; the pass reveals NO compatibility number, so deferring the cache hashes does not touch the freeze's blindness). C3 CONTRACT: before build_cache overwrites this file it MUST verify the C2-frozen config fields (revision_sha / preprocess_hash / embedding_dim / dtype / normalization) equal these values and fail loud on a mismatch. Ablation backbones get their own embedding_manifest_<key>.json at C3 (non-canonical).",
-
-  "_freeze": {
-    "frozen_at": "C2",
-    "frozen_date": "2026-06-29",
-    "c2_verified_config_fields": ["backbone_key", "open_clip_id", "pretrained", "revision_sha", "preprocess_hash", "embedding_dim", "dtype", "normalization"],
-    "c2_recorded_fields": ["device", "preprocess_transform", "dependency_lock", "image_source"],
-    "c3_staged_cache_fields": ["n_items", "ids_path", "ids_list_sha256", "image_hashes_path", "image_hashes_sha256", "embeddings_path", "embeddings_content_sha256"],
-    "_overwrite_contract": "C3 build_cache MUST verify the c2_verified_config_fields equal the freshly resolved values and fail loud on a mismatch before writing cache blobs, then MERGE the regenerated cache fields onto this committed dict so the c2_recorded_fields + _README + _freeze survive. Null c3_staged_cache_fields may be populated once; once non-null, a later run must reproduce them exactly and fail loud on drift before writing cache blobs unless an explicit re-freeze path is added. 'device' is RECORDED not verified — a faster mps/cuda one-time pass is allowed (build doc §5); kernels can differ, so it is logged, not frozen."
+ "_README": "Canonical embedding freeze record for the headline backbone (build doc \u00a75/\u00a715). FROZEN at C2 (2026-06-29): CONFIG fields below are pinned to the actually-loaded weights (verified via embed.load_backbone). CACHE-CONTENT fields are null and STAGE TO C3, when embed.build_cache runs the one-time pass over the ~175k disjoint-corpus items (a multi-hour CPU batch; the pass reveals NO compatibility number, so deferring the cache hashes does not touch the freeze's blindness). C3 CONTRACT: before build_cache overwrites this file it MUST verify the C2-frozen config fields (revision_sha / preprocess_hash / embedding_dim / dtype / normalization) equal these values and fail loud on a mismatch. Ablation backbones get their own embedding_manifest_<key>.json at C3 (non-canonical).",
+ "_freeze": {
+  "frozen_at": "C2",
+  "frozen_date": "2026-06-29",
+  "c2_verified_config_fields": [
+   "backbone_key",
+   "open_clip_id",
+   "pretrained",
+   "revision_sha",
+   "preprocess_hash",
+   "embedding_dim",
+   "dtype",
+   "normalization"
+  ],
+  "c2_recorded_fields": [
+   "device",
+   "preprocess_transform",
+   "dependency_lock",
+   "image_source"
+  ],
+  "c3_staged_cache_fields": [
+   "n_items",
+   "ids_path",
+   "ids_list_sha256",
+   "image_hashes_path",
+   "image_hashes_sha256",
+   "embeddings_path",
+   "embeddings_content_sha256"
+  ],
+  "_overwrite_contract": "C3 build_cache MUST verify the c2_verified_config_fields equal the freshly resolved values and fail loud on a mismatch before writing cache blobs, then MERGE the regenerated cache fields onto this committed dict so the c2_recorded_fields + _README + _freeze survive. Null c3_staged_cache_fields may be populated once; once non-null, a later run must reproduce them exactly and fail loud on drift before writing cache blobs unless an explicit re-freeze path is added. 'device' is RECORDED not verified \u2014 a faster mps/cuda one-time pass is allowed (build doc \u00a75); kernels can differ, so it is logged, not frozen."
+ },
+ "backbone_key": "fashionsiglip",
+ "open_clip_id": "hf-hub:Marqo/marqo-fashionSigLIP",
+ "pretrained": null,
+ "revision_sha": "c56244cc94f92419e8369fa71efdaf403b124ce8",
+ "preprocess_hash": "fb80278db5fd5efcddc5a736a9095f34ed28da48e270cce5e12df162248404f6",
+ "preprocess_transform": "Resize(224, bicubic, antialias) -> ConvertMode(RGB) -> ToTensor -> Normalize(0.5,0.5,0.5)",
+ "device": "cpu",
+ "embedding_dim": 768,
+ "dtype": "float32",
+ "normalization": "l2",
+ "dependency_lock": {
+  "source": "requirements.txt",
+  "torch": "2.12.1",
+  "open_clip_torch": "3.3.0",
+  "timm": "1.0.27",
+  "safetensors": "0.8.0",
+  "Pillow": "12.2.0",
+  "datasets": "5.0.0",
+  "huggingface_hub": "1.21.0",
+  "numpy": "2.5.0"
+ },
+ "image_source": {
+  "hf_dataset": "mvasil/polyvore-outfits",
+  "config": "disjoint",
+  "column": "image (JPEG bytes keyed by item_id)",
+  "split_map": {
+   "train": "train",
+   "valid": "validation",
+   "test": "test"
   },
-
-  "backbone_key": "fashionsiglip",
-  "open_clip_id": "hf-hub:Marqo/marqo-fashionSigLIP",
-  "pretrained": null,
-  "revision_sha": "c56244cc94f92419e8369fa71efdaf403b124ce8",
-  "preprocess_hash": "fb80278db5fd5efcddc5a736a9095f34ed28da48e270cce5e12df162248404f6",
-  "preprocess_transform": "Resize(224, bicubic, antialias) -> ConvertMode(RGB) -> ToTensor -> Normalize(0.5,0.5,0.5)",
-  "device": "cpu",
-  "embedding_dim": 768,
-  "dtype": "float32",
-  "normalization": "l2",
-
-  "dependency_lock": {
-    "source": "requirements.txt",
-    "torch": "2.12.1",
-    "open_clip_torch": "3.3.0",
-    "timm": "1.0.27",
-    "safetensors": "0.8.0",
-    "Pillow": "12.2.0",
-    "datasets": "5.0.0",
-    "huggingface_hub": "1.21.0",
-    "numpy": "2.5.0"
-  },
-
-  "image_source": {
-    "hf_dataset": "mvasil/polyvore-outfits",
-    "config": "disjoint",
-    "column": "image (JPEG bytes keyed by item_id)",
-    "split_map": {"train": "train", "valid": "validation", "test": "test"},
-    "note": "per-item_id resolution asserted at embed time; fail loud on a miss (build doc §2)"
-  },
-
-  "n_items": null,
-  "ids_path": null,
-  "ids_list_sha256": null,
-  "image_hashes_path": null,
-  "image_hashes_sha256": null,
-  "embeddings_path": null,
-  "embeddings_content_sha256": null
+  "note": "per-item_id resolution asserted at embed time; fail loud on a miss (build doc \u00a72)"
+ },
+ "n_items": 83178,
+ "ids_path": "fashionsiglip_ids.json",
+ "ids_list_sha256": "8a5768809de6bf398f0556b479aed39891477b1e5e340c154bc59d1ebeb8ab03",
+ "image_hashes_path": "fashionsiglip_hashes.json",
+ "image_hashes_sha256": "77953df24626c671fcc3ce12a055685f1753f4bead9798628c2f7b609ca43f3d",
+ "embeddings_path": "embeddings_fashionsiglip.npy",
+ "embeddings_content_sha256": "dbb9004a197401e78a242b8cf82f6a92e048ac6d14a5ea55c7e65b90ed07d2a2"
 }
