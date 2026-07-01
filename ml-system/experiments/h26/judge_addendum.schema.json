@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "h26/judge_addendum.schema.json",
+  "title": "H26 judge_addendum.md determinism-envelope block",
+  "description": "Schema for the machine-readable envelope embedded as the first ```json fenced block in judge_addendum.md — the C4 judge freeze (build doc §8/§12/§15-C4). preregistration.json named this schema 'pinned_at_C4'; this is that pin. evaluate.py extracts the block and validates it before unlocking metrics.json, so the freeze is enforceable, not honor-system (build doc §1, same treatment as preregistration.json). `frozen` MUST be true and every hash/snapshot field MUST be a real (non-placeholder) value: the committed C2/C4 SCAFFOLD sets frozen:false with placeholders so it FAILS this schema, and the unlock REFUSES until the addendum is frozen from the judge-only calibration pilot (blind to every trained-head metric, before any gate-B comparison).",
+  "type": "object",
+  "$defs": {
+    "nonPlaceholderString": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "^(<.*>|[Tt][Bb][Dd].*|[Tt][Oo][Dd][Oo].*|[Pp][Ll][Aa][Cc][Ee][Hh][Oo][Ll][Dd][Ee][Rr].*|[Ff][Ii][Ll][Ll].*|[Xx]+)$"
+      }
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"}
+  },
+  "required": [
+    "frozen",
+    "spike",
+    "model_snapshot",
+    "snapshot_rule",
+    "temperature",
+    "k_samples",
+    "both_order_policy",
+    "adjudication_convention",
+    "max_tokens",
+    "retry_budget",
+    "drop_policy",
+    "payload_logging_policy",
+    "prompt_sha256",
+    "calibration_set",
+    "arms",
+    "commit_hash"
+  ],
+  "properties": {
+    "frozen": {"const": true},
+    "spike": {"const": "h26"},
+    "model_snapshot": {
+      "allOf": [
+        {"$ref": "#/$defs/nonPlaceholderString"},
+        {"type": "string", "pattern": "^gpt-5\\.4-mini-[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+      ]
+    },
+    "snapshot_rule": {"const": "dated_snapshot_frozen_at_C4_does_not_move_after"},
+    "temperature": {"const": 0},
+    "k_samples": {"type": "integer", "minimum": 1},
+    "both_order_policy": {"const": "forward_plus_exact_reverse_consistent_only"},
+    "adjudication_convention": {"const": "inconsistent_is_miss"},
+    "conservative_cross_check_convention": {"const": "inconsistent_is_half"},
+    "max_tokens": {"type": "integer", "minimum": 1},
+    "retry_budget": {"type": "integer", "minimum": 0},
+    "drop_policy": {"$ref": "#/$defs/nonPlaceholderString"},
+    "payload_logging_policy": {"$ref": "#/$defs/nonPlaceholderString"},
+    "system_fingerprint_policy": {"type": "string"},
+    "prompt_sha256": {"$ref": "#/$defs/sha256"},
+    "response_format": {"type": "string"},
+    "logprob_escape_hatch": {
+      "type": "object",
+      "description": "The §8 escape hatch: a 1-call logprob-P(compatible) replaces Monte-Carlo ONLY if the C4 live re-check finds image logprobs available (found unavailable at design time).",
+      "properties": {
+        "image_logprobs_available": {"type": "boolean"},
+        "rechecked_at_C4": {"type": "boolean"}
+      },
+      "required": ["image_logprobs_available", "rechecked_at_C4"],
+      "additionalProperties": false
+    },
+    "calibration_set": {
+      "type": "object",
+      "description": "The judge-selection target (§8 / preregistration.md §F): actual-human labels, disjoint from every gated question, judge-only use. The manifest hash + size + source freeze HERE.",
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "size",
+        "source",
+        "label_kind",
+        "single_annotator",
+        "intra_annotator_agreement",
+        "disjoint_from",
+        "judge_only_use"
+      ],
+      "properties": {
+        "manifest_path": {
+          "allOf": [
+            {"$ref": "#/$defs/nonPlaceholderString"},
+            {"type": "string", "pattern": "^[A-Za-z0-9_.-]+\\.json$"}
+          ]
+        },
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "size": {"type": "integer", "minimum": 50},
+        "source": {"$ref": "#/$defs/nonPlaceholderString"},
+        "label_kind": {"const": "actual_human_forced_choice"},
+        "single_annotator": {"const": true},
+        "intra_annotator_agreement": {"type": "number", "minimum": 0, "maximum": 1},
+        "disjoint_from": {
+          "type": "array",
+          "items": {"enum": ["gate_B_set", "gate_D_full_fitb"]},
+          "minItems": 2,
+          "uniqueItems": true
+        },
+        "judge_only_use": {"const": "select_judge_envelope_never_scores_trained_head"}
+      },
+      "additionalProperties": false
+    },
+    "arms": {
+      "type": "array",
+      "items": {"enum": ["image_only", "image_title", "text_attribute"]},
+      "contains": {"const": "image_only"},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "above_chance_pilot": {
+      "type": "object",
+      "description": "The judge-above-chance precondition (§8): the ~100-Q image-only pilot's FITB CI must clear 25% chance, else gate B is labeled VACUOUS (passes trivially, decision rests on A∧D).",
+      "properties": {
+        "image_only_fitb_point": {"type": "number"},
+        "image_only_fitb_ci_low": {"type": "number"},
+        "above_chance": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "commit_hash": {"$ref": "#/$defs/git_sha"}
+  },
+  "additionalProperties": false
+}

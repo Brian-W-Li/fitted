@@ -47,6 +47,7 @@ def test_freeze_jsons_parse():
         "preregistration.json", "fitb_manifest.json",
         "embedding_manifest_fashionsiglip.json", "metrics.schema.json",
         "selection.schema.json", "closet_manifest.schema.json",
+        "judge_addendum.schema.json",
     ):
         assert isinstance(_load(name), dict), name
 
@@ -138,9 +139,23 @@ def test_embedding_freeze_agrees():
     assert p["preprocess_sha256"] == m["preprocess_hash"]
     assert p["normalization"] == m["normalization"] == "l2"
     assert m["dtype"] == "float32"
-    # config frozen now; cache-content fields are still null at C2 (stage to C3)
-    for f in m["_freeze"]["c3_staged_cache_fields"]:
-        assert m[f] is None, f"{f} must be null at C2 (stages to C3)"
+    # Cache-content fields stage to C3/B2 (the one-time FashionSigLIP embedding pass). Accept BOTH the
+    # pre-B2 state (all null — a fresh checkout with the cache deferred) AND the post-B2 state (all
+    # populated + well-formed — after build_cache_and_select ran and the manifest is committed). A PARTIAL
+    # population is a corrupt/interrupted cache build and fails loud. (The config fields above stay frozen
+    # either way — that is the load-bearing C2 freeze this test guards.)
+    import re as _re
+
+    staged = m["_freeze"]["c3_staged_cache_fields"]
+    populated = [f for f in staged if m[f] is not None]
+    if populated:
+        assert set(populated) == set(staged), (
+            f"partial embedding-cache population — {sorted(set(staged) - set(populated))} still null "
+            f"(a corrupt/interrupted C3 build; re-run build_cache_and_select)"
+        )
+        assert isinstance(m["n_items"], int) and m["n_items"] > 0
+        for f in ("ids_list_sha256", "image_hashes_sha256", "embeddings_content_sha256"):
+            assert _re.fullmatch(r"[0-9a-f]{64}", m[f]), f"{f} is not a sha256 ({m[f]!r})"
     # device is RECORDED, not VERIFIED (a faster mps/cuda pass is allowed, §5)
     assert "device" not in m["_freeze"]["c2_verified_config_fields"]
     assert "device" in m["_freeze"]["c2_recorded_fields"]
@@ -181,6 +196,69 @@ def test_fitb_allocation_and_schema_required():
         "gate_B_diff_inconsistent_miss", "gate_B_diff_inconsistent_half",
         "outfit_auc", "fitb_trained_full",
     }
+
+
+def test_judge_addendum_schema_is_the_c4_freeze_pin():
+    # preregistration.json names judge_addendum_schema "pinned_at_C4"; this is that pin. It must enforce
+    # the load-bearing freeze invariants (§1/§8): frozen=true (so a scaffold is refused), temperature 0,
+    # the calibration set's actual-human + judge-only-use + disjoint-from-both-gated-sets contract, and
+    # image_only as a required arm (the gate-B comparator).
+    s = _load("judge_addendum.schema.json")
+    props = s["properties"]
+    assert props["frozen"]["const"] is True
+    assert props["temperature"]["const"] == 0
+    assert "image_only" in props["arms"]["contains"]["const"]
+    cal = props["calibration_set"]["properties"]
+    assert cal["label_kind"]["const"] == "actual_human_forced_choice"
+    assert cal["single_annotator"]["const"] is True
+    assert cal["size"]["minimum"] == 50
+    assert set(cal["disjoint_from"]["items"]["enum"]) == {"gate_B_set", "gate_D_full_fitb"}
+    assert "frozen" in s["required"] and "prompt_sha256" in s["required"] and "calibration_set" in s["required"]
+    # the prereg mirror records that this schema is the C4 pin (un-edited frozen artifact)
+    assert _load("preregistration.json")["unlock_validation"]["judge_addendum_schema"] == "pinned_at_C4"
+
+
+def test_committed_judge_addendum_is_still_a_scaffold():
+    # The committed judge_addendum.md MUST stay a scaffold (frozen:false) until the RUN-phase pilot
+    # freezes it — so the repo can never accidentally ship a "frozen" addendum with placeholder hashes
+    # (the freeze is a deliberate, blind, post-pilot act — §1). evaluate.extract_envelope reads the
+    # first ```json block; the unlock refuses it precisely because frozen is false.
+    import re as _re
+
+    md = _read("judge_addendum.md")
+    block = _re.search(r"```json\s*\n(.*?)\n```", md, _re.DOTALL)
+    assert block is not None, "judge_addendum.md must carry a machine-readable ```json envelope block"
+    import json as _json
+
+    env = _json.loads(block.group(1))
+    assert env["frozen"] is False, "the committed addendum must be an UNFROZEN scaffold until the C4 pilot"
+
+
+def test_scaffold_freezes_to_a_schema_valid_envelope():
+    # The scaffold must be freezable by filling ONLY the per-run fields the RUN recipe lists — that yields
+    # a schema-valid frozen envelope. This pins scaffold<->schema<->recipe consistency: if a FIXED field
+    # (drop_policy/payload_logging_policy/calibration_set.{source,size}) is left as a FILL placeholder, or
+    # the recipe's fill-list drifts, freezing per the recipe would silently fail gate-b's schema gate.
+    # (A real regression this guards — the recipe once told the operator to "leave the *_policy" fields
+    # while they were still FILL placeholders that the schema rejects.)
+    import json as _json
+
+    import jsonschema
+
+    env = _json.loads(re.search(r"```json\s*\n(.*?)\n```", _read("judge_addendum.md"), re.DOTALL).group(1))
+    validator = jsonschema.Draft202012Validator(_load("judge_addendum.schema.json"))
+    assert not validator.is_valid(env), "the committed addendum must be an unfrozen scaffold (schema-refused)"
+    # Fill ONLY the genuinely per-run fields (the recipe's fill-list) — nothing else.
+    env["frozen"] = True
+    env["model_snapshot"] = "gpt-5.4-mini-2026-03-17"
+    env["k_samples"], env["max_tokens"], env["retry_budget"] = 3, 16, 2
+    env["prompt_sha256"] = "a" * 64
+    env["calibration_set"]["manifest_sha256"] = "b" * 64
+    env["calibration_set"]["intra_annotator_agreement"] = 0.9
+    env["above_chance_pilot"] = {"image_only_fitb_point": 0.55, "image_only_fitb_ci_low": 0.31, "above_chance": True}
+    env["commit_hash"] = "c" * 40
+    leftover = ["/".join(map(str, e.absolute_path)) for e in validator.iter_errors(env)]
+    assert not leftover, f"per-run-only freeze still fails the schema at {leftover} — a FIXED field is still a placeholder"
 
 
 def test_unlock_and_selection_schema_are_frozen():

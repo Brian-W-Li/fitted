@@ -44,6 +44,24 @@ raw_payloads/
 # Closet probe photos (§10/§14 — local, consented, redacted; never egress to git).
 closet/
 
+# RUN-phase scratch (regenerable). The COMMITTED artifacts are judge_runs.ndjson (gate-B ledger),
+# calibration_set.json (unlock-bound), closet_manifest.json, selection.json, metrics.json — NOT these.
+# NOTE: git only treats `#` as a comment at the START of a line — an inline `#` becomes literal pattern
+# text and silently un-ignores the file, so every comment below is on its own line (a mid-line comment
+# here once un-ignored closet_input.json + the viewer blob; keep the patterns bare).
+# large (embeds base64 catalog images); regenerate with make_calibration.py
+calibration_viewer.html
+# your raw viewer picks; folded into calibration_set.json by finalize()
+calibration_answers.json
+# a second re-label pass over a subset (intra-annotator stability, §8); folded by restability()
+calibration_answers_recheck.json
+# the drawn calibration questions cache (regenerable from the seed)
+calibration_questions.json
+# throwaway judge calibration pilot (K sweep) — never committed
+calibration_pilot.ndjson
+# your raw label input; folded into closet_manifest.json by assemble_closet.py
+closet_input.json
+
 # Python
 __pycache__/
 *.py[cod]
