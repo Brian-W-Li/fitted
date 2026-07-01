@@ -11,11 +11,19 @@
 > `recommend/route.ts:450`, `regenerate/route.ts:461`). The H26 judge baseline mirrors it — a mini judge
 > hardens the cost bar (§8).
 >
-> **Build progress (2026-06-30):** C1–C3 committed — data layer (§C1), the C2 pre-registration freeze, and
-> C3 baselines + both trained heads + the eval-driver **metric half** (`evaluate.py`, computation only) + the
-> materialized gate-B `fitb_order.json`. **`selection.json` is deferred** — it needs the one-time (multi-hour)
-> FashionSigLIP embedding-cache pass; everything else is committed + tested (130 green, 1 skipped). **Next: C4**
-> (LLM-as-judge + the four-file unlock that first materializes `metrics.json`). Per-checkpoint state is in §15.
+> **Build progress (2026-06-30):** C1–C3 committed; **C4 CODE built** (working tree). C1–C3 = data layer
+> (§C1), the C2 pre-registration freeze, C3 baselines + both trained heads + the eval-driver **metric half** +
+> the materialized gate-B `fitb_order.json`. **C4 code** = `gpt_judge.py` (native FITB@4 judge, both orders,
+> K-sample plurality vote, three arms, scalar-only `judge_runs.ndjson` ledger, two-stage paired bootstrap;
+> OpenAI mocked in the hermetic suite), `evaluate.py`'s **emission half** (the four-file unlock validator +
+> first `metrics.json`), `judge_addendum.schema.json` + the **scaffold** `judge_addendum.md`, and a full
+> hermetic test suite (221 green, 1 skipped with the Step-1 cache/`selection.json` built; one fewer green /
+one more skip on a cache-deferred fresh checkout — floors, not pins). **`selection.json` was deferred** (needs the one-time
+> FashionSigLIP embedding-cache pass) and **`metrics.json` is NOT emitted** — correctly blocked on the RUN
+> phase: kickoff **B1** (OpenAI key + spend approval for the judge pilot), **B2** (`selection.json` from the
+> cache-build + training run), **B3** (`closet_manifest.json` = Brian's labeled worn outfits). **Next (RUN
+> phase):** the judge calibration pilot → freeze `judge_addendum.md` (blind, before any gate-B comparison) →
+> the real four-file unlock + the gate-B FITB parity number, then **C5**. Per-checkpoint state is in §15.
 
 ---
 
@@ -931,6 +939,26 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   fields are added at C5 and the file is finalized at C6 — see the artifact-dataflow note) only once all four of §12's
   unlock files (`preregistration.md` + `preregistration.json` + `judge_addendum.md` + schema-valid `closet_manifest.json`, including the
   closet referential checks) are committed** (§1/§12).
+  **C4 unlock also mechanically enforces (built — not honor-system):** the judge addendum's determinism
+  envelope is schema-validated and must be `frozen:true` (a scaffold is refused — `judge_addendum.schema.json`,
+  the `judge_addendum_schema` `preregistration.json` pinned at C4); the bound **human-label calibration
+  manifest** (`calibration_set.json`, sha-pinned in the envelope) must be committed + hash-match and its
+  `question_ids` are asserted **disjoint from the gate-B set** (hermetic, off the committed `fitb_order.json`)
+  and, at emission, the **full gate-D FITB set** (corpus-derived) — §F blindness made mechanical; the **gate-B
+  emission arm must equal the frozen `headline_cell.judge.arm`** (`image_only`; the ablation arms report in
+  `results.md`, never through the gate); the **ledger snapshot is bound to the freeze** — every consumed
+  `judge_runs.ndjson` row's `model_snapshot` must equal the frozen envelope's `model_snapshot`
+  (`evaluate.assert_ledger_snapshot`), so a mid-spike production bump or a stray `--snapshot` can't silently
+  produce the headline gate-B number off an unfrozen model (§8 dated-snapshot rule); and the scalar
+  `judge_runs.ndjson` is **idempotent + completeness-checked** (keep-last dedup on
+  `(question_id, arm, order, sample_index)` + exactly-K-per-order) so a resumed judge run cannot silently
+  double K or misread an incomplete write as a drop. **The gate-B RUN step carries the same build-order
+  teeth as emission:** `run_judge.py gate-b` refuses to score a held-out-test question unless
+  `judge_addendum.md` is schema-valid `frozen:true` **and committed-clean**, and it reads the *entire*
+  determinism envelope (K, snapshot, `max_tokens`, `retry_budget`) **from the frozen addendum** — there are
+  no CLI overrides on `gate-b` — so the judge freeze provably precedes any gated judge number and cannot be
+  retro-tuned against one (§1 "enforced by build order, not honor system"). `gate-b` also drift-checks the
+  prefix against the frozen `fitb_order.json` (`verify_fitb_order`) **before** any token is spent.
 - **C5 — Domain gap.** `domain_probe.py` scores the closet from the **already-frozen `closet_manifest.json`** (its
   labels + mechanical negatives + label-audit froze before the C4 test-metric unlock — §12; only the
   *scoring* runs here): worn outfits → edges; pair-level closet AUC + FITB; catalog→closet drop,
@@ -955,6 +983,10 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   model-independent confound diagnostic computed from popularity counts, not a trained-head metric, so recording
   it carries no §1 blindness concern), so `results.md` carries the §4 "popularity-confounded (disclosed)" label
   and reports the popularity-matched re-run (gate numbers do not move).
+  **Reporting note (C6):** `fitb_judge_gateB`'s CI is **question-sampling (cluster) only**; the judge's temp-0
+  run-to-run spread lives in the **two-stage `gate_B_diff_*`** (the gated quantities). `results.md` must frame
+  `fitb_judge_gateB`'s CI as question-sampling, cite the two-stage diff for the parity decision, and report the
+  judge as a **multi-run distribution** (§8/§11), never a single reproducible point.
 
 **Files** (all new, under `ml-system/experiments/h26/`; touches no existing code): `README.md`,
 `requirements.txt` (isolated), `preregistration.md`, `data_loader.py`, `embed.py`,
