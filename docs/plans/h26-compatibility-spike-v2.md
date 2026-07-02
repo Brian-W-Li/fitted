@@ -26,7 +26,7 @@
 > 48/50 — if gate D later misses, the frozen epoch budget is the first suspect, and bumping it is a
 > pre-registration decision). **`metrics.json` is NOT emitted** — the RUN continues: the 100-question panel
 > viewer is generated (local artifact) → Brian's ≥3-person panel labels it → `finalize_panel` →
-> `calibration_set.json` committed → the judge pilot (B1: Brian's key, his shell) → freeze
+> `calibration_set.json` committed → the calibration pilot (B1: Brian's key, his shell) → freeze
 > `judge_addendum.md` (blind, before any gate-B comparison) → gate-b → `emit` (also needs **B3**
 > `closet_manifest.json`, deferred by choice). Then **C5**. Per-checkpoint state is in §15.
 
@@ -464,7 +464,7 @@ probe returns HTTP 200; the "temp-1-only" belief was an untested assumption, now
 most stable, strongest LLM baseline (a forced-choice verdict barely moves with temperature), but GPT is still
 **not** bit-reproducible at temp 0 (below), so each FITB verdict can drift — a stable per-question
 verdict needs a small fixed number of repeated samples + an aggregation rule. **The K×2 → per-question collapse
-is structurally pinned now (only the value of K freezes at C4, from the pilot's verdict-agreement rate):** within
+is structurally pinned now (only the value of K freezes at C4, from the calibration pilot's verdict-agreement rate — **choose K ≥ 2, prefer K = 3** if cost/latency allows; K = 1 makes the §11 two-stage judge-variance resample vacuous, so a K = 1 override forces `results.md` to drop every judge-run-variance / K-sample-stability claim):** within
 each candidate order the K temp-0 samples reduce to that order's verdict by **plurality vote** (any tie for the
 top vote count — including 3-/4-way ties, at any K, since FITB@4 is a 4-way choice → that order is "no-decision"); the question is a **hit** iff both orders' plurality verdicts agree *and* pick the
 held-out item, a **miss** iff they agree on a wrong item, and **inconsistent** (→ counted as a miss in the
@@ -552,7 +552,10 @@ SAME questions and may **abstain** ("not sure" — never guess) on questions out
 label is the **unique plurality over confident votes** (kept only with ≥2 confident votes + no tie, else
 dropped-and-counted). `results.md` reports **inter-annotator agreement** (average pairwise, abstention-robust —
 Fleiss' κ is ill-defined under per-question skips) as the human-agreement ceiling, plus per-labeler skip rate +
-the realized garment mix. This **replaced** the original single-annotator spec (one owner's taste + an
+the realized garment mix. Labeler ids in the committed `calibration_set.json` (e.g. `per_labeler_skip_rate`) are
+**opaque** (`labeler_1`, `labeler_2`, …), mapped from renamed answer files — never real names/emails/initials —
+and `finalize_panel` **fails loud on duplicate answer-file stems** (a dup would otherwise silently overwrite a
+labeler in the sha-bound artifact). This **replaced** the original single-annotator spec (one owner's taste + an
 intra-annotator stability check) to de-noise the judge-selection target on a women's-fashion-heavy corpus where a
 lone non-expert labeler can't competently judge much of it; the claim becomes "tracks human consensus (measured
 ceiling)," not one owner's taste. **Draw filters (amended 2026-07-01, pre-pilot — preregistration.md §F
@@ -565,18 +568,21 @@ comparability); `evaluate.py` reports the pre-registered **coherence-sliced sens
 (preregistration.md §C.8, `metrics.json.coherence_sensitivity` — reported, never gating). The calibration claim
 is therefore "human consensus **on coherent, wearable-outfit questions**."
 
-**Judge-above-chance check (the ~100-Q pilot is the precondition; it gates the scale-up).** "FITB parity vs the
+**Judge-above-chance check (two distinct pilots — the calibration pilot is the precondition; the gate-B pilot prefix gates the scale-up).** "FITB parity vs the
 judge" (gate B) is only *informative* if the judge is meaningfully **above chance** at image-based pairwise
-compatibility (the §8 memorization note + the Hirakawa caveat both warn the image-only judge could be weak). The
-~100-Q pilot (already a C4 cost) checks the judge's image-only FITB is clearly > 25% chance (CI low above chance)
-and **gates the scale-up to ~500**. **This does not modify the frozen §12 A∧B∧D gate:** if the judge lands at/near
+compatibility (the §8 memorization note + the Hirakawa caveat both warn the image-only judge could be weak). The **calibration pilot** (`run_judge.py pilot`, **pre-freeze**, ~100 human-panel questions — its
+`pilot_summary.correct_vs_polyvore` judge-vs-Polyvore readout fills the envelope's `above_chance_pilot` at freeze)
+establishes the judge's image-only FITB is clearly > 25% chance (CI low above chance); the post-freeze
+**gate-B pilot prefix** (first 100 of the frozen `fitb_order.json`, on gated benchmark questions) re-confirms above
+chance and **gates the scale-up to ~500**. **This does not modify the frozen §12 A∧B∧D gate:** if the judge lands at/near
 chance, gate B still computes and **passes trivially** (the trained head clears non-inferiority against a
 chance-level judge by a wide margin), but the parity *claim* is **uninformative** — `results.md` reports it as
-"gate B passed but vacuous (judge ≈ chance); the decision rests on A∧D." So the pilot's role is to *flag* a vacuous
+"gate B passed but vacuous (judge ≈ chance); the decision rests on A∧D." So the pilots' role is to *flag* a vacuous
 B and *avoid spending* the ~500-question scale-up on it, never to drop a frozen gate.
 
-**Powered sample, pilot-gated.** A ~100-Q pilot per arm first (commit pilot CIs + position-flip rate); scale to
-~500 only if the pilot CI half-width justifies it (§12's δ check).
+**Powered sample, gate-B-prefix-gated.** The **gate-B pilot prefix** (first 100 of the frozen `fitb_order.json`)
+runs first (commit its CIs + position-flip rate); scale to
+~500 only if that prefix's CI half-width justifies it (§12's δ check).
 
 ---
 
@@ -715,7 +721,8 @@ right shape.
   (cheap over cached scores; the near-gate rule reads CI endpoints, so stable tail quantiles matter). The gate-B
   paired bootstrap should additionally **propagate the judge's temp-0 run-to-run variance** (resample the judge's
   per-question samples jointly with the cluster resample — a two-stage bootstrap — or add the judge run-spread as
-  an explicit variance term), else the parity CI understates uncertainty.
+  an explicit variance term), else the parity CI understates uncertainty. **This stage is non-vacuous only at
+K ≥ 2** — at K = 1 the inner per-question resample is constant, so the frozen K must be ≥ 2 (§8).
 - **Difference CIs built at the source of the difference:**
    - Gates **A** (trained − zero-shot floor) and **B** (trained − judge FITB) use a **paired** cluster bootstrap
      — each replicate resamples the **shared** clusters once and scores **both** models on it, then differences
@@ -796,7 +803,7 @@ negative-construction + label-audit protocol) are committed, validated, and hash
   C2 freezes the constructor (`data_loader.build_fitb`), seed, strict-disjoint loader, `type_map.json`, and source
   hashes in `fitb_manifest.json`; C3 materializes/hashes the regenerated ordered question list before any model
   number, and C4's only degree of freedom is the **prefix length** — N is the size of a **deterministic prefix** of
-  that frozen order chosen to reach `HW ≤ δ` (the ~100-Q pilot is itself the first prefix of the same order), never
+  that frozen order chosen to reach `HW ≤ δ` (the **gate-B pilot prefix** is itself the first 100-question prefix of the same order), never
   a post-hoc re-selection of *which* questions. If the full ~500 list still has `HW > δ`, gate B is underpowered
   → no-go (below). So "test-N moves" means "the prefix grows within the frozen ordered construction," not "the set
   is re-selected at C4." Whichever allocation is chosen,
@@ -888,7 +895,7 @@ provider the photos reach); a committed
 **closet manifest** (item IDs, `clothingType` + fine-category labels, outfit membership, photo **paths +
 content hashes** — tamper-evident, `closet_manifest.json`; **frozen before the C4 test-metric unlock (§12)** —
 necessarily before the head ever scores it) while the **photos themselves stay
-gitignored**; **anonymized opaque owner IDs** + relative paths; **faces + people blurred** (or cropped out only
+gitignored**; **anonymized opaque owner IDs** (`owner_a`/`owner_01`, never a name/email — `assemble_closet.py` rejects whitespace or email-like owner ids) + relative paths; **faces + people blurred** (or cropped out only
 where that does not lose the garment's on-body context, plus any identifying PII) **but the garment kept in its
 real on-body / as-photographed context** (clutter, lighting,
 on-hanger, laid-out) — do **not** crop to a clean garment-only cutout, re-shoot, or clean them into flat-lays,
@@ -954,7 +961,7 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   escape-hatch; **a live API smoke test *re-checking whether image logprobs are available* (§8 verified them
   unavailable at spike-design time; take the logprob escape-hatch only if this re-check finds support) +
   Chat-Completions vs Responses params — the accepted-temperature question is already settled: gpt-5.4-mini takes
-  any temperature (smoke-tested 2026-06-28), judge pinned at temp 0**). ~100-Q pilot → powered ~500 if justified. Cost/latency
+  any temperature (smoke-tested 2026-06-28), judge pinned at temp 0**). Calibration pilot → freeze → gate-B pilot prefix → powered ~500 if justified. Cost/latency
   table. **Freeze the C4 judge addendum — committed as `judge_addendum.md` with these fields: prompt + prompt hash,
   dated model snapshot, calibration-set manifest + hash, temperature 0 + K-sample rule, both-order policy,
   `max_tokens`, retry/drop policy, payload-logging policy, commit hash — on a calibration set
@@ -982,7 +989,11 @@ touched files, one fresh-context review agent, fix verified findings, close; C6 
   produce the headline gate-B number off an unfrozen model (§8 dated-snapshot rule); and the scalar
   `judge_runs.ndjson` is **idempotent + completeness-checked** (keep-last dedup on
   `(question_id, arm, order, sample_index)` + exactly-K-per-order) so a resumed judge run cannot silently
-  double K or misread an incomplete write as a drop. **The gate-B RUN step carries the same build-order
+  double K or misread an incomplete write as a drop. **Before the expensive `emit` retrain, `evaluate.py` must
+preflight the ledger** — `judge_runs.ndjson` must exist and be **committed-clean**
+(`RealGit(ROOT_DIR).identity(GATE_B_LEDGER).committed`; a dirty/uncommitted ledger is a hard stop, refused up
+front rather than after hours of retrain) — and record its `judge_ledger_sha256` in `metrics.json._meta`, binding
+every emitted gate-B number to the exact committed ledger bytes. **The gate-B RUN step carries the same build-order
   teeth as emission:** `run_judge.py gate-b` refuses to score a held-out-test question unless
   `judge_addendum.md` is schema-valid `frozen:true` **and committed-clean**, and it reads the *entire*
   determinism envelope (K, snapshot, `max_tokens`, `retry_budget`) **from the frozen addendum** — there are

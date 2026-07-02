@@ -43,6 +43,29 @@
 > **directly re-read at the cited lines by the auditing session and confirmed**. The Minor register
 > is lane-reported at report-and-move-on tier — sanity-plausible but not individually re-read;
 > verify each cite before acting on it.
+>
+> *Experiment-validity addendum (verified before folding in):* the `K=1` risk is real:
+> `gpt_judge.two_stage_paired_fitb_diff_ci` re-collapses each bootstrap replicate from `_resample`
+> over the K forward/K reverse samples, and `_resample` on a length-1 list is constant, so K=1
+> carries **zero** judge-run variance and makes plurality stabilization inert. The FITB popularity
+> exposure is also real: `data_loader.build_fitb` picks the answer from a real outfit (`rng.choice(ids)`)
+> but draws distractors uniformly from same-category non-co-occurring items (`_draw_same_cat`), while
+> `baselines.py` / `evaluate.py` only implement popularity diagnostics for pair/outfit AUC
+> (`popularity_edge_scores`, `popularity_outfit_scores`), not FITB. The resulting changes below do
+> **not** move frozen gates or edit the preregistration; they tighten the RUN parameter choice and
+> results interpretation. The no-go convergence caveat is also source-backed: `selection.json`
+> seals `grid_0` with `converged:false`, `early_stop_epoch:48`, and `epoch_budget:50`, while the
+> H26 plan header already flags a future gate-D miss as epoch-budget-suspect. Treat this as a
+> writeup caveat, not permission to refit or amend silently.
+>
+> *RUN-protocol addendum (verified before folding in):* the operator-protocol findings are real. In
+> `make_calibration.finalize_panel`, filename stems become labeler ids and are committed under
+> `per_labeler_skip_rate`, with duplicate stems silently overwriting earlier files. In `evaluate`
+> `materialize_metrics_json`, the expensive re-train happens before `validate_unlock_files` and before
+> `read_ledger`, while `metrics.json._meta` records no `judge_runs.ndjson` sha and `emit` does not
+> require the ledger committed-clean. In `assemble_closet`, `_consent.owner_id` is copied verbatim from
+> `closet_input.json`. In `run_judge`, `pilot --snapshot` is optional even though gate-b/emit later bind
+> the frozen addendum snapshot. These are protocol/integrity guardrails; they do not alter frozen gates.
 
 ## Hard rules for the implementing session
 
@@ -62,7 +85,15 @@
 
 ---
 
-## PART B — Immediate fixes (do these now, in order; all small; commit on main)
+## PART B — Immediate fixes (do these now, in order; commit on main)
+
+> **Low-effort routing (read before starting).** Tasks 1, 2, 3, 4 (docs), 5 (docs), 6, and Task 8's
+> code parts (8A/8B/8C) are small, exact, mechanical edits — safe for a low-effort session. **Task 7
+> is NOT:** 7A is an operator K-decision + runbook wording (made at the RUN phase, PART C step 3), 7B
+> is a genuine new-diagnostic build for the emit/results phase, and its wording guardrails are
+> `results.md` content. **Task 8D and the "Operator-only guardrails" paragraph are RUN conventions,
+> not committable code.** All of those already live in PART C — a low-effort PART B pass lands the
+> code/doc edits and leaves Task 7 + the operator rules for the RUN phase.
 
 ### Task 1 (HIGH): make the gate-b ordering test hermetic + guard the live ledger
 
@@ -131,6 +162,9 @@ metric suite + B=10,000 bootstraps. Nothing warns the operator; they will assume
 **Fix (minimal, do this):** in `cmd_emit` (run_judge.py:182-189), before calling
 `materialize_metrics_json`, print a warning: re-derivation of both heads over the frozen 6-config
 grid (hours, single-thread) + ~50-min metric suite; do not interrupt.
+**This is the SAME single warning as Task 8B's** — Task 8B adds the unlock/ledger preflight that must
+run *before* this warning fires. Implement once, in this order: preflight (Task 8B) → this warning →
+`materialize_metrics_json`. Do not emit two warnings.
 **Optional (do NOT attempt casually):** a checkpoint fast path (load
 `checkpoints/pairwise_edge_grid_0_seed20260629.pt`, verify `train_head.checkpoint_sha256` equals the
 sealed `selection.json` sha, skip retraining) is sound for the pairwise head but the **item-level**
@@ -186,7 +220,8 @@ and spec §20/§23-H26 both have it).
   `data_loader.load_json_strict` (duplicate keys in a hand-collected panel file would silently
   last-win into a sha-frozen freeze input).
 - `evaluate.py` emission: record the consumed `judge_runs.ndjson`'s sha256 into `metrics.json._meta`
-  (binds the emitted numbers to the exact ledger; currently unbound).
+  as `judge_ledger_sha256` (binds the emitted numbers to the exact ledger; currently unbound).
+  **Same edit as Task 8B — implement it once, there; this bullet is the "why", Task 8B is the "where".**
 - `ml-system/tests/` (core, one test): add an **absolute golden vector** test pinning the exact item
   ids `fitted_core.sampler.build_candidate_pool` emits for one fixed over-cap wardrobe + context.
   All current sampler determinism tests self-compare via `random.Random.sample`, whose algorithm is
@@ -197,7 +232,105 @@ and spec §20/§23-H26 both have it).
   exactly-K machinery already supports it; today extending N=100→500 re-pays the first 100 (cost-only,
   a few dollars).
 
-**After Tasks 1-6:** run both pytest suites (expect all green, h26 floor grows), `ruff check` on the
+### Task 7 (HIGH, experiment validity): make K non-vacuous + quantify FITB popularity exposure
+
+> **Not a PART B mechanical edit — do NOT attempt in a low-effort session.** 7A is an operator
+> decision (choose K≥2) + runbook wording, made at the RUN phase (PART C step 3); 7B is a new
+> diagnostic to build during the emit/results phase; the "Results wording guardrails" are `results.md`
+> content that does not exist yet. Nothing here is a small code recipe. It is kept in PART B only as
+> the record of *what must be true before the RUN freeze/results* — routed by owner, not executed in
+> this session. All of it is already carried in PART C.
+
+**Problem A — K=1 silently voids a headline robustness claim.** The gate-B two-stage bootstrap is
+supposed to propagate judge temp-0 run-to-run drift: `gpt_judge.two_stage_paired_fitb_diff_ci`
+cluster-resamples questions, then re-collapses the judge from a resample of that question's K forward
+and K reverse samples. At **K=1**, `_resample([x])` can only return `[x]`, so the inner judge-variance
+stage is constant and the plurality vote is a single sample. The handoff's previous "start at K=1"
+tip therefore conflicts with the design's claim that gate-B propagates judge-run variance and uses
+K-sample stabilization.
+
+**Fix / operator rule.** Before freezing `judge_addendum.md`, choose **K >= 2**; prefer **K=3** if
+cost/latency is acceptable. If Brian explicitly overrides to K=1, the results writeup must drop or
+weaken every claim that the parity CI propagates judge-run variance or that the judge verdict is
+K-sample stabilized. Do not schema-hardcode this without Brian confirming the budget tradeoff; the
+required change for the immediate RUN is the frozen envelope choice + docs/runbook wording.
+
+**Problem B — FITB has a popularity shortcut that the current diagnostics do not quantify.** In
+`data_loader.build_fitb`, the correct answer is a real outfit item (`rng.choice(ids)`), so high-outfit
+frequency items are more likely to become answers; the three distractors are uniform same-category
+draws from eligible non-co-occurring items. A "pick the most popular candidate" rule can therefore beat
+chance on FITB without compatibility signal. The preregistered popularity diagnostic currently covers
+pair-level and outfit-level AUC (`AUC_pop_edge`, `AUC_pop_outfit`) but **not** FITB.
+
+**Fix / reporting rule.** Add or compute a **most-popular-candidate FITB diagnostic** over the same
+full FITB questions (split outfit-frequency; deterministic tie handling via the existing FITB tie
+rule). Report it next to the existing edge/outfit popularity diagnostics. This is diagnostic only:
+do **not** move gates, do **not** edit frozen preregistration artifacts. A "clean GO" interpretation
+requires the mandatory popularity-matched A/D sensitivity re-run to agree with the headline gates; if
+it does not, the mechanical gate result can still be reported, but the headline must stay
+"popularity-confounded (disclosed)" rather than "confound-clean".
+
+**Results wording guardrails.** Even if A∧B∧D pass, the defensible claim is: a small trained
+pairwise content-compatibility head over frozen FashionSigLIP clears the preregistered Polyvore-D
+systems bar and is non-inferior within 5 FITB points to the **image-only `gpt-5.4-mini` forced-choice
+judge** on that benchmark, supporting the cost/latency/determinism case for a deterministic scorer.
+Avoid "beats GPT", "as good as the production stylist", "matched the 2018 baseline" (say
+"approximately / in the neighborhood"), "proves real-closet transfer", and "measures compatibility"
+without the co-worn/not-co-worn proxy caveat. If H26 no-goes because **gate D misses**, do not write
+"the approach cannot clear the floor" without the training-budget caveat: the sealed winner is
+`converged:false` at epoch 48/50, so a D miss is confounded between the approach ceiling and the
+pre-frozen 50-epoch budget. Bumping epochs is a preregistration/design decision, not a silent fix.
+
+### Task 8 (HIGH/MEDIUM, RUN protocol): close operator PII/provenance/time-burn gaps
+
+**Problem A — panelist filenames leak into the committed calibration artifact.**
+`make_calibration.finalize_panel` derives labeler ids from each answer filename stem and
+`assemble_panel` writes those ids into `calibration_set.json["per_labeler_skip_rate"]`. The raw
+`panel_answers/` files are gitignored, but real names in filenames would survive in a public,
+sha-bound unlock artifact. Duplicate stems also silently overwrite in the `per_labeler` dict.
+
+**Fix.** In code, fail loud on duplicate stems and map stems to opaque ids (`labeler_1`,
+`labeler_2`, ...) before writing `calibration_set.json`; if preserving a local name->id mapping is
+needed, keep it outside git. At minimum, the RUN convention is: rename downloads to opaque ids only
+(`p1.json`, `p2.json`, `p3.json`), never real names/emails/initials.
+
+**Problem B — `emit` refuses bad unlocks only after hours of work, and the judge ledger is not
+provenance-bound.** `materialize_metrics_json` re-derives both heads and computes the metric suite
+before `emit_metrics` calls `validate_unlock_files`; a missing ledger is read near the end. The
+existing Task 6 sha bullet is necessary but incomplete: `emit` should also refuse an uncommitted or
+dirty `judge_runs.ndjson` before any retrain.
+
+**Fix.** In `cmd_emit` / `materialize_metrics_json`, preflight before the expensive retrain:
+`validate_unlock_files(ROOT_DIR)`, assert `judge_runs.ndjson` exists, assert
+`RealGit(ROOT_DIR).identity(GATE_B_LEDGER).committed`, then print the multi-hour warning (this IS the
+Task 3 warning — one warning total, printed only after the preflight passes). Also record
+`judge_ledger_sha256` in `metrics.json._meta` so every gate-B number binds to the exact committed
+ledger bytes — **this is the same `metrics.json._meta` sha as Task 6's last bullet; implement it once,
+here, under this field name (do not add a second sha field).**
+
+**Problem C — committed closet metadata can leak a real owner id.** `assemble_closet` copies
+`owner_id` / `consent.owner_id` verbatim into committed `closet_manifest.json["_consent"]["owner_id"]`.
+
+**Fix.** RUN convention: use an opaque owner token (`owner_a`, `owner_01`), never a name/email.
+Cheap code guard: reject owner ids containing whitespace or matching an email-like pattern.
+
+**Problem D — the calibration pilot snapshot can diverge from the frozen judge snapshot.**
+`run_judge.py pilot --k ...` defaults the snapshot from CLI code, but `gate-b` and `emit` bind the
+snapshot from `judge_addendum.md`. If Brian pilots one snapshot and freezes another, K was tuned on a
+different judge.
+
+**Fix.** Run `pilot` with the exact intended `--snapshot`, verify that snapshot is still served, and
+freeze `judge_addendum.md` with the same string. Select K by `human-agreement` only;
+`correct_vs_polyvore` is the above-chance readout, not the K-selection target.
+
+**Operator-only guardrails.** After sending the viewer, do not rerun `make_calibration.py` or edit
+`calibration_visual_qc.json` before `finalize_panel` unless you intentionally redistribute the new
+viewer. Send `calibration_viewer.html` privately to named panelists; do not host it publicly because
+it embeds Polyvore image data URIs. For B3, redact closet-photo faces/PII before `assemble_closet`
+hashes the bytes, and if B3 stalls use the documented blind unlock-split amendment rather than a stub
+manifest.
+
+**After Tasks 1-8:** run both pytest suites (expect all green, h26 floor grows), `ruff check` on the
 h26 dir, then commit on main (docs+ml-system work — no branch needed).
 
 ---
@@ -211,8 +344,9 @@ Do **Tasks 1-2 BEFORE the addendum freeze step** below (else the pytest trap in 
 2. Collect renamed per-person files into gitignored `panel_answers/`; run `finalize_panel([...])` →
    commit `calibration_set.json` (needs ≥50 surviving consensus questions).
 3. **Calibration pilot** (Brian's `OPENAI_API_KEY`, his shell): `run_judge.py pilot --k <K>` for a
-   few K; pick by human-agreement + stability. Costs ~$0.2-0.9. Tip (merit lane): start at K=1 (the
-   cheapest envelope cell) and expand only if verdict consistency demands it.
+   few K; pick by human-agreement + stability. Use **K >= 2** so the two-stage bootstrap's judge
+   resample is non-vacuous; prefer **K=3** if the cost/latency is acceptable. If Brian knowingly
+   chooses K=1, results.md must drop the judge-run-variance / K-sample-stability claims.
 4. **Freeze `judge_addendum.md`** (frozen:true, real hashes, K, snapshot, above-chance numbers from
    the calibration pilot) + commit. Blind: no trained-head number exists to look at.
 5. `run_judge.py gate-b --n 100` → check above-chance + flip rate → extend `--n 500` if warranted →
@@ -224,13 +358,52 @@ Do **Tasks 1-2 BEFORE the addendum freeze step** below (else the pytest trap in 
 **Timebox (merit-lane recommendation, Fable-audited):** the whole RUN ≈ 1 calendar week. If B3 (closet)
 is the last blocker for >2 weeks, the sanctioned fallback is a **blind, documented unlock-split
 amendment** (decouple A/B/D emission from the transfer probe) — fallback only, not the plan. Gate-B is
-a knife-edge by design (~4.8pt CI half-width at N=500 vs δ=5); a no-go ships as a clean verdict. After
-emission, the **writeup is co-equal**: 1-page `results.md` leading with the §9 table + a portfolio
-README telling the freeze story with commit hashes. Two one-line disclosures for `results.md`:
+a knife-edge by design (~4.8pt CI half-width at N=500 vs δ=5); a no-go ships as a clean preregistered
+result, but a **gate-D no-go** must disclose the `selection.json` convergence caveat (`converged:false`
+at epoch 48/50) rather than overclaiming that the approach itself hit a ceiling. After emission, the
+**writeup is co-equal**: 1-page `results.md` leading with the §9 table + a portfolio README telling
+the freeze story with commit hashes. Two one-line disclosures for `results.md`:
 (a) FashionSigLIP's training data may share distribution with Polyvore-style product imagery — the
 disjoint split guards item leakage, not backbone familiarity (fine for the systems claim; say it);
 (b) the prereg §D "~175k items" one-time-pass estimate was pre-exclusion — the scorable cache is
-83,178 (never edit the frozen prereg for this).
+83,178 (never edit the frozen prereg for this). Add the experiment-validity guardrails from Task 7:
+state the actual K; report the judge's absolute FITB and human ceiling next to parity; print the
+most-popular-candidate FITB diagnostic; print the popularity-matched A/D sensitivity; and keep every
+parity sentence scoped to the image-only forced-choice judge, not the production stylist.
+
+**Stop/go before freezing `judge_addendum.md`:**
+- Tasks 1 and 2 landed before any `frozen:true` commit.
+- `calibration_set.json` is committed, has >=50 consensus questions and >=3 labelers, and labeler ids
+  are opaque. Grep `per_labeler_skip_rate` before committing.
+- Panel answers came from the distributed viewer; no post-distribution redraw/QC edit unless the new
+  viewer was redistributed. No duplicate answer filename stems.
+- K >= 2 (prefer K=3), selected by human-agreement + acceptable flip rate, not by Polyvore correctness.
+- Pilot snapshot exactly matches the snapshot being frozen; `above_chance_pilot` comes from the
+  calibration pilot, and `inter_annotator_agreement` is copied from `calibration_set.json`.
+
+**Stop/go before gate-b:**
+- Frozen addendum is schema-valid and committed-clean.
+- Run `gate-b --n 100` first; only extend if the judge is clearly above chance and flip/drop rates are
+  acceptable.
+- Commit `judge_runs.ndjson` after each paid prefix (`--n 100`, then `--n 500` if run). Do not run
+  pytest in this window until Task 1 is applied.
+- The scored prefix must pass the `fitb_order.json` drift tripwire.
+
+**Stop/go before emit:**
+- Preflight unlock files and ledger before the expensive retrain: all unlock files committed-clean,
+  `judge_runs.ndjson` exists and is committed-clean, and `emit --n` equals the scored ledger prefix.
+- `closet_manifest.json` is real, not a stub; `_consent.owner_id` is opaque; photos were redacted
+  before assembly/hash.
+- No `OPENAI_API_KEY` is needed for `emit`; use the H26 `.venv/bin/python`, not conda base.
+
+**Stop/go before `results.md`:**
+- Apply the C6 gate logic and near-gate rule; do not infer GO/no-go from raw C4 CIs alone.
+- Report the mandatory popularity-matched A/D sensitivity and the most-popular-candidate FITB
+  diagnostic.
+- State K, judge absolute FITB, human ceiling, and the two-stage `gate_B_diff_*` parity CIs.
+- If gate D missed, include the convergence caveat (`converged:false` at epoch 48/50).
+- Include the two fixed disclosures: FashionSigLIP backbone familiarity and prereg "~175k items" vs
+  the actual 83,178 scorable cache.
 
 ---
 
@@ -331,8 +504,10 @@ opportunistically, never as dedicated work):**
 
 ## PART E — next prompts, in order
 
-1. "Implement PART B of `docs/sessions/2026-07-02-full-audit-handoff.md` (Tasks 1-6), run both
-   pytest suites + ruff, and commit on main." (Safe for a low-effort session — recipes are exact.)
+1. "Implement the PART B code/doc edits of `docs/sessions/2026-07-02-full-audit-handoff.md` (Tasks 1,
+   2, 3, 4, 5, 6, and Task 8's 8A/8B/8C code guards), run both pytest suites + ruff, and commit on
+   main." (Safe for a low-effort session — those recipes are exact. **Skip Task 7 and Task 8D / the
+   "Operator-only guardrails" — they are RUN-phase decisions, handled in prompt 2 / PART C.**)
 2. The RUN phase (PART C — Brian-manual, with Claude assisting per step).
 3. After emission: "Write `results.md` + the portfolio freeze-story README per PART C's writeup note,
    then start the C5 domain probe."
