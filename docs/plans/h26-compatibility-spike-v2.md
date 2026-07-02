@@ -506,7 +506,9 @@ null) and is *not* the drift-detection mechanism; the multi-run distribution + t
 **report the judge's FITB accuracy as a multi-run distribution (mean ±
 spread), never a single reproducible point** — and claim the trained scorer's **bit-exact determinism as a
 first-class win** alongside cost and offline operation, not a footnote. Pin the dated snapshot, `temperature=0`
-(the model accepts any temperature — smoke-tested 2026-06-28), fixed `max_tokens`, structured
+(the model accepts any temperature — smoke-tested 2026-06-28), a fixed completion-token cap (**the SDK param is
+`max_completion_tokens` — GPT-5.x rejects `max_tokens` with a hard 400; `reasoning_effort` is pinned `"none"` and
+`detail:"low"` on every image part — all frozen in the addendum envelope, verified 2026-07-01**), structured
 `response_format`, a pinned retry budget
 (unparseable-after-budget → drop + log; both
 models then score the reduced shared question set, preserving like-for-like), and log full payloads +
@@ -548,7 +550,15 @@ Fleiss' κ is ill-defined under per-question skips) as the human-agreement ceili
 the realized garment mix. This **replaced** the original single-annotator spec (one owner's taste + an
 intra-annotator stability check) to de-noise the judge-selection target on a women's-fashion-heavy corpus where a
 lone non-expert labeler can't competently judge much of it; the claim becomes "tracks human consensus (measured
-ceiling)," not one owner's taste.
+ceiling)," not one owner's taste. **Draw filters (amended 2026-07-01, pre-pilot — preregistration.md §F
+amendment #2):** the calibration **draw** keeps only **5-type-coherent** questions (`coherence.py`: ≤1 item per
+clothingType over retained + answer, never dress with top/bottom — ~13% of raw Polyvore FITB questions imply a
+wear-impossible outfit humans balk at) and skips items on the committed **visual-QC exclude list**
+(`calibration_visual_qc.json` — parquet images that contradict their declared garment, e.g. a car for
+"trousers"). **The gate-B/gate-D eval sets are NOT filtered** — they stay the standard benchmark (anchor
+comparability); `evaluate.py` reports the pre-registered **coherence-sliced sensitivity** instead
+(preregistration.md §C.8, `metrics.json.coherence_sensitivity` — reported, never gating). The calibration claim
+is therefore "human consensus **on coherent, wearable-outfit questions**."
 
 **Judge-above-chance check (the ~100-Q pilot is the precondition; it gates the scale-up).** "FITB parity vs the
 judge" (gate B) is only *informative* if the judge is meaningfully **above chance** at image-based pairwise
@@ -576,8 +586,13 @@ dependency — at **honest FITB parity** (gate B) with what the judge reaches on
 the existing "parity at a fraction of *deployed* per-edge GPT cost" is a strawman because per-edge GPT is never
 deployed.
 
-**What to measure.** The **offline experiment** cost (whole-outfit granularity, image `detail: "low"`
-~85 tok/image is a **gpt-4o-era** figure — confirm gpt-5.4-mini's actual per-image token accounting at C4, **Batch API 50% off**, **× the temp-0 per-question sample count `K` × 2 candidate orders** per §8)
+**What to measure.** The **offline experiment** cost (whole-outfit granularity, image `detail: "low"` —
+**confirmed at C4 (2026-07-01): gpt-5.4-mini is patch-based — 32px patches, ~1,536-patch budget, ×1.62
+mini multiplier → a 300×300 Polyvore image = 100 patches × 1.62 = ~162 tok/image at any detail setting** (the
+old ~85 was a gpt-4o-era figure; `detail:"low"` is still pinned in the envelope because real closet photos at
+high/auto balloon ~15× — C5); a gate-B question ≈ 6 images ≈ ~1.1k input tok/call → pilot ~100 Q ≈ $0.18–0.88
+and gate-B 500 Q ≈ $0.88–4.42 across K∈{1..5}, **Batch API 50% off** all cells, **× the temp-0 per-question
+sample count `K` × 2 candidate orders** per §8)
 as **point estimates with the pricing source** — cost is
 ~deterministic (tokens × published price), so a bootstrap CI on it is theater; statistical machinery applies to
 **accuracy only.** Report alongside: the trained head's per-edge inference latency (~ms, CPU), its
@@ -803,7 +818,11 @@ negative-construction + label-audit protocol) are committed, validated, and hash
   sensitivity table reports alongside), and treat the "B-pass is conservative" reading as holding
   **only if both conventions agree**. The `inconsistent = miss` headline is justified independently as a measure of
   the judge's *deployable* reliability (an order-flippable verdict is not a usable signal) — but that justification
-  is stated, not used to wave away the toward-GO bias.
+  is stated, not used to wave away the toward-GO bias. A third toward-GO mechanism — the ~13% coherence-flagged
+  questions (Polyvore board noise) attenuate a true gap toward parity *and* can inflate the judge's inconsistency
+  rate specifically — is covered by the pre-registered **coherence-sliced sensitivity** (preregistration.md §C.8:
+  both-convention gate-B diffs + judge inconsistency rate + gate-D FITB per coherent/flagged slice, reported never
+  gating, response pre-committed).
 
 **Near-gate rule — stated once, here, as a single uniform principle** (the existing spec restated it across
 five homes and the conjunct logic broke three times): **read every decision gate off its 95% CI; the conjuncts

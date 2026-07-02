@@ -202,6 +202,32 @@ decision / descriptive, not CI-adjudicated ablation inferences).
   three** (a seed that flips a gate is a finding, not noise — the footnote is a coarse robustness
   check on "seed variance ≪ cluster variance," not a variance estimate).
 
+### C.8 Coherence-sliced sensitivity (amended in 2026-07-01, pre-pilot — blind; build doc §12)
+- **Finding that motivated it (measured before any judge or test-set number existed):** Polyvore sets
+  are curatorial boards, not guaranteed wearable outfits. Under the mechanical 5-type rule
+  (`coherence.py`: ≤1 item per clothingType over retained + held-out answer, never dress with
+  top/bottom), **13/100** of the calibration draw, **65/500 (13.0%)** of the gate-B prefix, and
+  **1,964/13,895 (14.1%)** of the gate-D full FITB set are incoherent. The rule deliberately
+  over-flags layered tops (~40 of the gate-B 65 are top×2 — the type map folds cardigan/kimono/hoodie
+  into `top`); strictly wear-impossible questions are ~5% of gate B.
+- **The eval sets are NOT filtered** — gates A/B/D read the standard unfiltered benchmark (the Vasileva
+  0.81 / 51.8% anchors were computed on the same unfiltered corpus; filtering would break gate-D
+  comparability and soften the floor). Incoherence also **cannot discriminate candidates within a
+  question**: FITB distractors are same-fine-category as the answer (§E), so all 4 candidates share the
+  clash status (verified 500/500 on the gate-B prefix).
+- **Why a sensitivity is still owed — two residual mechanisms, both pushing TOWARD a gate-B pass:**
+  (1) near-noise questions attenuate a true trained-vs-judge gap toward parity (a true 5.7-point gap
+  reads ≈ 5.0 under a 13% noise slice — at the δ = 5 margin that can flip a fail to a pass); (2) an LLM
+  asked to complete an already-complete outfit can answer erratically → order-inconsistent → scored a
+  miss (the §B judge handicap), while the trained head has no such failure mode.
+- **Pre-registered reads (REPORTED, NEVER GATING; `metrics.json.coherence_sensitivity`):** per slice
+  (coherent / flagged) — the gate-B paired diff under **both** inconsistency conventions, the judge's
+  inconsistency rate (the balk detector), and the gate-D trained FITB. Slice CIs are null when a slice
+  is empty.
+- **Pre-committed response (frozen before the diagnostic, like C.6):** if the coherent-slice gate-B
+  verdict disagrees with the headline gate-B verdict, `results.md` labels gate B
+  **"coherence-sensitive (disclosed)"** — **gate numbers do not move.**
+
 ---
 
 ## D. Embedding backbone freeze (build doc §5; verified at C2)
@@ -294,6 +320,29 @@ freeze later, at C4, in `judge_addendum.md`). Firm invariants frozen now:
 > question to competent judges, and the panel yields a measurable human-agreement ceiling. The claim
 > shifts from "tracks the owner's taste" to "tracks human consensus (with a measured ceiling)." Mirrored
 > in `preregistration.json` `calibration_set`.
+
+> **Amendment #2 (2026-07-01, pre-pilot — blind; same epistemic position as above).** The calibration
+> **draw** adds two pre-label filters (no judge or test-set number existed; no panel label had been
+> collected):
+> 1. **5-type coherence filter** (`coherence.fitb_question_is_coherent`): a question is drawn only if
+>    its full outfit (retained + held-out answer) has ≤1 item per clothingType and never combines a
+>    dress with a top/bottom. Cause: 13/100 of the unfiltered draw implied a wear-impossible outfit
+>    (two pairs of shoes; a dress plus pants; "add a bottom" over an outfit that has one) — humans balk,
+>    and their forced-choice labels there are noise, so tuning the judge to them would tune to noise.
+>    The rule is deliberately strict (layered-top outfits read incoherent; disclosed in `coherence.py`).
+> 2. **Visual-QC exclude list** (`calibration_visual_qc.json`, committed): the operator views EVERY
+>    image in the drawn questions; an item whose parquet image contradicts its declared garment
+>    (verified instances: a car for "rick owens trousers"; a Gucci shoulder bag for "jersey stirrup
+>    leggings"; a sling bag for "suede pencil skirt") is appended with a reason and the draw re-runs
+>    (deterministic given the committed list). Metadata mislabels whose image DOES show the named
+>    garment (a swimsuit categorized as dress/coverup; scenic worn-garment shots) are NOT excluded —
+>    the panel's abstain + plurality-drop machinery is the designed backstop, keeping the list
+>    objective rather than taste-based.
+>
+> The **eval sets are untouched** by both (they stay the standard benchmark — §C.8 reports the
+> coherence-sliced sensitivity instead). The calibration claim narrows to "tracks human consensus **on
+> coherent, wearable-outfit questions** (with a measured ceiling)" — disclosed in `results.md`.
+> Mirrored in `preregistration.json` `calibration_set.amendment_2026_07_01_draw_filters`.
 
 ---
 

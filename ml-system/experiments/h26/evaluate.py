@@ -40,6 +40,7 @@ from baselines import (
     popularity_edge_scores,
     popularity_outfit_scores,
 )
+from coherence import COHERENCE_RULE, fitb_question_is_coherent
 from data_loader import (
     Corpus,
     Edge,
@@ -651,6 +652,60 @@ def compute_gate_b(
     )
 
 
+def compute_coherence_sensitivity(
+    gate_b_questions: Sequence[FitbQuestion],
+    full_questions: Sequence[FitbQuestion],
+    item_index: dict[str, Item],
+    edge_score: EdgeScore,
+    ledger_rows: Sequence[dict],
+    *,
+    arm: str,
+    seed: int = SEED,
+    b: int = 10_000,
+    expected_k: int | None = None,
+) -> dict:
+    """The pre-registered coherence-sliced sensitivity (§F amendment 2026-07-01 / build doc §12 —
+    REPORTED, NEVER GATING; the gates read the standard unfiltered sets). Polyvore's ~13-14% incoherent
+    questions (`coherence.fitb_question_is_coherent`) cannot discriminate candidates (all 4 share the
+    clash status, §4 same-fine-category), but two residual mechanisms both push TOWARD a gate-B pass:
+    noise questions attenuate a true trained-vs-judge gap toward parity, and an LLM asked to complete an
+    already-complete outfit can answer erratically -> order-inconsistent -> scored a miss (the §12
+    judge handicap). So report, per slice: the gate-B paired diffs under BOTH conventions, the judge's
+    inconsistency rate (the balk detector), and the gate-D trained FITB. Pre-committed response: if the
+    coherent-slice gate-B verdict disagrees with the headline, results.md labels gate B
+    "coherence-sensitive (disclosed)" — gate numbers never move."""
+    flags = {q.set_id: fitb_question_is_coherent(q, item_index) for q in gate_b_questions}
+    slices = {
+        "coherent": [q for q in gate_b_questions if flags[q.set_id]],
+        "flagged": [q for q in gate_b_questions if not flags[q.set_id]],
+    }
+    out: dict = {"rule": COHERENCE_RULE,
+                 "n_gate_b_coherent": len(slices["coherent"]),
+                 "n_gate_b_flagged": len(slices["flagged"])}
+    for name, qs in slices.items():
+        if not qs:
+            out[f"gate_B_diff_inconsistent_miss_{name}"] = None
+            out[f"gate_B_diff_inconsistent_half_{name}"] = None
+            out[f"judge_inconsistent_rate_{name}"] = None
+            continue
+        per_question = group_samples(ledger_rows, qs, arm=arm, expected_k=expected_k)
+        gb = gate_b_verdicts(per_question)
+        kept = set(gb.kept_question_ids)
+        kept_qs = [q for q in qs if q.set_id in kept]
+        trained_hits = fitb_hits(kept_qs, edge_score)
+        out[f"gate_B_diff_inconsistent_miss_{name}"] = _ci(two_stage_paired_fitb_diff_ci(
+            trained_hits, gb.verdicts, gb.samples_by_id, convention=INCONSISTENT_MISS, seed=seed, b=b))
+        out[f"gate_B_diff_inconsistent_half_{name}"] = _ci(two_stage_paired_fitb_diff_ci(
+            trained_hits, gb.verdicts, gb.samples_by_id, convention=INCONSISTENT_HALF, seed=seed, b=b))
+        n_inconsistent = sum(1 for v in gb.verdicts if v.status == "inconsistent")
+        out[f"judge_inconsistent_rate_{name}"] = (
+            n_inconsistent / len(gb.verdicts) if gb.verdicts else None)
+    for name, pred in (("coherent", True), ("flagged", False)):
+        qs = [q for q in full_questions if fitb_question_is_coherent(q, item_index) is pred]
+        out[f"fitb_trained_full_{name}"] = _ci(fitb_ci(fitb_hits(qs, edge_score), seed=seed, b=b)) if qs else None
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Assemble + emit metrics.json (the gated write — refuses unless the unlock passes)
 # --------------------------------------------------------------------------- #
@@ -667,6 +722,7 @@ def assemble_metrics(
     git_commit: str,
     seed: int = SEED,
     stage: str = "C4",
+    coherence: dict | None = None,
 ) -> dict:
     """Map the in-memory CI suite + the gate-B judge comparison to the `metrics.schema.json` field set.
     Emits the C4 required set (gate A/B/D) plus the always-available diagnostics + seam pair-level fields
@@ -703,6 +759,9 @@ def assemble_metrics(
         "seam_diff_pairwise_minus_item_level": _ci(suite.seam_diff_pairwise_minus_item_level),
         "outfit_auc_item_level": _ci(suite.outfit_auc_item_level),
         "fitb_item_level_full": _ci(suite.fitb_item_level_full),
+        # Coherence-sliced sensitivity (§F amendment 2026-07-01 — REPORTED, NEVER GATING; absent only
+        # in legacy/partial assemblies).
+        **({"coherence_sensitivity": coherence} if coherence is not None else {}),
     }
 
 
@@ -715,6 +774,7 @@ def emit_metrics(
     git: GitInfo | None = None,
     seed: int = SEED,
     stage: str = "C4",
+    coherence: dict | None = None,
 ) -> dict:
     """First-emit `metrics.json` — but ONLY after the four-file unlock validates (§1/§12). Validates the
     unlock files (every freeze file must be committed-clean — no bypass) + binds the sealed selection,
@@ -725,7 +785,7 @@ def emit_metrics(
     unlock_files, selection_meta = validate_unlock_files(root_dir, git)
     metrics = assemble_metrics(
         suite, gate_b, unlock_files=unlock_files, selection_meta=selection_meta,
-        git_commit=git.head_commit(), seed=seed, stage=stage,
+        git_commit=git.head_commit(), seed=seed, stage=stage, coherence=coherence,
     )
     _validate_against_schema(metrics, os.path.join(root_dir, METRICS_SCHEMA), what="assembled metrics.json")
     out_path = out_path or os.path.join(root_dir, "metrics.json")
@@ -805,11 +865,16 @@ def materialize_metrics_json(
             "constructor drifted; the emitted gate-B number would bind the wrong questions (§12 tripwire)"
         )
     edge_score = head_edge_scorer(pw, cache, corpus.item_index)
+    ledger_rows = read_ledger(ledger_path)
     gate_b = compute_gate_b(
-        gate_b_questions, edge_score, read_ledger(ledger_path), arm=arm, seed=seed, b=b,
+        gate_b_questions, edge_score, ledger_rows, arm=arm, seed=seed, b=b,
         expected_k=k_samples, expected_snapshot=model_snapshot,
     )
-    return emit_metrics(suite, gate_b, root_dir=root_dir, git=git, seed=seed)
+    coherence = compute_coherence_sensitivity(
+        gate_b_questions, questions, corpus.item_index, edge_score, ledger_rows,
+        arm=arm, seed=seed, b=b, expected_k=k_samples,
+    )
+    return emit_metrics(suite, gate_b, root_dir=root_dir, git=git, seed=seed, coherence=coherence)
 
 
 def main() -> None:

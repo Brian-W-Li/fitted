@@ -1,25 +1,25 @@
 {
-  "checkpoint_id": "fashionsiglip_pairwise_edge_grid_0_seed20260629",
-  "checkpoint_sha256": "a172be27022d59b5cce7b64e68ec73e9709e8969a07b4311c502f77afe4b0659",
-  "training_config": {
-    "head": "pairwise_type_conditioned_edge",
-    "optimizer": "adam",
-    "seed": 20260629,
-    "config_id": "grid_0",
-    "learning_rate": 0.001,
-    "weight_decay": 0.0,
-    "batch_size": 1024,
-    "epoch_budget": 50,
-    "early_stop_patience": 5,
-    "selection_metric": "valid_pooled_pair_level_roc_auc",
-    "deterministic_algorithms": true
-  },
-  "converged": false,
-  "early_stop_epoch": 48,
-  "manifest_hashes": {
-    "preregistration_json_sha256": "2c0992fe70998f2f8faaa3d5a01a60279efa3f7cf0124ddcb23ced7c32bb0ca5",
-    "fitb_manifest_sha256": "6ae89dada8bd416d76a46609f8ac35bea07d7faf42f6c498bc64420d3dcc6bff",
-    "embedding_manifest_sha256": "c8e4eab523a71a7ebb36b12708a9e952d473311a2a995ccf056ccb00d023e999",
-    "type_map_sha256": "d29c03c8f338abe7e335c63d367be57f7b4d5e7d175024db24515c67b8d61b27"
-  }
+ "checkpoint_id": "fashionsiglip_pairwise_edge_grid_0_seed20260629",
+ "checkpoint_sha256": "a172be27022d59b5cce7b64e68ec73e9709e8969a07b4311c502f77afe4b0659",
+ "training_config": {
+  "head": "pairwise_type_conditioned_edge",
+  "optimizer": "adam",
+  "seed": 20260629,
+  "config_id": "grid_0",
+  "learning_rate": 0.001,
+  "weight_decay": 0.0,
+  "batch_size": 1024,
+  "epoch_budget": 50,
+  "early_stop_patience": 5,
+  "selection_metric": "valid_pooled_pair_level_roc_auc",
+  "deterministic_algorithms": true
+ },
+ "converged": false,
+ "early_stop_epoch": 48,
+ "manifest_hashes": {
+  "preregistration_json_sha256": "4d1343cb970d092ae8c53981c5ccfa4ba9500955e4d30c03cdefcaedb493c3c6",
+  "fitb_manifest_sha256": "6ae89dada8bd416d76a46609f8ac35bea07d7faf42f6c498bc64420d3dcc6bff",
+  "embedding_manifest_sha256": "c8e4eab523a71a7ebb36b12708a9e952d473311a2a995ccf056ccb00d023e999",
+  "type_map_sha256": "d29c03c8f338abe7e335c63d367be57f7b4d5e7d175024db24515c67b8d61b27"
+ }
 }

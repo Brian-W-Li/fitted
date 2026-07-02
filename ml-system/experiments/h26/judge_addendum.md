@@ -35,7 +35,9 @@ unlock file. The headline cell, the A∧B∧D gates, δ, and the FITB constructi
 | `prompt_sha256` | sha256 of the exact committed judge prompt (`gpt_judge.SYSTEM_PROMPT` + the per-arm builder) |
 | `temperature` / `k_samples` | temp 0 (smoke-tested 2026-06-28); K from the pilot's verdict-agreement rate |
 | `both_order_policy` / `adjudication_convention` | forward + exact-reverse, consistent-only; `inconsistent = miss` headline (`inconsistent = half` cross-check) |
-| `max_tokens` / `retry_budget` / `drop_policy` | the determinism envelope (unparseable-after-budget → drop + log) |
+| `max_tokens` / `retry_budget` / `drop_policy` | the determinism envelope (unparseable-after-budget → drop + log). `max_tokens` is the envelope's completion-token cap; the SDK param is **`max_completion_tokens`** (GPT-5.x rejects `max_tokens` with a hard 400 — verified 2026-07-01; production `route.ts` sends no cap, so the judge is the first code to set one) |
+| `reasoning_effort` | pinned `"none"` (the gpt-5.4-mini default, verified 2026-07-01) so a provider default change can never spend the small completion cap on hidden reasoning tokens (truncated `{"choice"}` JSON → parse-drop storms) |
+| `image_detail` | pinned `"low"` on every image part. Cost-neutral on Polyvore (300×300 → 100 patches × 1.62 = 162 tok at any detail; verified 2026-07-01) but load-bearing for the C5 closet arm (real phone photos at high/auto balloon ~15× + invite server-side-resize nondeterminism) |
 | `payload_logging_policy` | full payloads → gitignored `raw_payloads/`; the committed `judge_runs.ndjson` stays scalar-only (§14) |
 | `calibration_set` | the manifest **path + hash** + size + source + n_annotators + inter-annotator agreement (the §F human-panel set) |
 | `logprob_escape_hatch` | the C4 live re-check of whether image logprobs are available (found unavailable at design time, §8) |
@@ -61,6 +63,9 @@ gated set. Source it from valid/train Polyvore (or the closet) — never a test 
   "adjudication_convention": "inconsistent_is_miss",
   "conservative_cross_check_convention": "inconsistent_is_half",
   "max_tokens": null,
+  "sdk_token_param": "max_completion_tokens",
+  "reasoning_effort": "none",
+  "image_detail": "low",
   "retry_budget": null,
   "drop_policy": "unparseable after the retry budget -> drop the sample + log; both models score the reduced shared question set",
   "payload_logging_policy": "full request/response payloads -> gitignored raw_payloads/; committed judge_runs.ndjson is scalar-only (question_id+order+choice+flags+provenance)",

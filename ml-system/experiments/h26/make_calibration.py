@@ -4,11 +4,17 @@ The judge envelope (prompt / K / determinism) is tuned to best match a **diverse
 forced-choice compatibility judgments on a held-out set — a **human label on purpose**, disjoint from
 every gated question. This module: (1) draws N FITB questions from the **valid + train** splits,
 **stratified by garment category** (automatically disjoint from the test-only gate-B/gate-D sets — the §F
-blindness guarantee — and covering types evenly), (2) exports a **self-contained HTML viewer** (garment
-photos + A–D radios + a "Not sure" abstain option + a "download my answers" button — the image-only
-modality that matches the headline judge), and (3) aggregates every panelist's downloaded answers by
-unique-plurality consensus over confident (non-skip) votes into the committed `calibration_set.json` (the
-`evaluate.py` unlock binds it by sha and asserts its `question_ids` touch no gated question).
+blindness guarantee — and covering types evenly), keeping only **5-type-coherent** questions
+(`coherence.fitb_question_is_coherent` — Polyvore sets are shopping boards; ~13% imply a wear-impossible
+outfit humans balk at labeling; §F amendment 2026-07-01) whose items also pass the committed
+**visual-QC exclude list** (`calibration_visual_qc.json` — source-corrupted parquet images, e.g. an
+item whose "trousers" image is a car; the mechanical rule cannot see pixels), (2) exports a
+**self-contained HTML viewer** (garment photos + A–D radios + a "Not sure" abstain option + a
+"download my answers" button — the image-only modality that matches the headline judge), and
+(3) aggregates every panelist's downloaded answers by unique-plurality consensus over confident
+(non-skip) votes into the committed `calibration_set.json` (the `evaluate.py` unlock binds it by sha and
+asserts its `question_ids` touch no gated question). The EVAL sets are NOT filtered — they stay the
+standard benchmark; `evaluate.py` reports coherence-sliced sensitivities instead (§F / build doc §12).
 
 Workflow (after the Step-1 cache/training run frees the parquet):
     .venv/bin/python make_calibration.py            # writes calibration_viewer.html — send to every panelist
@@ -26,7 +32,8 @@ import json
 import os
 from collections import Counter
 
-from data_loader import Corpus, FitbQuestion, build_fitb, load_headline_corpus
+from coherence import fitb_question_is_coherent
+from data_loader import Corpus, FitbQuestion, build_fitb, load_headline_corpus, load_json_strict
 from gpt_judge import CHOICE_LABELS
 
 ROOT_DIR = os.path.dirname(__file__)
@@ -37,22 +44,47 @@ SKIP = "SKIP"                # viewer value for "not sure / outside my competenc
 SURVIVOR_FLOOR = 50          # §F: the post-drop consensus set must still clear the size floor
 VIEWER = os.path.join(ROOT_DIR, "calibration_viewer.html")
 QUESTIONS_CACHE = os.path.join(ROOT_DIR, "calibration_questions.json")  # the drawn questions (regenerable)
+VISUAL_QC = os.path.join(ROOT_DIR, "calibration_visual_qc.json")        # committed operator image-QC exclude list
+
+
+def load_visual_qc_excluded(path: str = VISUAL_QC) -> set[str]:
+    """Item ids whose SOURCE image is not a photo of the garment its metadata declares (operator visual
+    QC over the drawn questions — e.g. 166938043, 'rick owens trousers' whose parquet image is a car).
+    A calibration question touching any excluded item (retained OR candidate — a junk distractor breaks
+    the human forced choice too) is skipped by the draw. The committed artifact makes the redraw
+    reproducible: draw -> operator views every image -> junk item ids land here with a reason -> redraw.
+    Missing file = empty list (the draw is then filter-only)."""
+    if not os.path.exists(path):
+        return set()
+    doc = load_json_strict(path)
+    return {row["item_id"] for row in doc["excluded_items"]}
 
 
 def build_calibration_questions(
-    corpus: Corpus, *, n: int = CALIB_SIZE, seed: int = CALIB_SEED
+    corpus: Corpus, *, n: int = CALIB_SIZE, seed: int = CALIB_SEED,
+    excluded_items: set[str] | None = None,
 ) -> list[FitbQuestion]:
     """Draw `n` FITB questions from valid + train (NEVER test — the gate-B/gate-D sets are test-only, so
     valid/train questions are disjoint by construction, §F). Deterministic from `seed`; one question per
-    distinct outfit. **Stratified by `answer_category`** (round-robin across the category of the item being
-    completed) so the set covers garment types evenly instead of following the raw draw's skew — the judge
-    envelope is then selected against a representative slice, not a lopsided one (§F 'cover more ground').
-    `build_fitb` shuffles within a split; we pool valid-then-train, bucket by category preserving that
-    shuffled order, then round-robin one-per-category until `n` are taken."""
+    distinct outfit. Two pre-draw filters (§F amendment 2026-07-01, pre-pilot):
+    **5-type coherence** (`coherence.fitb_question_is_coherent` — the panel labels only wearable-outfit
+    questions; the strict rule + its disclosed layered-top over-flagging live in `coherence.py`) and the
+    **visual-QC exclude list** (`excluded_items`, default the committed `calibration_visual_qc.json` —
+    a question touching any source-corrupted image is skipped). **Stratified by `answer_category`**
+    (round-robin across the category of the item being completed) so the set covers garment types evenly
+    instead of following the raw draw's skew — the judge envelope is then selected against a
+    representative slice, not a lopsided one (§F 'cover more ground'). `build_fitb` shuffles within a
+    split; we pool valid-then-train, bucket by category preserving that shuffled order, then round-robin
+    one-per-category until `n` are taken."""
+    excluded = load_visual_qc_excluded() if excluded_items is None else excluded_items
     pool: list[FitbQuestion] = []
     for split in ("valid", "train"):
         qs, _ = build_fitb(corpus.splits[split], corpus.item_index, seed)
-        pool.extend(qs)
+        pool.extend(
+            q for q in qs
+            if fitb_question_is_coherent(q, corpus.item_index)
+            and excluded.isdisjoint((*q.retained, *q.candidates))
+        )
     buckets: dict[str, list[FitbQuestion]] = {}
     for q in pool:                                  # keeps build_fitb's shuffled order within each bucket
         buckets.setdefault(q.answer_category, []).append(q)

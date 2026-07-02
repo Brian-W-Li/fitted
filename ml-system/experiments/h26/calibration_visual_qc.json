@@ -1,0 +1,19 @@
+{
+ "_README": "Operator visual-QC exclude list for the CALIBRATION draw only (§F amendment 2026-07-01; make_calibration.load_visual_qc_excluded). Polyvore's published parquet contains source-corrupted item images the mechanical coherence rule cannot see (metadata says garment, pixels say otherwise). Protocol: draw -> the operator views EVERY image in the drawn questions -> any item whose image is not a photo of the garment its metadata declares is appended here with a reason -> redraw (deterministic given this committed list). The EVAL sets (gate B/D) are NEVER filtered by this list — they stay the standard benchmark; source-image noise there hits both scorers identically and is disclosed in results.md, not removed.",
+ "spike": "h26",
+ "scope": "calibration_draw_only_never_eval",
+ "excluded_items": [
+  {
+   "item_id": "166938043",
+   "reason": "metadata says 'rick owens cotton-blend faille trousers' (category_id 4458, male pants); the parquet image is a red vintage sports car (verified 2026-07-01 against the drawn viewer, Q66 of the pre-filter draw)"
+  },
+  {
+   "item_id": "214937452",
+   "reason": "metadata says 'suede pencil skirt with front' (category_id 9, bottom); the parquet image is a white sling bag with a tennis-racket print (verified 2026-07-01, retained item of Q49 in the first filtered draw)"
+  },
+  {
+   "item_id": "205272310",
+   "reason": "category_id 241 (bottoms) / url_name 'jersey stirrup leggings gucci', but the item title AND the parquet image are a Gucci GG Marmont leather shoulder bag (verified 2026-07-01, candidate C of Q95 in the first filtered draw)"
+  }
+ ]
+}

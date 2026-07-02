@@ -125,8 +125,13 @@ def _item_payload(content: ItemContent, arm: str) -> list[dict]:
     if arm in ("image_only", "image_title"):
         if not content.image_b64:
             raise ValueError(f"arm {arm!r} needs an image for item {content.item_id!r}")
+        # detail:"low" is part of the frozen envelope (judge_addendum image_detail). Cost-neutral on
+        # Polyvore (300x300 -> 100 patches x 1.62 = 162 tok at ANY detail; patches only shrink past the
+        # 1,536-patch budget) but load-bearing for the C5 closet arm: real phone photos at high/auto
+        # balloon ~15x and invite server-side-resize nondeterminism.
         parts.append(
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{content.image_b64}"}}
+            {"type": "image_url",
+             "image_url": {"url": f"data:image/jpeg;base64,{content.image_b64}", "detail": "low"}}
         )
     if arm == "image_title":
         if not content.title:
@@ -717,17 +722,25 @@ class OpenAIJudgeClient:
         self._client = OpenAI(api_key=api_key) if api_key else OpenAI()
 
     def complete(self, messages: list[dict], *, max_tokens: int) -> JudgeResponse:
-        resp = self._client.chat.completions.create(
-            model=self.model_snapshot,
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-        )
+        # gpt-5.4-mini is GPT-5.x reasoning-family: Chat Completions REJECTS `max_tokens` (hard 400;
+        # "use 'max_completion_tokens'") — production (route.ts) sends no cap at all, so this client is
+        # the first code to set one. The internal kwarg keeps the envelope name `max_tokens`; only the
+        # SDK param is mapped. reasoning_effort is pinned "none" (today's default) so a default change
+        # can never spend the small completion budget on hidden reasoning tokens (which would truncate
+        # the {"choice":"X"} JSON -> parse-drop storms).
+        request = {
+            "model": self.model_snapshot,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_completion_tokens": max_tokens,
+            "reasoning_effort": "none",
+            "response_format": {"type": "json_object"},
+        }
+        resp = self._client.chat.completions.create(**request)
         choice = resp.choices[0]
         return JudgeResponse(
             content=choice.message.content,
             system_fingerprint=getattr(resp, "system_fingerprint", None),
-            raw={"request": {"model": self.model_snapshot, "messages": messages, "max_tokens": max_tokens},
+            raw={"request": request,
                  "response": resp.model_dump() if hasattr(resp, "model_dump") else str(resp)},
         )

@@ -142,7 +142,19 @@
       "sensitivity_rerun": "re-draw same-fine-category negatives matched on the replaced positive partner's popularity-decile, still anchor-non-co-occurring; recompute gate-A/gate-D AUC as a sensitivity row only",
       "sensitivity_decile_basis": "deciles over the split's full item-popularity distribution; matched negative drawn same-fine-category within +/-1 decile of the replaced positive partner's decile"
     },
-    "seed": {"headline": 20260629, "robustness_footnote": [20260629, 20260630, 20260701], "footnote_rule": "gate verdict (A/B/D pass/fail) must agree across all 3 seeds"}
+    "seed": {"headline": 20260629, "robustness_footnote": [20260629, 20260630, 20260701], "footnote_rule": "gate verdict (A/B/D pass/fail) must agree across all 3 seeds"},
+    "coherence_sensitivity": {
+      "amended": "2026-07-01 pre-pilot (blind -- no judge or test-set number existed)",
+      "rule": "leq_one_item_per_5type_and_no_dress_with_top_or_bottom_over_retained_plus_answer",
+      "rule_home": "coherence.py",
+      "measured_incoherence": {"calibration_draw_100": 13, "gate_b_500_prefix": 65, "gate_d_full_13895": 1964},
+      "eval_sets_filtered": false,
+      "why_not_filtered": "gates read the standard unfiltered benchmark; the Vasileva 0.81/51.8% anchors were computed on the same unfiltered corpus, and same-fine-category distractors give all 4 candidates identical clash status (verified 500/500 on gate B) so incoherence cannot discriminate candidates",
+      "reads": ["gate_B_diff both conventions per slice", "judge inconsistency rate per slice", "fitb_trained_full per slice"],
+      "reported_never_gating": true,
+      "response_if_coherent_slice_disagrees": "results.md labels gate B 'coherence-sensitive (disclosed)'; gate numbers do not move",
+      "metrics_field": "coherence_sensitivity"
+    }
   },
 
   "embedding": {
@@ -189,7 +201,14 @@
     "only_use": "select_judge_envelope_never_scores_trained_head",
     "source_constraint": "gate D consumes every eligible test outfit, so a Polyvore-sourced calibration set must draw from valid/train outfits (or test outfits used by no gate-D question); the closet is the other admissible source; exact source + size pinned at C4",
     "manifest_and_hash_freeze_at": "C4_judge_addendum",
-    "amendment_2026_07_01": "Was single-annotator (owner's taste) + intra-annotator stability check; amended PRE-PILOT (before any judge or test number exists -- blind, no p-hacking) to a diverse >=3-person PANEL with per-question abstention ('not sure', never guess) and unique-plurality consensus over confident votes, reporting inter-annotator agreement as the human ceiling. Rationale: a single non-expert labeler makes the judge-selection target noisy, and the corpus is women's-fashion-heavy while some labelers can only judge a subset; abstention + a diverse panel route each question to competent judges. Shifts the claim from 'tracks the owner's taste' to 'tracks human consensus (measured ceiling).'"
+    "amendment_2026_07_01": "Was single-annotator (owner's taste) + intra-annotator stability check; amended PRE-PILOT (before any judge or test number exists -- blind, no p-hacking) to a diverse >=3-person PANEL with per-question abstention ('not sure', never guess) and unique-plurality consensus over confident votes, reporting inter-annotator agreement as the human ceiling. Rationale: a single non-expert labeler makes the judge-selection target noisy, and the corpus is women's-fashion-heavy while some labelers can only judge a subset; abstention + a diverse panel route each question to competent judges. Shifts the claim from 'tracks the owner's taste' to 'tracks human consensus (measured ceiling).'",
+    "amendment_2026_07_01_draw_filters": {
+      "amended": "2026-07-01 pre-pilot (blind -- no judge/test number existed, no panel label collected)",
+      "coherence_filter": "draw keeps a question only if coherence.fitb_question_is_coherent (retained + held-out answer: <=1 item per 5-type, never dress with top/bottom); 13/100 of the unfiltered draw implied a wear-impossible outfit whose human labels would be noise",
+      "visual_qc_exclude_list": "calibration_visual_qc.json (committed): operator views every drawn image; an item whose parquet image contradicts its declared garment (verified: a car for 'rick owens trousers'; a Gucci shoulder bag for 'jersey stirrup leggings'; a sling bag for 'suede pencil skirt') is appended with a reason and the draw re-runs deterministically. Metadata mislabels whose image DOES show the named garment are NOT excluded (panel abstain + plurality-drop is the backstop; the list stays objective)",
+      "eval_sets_untouched": true,
+      "claim_narrows_to": "tracks human consensus on coherent, wearable-outfit questions (measured ceiling)"
+    }
   },
 
   "stl_ctl": {

@@ -127,7 +127,39 @@
     "outfit_auc_item_level": {"$ref": "#/$defs/ci", "description": "Seam ablation (§6) — REPORTED DESCRIPTIVELY, NOT the falsification statistic. The item-level head's outfit-level AUC."},
     "fitb_item_level_full": {"$ref": "#/$defs/ci", "description": "Seam ablation (§6) — REPORTED DESCRIPTIVELY, NOT the falsification statistic. Item-level head FITB on the full set."},
     "seam_diff_pairwise_minus_item_level": {"$ref": "#/$defs/ci", "description": "The PINNED seam-falsification metric (§C.2): paired CI of AUC_catalog_pair - AUC_pair_item_level (pooled PAIR-level AUC, shared (pos,neg) pair clusters). 'Falsified' requires Holm-adjusted p < 0.05 AND this CI_low > 0 (build doc §6/§11). See seam_holm_adjusted_p."},
-    "seam_holm_adjusted_p": {"type": "number", "description": "Holm-Bonferroni-adjusted bootstrap two-sided p for the shape-diff hypothesis on pair-level AUC (not a CI)."}
+    "seam_holm_adjusted_p": {"type": "number", "description": "Holm-Bonferroni-adjusted bootstrap two-sided p for the shape-diff hypothesis on pair-level AUC (not a CI)."},
+
+    "coherence_sensitivity": {
+      "type": "object",
+      "description": "Coherence-sliced sensitivity (preregistration.md §F amendment 2026-07-01) — REPORTED, NEVER GATING. The eval sets stay the standard unfiltered benchmark; each FITB question carries the mechanical 5-type coherence flag (coherence.py) and the gate-B diffs / judge inconsistency rate / gate-D FITB are reported per slice. Slice CIs are null when a slice is empty. Pre-committed response: if the coherent-slice gate-B verdict disagrees with the headline, results.md labels gate B 'coherence-sensitive (disclosed)'; gate numbers never move.",
+      "required": [
+        "rule",
+        "n_gate_b_coherent",
+        "n_gate_b_flagged",
+        "gate_B_diff_inconsistent_miss_coherent",
+        "gate_B_diff_inconsistent_half_coherent",
+        "gate_B_diff_inconsistent_miss_flagged",
+        "gate_B_diff_inconsistent_half_flagged",
+        "judge_inconsistent_rate_coherent",
+        "judge_inconsistent_rate_flagged",
+        "fitb_trained_full_coherent",
+        "fitb_trained_full_flagged"
+      ],
+      "properties": {
+        "rule": {"const": "leq_one_item_per_5type_and_no_dress_with_top_or_bottom_over_retained_plus_answer"},
+        "n_gate_b_coherent": {"type": "integer", "minimum": 0},
+        "n_gate_b_flagged": {"type": "integer", "minimum": 0},
+        "gate_B_diff_inconsistent_miss_coherent": {"anyOf": [{"$ref": "#/$defs/ci"}, {"type": "null"}]},
+        "gate_B_diff_inconsistent_half_coherent": {"anyOf": [{"$ref": "#/$defs/ci"}, {"type": "null"}]},
+        "gate_B_diff_inconsistent_miss_flagged": {"anyOf": [{"$ref": "#/$defs/ci"}, {"type": "null"}]},
+        "gate_B_diff_inconsistent_half_flagged": {"anyOf": [{"$ref": "#/$defs/ci"}, {"type": "null"}]},
+        "judge_inconsistent_rate_coherent": {"anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]},
+        "judge_inconsistent_rate_flagged": {"anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]},
+        "fitb_trained_full_coherent": {"anyOf": [{"$ref": "#/$defs/ci"}, {"type": "null"}]},
+        "fitb_trained_full_flagged": {"anyOf": [{"$ref": "#/$defs/ci"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    }
   },
 
   "_stage_requirements": {
