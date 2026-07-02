@@ -17,11 +17,12 @@ from baselines import (
     cooccurrence_leak_check,
     cosine_edge_scorer,
     popularity_edge_scores,
+    popularity_fitb_hits,
     popularity_outfit_scores,
 )
-from data_loader import Edge, Item, OutfitPair, build_fitb, build_outfit_level, build_pairwise
+from data_loader import Edge, FitbQuestion, Item, OutfitPair, build_fitb, build_outfit_level, build_pairwise
 from evaluate import iter_pairwise_clusters
-from metrics import auc_pos_neg
+from metrics import auc_pos_neg, fitb_accuracy
 
 SEED = 20260629
 
@@ -133,3 +134,46 @@ def test_popularity_handles_items_absent_from_split():
         [OutfitPair("o", ("known",), ("unknown",))], {"known": 7}
     )
     assert pos_s == [7.0] and neg_s == [0.0]
+
+
+# --------------------------------------------------------------------------- #
+# Item-popularity at FITB — the most-popular-candidate diagnostic (§C.6)
+# --------------------------------------------------------------------------- #
+def _fitb_q(candidates, correct_index):
+    # retained/answer_category are ignored by popularity_fitb_hits (candidate-popularity only).
+    return FitbQuestion("o", retained=("r",), candidates=tuple(candidates), correct_index=correct_index,
+                        answer_category="C")
+
+
+def test_popularity_fitb_picks_the_most_popular_candidate():
+    # The rule scores each candidate by its own popularity and reads the argmax with the fitb_hit tie
+    # rule; retained items never enter. Answer is the most popular -> 1.0; a less-popular answer -> 0.0.
+    pop = {"ans": 9, "d1": 3, "d2": 2, "d3": 1}
+    assert popularity_fitb_hits([_fitb_q(("d1", "ans", "d2", "d3"), 1)], pop) == [1.0]
+    assert popularity_fitb_hits([_fitb_q(("d1", "ans", "d2", "d3"), 0)], pop) == [0.0]  # correct=d1, ans tops
+
+
+def test_popularity_fitb_lifts_accuracy_when_answers_are_popular():
+    # Selection bias (§4): the real held-out answer is popular; its 3 same-category distractors less so
+    # -> the popularity-only rule beats FITB chance (0.25) without any compatibility signal — the FITB
+    # analogue of test_popularity_edge_lifts_auc_when_positives_are_popular.
+    pop, questions = {}, []
+    for k in range(20):
+        ans, ds = f"ans{k}", [f"d{k}_{j}" for j in range(3)]
+        pop[ans] = 8
+        for d in ds:
+            pop[d] = 1
+        questions.append(_fitb_q((ds[0], ds[1], ans, ds[2]), 2))  # answer at index 2
+    assert fitb_accuracy(popularity_fitb_hits(questions, pop)) == 1.0   # fully separable on popularity
+
+
+def test_popularity_fitb_all_equally_popular_is_exact_chance():
+    # Every candidate shares one popularity value -> a 4-way tie -> exactly 1/4 credit, deterministically
+    # (fitb_hit exact-equality tie rule; no candidate-order leak). This is why the diagnostic reads the
+    # 0.25 chance floor when popularity carries no signal.
+    assert popularity_fitb_hits([_fitb_q(("a", "b", "c", "d"), 0)], {"a": 5, "b": 5, "c": 5, "d": 5}) == [0.25]
+
+
+def test_popularity_fitb_absent_candidates_score_zero():
+    # Candidates absent from the split have popularity 0 (split-scoped); the only present candidate tops.
+    assert popularity_fitb_hits([_fitb_q(("ans", "x", "y", "z"), 0)], {"ans": 4}) == [1.0]

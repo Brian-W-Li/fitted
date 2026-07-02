@@ -58,6 +58,7 @@ def _suite():
         fitb_item_level_full=_ci(0.52, 0.50, 0.54),
         AUC_pop_edge=_ci(0.54, 0.52, 0.56),
         AUC_pop_outfit=_ci(0.56, 0.54, 0.58),
+        fitb_popularity=_ci(0.30, 0.28, 0.32),
         leak=LeakCheck(edge_auc=0.50, fitb_acc=0.25, outfit_auc=0.50),
     )
 
@@ -214,7 +215,8 @@ def test_emit_writes_schema_valid_metrics_json(unlock_dir):
     assert metrics["_meta"]["stage"] == "C4"
     for field in ("AUC_catalog_pair", "gate_A_diff", "fitb_trained_gateB", "fitb_judge_gateB",
                   "gate_B_diff_inconsistent_miss", "gate_B_diff_inconsistent_half",
-                  "outfit_auc", "fitb_trained_full"):
+                  "outfit_auc", "fitb_trained_full",
+                  "AUC_pop_edge", "AUC_pop_outfit", "fitb_popularity"):  # §C.6 popularity diagnostics
         assert field in metrics
     # closet/transfer + seam_holm_adjusted_p stage to C5/C6 -> absent at C4
     assert "AUC_closet_pair" not in metrics and "seam_holm_adjusted_p" not in metrics

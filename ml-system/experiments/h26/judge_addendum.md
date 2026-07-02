@@ -24,9 +24,11 @@ unlock file. The headline cell, the A∧B∧D gates, δ, and the FITB constructi
    its three fields are typed, so the scaffold's placeholder block fails schema validation until they are
    filled from the calibration pilot.
 3. **Freeze this file** (set `"frozen": true`, fill the real prompt/calibration/commit hashes, K from the
-   calibration pilot's verdict-agreement rate, and `above_chance_pilot` from the calibration pilot's
-   above-chance readout; N's δ-driven prefix is a *separate* `evaluate.py` degree of freedom) **and commit
-   it** — **before** any `fitb_trained_gateB − fitb_judge_gateB` comparison is computed.
+   calibration pilot's verdict-agreement rate — **K ≥ 2, prefer K = 3** (the schema refuses K = 1, which
+   makes the §11 two-stage judge-variance resample vacuous) — and `above_chance_pilot` from the
+   calibration pilot's above-chance readout; N's δ-driven prefix is a *separate* `evaluate.py` degree of
+   freedom) **and commit it** — **before** any `fitb_trained_gateB − fitb_judge_gateB` comparison is
+   computed.
 4. Only then does `evaluate.py` validate the four unlock files and first emit `metrics.json`. The
    post-freeze **gate-B pilot prefix** (`run_judge.py gate-b --n 100`, the first 100 of the C2-frozen
    `fitb_order.json`) is a **separate** run that only decides the δ-driven scale-up to ~500 — it **never**
@@ -39,7 +41,7 @@ unlock file. The headline cell, the A∧B∧D gates, δ, and the FITB constructi
 |---|---|
 | `model_snapshot` | the dated `gpt-5.4-mini-YYYY-MM-DD` snapshot production serves at C4 (verify it is still served; it does **not** move after C4) |
 | `prompt_sha256` | sha256 of the exact committed judge prompt (`gpt_judge.SYSTEM_PROMPT` + the per-arm builder) |
-| `temperature` / `k_samples` | temp 0 (smoke-tested 2026-06-28); K from the pilot's verdict-agreement rate |
+| `temperature` / `k_samples` | temp 0 (smoke-tested 2026-06-28); K from the pilot's verdict-agreement rate — **must be ≥ 2** (schema-enforced: `judge_addendum.schema.json` sets `k_samples` minimum 2; K = 1 makes the §11 two-stage judge-variance resample vacuous), **prefer K = 3** if cost/latency allows |
 | `both_order_policy` / `adjudication_convention` | forward + exact-reverse, consistent-only; `inconsistent = miss` headline (`inconsistent = half` cross-check) |
 | `max_tokens` / `retry_budget` / `drop_policy` | the determinism envelope (unparseable-after-budget → drop + log). `max_tokens` is the envelope's completion-token cap; the SDK param is **`max_completion_tokens`** (GPT-5.x rejects `max_tokens` with a hard 400 — verified 2026-07-01; production `route.ts` sends no cap, so the judge is the first code to set one) |
 | `reasoning_effort` | pinned `"none"` (the gpt-5.4-mini default, verified 2026-07-01) so a provider default change can never spend the small completion cap on hidden reasoning tokens (truncated `{"choice"}` JSON → parse-drop storms) |

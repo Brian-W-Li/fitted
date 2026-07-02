@@ -201,12 +201,14 @@ def test_fitb_allocation_and_schema_required():
 def test_judge_addendum_schema_is_the_c4_freeze_pin():
     # preregistration.json names judge_addendum_schema "pinned_at_C4"; this is that pin. It must enforce
     # the load-bearing freeze invariants (§1/§8): frozen=true (so a scaffold is refused), temperature 0,
+    # non-vacuous K >= 2 (Task 7A — K=1 makes the §11 two-stage judge-variance resample vacuous),
     # the calibration set's actual-human + judge-only-use + disjoint-from-both-gated-sets contract, and
     # image_only as a required arm (the gate-B comparator).
     s = _load("judge_addendum.schema.json")
     props = s["properties"]
     assert props["frozen"]["const"] is True
     assert props["temperature"]["const"] == 0
+    assert props["k_samples"]["minimum"] == 2                 # non-vacuous K: the schema forbids K=1
     assert "image_only" in props["arms"]["contains"]["const"]
     cal = props["calibration_set"]["properties"]
     assert cal["label_kind"]["const"] == "actual_human_forced_choice"
@@ -216,7 +218,8 @@ def test_judge_addendum_schema_is_the_c4_freeze_pin():
     assert cal["size"]["minimum"] == 50
     assert set(cal["disjoint_from"]["items"]["enum"]) == {"gate_B_set", "gate_D_full_fitb"}
     assert "frozen" in s["required"] and "prompt_sha256" in s["required"] and "calibration_set" in s["required"]
-    # the prereg mirror records that this schema is the C4 pin (un-edited frozen artifact)
+    # the prereg mirror records that this schema is the C4 validation pin (its invariants may be
+    # TIGHTENED for validity — e.g. the K>=2 floor above — never loosened; the prereg label is stable)
     assert _load("preregistration.json")["unlock_validation"]["judge_addendum_schema"] == "pinned_at_C4"
 
 
@@ -278,6 +281,39 @@ def test_scaffold_freezes_to_a_schema_valid_envelope():
     env["commit_hash"] = "c" * 40
     leftover = ["/".join(map(str, e.absolute_path)) for e in validator.iter_errors(env)]
     assert not leftover, f"per-run-only freeze still fails the schema at {leftover} — a FIXED field is still a placeholder"
+
+
+def test_frozen_envelope_refuses_vacuous_k1():
+    # Teeth for the non-vacuous-K rule (Task 7A): an otherwise-valid FROZEN envelope with k_samples=1
+    # must be schema-REFUSED precisely at k_samples, while K in {2,3} validate. require_frozen_envelope
+    # (gate-b) and materialize_metrics_json (emit) both validate against THIS schema, so the floor gives
+    # real refusal teeth at freeze-consumption — K=1 collapses the §11 two-stage judge-variance resample
+    # (a resample of a length-1 list is constant), voiding the K-sample-stability claim.
+    import json as _json
+
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(_load("judge_addendum.schema.json"))
+    env = _json.loads(re.search(r"```json\s*\n(.*?)\n```", _read("judge_addendum.md"), re.DOTALL).group(1))
+    if env["frozen"] is False:
+        # fill the scaffold's per-run fields to a valid frozen envelope (mirrors the round-trip test)
+        env["frozen"] = True
+        env["model_snapshot"] = "gpt-5.4-mini-2026-03-17"
+        env["max_tokens"], env["retry_budget"] = 16, 2
+        env["prompt_sha256"] = "a" * 64
+        env["calibration_set"]["manifest_sha256"] = "b" * 64
+        env["calibration_set"]["size"] = 60
+        env["calibration_set"]["n_annotators"] = 3
+        env["calibration_set"]["inter_annotator_agreement"] = 0.9
+        env["above_chance_pilot"] = {"image_only_fitb_point": 0.55, "image_only_fitb_ci_low": 0.31, "above_chance": True}
+        env["commit_hash"] = "c" * 40
+    for good_k in (2, 3):                                       # non-vacuous choices validate
+        env["k_samples"] = good_k
+        assert validator.is_valid(env), f"K={good_k} should be a valid non-vacuous frozen envelope"
+    for bad_k in (1, 0):                                        # K=1 (vacuous) and K=0 are refused at k_samples
+        env["k_samples"] = bad_k
+        errs = [list(e.absolute_path) for e in validator.iter_errors(env)]
+        assert ["k_samples"] in errs, f"K={bad_k} must be schema-refused at k_samples, got {errs}"
 
 
 def test_unlock_and_selection_schema_are_frozen():

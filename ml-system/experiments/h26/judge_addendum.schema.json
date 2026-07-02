@@ -47,7 +47,7 @@
     },
     "snapshot_rule": {"const": "dated_snapshot_frozen_at_C4_does_not_move_after"},
     "temperature": {"const": 0},
-    "k_samples": {"type": "integer", "minimum": 1},
+    "k_samples": {"type": "integer", "minimum": 2, "description": "Judge samples per (question, order). MUST be >= 2 (non-vacuous): the §11 gate-B two-stage bootstrap re-collapses each replicate from a resample of the K forward / K reverse samples, and a resample of a length-1 list is constant -> K=1 carries zero judge-run variance and makes the plurality vote a single sample (voids the K-sample-stability + judge-run-variance claims). Operator picks the value at freeze (prefer K=3 if cost/latency allows); this floor forbids only the vacuous K=1. Build doc §11/§12; RUN handoff Task 7A."},
     "both_order_policy": {"const": "forward_plus_exact_reverse_consistent_only"},
     "adjudication_convention": {"const": "inconsistent_is_miss"},
     "conservative_cross_check_convention": {"const": "inconsistent_is_half"},

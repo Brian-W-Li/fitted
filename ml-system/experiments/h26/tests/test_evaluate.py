@@ -133,6 +133,7 @@ def test_compute_metric_suite_end_to_end():
         suite.fitb_trained_full, suite.fitb_zero_shot_cosine, suite.AUC_pair_item_level,
         suite.seam_diff_pairwise_minus_item_level, suite.outfit_auc_item_level,
         suite.fitb_item_level_full, suite.AUC_pop_edge, suite.AUC_pop_outfit,
+        suite.fitb_popularity,
     ]
     for ci in cis:
         assert isinstance(ci, CI)

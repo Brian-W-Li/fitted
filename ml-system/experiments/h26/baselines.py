@@ -14,7 +14,8 @@ rung:
      same-fine-category negative **identically** (the swap preserves the category pair), so by
      construction it reads chance — **edge AUC ≈ 0.50, FITB ≈ 0.25, outfit AUC ≈ 0.50**. A deviation
      means the negative sampler leaked a category signal; `cooccurrence_leak_check` asserts it.
-  2. **Item-popularity — a confound diagnostic, NOT chance-by-construction** (`popularity_*_scores`).
+  2. **Item-popularity — a confound diagnostic, NOT chance-by-construction** (`popularity_edge_scores`
+     / `popularity_outfit_scores` / `popularity_fitb_hits`).
      A real co-worn positive partner is selection-biased toward popular items; a uniformly-drawn
      same-category negative is on average *less* popular, so a popularity-only score can discriminate
      **without any compatibility signal**. The blind margin is **0.55** (§C.6): if the edge- or
@@ -23,7 +24,11 @@ rung:
      pinned: "popularity" = an item's split outfit-frequency (`SplitData.popularity`); the **edge**
      score is the popularity of the *varying* endpoint (`pop(replaced)` for the positive vs `pop(b′)`
      for the matched negative — the shared anchor cancels); the **outfit** score is the mean
-     item-popularity over the outfit's items. No embeddings enter the popularity diagnostic.
+     item-popularity over the outfit's items; the **FITB** analogue scores each candidate by its own
+     popularity and reads the most-popular-candidate accuracy — quantifying the FITB answer-selection
+     shortcut the edge/outfit AUC diagnostics miss. All three are REPORTED; only the edge/outfit AUC
+     vs the 0.55 margin *triggers* the confound label (the FITB accuracy is read against the 0.25
+     chance floor, never a gate). No embeddings enter the popularity diagnostic.
 
 Everything is pure given a `Corpus`/`SplitData` and (for cosine) a frozen `EmbeddingCache`; no module
 re-embeds. Reference: docs/plans/h26-compatibility-spike-v2.md §7 (ladder) / §4 + §C.6 (diagnostics).
@@ -186,3 +191,27 @@ def popularity_outfit_scores(
     pos = [float(np.mean([_pop(popularity, i) for i in op.positive])) for op in outfit_pairs]
     neg = [float(np.mean([_pop(popularity, i) for i in op.negative])) for op in outfit_pairs]
     return pos, neg
+
+
+def popularity_fitb_hits(
+    questions: Sequence[FitbQuestion], popularity: dict[str, int]
+) -> list[float]:
+    """The §C.6 item-popularity confound at FITB — the FITB analogue of `popularity_edge_scores` /
+    `popularity_outfit_scores`, closing the one §4 construction the pair/outfit AUC diagnostics miss.
+
+    Per FITB question, score each candidate by its split outfit-frequency alone (`pop(candidate)`,
+    ignoring the retained partial outfit) and read the argmax with the SHARED `metrics.fitb_hit` `1/k`
+    exact-equality tie rule. A "pick the most-popular candidate" rule can beat FITB chance (0.25 at @4)
+    with NO compatibility signal: `data_loader.build_fitb` draws the correct answer from a real outfit
+    (`rng.choice(ids)`) — selection-biasing the answer toward popular items — while the three
+    distractors are uniform same-category draws (`_draw_same_cat`) that are on average *less* popular.
+    This quantifies that answer-selection shortcut directly, the way the edge/outfit forms quantify it
+    for AUC. Deterministic (`fitb_hit`'s exact-equality tie rule scores an all-equally-popular question
+    exactly `1/len(candidates)`, seed-independent); no embeddings enter. Returns per-question hit credit
+    aligned with `questions`; the mean (via `metrics.fitb_accuracy` / `fitb_ci`) is the diagnostic
+    accuracy — REPORTED against the 0.25 chance floor next to `AUC_pop_edge`/`AUC_pop_outfit`, never a
+    moved gate (the 0.55 blind-margin *trigger* stays edge/outfit-only, §C.6)."""
+    return [
+        fitb_hit([_pop(popularity, c) for c in q.candidates], q.correct_index)
+        for q in questions
+    ]

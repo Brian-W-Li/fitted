@@ -121,6 +121,7 @@
     "fitb_cooccurrence": {"$ref": "#/$defs/ci", "description": "Leak detector (must be ~0.25). Category-only FITB."},
     "AUC_pop_edge": {"$ref": "#/$defs/ci", "description": "Popularity-confound diagnostic. Item-popularity-only pair-level AUC; > 0.55 (the blind margin) -> headline labeled popularity-confounded + sensitivity re-run."},
     "AUC_pop_outfit": {"$ref": "#/$defs/ci", "description": "Popularity-confound diagnostic at outfit-level; same 0.55 margin."},
+    "fitb_popularity": {"$ref": "#/$defs/ci", "description": "Popularity-confound diagnostic at FITB (§C.6, baselines.popularity_fitb_hits). Most-popular-candidate FITB@4 accuracy: each candidate scored by its split outfit-frequency alone, argmax read with the 1/k tie rule. Quantifies the FITB answer-selection shortcut (build_fitb draws the answer from a real outfit -> popularity-biased) the edge/outfit AUC diagnostics miss. REPORTED against the 0.25 chance floor; NOT a gate and NOT margin-triggered (the 0.55 blind margin stays edge/outfit-only)."},
 
     "fitb_zero_shot_cosine": {"$ref": "#/$defs/ci", "description": "Baseline ladder readout: zero-shot cosine FITB@4 (non-learned floor)."},
 

@@ -38,6 +38,7 @@ from baselines import (
     cooccurrence_leak_check,
     cosine_edge_scorer,
     popularity_edge_scores,
+    popularity_fitb_hits,
     popularity_outfit_scores,
 )
 from coherence import COHERENCE_RULE, fitb_question_is_coherent
@@ -174,9 +175,11 @@ class MetricSuite:
     seam_diff_pairwise_minus_item_level: CI
     outfit_auc_item_level: CI
     fitb_item_level_full: CI
-    # Popularity-confound diagnostics (§C.6)
+    # Popularity-confound diagnostics (§C.6) — AUC_pop_* trigger the confound label vs the 0.55
+    # margin; fitb_popularity is REPORTED-only, read against the 0.25 chance floor (never a gate)
     AUC_pop_edge: CI
     AUC_pop_outfit: CI
+    fitb_popularity: CI
     # Co-occurrence leak detector (§C.6 — must read chance)
     leak: LeakCheck
 
@@ -233,12 +236,15 @@ def compute_metric_suite(
     fitb_zs = fitb_ci(fitb_hits(questions, cosine), seed=seed, b=b)
     fitb_il = fitb_ci(fitb_hits(questions, item_level), seed=seed, b=b)
 
-    # Popularity-confound diagnostics (§C.6 — no embeddings)
+    # Popularity-confound diagnostics (§C.6 — no embeddings). Edge/outfit AUC trigger the confound
+    # label vs the 0.55 margin; the FITB most-popular-candidate accuracy is REPORTED-only (the
+    # answer-selection shortcut the AUC forms miss), read against the 0.25 chance floor — never a gate.
     pop = split_data.popularity
     pe_pos, pe_neg = popularity_edge_scores(clusters, pop)
     po_pos, po_neg = popularity_outfit_scores(outfit_pairs, pop)
     auc_pop_edge = auc_ci(pe_pos, pe_neg, seed=seed, b=b)
     auc_pop_outfit = auc_ci(po_pos, po_neg, seed=seed, b=b)
+    fitb_pop = fitb_ci(popularity_fitb_hits(questions, pop), seed=seed, b=b)
 
     # Leak detector (§C.6 — must read chance; a check on the negative sampler, not the model)
     leak = cooccurrence_leak_check(split_data, item_index, clusters, questions, outfit_pairs)
@@ -258,6 +264,7 @@ def compute_metric_suite(
         fitb_item_level_full=fitb_il,
         AUC_pop_edge=auc_pop_edge,
         AUC_pop_outfit=auc_pop_outfit,
+        fitb_popularity=fitb_pop,
         leak=leak,
     )
 
@@ -812,9 +819,13 @@ def assemble_metrics(
         # Gate D (absolute floor) — outfit-level + full FITB
         "outfit_auc": _ci(suite.outfit_auc),
         "fitb_trained_full": _ci(suite.fitb_trained_full),
-        # Popularity-confound diagnostics (§C.6 — load-bearing for the C6 mandatory sensitivity re-run)
+        # Popularity-confound diagnostics (§C.6 — load-bearing for the C6 mandatory sensitivity re-run).
+        # AUC_pop_* trigger the confound label vs the 0.55 margin; fitb_popularity is REPORTED-only
+        # (most-popular-candidate FITB accuracy vs the 0.25 chance floor — the answer-selection shortcut
+        # the AUC diagnostics miss), never a moved gate.
         "AUC_pop_edge": _ci(suite.AUC_pop_edge),
         "AUC_pop_outfit": _ci(suite.AUC_pop_outfit),
+        "fitb_popularity": _ci(suite.fitb_popularity),
         # Baseline-ladder + seam-ablation readouts (the seam CI is the C6 falsification statistic's input)
         "fitb_zero_shot_cosine": _ci(suite.fitb_zero_shot_cosine),
         "AUC_pair_item_level": _ci(suite.AUC_pair_item_level),
