@@ -683,13 +683,17 @@ def compute_coherence_sensitivity(
                  "n_gate_b_coherent": len(slices["coherent"]),
                  "n_gate_b_flagged": len(slices["flagged"])}
     for name, qs in slices.items():
-        if not qs:
+        # A slice with no KEPT question — empty (a fully-one-sided prefix) or every question
+        # judge-dropped (no parseable sample) — has nothing for the two-stage bootstrap: emit
+        # null CIs and keep the counts. This is a reported-never-gating diagnostic; it must
+        # degrade to nulls, never raise past the gates.
+        per_question = group_samples(ledger_rows, qs, arm=arm, expected_k=expected_k) if qs else []
+        gb = gate_b_verdicts(per_question)
+        if not gb.verdicts:
             out[f"gate_B_diff_inconsistent_miss_{name}"] = None
             out[f"gate_B_diff_inconsistent_half_{name}"] = None
             out[f"judge_inconsistent_rate_{name}"] = None
             continue
-        per_question = group_samples(ledger_rows, qs, arm=arm, expected_k=expected_k)
-        gb = gate_b_verdicts(per_question)
         kept = set(gb.kept_question_ids)
         kept_qs = [q for q in qs if q.set_id in kept]
         trained_hits = fitb_hits(kept_qs, edge_score)
@@ -698,8 +702,7 @@ def compute_coherence_sensitivity(
         out[f"gate_B_diff_inconsistent_half_{name}"] = _ci(two_stage_paired_fitb_diff_ci(
             trained_hits, gb.verdicts, gb.samples_by_id, convention=INCONSISTENT_HALF, seed=seed, b=b))
         n_inconsistent = sum(1 for v in gb.verdicts if v.status == "inconsistent")
-        out[f"judge_inconsistent_rate_{name}"] = (
-            n_inconsistent / len(gb.verdicts) if gb.verdicts else None)
+        out[f"judge_inconsistent_rate_{name}"] = n_inconsistent / len(gb.verdicts)
     for name, pred in (("coherent", True), ("flagged", False)):
         qs = [q for q in full_questions if fitb_question_is_coherent(q, item_index) is pred]
         out[f"fitb_trained_full_{name}"] = _ci(fitb_ci(fitb_hits(qs, edge_score), seed=seed, b=b)) if qs else None

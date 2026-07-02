@@ -51,10 +51,11 @@ closet/
 # here once un-ignored closet_input.json + the viewer blob; keep the patterns bare).
 # large (embeds base64 catalog images); regenerate with make_calibration.py
 calibration_viewer.html
-# your raw viewer picks; folded into calibration_set.json by finalize()
+# a panelist's raw viewer download (the browser default name, before per-person renaming)
 calibration_answers.json
-# a second re-label pass over a subset (intra-annotator stability, §8); folded by restability()
-calibration_answers_recheck.json
+# the collected per-person panel answer files (renamed alice.json / bob.json / me.json, §F panel);
+# folded into calibration_set.json by finalize_panel() — raw per-person labels never reach the repo
+panel_answers/
 # the drawn calibration questions cache (regenerable from the seed)
 calibration_questions.json
 # throwaway judge calibration pilot (K sweep) — never committed

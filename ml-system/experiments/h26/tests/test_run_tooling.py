@@ -18,7 +18,8 @@ import pytest
 import assemble_closet as ac
 import make_calibration as mc
 import run_judge as rj
-from data_loader import FitbQuestion
+from coherence import fitb_question_is_coherent
+from data_loader import Corpus, FitbQuestion, Item, build_fitb, make_split_data
 from gpt_judge import QuestionSamples
 from live_content import item_content_from
 from synthetic import make_corpus
@@ -97,6 +98,66 @@ def test_inter_annotator_agreement_is_pairwise_over_co_confident():
     c = {"s1": "B", "s2": "SKIP"}    # c abstains on s2 -> that pair is excluded, not counted as a miss
     # s1 pairs: (a,b)match,(a,c)no,(b,c)no = 1/3 ; s2 pairs (c skipped): (a,b)no = 0/1 ; total 1 of 4
     assert mc.inter_annotator_agreement({"a": a, "b": b, "c": c}, qs) == pytest.approx(1 / 4)
+
+
+# --------------------------------------------------------------------------- #
+# make_calibration — the §F pre-draw filters (coherence + visual-QC excludes, amendment 2026-07-01)
+# --------------------------------------------------------------------------- #
+def _handcrafted_corpus():
+    """synthetic.make_corpus only generates COHERENT outfits, so the draw-filter tests build their own
+    splits carrying deliberately incoherent Polyvore-board-style sets (two shoes / dress+bottom)
+    alongside clean ones. 20 items per category so `build_fitb` always finds 3 same-category
+    distractors; every outfit's full item set IS the retained+answer set, so the outfit's coherence
+    decides the question's flag no matter which item build_fitb holds out."""
+    cat_types = {"TC": "top", "BC": "bottom", "SC": "shoes", "DC": "dress", "OC": "outer_layer"}
+    item_index, pools = {}, {}
+    for cat, typ in cat_types.items():
+        pools[cat] = [f"{cat.lower()}{k}" for k in range(20)]
+        for iid in pools[cat]:
+            item_index[iid] = Item(item_id=iid, category_id=cat, semantic=typ, type=typ)
+    coherent = [(f"ok-{k}", [pools["TC"][k], pools["BC"][k], pools["SC"][k]]) for k in range(12)]
+    incoherent = []
+    for k in range(4):
+        incoherent.append((f"twoshoes-{k}", [pools["SC"][k], pools["SC"][k + 6], pools["TC"][k + 12]]))
+        incoherent.append((f"dresspants-{k}", [pools["DC"][k], pools["BC"][k + 6], pools["SC"][k + 12]]))
+    splits = {
+        "train": make_split_data("train", coherent[:6] + incoherent[:4], item_index),
+        "valid": make_split_data("valid", coherent[6:] + incoherent[4:], item_index),
+        "test": make_split_data("test", [], item_index),
+    }
+    type_map = {cat: {"type": typ} for cat, typ in cat_types.items()}
+    return Corpus(item_index=item_index, type_map=type_map, splits=splits, data_root="<synthetic>")
+
+
+def test_build_calibration_questions_filters_incoherent_questions():
+    corpus = _handcrafted_corpus()
+    # vacuity guard: the RAW pool genuinely contains incoherent questions the filter must remove
+    raw = []
+    for split in ("valid", "train"):
+        qs, _ = build_fitb(corpus.splits[split], corpus.item_index, 7)
+        raw.extend(qs)
+    assert any(not fitb_question_is_coherent(q, corpus.item_index) for q in raw)
+    picked = mc.build_calibration_questions(corpus, n=8, seed=7, excluded_items=set())
+    assert len(picked) == 8
+    assert all(q.set_id.startswith("ok-") for q in picked)        # no board-artifact outfit survives
+    assert all(fitb_question_is_coherent(q, corpus.item_index) for q in picked)
+
+
+def test_build_calibration_questions_never_draws_excluded_items():
+    corpus = _handcrafted_corpus()
+    unfiltered = mc.build_calibration_questions(corpus, n=6, seed=7, excluded_items=set())
+    victim = unfiltered[0].retained[0]                            # provably drawn -> the exclude must bite
+    picked = mc.build_calibration_questions(corpus, n=6, seed=7, excluded_items={victim})
+    assert all(victim not in (*q.retained, *q.candidates) for q in picked)
+    assert picked != unfiltered
+
+
+def test_build_calibration_questions_draw_is_deterministic():
+    corpus = _handcrafted_corpus()
+    a = mc.build_calibration_questions(corpus, n=8, seed=7, excluded_items=set())
+    b = mc.build_calibration_questions(corpus, n=8, seed=7, excluded_items=set())
+    assert [(q.set_id, q.retained, q.candidates, q.correct_index) for q in a] == \
+           [(q.set_id, q.retained, q.candidates, q.correct_index) for q in b]
 
 
 # --------------------------------------------------------------------------- #

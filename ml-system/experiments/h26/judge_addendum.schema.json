@@ -25,6 +25,7 @@
     "both_order_policy",
     "adjudication_convention",
     "max_tokens",
+    "sdk_token_param",
     "reasoning_effort",
     "image_detail",
     "retry_budget",

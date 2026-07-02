@@ -263,6 +263,75 @@ def test_item_payload_fails_loud_on_missing_field():
         gj._item_payload(ItemContent("x"), "hologram")
 
 
+def test_every_image_part_carries_detail_low_in_both_image_arms():
+    # detail:"low" is part of the frozen envelope (judge_addendum image_detail): cost-neutral on the
+    # 300x300 Polyvore images but load-bearing for the C5 closet arm (real phone photos at high/auto
+    # balloon ~15x + invite server-side-resize nondeterminism). EVERY image part — retained AND
+    # candidates, both image arms — must carry it; one unpinned part breaks the determinism envelope.
+    retained = [ItemContent("r1", image_b64="aW1n", title="t1")]
+    cands = [ItemContent("c1", image_b64="aW1n", title="t2"),
+             ItemContent("c2", image_b64="aW1n", title="t3")]
+    for arm in ("image_only", "image_title"):
+        msgs = build_messages(retained, cands, arm)
+        images = [p for p in _flatten(msgs) if p.get("type") == "image_url"]
+        assert len(images) == 3, arm                              # retained + 2 candidates
+        assert all(p["image_url"]["detail"] == "low" for p in images), arm
+
+
+# --------------------------------------------------------------------------- #
+# OpenAIJudgeClient — the GPT-5.x SDK param contract (frozen envelope consts)
+# --------------------------------------------------------------------------- #
+class _FakeOpenAISDK:
+    """Stands in for the `openai` module (installed into sys.modules, so the client's lazy
+    `from openai import OpenAI` resolves here and the suite stays hermetic — no real SDK import,
+    no key, no network). Captures the exact kwargs the client sends to chat.completions.create."""
+
+    def __init__(self):
+        from types import SimpleNamespace
+
+        self.calls = []
+        sdk = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                sdk.calls.append(kwargs)
+                msg = SimpleNamespace(content='{"choice": "A"}')
+                return SimpleNamespace(choices=[SimpleNamespace(message=msg)],
+                                       system_fingerprint="fp-test",
+                                       model_dump=lambda: {"stub": True})
+
+        class OpenAI:
+            def __init__(self, api_key=None):
+                self.chat = SimpleNamespace(completions=_Completions())
+
+        self.OpenAI = OpenAI
+
+
+def test_openai_client_sends_gpt5_params_and_never_max_tokens(monkeypatch):
+    # gpt-5.4-mini (GPT-5.x reasoning family) hard-400s on `max_tokens` — the client must map the
+    # internal max_tokens kwarg to `max_completion_tokens`, pin `reasoning_effort:"none"` (so a
+    # provider default change can never spend the tiny completion budget on hidden reasoning ->
+    # truncated {"choice":..} -> parse-drop storms), and keep the frozen temp-0 json_object envelope.
+    import sys
+    from types import ModuleType
+
+    sdk = _FakeOpenAISDK()
+    mod = ModuleType("openai")
+    mod.OpenAI = sdk.OpenAI
+    monkeypatch.setitem(sys.modules, "openai", mod)
+    client = gj.OpenAIJudgeClient("gpt-5.4-mini-2026-03-17")
+    resp = client.complete([{"role": "user", "content": "pick"}], max_tokens=16)
+    (kw,) = sdk.calls
+    assert kw["max_completion_tokens"] == 16
+    assert "max_tokens" not in kw                                 # the rejected legacy param is NEVER sent
+    assert kw["reasoning_effort"] == "none"
+    assert kw["model"] == "gpt-5.4-mini-2026-03-17"
+    assert kw["temperature"] == 0.0
+    assert kw["response_format"] == {"type": "json_object"}
+    assert gj.parse_choice(resp.content, 4) == 0                  # the SDK reply round-trips
+    assert resp.system_fingerprint == "fp-test"
+
+
 # --------------------------------------------------------------------------- #
 # Two-stage paired bootstrap (§11) — propagates the judge sample variance
 # --------------------------------------------------------------------------- #

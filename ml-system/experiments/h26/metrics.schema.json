@@ -131,7 +131,7 @@
 
     "coherence_sensitivity": {
       "type": "object",
-      "description": "Coherence-sliced sensitivity (preregistration.md §F amendment 2026-07-01) — REPORTED, NEVER GATING. The eval sets stay the standard unfiltered benchmark; each FITB question carries the mechanical 5-type coherence flag (coherence.py) and the gate-B diffs / judge inconsistency rate / gate-D FITB are reported per slice. Slice CIs are null when a slice is empty. Pre-committed response: if the coherent-slice gate-B verdict disagrees with the headline, results.md labels gate B 'coherence-sensitive (disclosed)'; gate numbers never move.",
+      "description": "Coherence-sliced sensitivity (preregistration.md §F amendment 2026-07-01) — REPORTED, NEVER GATING. The eval sets stay the standard unfiltered benchmark; each FITB question carries the mechanical 5-type coherence flag (coherence.py) and the gate-B diffs / judge inconsistency rate / gate-D FITB are reported per slice. Slice CIs are null when a slice has no kept question (empty, or every question judge-dropped). Pre-committed response: if the coherent-slice gate-B verdict disagrees with the headline, results.md labels gate B 'coherence-sensitive (disclosed)'; gate numbers never move.",
       "required": [
         "rule",
         "n_gate_b_coherent",

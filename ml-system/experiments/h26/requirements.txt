@@ -5,7 +5,7 @@
 #
 # DEPENDENCY LOCK (C2). The embed + metrics + stats stack below is pinned to the versions verified
 # to load FashionSigLIP and run the harness on macOS/arm64 (2026-06-29). The C4 judge dep (openai)
-# stays a lower bound until C4 verifies it. The full pre-registration freeze
+# is pinned to the version verified in the spike venv. The full pre-registration freeze
 # (preregistration.md / embedding_manifest_fashionsiglip.json) records the backbone revision SHA + preprocess hash
 # alongside this lock.
 #
@@ -34,9 +34,9 @@ scikit-learn==1.9.0        # roc_auc cross-check in tests
 jsonschema==4.26.0         # Draft 2020-12 — selection.schema.json + the C4 unlock/closet schemas
 
 # --- LLM-as-judge baseline (C4: gpt_judge.py) ---
-# gpt-5.4-mini dated snapshot, temp 0 (§7/§8). Lazy import — only a live judge run needs it.
-# Lower bound until C4 pins the verified version with the judge addendum.
-openai>=1.0
+# gpt-5.4-mini dated snapshot, temp 0 (§7/§8). Lazy import — only a live judge run needs it
+# (the hermetic suite mocks the client and never constructs OpenAI).
+openai==2.44.0
 
 # --- Test / tooling ---
 pytest==9.1.1

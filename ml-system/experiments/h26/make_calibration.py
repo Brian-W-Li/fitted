@@ -19,8 +19,9 @@ standard benchmark; `evaluate.py` reports coherence-sliced sensitivities instead
 Workflow (after the Step-1 cache/training run frees the parquet):
     .venv/bin/python make_calibration.py            # writes calibration_viewer.html — send to every panelist
     # each panelist: open it, pick A/B/C/D (or "Not sure" — never guess), click "Download my answers";
-    # collect the downloads renamed per person (alice.json / bob.json / me.json), then:
-    .venv/bin/python -c "import make_calibration as m; m.finalize_panel(['alice.json','bob.json','me.json'])"
+    # collect the downloads renamed per person into the GITIGNORED panel_answers/ dir (raw per-person
+    # label files must never reach the public repo), then:
+    .venv/bin/python -c "import make_calibration as m; m.finalize_panel(['panel_answers/alice.json','panel_answers/bob.json','panel_answers/me.json'])"
 
 Reference: docs/plans/h26-compatibility-spike-v2.md §8 / preregistration.md §F.
 """
@@ -266,8 +267,9 @@ def assemble_panel(questions: list[FitbQuestion], per_labeler: dict[str, dict[st
 def finalize_panel(answer_paths: list[str], *, root_dir: str = ROOT_DIR) -> str:
     """Aggregate the panel's downloaded answer files into `calibration_set.json`. Each path is one
     labeler's `{set_id: 'A'..|'SKIP'}` download; the labeler id is the filename stem — so rename each
-    person's download (e.g. alice.json / bob.json / me.json) before collecting them here. Run after every
-    panelist labels the SAME calibration_viewer.html."""
+    person's download (e.g. alice.json / bob.json / me.json) and collect them into the GITIGNORED
+    `panel_answers/` dir (raw per-person labels never reach the public repo; paths resolve against the
+    CWD). Run after every panelist labels the SAME calibration_viewer.html."""
     cache = json.load(open(os.path.join(root_dir, "calibration_questions.json"), encoding="utf-8"))
     questions = [
         FitbQuestion(r["set_id"], tuple(r["retained"]), tuple(r["candidates"]), r["correct_index"], r["answer_category"])
@@ -303,9 +305,9 @@ def main() -> None:
     path = export_viewer(questions, provider)
     print(f"[calibration] wrote {path} ({len(questions)} questions) — send this ONE file to every panelist.")
     print("[calibration] each: open it, pick A–D (or 'Not sure' — never guess), 'Download my answers'.")
-    print("[calibration] collect the downloads renamed per person, then:")
-    print('[calibration]   python -c "import make_calibration as m; '
-          "m.finalize_panel(['alice.json','bob.json','me.json'])\"")
+    print("[calibration] collect the downloads renamed per person into the gitignored panel_answers/, then:")
+    print('[calibration]   python -c "import make_calibration as m; m.finalize_panel('
+          "['panel_answers/alice.json','panel_answers/bob.json','panel_answers/me.json'])\"")
 
 
 _VIEWER_TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">

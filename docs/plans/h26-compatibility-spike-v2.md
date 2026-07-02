@@ -11,19 +11,24 @@
 > `recommend/route.ts:450`, `regenerate/route.ts:461`). The H26 judge baseline mirrors it — a mini judge
 > hardens the cost bar (§8).
 >
-> **Build progress (2026-06-30):** C1–C3 committed; **C4 CODE built** (working tree). C1–C3 = data layer
+> **Build progress (2026-07-01):** **C1–C4 code committed; RUN phase in progress.** C1–C3 = data layer
 > (§C1), the C2 pre-registration freeze, C3 baselines + both trained heads + the eval-driver **metric half** +
-> the materialized gate-B `fitb_order.json`. **C4 code** = `gpt_judge.py` (native FITB@4 judge, both orders,
-> K-sample plurality vote, three arms, scalar-only `judge_runs.ndjson` ledger, two-stage paired bootstrap;
-> OpenAI mocked in the hermetic suite), `evaluate.py`'s **emission half** (the four-file unlock validator +
-> first `metrics.json`), `judge_addendum.schema.json` + the **scaffold** `judge_addendum.md`, and a full
-> hermetic test suite (221 green, 1 skipped with the Step-1 cache/`selection.json` built; one fewer green /
-one more skip on a cache-deferred fresh checkout — floors, not pins). **`selection.json` was deferred** (needs the one-time
-> FashionSigLIP embedding-cache pass) and **`metrics.json` is NOT emitted** — correctly blocked on the RUN
-> phase: kickoff **B1** (OpenAI key + spend approval for the judge pilot), **B2** (`selection.json` from the
-> cache-build + training run), **B3** (`closet_manifest.json` = Brian's labeled worn outfits). **Next (RUN
-> phase):** the judge calibration pilot → freeze `judge_addendum.md` (blind, before any gate-B comparison) →
-> the real four-file unlock + the gate-B FITB parity number, then **C5**. Per-checkpoint state is in §15.
+> the materialized gate-B `fitb_order.json`. **C4 (committed)** = `gpt_judge.py` (native FITB@4 judge, both
+> orders, K-sample plurality vote, three arms, scalar-only `judge_runs.ndjson` ledger, two-stage paired
+> bootstrap; OpenAI mocked in the hermetic suite), `evaluate.py`'s **emission half** (the four-file unlock
+> validator + first `metrics.json`), `judge_addendum.schema.json` + the **scaffold** `judge_addendum.md`,
+> the RUN-phase operator tooling (`build_cache_and_select.py` / `live_content.py` / `make_calibration.py` /
+> `run_judge.py` / `assemble_closet.py`), the §F panel calibration (`finalize_panel`, ≥3 labelers,
+> inter-annotator agreement) with the coherence draw filter (`coherence.py`) + visual-QC exclude list, and
+> the §C.8 eval coherence-sensitivity (reported-never-gating). Hermetic suite **244 green / 1 skipped**
+> (the opt-in live-judge smoke — a floor, not a pin). **B2 is DONE:** the embedding cache is built (83,178
+> scorable ids) and `selection.json` is sealed + committed (winner `grid_0`; `converged:false` at epoch
+> 48/50 — if gate D later misses, the frozen epoch budget is the first suspect, and bumping it is a
+> pre-registration decision). **`metrics.json` is NOT emitted** — the RUN continues: the 100-question panel
+> viewer is generated (local artifact) → Brian's ≥3-person panel labels it → `finalize_panel` →
+> `calibration_set.json` committed → the judge pilot (B1: Brian's key, his shell) → freeze
+> `judge_addendum.md` (blind, before any gate-B comparison) → gate-b → `emit` (also needs **B3**
+> `closet_manifest.json`, deferred by choice). Then **C5**. Per-checkpoint state is in §15.
 
 ---
 
@@ -317,7 +322,7 @@ L2-normalized image embeddings. The H26 compatibility head is a small trained **
   item-level, pairwise, and attention heads (§6) all train over **one** cached embedding pass.
 - **Compute note (the "CPU-feasible" claim is about *serving*, not bring-up).** §9's "ViT-B/16, fast, CPU-
   feasible, ~ms per edge" is the **per-edge serving** latency the thesis rides on. The **one-time** embedding pass
-  over the ~175k disjoint-corpus items (plus the non-disjoint ceiling readout) is a separate up-front cost — a
+  over the scorable disjoint-corpus items (83,178 ids in the built cache) is a separate up-front cost — a
   multi-hour CPU batch job (minutes on a commodity GPU / free Colab), run **once** and cached
   (`embedding_manifest_fashionsiglip.json`; config freezes at C2, cache-content hashes populate at C3, §15), not on the serving path. Budget it explicitly at C2 bring-up; it is a real
   schedule line for a solo fork, not a hidden free lunch.
@@ -1083,8 +1088,8 @@ enumerates exactly this set.
   disjoint result.
 - **Polyvore negative scarcity:** after accessory-exclusion + same-fine-category + anchor-no-cooccurrence filtering, a
   rare fine-category may lack an eligible negative/distractor — **drop that edge/slot + report the count** (unlikely at
-  175k items, but pin the rule; never broaden to coarse type on the AUC set — that re-introduces a category-leaking
-  easier negative).
+  83k scorable items, but pin the rule; never broaden to coarse type on the AUC set — that re-introduces a
+  category-leaking easier negative).
 - **Test isolation:** `experiments/h26/tests/` must not leak into the root pytest collection (pin the collection
   scope); H26's isolated deps are not added to the root `requirements.txt`. *(Pinned via `ml-system/pytest.ini` +
   `experiments/h26/pytest.ini`, both `testpaths = tests`; `cd ml-system && pytest` and `cd experiments/h26 && pytest`

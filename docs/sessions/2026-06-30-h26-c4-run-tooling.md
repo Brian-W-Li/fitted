@@ -8,32 +8,34 @@ needs the RUN-phase artifacts below. This note is the exact operator recipe. All
 **Key never reaches the assistant:** the OpenAI judge runs are commands Brian executes in his own shell
 where `OPENAI_API_KEY` is set. B1 spend is approved; B3 (closet) deferred by choice.
 
-## Step 1 (B2) — trained head: cache → selection.json  ·  IN PROGRESS on Brian's terminal
-```sh
-.venv/bin/python build_cache_and_select.py          # ~hours, single-thread CPU (determinism contract)
-```
-Embeds 83,178 scorable items through frozen FashionSigLIP → `embeddings/` (gitignored) + populates the
-cache-content fields of `embedding_manifest_fashionsiglip.json`, then runs the deterministic grid →
-sealed `selection.json`. Smoke pre-validated: gated parquet reachable (user Brianlol30), dim 768, revision
-== the C2-frozen `c56244cc` (no drift). **Split option** (avoid re-embed on a training hiccup):
-`python -c "import build_cache_and_select as b; b.build_cache_only()"` then `python train_head.py`.
-**On finish:** commit `selection.json` + the populated `embedding_manifest_fashionsiglip.json`; the
-assistant then verifies (schema + manifest-hash bind + deterministic checkpoint sha).
+## Step 1 (B2) — trained head: cache → selection.json  ·  ✅ DONE (sealed + committed)
+The embedding cache is built (83,178 scorable ids through frozen FashionSigLIP → `embeddings/`,
+gitignored) and `selection.json` is sealed + committed with the populated
+`embedding_manifest_fashionsiglip.json` — verified (schema + manifest-hash bind + deterministic
+checkpoint sha; winner `grid_0`, `converged:false` at epoch 48/50 is disclosed in the memory/plan:
+if gate D later misses, the frozen epoch budget is the first suspect, and bumping it is a
+pre-registration decision). Re-run only on a frozen-artifact change (the unlock's
+`manifest_hashes` bind will fail loud if one drifts).
 
-## Step 2 — calibration set (your taste): calibration_set.json
+## Step 2 — calibration set (§F PANEL — ≥3 diverse labelers): calibration_set.json
 ```sh
-.venv/bin/python make_calibration.py                # writes calibration_viewer.html (run AFTER Step 1 frees the parquet)
-# open calibration_viewer.html, pick A–D per question (~60), click "Download my answers"
-# MOVE the downloaded calibration_answers.json into ml-system/experiments/h26/ (it's gitignored there;
-#   finalize() resolves the bare filename against this dir, not your browser's Downloads folder).
-.venv/bin/python -c "import make_calibration as m; m.finalize('calibration_answers.json')"   # -> calibration_set.json
-# INTRA-ANNOTATOR STABILITY (§8/§F — required): re-open calibration_viewer.html, re-answer a subset with a
-#   fresh eye, download as calibration_answers_recheck.json (move it here too), then compute the agreement:
-.venv/bin/python -c "import make_calibration as m; m.restability('calibration_answers.json', 'calibration_answers_recheck.json')"
-#   -> write the printed rate into judge_addendum.md calibration_set.intra_annotator_agreement (a low value
-#      flags a noisy labeler BEFORE it tunes the judge; the addendum schema REQUIRES a real number there).
+.venv/bin/python make_calibration.py                # regenerates calibration_viewer.html (100 questions,
+                                                    #   coherence-filtered + visual-QC-excluded; local artifact)
+# send the ONE calibration_viewer.html file to every panelist (>=3 people incl. you — diverse on
+#   gender/style familiarity). Each: open it, pick A–D per question, or "Not sure" — NEVER guess —
+#   then click "Download my answers".
+# collect the downloads RENAMED per person (alice.json / bob.json / me.json) into
+#   ml-system/experiments/h26/panel_answers/ — a GITIGNORED dir, so raw per-person label files can
+#   never be swept into the public repo by a git add -A (paths resolve against the h26 dir you run from):
+.venv/bin/python -c "import make_calibration as m; m.finalize_panel(['panel_answers/alice.json','panel_answers/bob.json','panel_answers/me.json'])"
+#   -> calibration_set.json (unique-plurality consensus over confident votes; >=2 confident votes per kept
+#      question; survivors floored >=50). It prints the INTER-annotator agreement (the human ceiling) —
+#      that number + the panel size fill judge_addendum.md calibration_set.{inter_annotator_agreement,
+#      n_annotators} at the freeze (the schema requires real values there).
 ```
-Questions are drawn from valid/train → disjoint-by-construction from the test gate-B/gate-D sets (§F).
+Questions are drawn from valid/train → disjoint-by-construction from the test gate-B/gate-D sets (§F),
+5-type-coherence-filtered (`coherence.py` — Polyvore boards include wear-impossible sets humans balk at)
+and screened against the committed `calibration_visual_qc.json` source-corrupted-image excludes.
 Commit `calibration_set.json` (the unlock binds it by sha + asserts id-disjointness).
 
 ## Step 3 (B3) — closet transfer probe: closet_manifest.json  ·  deferred by choice — BUT gates `emit`
@@ -54,14 +56,15 @@ Commit only `closet_manifest.json` (photos stay gitignored).
 ## Step 4 — the live judge (your key, your terminal): pilot → freeze → gate-b → emit
 ```sh
 export OPENAI_API_KEY=...                            # your key, your shell
-.venv/bin/python run_judge.py pilot --k 3           # tune K vs your calibration labels (try a few K); BLIND to test
+.venv/bin/python run_judge.py pilot --k 3           # tune K vs the panel's consensus labels (try a few K); BLIND to test
 # then FREEZE judge_addendum.md by EDITING THE COMMITTED SCAFFOLD IN PLACE (don't author a fresh file):
 #   (a) flip frozen:false->true; (b) replace EVERY remaining placeholder — the "<...>"/null per-run fields:
 #       model_snapshot, k_samples, max_tokens, retry_budget, prompt_sha256,
-#       calibration_set.manifest_sha256, calibration_set.intra_annotator_agreement,
+#       calibration_set.{manifest_sha256, size, n_annotators, inter_annotator_agreement} (from finalize_panel),
 #       above_chance_pilot.{image_only_fitb_point, image_only_fitb_ci_low, above_chance} (from your pilot),
-#       and commit_hash; (c) leave everything else — the const temperature/arms/*_policy fields AND the
-#       already-real drop_policy/payload_logging_policy/calibration_set.{source,size} — as-is. Then COMMIT
+#       and commit_hash; (c) leave everything else — the const temperature/arms/*_policy fields, the
+#       sdk_token_param/reasoning_effort/image_detail consts, AND the already-real
+#       drop_policy/payload_logging_policy/calibration_set.source — as-is. Then COMMIT
 #   it BEFORE the gate-b run. (tests/test_freeze.py::test_scaffold_freezes_to_a_schema_valid_envelope
 #   pins that filling exactly these per-run fields yields a schema-valid frozen envelope — the schema
 #   rejects any leftover "FILL"/"<...>" placeholder or null, so a missed field fails loud at gate-b.)
@@ -77,8 +80,9 @@ export OPENAI_API_KEY=...                            # your key, your shell
 loud on any constructor/corpus/seed drift). `emit` refuses unless `selection.json` binds + all four unlock
 files (prereg.md/.json + judge_addendum.md frozen + closet_manifest.json) are committed + valid, the arm ==
 frozen `image_only`, the calibration set is disjoint from the gated sets, and every `judge_runs.ndjson` row's
-`model_snapshot` matches the frozen addendum. Cost: a few dollars on your key (Batch −50%; confirm
-gpt-5.4-mini's per-image token accounting at run time — the ~85 tok figure is gpt-4o-era).
+`model_snapshot` matches the frozen addendum. Cost: a few dollars on your key (Batch −50%; images are
+pinned `detail:"low"` — ~162 tok per 300×300 Polyvore image under gpt-5.x accounting; the ~85 tok
+figure was gpt-4o-era).
 
 ## After emit
 `metrics.json` first materializes (test-set trained-head + judge gate-B fields). Then **C5** (domain

@@ -20,9 +20,10 @@ import pytest
 
 import evaluate as ev
 from baselines import LeakCheck
-from data_loader import FitbQuestion
+from coherence import COHERENCE_RULE
+from data_loader import FitbQuestion, Item
 from evaluate import GateBMetrics, MetricSuite, UnlockError
-from gpt_judge import JudgeResponse, run_arm
+from gpt_judge import JudgeResponse, JudgeSample, run_arm
 from metrics import CI
 from train_head import manifest_hashes
 
@@ -441,6 +442,112 @@ def test_compute_gate_b_convention_wiring(tmp_path):
     assert gb.gate_B_diff_inconsistent_miss.point == pytest.approx(0.5)   # 1.0 - 0.5
     assert gb.gate_B_diff_inconsistent_half.point == pytest.approx(0.25)  # 1.0 - 0.75
     assert gb.gate_B_diff_inconsistent_miss.point > gb.gate_B_diff_inconsistent_half.point
+
+
+# --------------------------------------------------------------------------- #
+# compute_coherence_sensitivity — the §F reported-never-gating sliced diagnostic
+# --------------------------------------------------------------------------- #
+def _coh_fixture():
+    """Three FITB questions with a controlled coherence split + a K=1 judge ledger: qc1 coherent
+    (top+bottom, judge consistent-hit), qc2 coherent (dress, judge order-INCONSISTENT), qf1 flagged
+    (retained already holds a shoe, the answer is another shoe; judge consistent-hit). The answer is
+    always shoe_a at index 0, so the trivial edge score hits every question on the trained side."""
+    types = {"top_a": "top", "bot_a": "bottom", "dress_a": "dress", "shoe_e": "shoes",
+             "shoe_a": "shoes", "shoe_b": "shoes", "shoe_c": "shoes", "shoe_d": "shoes"}
+    idx = {iid: Item(item_id=iid, category_id="c_" + t, semantic=t, type=t) for iid, t in types.items()}
+
+    def mk(sid, retained):
+        return FitbQuestion(sid, retained, ("shoe_a", "shoe_b", "shoe_c", "shoe_d"), 0, "c_shoes")
+
+    questions = [mk("qc1", ("top_a", "bot_a")), mk("qc2", ("dress_a",)), mk("qf1", ("shoe_e", "top_a"))]
+
+    def row(qid, order, choice):
+        return JudgeSample(qid, "image_only", order, 0, choice, 0, choice is None,
+                           "snap", None, None).to_row()
+
+    rows = [
+        row("qc1", "forward", 0), row("qc1", "reverse", 3),   # canonical 0 both -> HIT
+        row("qc2", "forward", 0), row("qc2", "reverse", 0),   # reverse canonical 3 != 0 -> INCONSISTENT
+        row("qf1", "forward", 0), row("qf1", "reverse", 3),   # HIT
+    ]
+
+    def edge_score(i, j):
+        return 1.0 if "shoe_a" in (i, j) else 0.0
+
+    return idx, questions, rows, edge_score
+
+
+def test_coherence_sensitivity_slices_counts_and_rates():
+    idx, questions, rows, edge = _coh_fixture()
+    sens = ev.compute_coherence_sensitivity(
+        questions, questions, idx, edge, rows, arm="image_only", seed=1, b=60, expected_k=1)
+    assert sens["rule"] == COHERENCE_RULE
+    assert sens["n_gate_b_coherent"] == 2 and sens["n_gate_b_flagged"] == 1
+    assert sens["n_gate_b_coherent"] + sens["n_gate_b_flagged"] == len(questions)  # slices partition N
+    # coherent slice: qc2 is the 1 inconsistent of 2 kept; flagged slice: qf1 kept, none inconsistent
+    assert sens["judge_inconsistent_rate_coherent"] == pytest.approx(0.5)
+    assert sens["judge_inconsistent_rate_flagged"] == pytest.approx(0.0)
+    # trained hits everything; judge coherent-slice acc: miss-conv (1+0)/2, half-conv (1+0.5)/2
+    assert sens["gate_B_diff_inconsistent_miss_coherent"]["point"] == pytest.approx(0.5)
+    assert sens["gate_B_diff_inconsistent_half_coherent"]["point"] == pytest.approx(0.25)
+    assert sens["gate_B_diff_inconsistent_miss_flagged"]["point"] == pytest.approx(0.0)
+    for field in ("fitb_trained_full_coherent", "fitb_trained_full_flagged"):
+        assert {"point", "low", "high", "b"} <= set(sens[field])
+    assert sens["fitb_trained_full_coherent"]["point"] == pytest.approx(1.0)
+
+
+def test_coherence_sensitivity_empty_slice_emits_nulls():
+    idx, questions, rows, edge = _coh_fixture()
+    coherent_only = questions[:2]                       # no flagged question in the prefix at all
+    sens = ev.compute_coherence_sensitivity(
+        coherent_only, coherent_only, idx, edge, rows[:4], arm="image_only", seed=1, b=50, expected_k=1)
+    assert sens["n_gate_b_flagged"] == 0
+    for field in ("gate_B_diff_inconsistent_miss_flagged", "gate_B_diff_inconsistent_half_flagged",
+                  "judge_inconsistent_rate_flagged", "fitb_trained_full_flagged"):
+        assert sens[field] is None
+    assert sens["gate_B_diff_inconsistent_miss_coherent"] is not None
+
+
+def test_coherence_sensitivity_zero_kept_slice_is_null_not_a_crash():
+    # A NON-empty slice whose every question judge-DROPS (no parseable sample in an order) has no kept
+    # question for the two-stage bootstrap — the diagnostic must preserve the counts and emit null
+    # gate-B fields, never raise (it runs inside the gated emission path; a crash would block emit).
+    idx, questions, rows, edge = _coh_fixture()
+
+    def drop_row(qid, order):
+        return JudgeSample(qid, "image_only", order, 0, None, 0, True, "snap", None, None).to_row()
+
+    rows_dropped_flagged = rows[:4] + [drop_row("qf1", "forward"), drop_row("qf1", "reverse")]
+    sens = ev.compute_coherence_sensitivity(
+        questions, questions, idx, edge, rows_dropped_flagged,
+        arm="image_only", seed=1, b=50, expected_k=1)
+    assert sens["n_gate_b_flagged"] == 1                          # the count survives the drop
+    assert sens["gate_B_diff_inconsistent_miss_flagged"] is None
+    assert sens["gate_B_diff_inconsistent_half_flagged"] is None
+    assert sens["judge_inconsistent_rate_flagged"] is None
+    # the trained-side full-set slice never depends on judge drops -> still a CI
+    assert {"point", "low", "high", "b"} <= set(sens["fitb_trained_full_flagged"])
+    assert sens["gate_B_diff_inconsistent_miss_coherent"] is not None   # the other slice is untouched
+
+
+def test_emit_validates_coherence_sensitivity_against_the_schema(unlock_dir):
+    # The end-to-end shape check: the EXACT dict compute_coherence_sensitivity emits (CI dicts + rates)
+    # must satisfy metrics.schema.json's optional coherence_sensitivity block through the real gated
+    # emission, and the null-heavy zero-kept variant must too (the schema's anyOf-null legs).
+    idx, questions, rows, edge = _coh_fixture()
+    sens = ev.compute_coherence_sensitivity(
+        questions, questions, idx, edge, rows, arm="image_only", seed=1, b=60, expected_k=1)
+    metrics = ev.emit_metrics(_suite(), _gate_b(), root_dir=unlock_dir, git=FakeGit(), coherence=sens)
+    assert metrics["coherence_sensitivity"]["rule"] == COHERENCE_RULE
+    coherent_only = questions[:2]
+    with_nulls = ev.compute_coherence_sensitivity(
+        coherent_only, coherent_only, idx, edge, rows[:4], arm="image_only", seed=1, b=50, expected_k=1)
+    unlock_files, selection_meta = ev.validate_unlock_files(unlock_dir, FakeGit())
+    assembled = ev.assemble_metrics(_suite(), _gate_b(), unlock_files=unlock_files,
+                                    selection_meta=selection_meta, git_commit="b" * 40,
+                                    coherence=with_nulls)
+    ev._validate_against_schema(assembled, os.path.join(unlock_dir, "metrics.schema.json"),
+                                what="assembled metrics with null coherence slices")
 
 
 def test_compute_gate_b_binds_ledger_snapshot_to_frozen_envelope(tmp_path):
