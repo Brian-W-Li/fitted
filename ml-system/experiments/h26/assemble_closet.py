@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 
 from data_loader import load_json_strict
 
@@ -103,10 +104,19 @@ def assemble_closet(
             "closet_input needs an explicit label_audit block with second_pass_completed + items_rechecked "
             "+ agreement_rate (assemble_closet will not default to a passing audit — §10 label-audit integrity)"
         )
+    owner_id = consent.get("owner_id", closet_input.get("owner_id", ""))
+    # §14 PII guard: owner_id is committed VERBATIM into the public closet_manifest.json, so refuse a
+    # value that carries a real identity — whitespace (a name) or an email-like token. Use an opaque
+    # token (owner_a / owner_01). Empty is left to the schema; this catches the identity-leak shapes.
+    if re.search(r"\s", owner_id) or re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", owner_id):
+        raise ValueError(
+            f"owner_id {owner_id!r} looks like a real identity (whitespace or email) — use an opaque "
+            f"token like 'owner_a'/'owner_01', never a name/email (§14 closet PII guard)"
+        )
     return {
         "_schema_version": 1,
         "_consent": {
-            "owner_id": consent.get("owner_id", closet_input.get("owner_id", "")),
+            "owner_id": owner_id,
             "third_party_api_processing": consent.get("third_party_api_processing", False),
             "providers_photos_may_reach": consent.get("providers_photos_may_reach", []),
         },

@@ -24,10 +24,10 @@ pre-registration decision). Re-run only on a frozen-artifact change (the unlock'
 # send the ONE calibration_viewer.html file to every panelist (>=3 people incl. you — diverse on
 #   gender/style familiarity). Each: open it, pick A–D per question, or "Not sure" — NEVER guess —
 #   then click "Download my answers".
-# collect the downloads RENAMED per person (alice.json / bob.json / me.json) into
+# collect the downloads RENAMED to opaque per-person names (p1.json / p2.json / p3.json) into
 #   ml-system/experiments/h26/panel_answers/ — a GITIGNORED dir, so raw per-person label files can
 #   never be swept into the public repo by a git add -A (paths resolve against the h26 dir you run from):
-.venv/bin/python -c "import make_calibration as m; m.finalize_panel(['panel_answers/alice.json','panel_answers/bob.json','panel_answers/me.json'])"
+.venv/bin/python -c "import make_calibration as m; m.finalize_panel(['panel_answers/p1.json','panel_answers/p2.json','panel_answers/p3.json'])"
 #   -> calibration_set.json (unique-plurality consensus over confident votes; >=2 confident votes per kept
 #      question; survivors floored >=50). It prints the INTER-annotator agreement (the human ceiling) —
 #      that number + the panel size fill judge_addendum.md calibration_set.{inter_annotator_agreement,
@@ -53,15 +53,15 @@ Photograph ~15–25 real worn outfits (real context, NOT flat-lays; faces/PII bl
 ```
 Commit only `closet_manifest.json` (photos stay gitignored).
 
-## Step 4 — the live judge (your key, your terminal): pilot → freeze → gate-b → emit
+## Step 4 — the live judge (your key, your terminal): calibration pilot → freeze → gate-b (pilot prefix) → emit
 ```sh
 export OPENAI_API_KEY=...                            # your key, your shell
-.venv/bin/python run_judge.py pilot --k 3           # tune K vs the panel's consensus labels (try a few K); BLIND to test
+.venv/bin/python run_judge.py pilot --k 3           # CALIBRATION pilot: tune K vs the panel's consensus labels (try a few K); BLIND to test
 # then FREEZE judge_addendum.md by EDITING THE COMMITTED SCAFFOLD IN PLACE (don't author a fresh file):
 #   (a) flip frozen:false->true; (b) replace EVERY remaining placeholder — the "<...>"/null per-run fields:
 #       model_snapshot, k_samples, max_tokens, retry_budget, prompt_sha256,
 #       calibration_set.{manifest_sha256, size, n_annotators, inter_annotator_agreement} (from finalize_panel),
-#       above_chance_pilot.{image_only_fitb_point, image_only_fitb_ci_low, above_chance} (from your pilot),
+#       above_chance_pilot.{image_only_fitb_point, image_only_fitb_ci_low, above_chance} (from the calibration pilot),
 #       and commit_hash; (c) leave everything else — the const temperature/arms/*_policy fields, the
 #       sdk_token_param/reasoning_effort/image_detail consts, AND the already-real
 #       drop_policy/payload_logging_policy/calibration_set.source — as-is. Then COMMIT
@@ -72,7 +72,7 @@ export OPENAI_API_KEY=...                            # your key, your shell
 #   frozen:true AND committed-clean, and it reads the ENTIRE envelope (snapshot/K/max_tokens/retry_budget)
 #   FROM the frozen addendum — there are no --snapshot/--max-tokens CLI overrides on gate-b, so the gate-B
 #   run cannot silently diverge from what emit binds (§8 dated-snapshot rule).
-.venv/bin/python run_judge.py gate-b --n 100        # above-chance/position-flip pilot prefix -> judge_runs.ndjson
+.venv/bin/python run_judge.py gate-b --n 100        # gate-B pilot prefix: above-chance/position-flip scale-up check -> judge_runs.ndjson
 .venv/bin/python run_judge.py gate-b --n 500        # extend if the half-width needs it (<= cap 500)
 .venv/bin/python run_judge.py emit --n 500          # four-file unlock -> metrics.json (needs all four committed)
 ```

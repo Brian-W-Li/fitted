@@ -100,6 +100,29 @@ def test_inter_annotator_agreement_is_pairwise_over_co_confident():
     assert mc.inter_annotator_agreement({"a": a, "b": b, "c": c}, qs) == pytest.approx(1 / 4)
 
 
+def test_load_panel_answers_maps_to_opaque_ids_and_rejects_dup_stems(tmp_path):
+    # Task 8A / §F PII guard: real filename stems (names/initials/emails) must NOT become committed
+    # labeler ids — files map to opaque labeler_1..N in order. Duplicate stems fail loud (the old
+    # stem-keyed map silently overwrote a labeler). load_json_strict rejects a dup key in an answer file.
+    a = tmp_path / "alice.json"
+    a.write_text('{"s1": "A"}', encoding="utf-8")
+    b = tmp_path / "bob.json"
+    b.write_text('{"s1": "B"}', encoding="utf-8")
+    per = mc._load_panel_answers([str(a), str(b)])
+    assert list(per) == ["labeler_1", "labeler_2"]            # opaque + order-stable; no 'alice'/'bob'
+    assert per["labeler_1"] == {"s1": "A"} and per["labeler_2"] == {"s1": "B"}
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    dup = sub / "alice.json"                                  # same stem, different dir -> collision
+    dup.write_text('{"s1": "C"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate answer-file stem"):
+        mc._load_panel_answers([str(a), str(dup)])
+    dupkey = tmp_path / "carol.json"
+    dupkey.write_text('{"s1": "A", "s1": "B"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        mc._load_panel_answers([str(dupkey)])
+
+
 # --------------------------------------------------------------------------- #
 # make_calibration — the §F pre-draw filters (coherence + visual-QC excludes, amendment 2026-07-01)
 # --------------------------------------------------------------------------- #
@@ -227,6 +250,19 @@ def test_assemble_closet_requires_explicit_label_audit(tmp_path):
         ac.assemble_closet(ci2, closet_dir=str(tmp_path))
 
 
+def test_assemble_closet_rejects_pii_owner_id(tmp_path):
+    # Task 8C / §14 PII guard: owner_id commits VERBATIM into the public manifest, so a name (whitespace)
+    # or an email must fail loud; an opaque token ("owner-x") still builds.
+    cats = [_real_category("top"), _real_category("bottom")]
+    for bad in ("Brian Li", "brian.li@gmail.com"):
+        ci = _closet_input(tmp_path, cats)
+        ci["owner_id"] = bad
+        ci["consent"]["owner_id"] = bad
+        with pytest.raises(ValueError, match="opaque token|real identity"):
+            ac.assemble_closet(ci, closet_dir=str(tmp_path))
+    ac.assemble_closet(_closet_input(tmp_path, cats), closet_dir=str(tmp_path))  # opaque owner-x is fine
+
+
 # make_calibration.restability was removed with the single-annotator path; the panel's human-agreement
 # ceiling is inter_annotator_agreement (tested above), not a self-relabel check.
 
@@ -300,14 +336,33 @@ def test_require_frozen_envelope_refuses_uncommitted(tmp_path):
         rj.require_frozen_envelope(root_dir=root, git=FakeGit(committed=False))
 
 
-def test_cmd_gate_b_refuses_scaffold_before_any_spend():
+def test_cmd_gate_b_refuses_scaffold_before_any_spend(tmp_path, monkeypatch):
     # The gate-b HANDLER's first act must be the freeze gate (require_frozen_envelope), BEFORE it builds a
-    # provider/client or loads the dataset — else a held-out-test judge number could be produced off an
-    # unfrozen addendum. Driving the REAL cmd_gate_b against the committed SCAFFOLD (guaranteed frozen:false
-    # by test_committed_judge_addendum_is_still_a_scaffold) pins that ordering: it must raise the freeze
-    # refusal, not fail later on a provider/dataset access. A regression moving run_arm before the guard
-    # would raise a different error here (mutation guard for the gate-b build-order teeth).
+    # provider/client, loads the dataset, or TOUCHES the ledger — else a held-out-test judge number could
+    # be produced off an unfrozen addendum. Drive the REAL cmd_gate_b against a KNOWN frozen:false scaffold
+    # in a tmp root (ROOT_DIR + GATE_B_LEDGER patched there): it must raise the freeze refusal at schema
+    # validation, before any git/corpus/client/ledger work. HERMETIC by construction — unlike the old
+    # def-time-default version, it cannot proceed to os.remove the LIVE judge_runs.ndjson (or spend tokens)
+    # once the operator legitimately freezes + commits the real addendum (Task 1).
     from types import SimpleNamespace
 
+    root = _frozen_addendum_dir(tmp_path, frozen=False)
+    monkeypatch.setattr(rj, "ROOT_DIR", root)
+    monkeypatch.setattr(rj, "GATE_B_LEDGER", os.path.join(root, "judge_runs.ndjson"))
     with pytest.raises(SystemExit, match="FROZEN"):
         rj.cmd_gate_b(SimpleNamespace(n=100))
+    assert not os.path.exists(os.path.join(root, "judge_runs.ndjson"))  # never reached the ledger
+
+
+def test_guard_gate_b_ledger_refuses_uncommitted(tmp_path):
+    # The ledger-regen guard (Task 1c): a bare os.remove of an UNCOMMITTED judge_runs.ndjson would destroy
+    # paid, not-yet-committed judge results. Refuse an uncommitted ledger (leave it intact); delete only a
+    # committed one (git preserves it); an absent ledger is a no-op.
+    ledger = tmp_path / "judge_runs.ndjson"
+    ledger.write_text('{"question_id": "x"}\n', encoding="utf-8")
+    with pytest.raises(SystemExit, match="committed-clean"):
+        rj._guard_gate_b_ledger(ledger_path=str(ledger), git=FakeGit(committed=False))
+    assert ledger.exists()                                    # the refusal left the paid ledger intact
+    rj._guard_gate_b_ledger(ledger_path=str(ledger), git=FakeGit(committed=True))
+    assert not ledger.exists()                                # committed -> safe to regenerate (git keeps it)
+    rj._guard_gate_b_ledger(ledger_path=str(tmp_path / "absent.ndjson"), git=FakeGit(committed=False))  # absent -> no-op

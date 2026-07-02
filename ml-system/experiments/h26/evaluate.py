@@ -381,7 +381,6 @@ def _prereg_md_json_agree(root_dir: str) -> None:
     g = p["gates"]
     floors = {c["metric"]: c["floor"] for c in g["D"]["conjuncts"]}
     required_literals = [
-        str(g["A"]["threshold"]),                       # 0.0
         str(g["B"]["delta"]),                           # 0.05
         str(floors["outfit_auc"]),                      # 0.81
         str(floors["fitb_trained_full"]),               # 0.5
@@ -392,13 +391,24 @@ def _prereg_md_json_agree(root_dir: str) -> None:
     ]
     # the .md writes the FITB floor as "0.50" and the AUC band as "0.70"/"0.50"; accept the json's
     # canonical numeric OR its 2-dp written form, so an honest formatting difference is not a false alarm.
-    written = {"0.5": "0.50", "0.7": "0.70", "0.0": "0.0"}
+    written = {"0.5": "0.50", "0.7": "0.70"}
     for lit in required_literals:
         if lit not in md and written.get(lit, lit) not in md:
             raise UnlockError(
                 f"preregistration.json / .md disagree: the frozen literal {lit!r} is in the .json "
                 f"mirror but not the .md authority (§1 — the two must agree)"
             )
+    # Gate A's threshold is 0.0 (added value > 0) — a NON-distinctive substring ("0.05" contains "0.0"),
+    # so a literal check for it is vacuous and can never fail. Bind the gate-A leg by its distinctive
+    # metric EXPRESSION instead, which the .md authority states verbatim (with a U+2212 minus, not the
+    # .json mirror's ASCII hyphen — reuse the .json's field names + swap the glyph so the check tracks a
+    # metric-name change while ignoring the honest glyph difference).
+    gate_a_expr = g["A"]["metric"].replace("-", "−")
+    if gate_a_expr not in md:
+        raise UnlockError(
+            f"preregistration.json / .md disagree: the .md authority does not state gate A's metric "
+            f"expression {gate_a_expr!r} (§1 — the two must agree on the added-value gate)"
+        )
 
 
 def closet_referential_checks(closet: dict, reference: dict) -> None:
@@ -610,6 +620,49 @@ def assert_ledger_snapshot(ledger_rows: Sequence[dict], arm: str, expected_snaps
         )
 
 
+def assert_ledger_committed(root_dir: str, ledger_path: str, *, git: GitInfo | None = None) -> str:
+    """Emit preflight (§8/§12): the gate-B judge ledger must EXIST and be committed-clean before the
+    multi-hour `emit` retrain, and its sha256 binds the emitted gate-B numbers to the exact committed
+    ledger bytes (`metrics.json._meta.judge_ledger_sha256`). Returns that sha256. Raises `UnlockError`
+    if the ledger is absent, or present-but-uncommitted/dirty (a dirty ledger could carry paid results
+    not reflected in git — refuse UP FRONT rather than after hours of retrain). Injectable git seam so the
+    guard is hermetically testable; `RealGit.identity` reports an untracked ledger as `committed=False`."""
+    _require_present(
+        ledger_path,
+        reason_if_absent=(
+            f"the gate-B judge ledger {os.path.basename(ledger_path)!r} is absent — run `run_judge.py "
+            f"gate-b` to score the judge (and commit judge_runs.ndjson) before `emit`"
+        ),
+    )
+    git = git or RealGit(root_dir)
+    if not git.identity(ledger_path).committed:
+        raise UnlockError(
+            f"{os.path.basename(ledger_path)} is not committed-clean — commit the gate-B ledger before "
+            f"`emit` so the emitted gate-B numbers bind to the exact committed bytes (§8/§12 provenance); "
+            f"a dirty/uncommitted ledger is refused before the expensive retrain, not after it"
+        )
+    return _file_sha256(ledger_path)
+
+
+def assert_ledger_unchanged_since_preflight(
+    root_dir: str, ledger_path: str, preflight_sha: str, *, git: GitInfo | None = None
+) -> str:
+    """Re-verify the gate-B ledger RIGHT BEFORE it is consumed (§8/§12 provenance). The emit retrain takes
+    HOURS, during which `judge_runs.ndjson` could change on disk (a re-run `gate-b`, a manual edit) — so the
+    preflight sha could bind DIFFERENT bytes than the ones `compute_gate_b`/coherence actually score.
+    Require the ledger is STILL committed-clean AND its sha is unchanged since the preflight, and return
+    that (unchanged) sha for `metrics.json._meta.judge_ledger_sha256`. Raises `UnlockError` on any change,
+    so the recorded provenance sha is provably the sha of the consumed bytes, never a stale preflight value."""
+    consumed = assert_ledger_committed(root_dir, ledger_path, git=git)
+    if consumed != preflight_sha:
+        raise UnlockError(
+            f"judge_runs.ndjson changed on disk during the emit retrain (preflight sha {preflight_sha} != "
+            f"read-time sha {consumed}) — re-run emit against a stable committed ledger so the recorded "
+            f"provenance sha binds the bytes actually scored (§8/§12)"
+        )
+    return consumed
+
+
 def compute_gate_b(
     gate_b_questions: Sequence[FitbQuestion],
     edge_score: EdgeScore,
@@ -726,21 +779,27 @@ def assemble_metrics(
     seed: int = SEED,
     stage: str = "C4",
     coherence: dict | None = None,
+    judge_ledger_sha256: str | None = None,
 ) -> dict:
     """Map the in-memory CI suite + the gate-B judge comparison to the `metrics.schema.json` field set.
     Emits the C4 required set (gate A/B/D) plus the always-available diagnostics + seam pair-level fields
     (load-bearing for the C6 mandatory popularity re-run + the seam verdict). The closet/transfer fields
     stage to C5 and `seam_holm_adjusted_p` to C6 (the family-wise correction over the executed ablation
-    family), so they are deliberately absent at stage C4 (schema-legal — optional until C5/C6)."""
+    family), so they are deliberately absent at stage C4 (schema-legal — optional until C5/C6).
+    `judge_ledger_sha256`, when provided by the RUN-phase emit, binds the gate-B numbers to the exact
+    committed `judge_runs.ndjson` bytes (§8/§12); it is optional so the hermetic emit tests omit it."""
+    meta = {
+        "stage": stage,
+        "seed": seed,
+        "split_loader": SPLIT_LOADER,
+        "git_commit": git_commit,
+        "unlock_files": unlock_files,
+        "selection": selection_meta,
+    }
+    if judge_ledger_sha256 is not None:
+        meta["judge_ledger_sha256"] = judge_ledger_sha256   # provenance: the exact committed gate-B ledger
     return {
-        "_meta": {
-            "stage": stage,
-            "seed": seed,
-            "split_loader": SPLIT_LOADER,
-            "git_commit": git_commit,
-            "unlock_files": unlock_files,
-            "selection": selection_meta,
-        },
+        "_meta": meta,
         # Gate A (added value) — pair-level
         "AUC_catalog_pair": _ci(suite.AUC_catalog_pair),
         "AUC_zero_shot_cosine": _ci(suite.AUC_zero_shot_cosine),
@@ -778,17 +837,20 @@ def emit_metrics(
     seed: int = SEED,
     stage: str = "C4",
     coherence: dict | None = None,
+    judge_ledger_sha256: str | None = None,
 ) -> dict:
     """First-emit `metrics.json` — but ONLY after the four-file unlock validates (§1/§12). Validates the
     unlock files (every freeze file must be committed-clean — no bypass) + binds the sealed selection,
     assembles the field set, **re-validates it against `metrics.schema.json`**, then writes. Any
     `UnlockError` from the gate means no file is written, so a held-out test-set number never reaches
-    disk while the freeze is incomplete (the blindness teeth)."""
+    disk while the freeze is incomplete (the blindness teeth). `judge_ledger_sha256` (from the RUN-phase
+    emit) is recorded in `_meta` to bind the gate-B numbers to the exact committed ledger (§8/§12)."""
     git = git or RealGit(root_dir)
     unlock_files, selection_meta = validate_unlock_files(root_dir, git)
     metrics = assemble_metrics(
         suite, gate_b, unlock_files=unlock_files, selection_meta=selection_meta,
         git_commit=git.head_commit(), seed=seed, stage=stage, coherence=coherence,
+        judge_ledger_sha256=judge_ledger_sha256,
     )
     _validate_against_schema(metrics, os.path.join(root_dir, METRICS_SCHEMA), what="assembled metrics.json")
     out_path = out_path or os.path.join(root_dir, "metrics.json")
@@ -844,6 +906,21 @@ def materialize_metrics_json(
     if not 1 <= gate_b_n <= cap:
         raise ValueError(f"gate_b_n {gate_b_n} must be in [1, {cap}] (a prefix of the frozen gate-B order)")
 
+    # --- PREFLIGHT before the multi-hour retrain (Task 8B / §8 / §12) ---------------------------------
+    # Fail fast: the full four-file unlock must validate AND the gate-B ledger must be committed-clean
+    # BEFORE re-deriving both heads (hours) — refuse a bad freeze up front, never after the compute is
+    # spent. `assert_ledger_committed` also returns the ledger sha256 that binds the emitted gate-B
+    # numbers to the exact committed bytes (`metrics.json._meta.judge_ledger_sha256`). `emit_metrics`
+    # re-runs `validate_unlock_files` at write time; running it here too is cheap + idempotent.
+    git = git or RealGit(root_dir)
+    validate_unlock_files(root_dir, git)
+    ledger_sha = assert_ledger_committed(root_dir, ledger_path, git=git)
+    print(  # the ONE emit warning (Task 3) — printed only AFTER the preflight passes, before any heavy work
+        "[emit] re-deriving BOTH heads over the frozen 6-config grid (12 trainings x up to 50 epochs, "
+        "single-thread — HOURS) + the ~50-min metric suite (B=10,000 cluster bootstraps). Expected; do "
+        "NOT interrupt."
+    )
+
     cache = load_cache(HEADLINE)
     corpus = load_headline_corpus(verbose=False)
     fitb_order.verify_fitb_order(order, corpus)  # the gate-B prefix binds the SAME frozen order
@@ -868,6 +945,11 @@ def materialize_metrics_json(
             "constructor drifted; the emitted gate-B number would bind the wrong questions (§12 tripwire)"
         )
     edge_score = head_edge_scorer(pw, cache, corpus.item_index)
+    # Re-verify the ledger is UNCHANGED + still committed-clean immediately before consuming it: the retrain
+    # took hours, so bind metrics.json._meta.judge_ledger_sha256 to the bytes actually scored below, never
+    # the stale preflight sha (§8/§12 provenance race). Both consumers (compute_gate_b + coherence) read
+    # the rows produced here, after this check.
+    ledger_sha_consumed = assert_ledger_unchanged_since_preflight(root_dir, ledger_path, ledger_sha, git=git)
     ledger_rows = read_ledger(ledger_path)
     gate_b = compute_gate_b(
         gate_b_questions, edge_score, ledger_rows, arm=arm, seed=seed, b=b,
@@ -877,7 +959,8 @@ def materialize_metrics_json(
         gate_b_questions, questions, corpus.item_index, edge_score, ledger_rows,
         arm=arm, seed=seed, b=b, expected_k=k_samples,
     )
-    return emit_metrics(suite, gate_b, root_dir=root_dir, git=git, seed=seed, coherence=coherence)
+    return emit_metrics(suite, gate_b, root_dir=root_dir, git=git, seed=seed, coherence=coherence,
+                        judge_ledger_sha256=ledger_sha_consumed)
 
 
 def main() -> None:

@@ -125,7 +125,10 @@ def cmd_gate_b(args) -> None:
     envelope (K, snapshot, max_tokens, retry_budget) is read FROM the frozen addendum — never a CLI default
     that could silently diverge from what `emit` binds (§8 dated-snapshot rule). The gate-B question prefix
     is drift-checked against the frozen `fitb_order.json` BEFORE any token is spent."""
-    env = require_frozen_envelope()
+    # Pass ROOT_DIR explicitly (the module global, read at CALL time) rather than relying on the
+    # def-time default, so a test that monkeypatches rj.ROOT_DIR can drive this hermetically against a
+    # tmp scaffold (else the freeze gate would silently read the REAL committed addendum — Task 1a).
+    env = require_frozen_envelope(root_dir=ROOT_DIR)
     k = env["k_samples"]
     snapshot = env["model_snapshot"]
     max_tokens = env["max_tokens"]
@@ -144,8 +147,7 @@ def cmd_gate_b(args) -> None:
             "gate-B prefix set_ids do not match fitb_order.json['gate_b_set_ids'] — run_judge.SEED has "
             "drifted from the frozen order's seed; the judge would score the wrong questions (§12 tripwire)"
         )
-    if os.path.exists(GATE_B_LEDGER):
-        os.remove(GATE_B_LEDGER)                      # regenerate the full prefix (idempotent + no dupes)
+    _guard_gate_b_ledger(ledger_path=GATE_B_LEDGER, root_dir=ROOT_DIR)  # never delete an uncommitted (paid) ledger
     provider = _provider(gate_b)
     client = OpenAIJudgeClient(snapshot)
     run_arm(
@@ -177,6 +179,26 @@ def gate_b_summary(per_question) -> dict:
             correct += int(v.forward_verdict == s.correct_index)
     return {"n": len(list(per_question)), "correct": correct, "consistent": consistent,
             "inconsistent": inconsistent, "dropped": dropped}
+
+
+def _guard_gate_b_ledger(*, ledger_path: str = GATE_B_LEDGER, root_dir: str = ROOT_DIR, git=None) -> None:
+    """Before regenerating the gate-B ledger, refuse to delete a `judge_runs.ndjson` that is NOT
+    committed-clean — a bare `os.remove` would destroy paid, possibly not-yet-committed judge results
+    (every gate-b prefix costs real tokens). Only delete when the file is absent or committed-clean (git
+    then preserves the prior run, so a fresh regenerate is safe). `git` is injectable for hermetic tests;
+    `evaluate.RealGit.identity` reports an untracked ledger as `committed=False`, so that case refuses too."""
+    if not os.path.exists(ledger_path):
+        return
+    from evaluate import RealGit
+
+    git = git or RealGit(root_dir)
+    if not git.identity(ledger_path).committed:
+        raise SystemExit(
+            f"{os.path.basename(ledger_path)} exists but is not committed-clean — commit (or move) it "
+            f"before re-running gate-b. A bare regenerate would delete paid, not-yet-committed judge "
+            f"results; only a committed ledger is safe to overwrite (git preserves the old run)."
+        )
+    os.remove(ledger_path)                            # committed-clean -> git keeps it; regenerate is idempotent
 
 
 def cmd_emit(args) -> None:

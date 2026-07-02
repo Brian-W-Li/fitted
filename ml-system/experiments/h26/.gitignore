@@ -53,7 +53,7 @@ closet/
 calibration_viewer.html
 # a panelist's raw viewer download (the browser default name, before per-person renaming)
 calibration_answers.json
-# the collected per-person panel answer files (renamed alice.json / bob.json / me.json, §F panel);
+# the collected per-person panel answer files (renamed to opaque p1.json / p2.json / p3.json, §F panel);
 # folded into calibration_set.json by finalize_panel() — raw per-person labels never reach the repo
 panel_answers/
 # the drawn calibration questions cache (regenerable from the seed)

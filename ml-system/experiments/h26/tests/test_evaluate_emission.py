@@ -243,8 +243,15 @@ def test_refuse_when_closet_absent_b3(unlock_dir):
 
 
 def test_refuse_scaffold_addendum(unlock_dir):
-    # the committed SCAFFOLD (frozen:false) must be refused — the whole point of the freeze order.
-    shutil.copy(os.path.join(H26, "judge_addendum.md"), os.path.join(unlock_dir, "judge_addendum.md"))
+    # A frozen:false scaffold must be refused at the schema gate — the whole point of the freeze order.
+    # Write a KNOWN scaffold (NOT the live judge_addendum.md, whose frozen state flips across the RUN) so
+    # this exercises the scaffold refusal regardless of whether the real addendum is later frozen. (Copying
+    # the live file went RUN-hostile: once frozen it refuses for a DIFFERENT reason — the fixture's cal sha —
+    # whose message lacks "judge_addendum", so the substring assert would go red on a successful RUN.)
+    scaffold = _frozen_envelope()
+    scaffold["frozen"] = False                            # schema const is frozen:true -> refused at the schema gate
+    with open(os.path.join(unlock_dir, "judge_addendum.md"), "w", encoding="utf-8") as f:
+        f.write(_addendum_md(scaffold))
     assert "judge_addendum" in str(_assert_no_emit(unlock_dir))
 
 
@@ -270,6 +277,20 @@ def test_refuse_prereg_md_json_disagreement(unlock_dir):
     md = open(md_path, encoding="utf-8").read().replace("0.81", "0.XX")
     open(md_path, "w", encoding="utf-8").write(md)
     assert "disagree" in str(_assert_no_emit(unlock_dir))
+
+
+def test_refuse_prereg_md_missing_gate_a_expression(unlock_dir):
+    # Task 6: the de-vacuified gate-A leg — dropping gate A's metric EXPRESSION from the .md authority must
+    # be caught (the old check was on the literal "0.0", a non-distinctive substring of "0.05" -> vacuous).
+    # Source the U+2212 expression from the .json the way the code does, remove it from the .md, and assert
+    # the disagreement fires — the negative test the existing disagreement test (gate-D 0.81) did not cover.
+    p = json.load(open(os.path.join(unlock_dir, "preregistration.json"), encoding="utf-8"))
+    expr = p["gates"]["A"]["metric"].replace("-", "−")
+    md_path = os.path.join(unlock_dir, "preregistration.md")
+    md = open(md_path, encoding="utf-8").read().replace(expr, "AUC_catalog_pair over the floor")
+    assert expr not in md                                  # guard: the replace actually removed the expression
+    open(md_path, "w", encoding="utf-8").write(md)
+    assert "gate A" in str(_assert_no_emit(unlock_dir))
 
 
 def test_refuse_closet_bogus_category_id(unlock_dir):
@@ -571,3 +592,69 @@ def test_compute_gate_b_binds_ledger_snapshot_to_frozen_envelope(tmp_path):
     with pytest.raises(UnlockError, match="does not move after|binds"):
         ev.compute_gate_b(questions, edge_score, rows, arm="image_only", seed=1, b=50,
                           expected_snapshot="gpt-5.4-mini-2026-03-17")
+
+
+# --------------------------------------------------------------------------- #
+# Task 6 — the four pipeline SEED constants all bind the frozen headline seed
+# --------------------------------------------------------------------------- #
+def test_module_seed_constants_agree_with_the_frozen_headline_seed():
+    # A single module's SEED drifting from the frozen headline seed silently runs a different
+    # negative/distractor/order draw than the freeze. Pin all four to the ONE prereg authority (train_head's
+    # is also pinned in test_train_head; here every module binds preregistration.json headline_cell.seed).
+    import fitb_order
+    import run_judge
+    import train_head
+
+    headline_seed = json.load(
+        open(os.path.join(H26, "preregistration.json"), encoding="utf-8")
+    )["headline_cell"]["seed"]
+    assert ev.SEED == headline_seed
+    assert run_judge.SEED == headline_seed
+    assert fitb_order.SEED == headline_seed
+    assert train_head.SEED == headline_seed
+
+
+# --------------------------------------------------------------------------- #
+# Task 8B — emit preflights the ledger + binds its sha256 as provenance
+# --------------------------------------------------------------------------- #
+def test_assert_ledger_committed_binds_sha_and_refuses_bad(tmp_path):
+    # The emit preflight (§8/§12): the gate-B ledger must EXIST + be committed-clean before the retrain,
+    # and its sha256 is returned to bind the emitted numbers to the exact committed bytes.
+    ledger = tmp_path / "judge_runs.ndjson"
+    ledger.write_bytes(b'{"question_id":"o1"}\n')
+    want = hashlib.sha256(ledger.read_bytes()).hexdigest()
+    assert ev.assert_ledger_committed(str(tmp_path), str(ledger), git=FakeGit()) == want
+    with pytest.raises(UnlockError, match="committed-clean"):
+        ev.assert_ledger_committed(str(tmp_path), str(ledger), git=FakeGit(committed=False))
+    with pytest.raises(UnlockError, match="absent"):
+        ev.assert_ledger_committed(str(tmp_path), str(tmp_path / "nope.ndjson"), git=FakeGit())
+
+
+def test_assert_ledger_unchanged_since_preflight_binds_consumed_bytes(tmp_path):
+    # §8/§12 provenance race: the sha recorded in metrics.json._meta must be the sha of the bytes actually
+    # scored, not the preflight sha. If judge_runs.ndjson changes on disk during the hours-long retrain,
+    # emit must refuse (else the recorded provenance sha would bind different bytes than were consumed).
+    ledger = tmp_path / "judge_runs.ndjson"
+    ledger.write_bytes(b'{"question_id":"o1"}\n')
+    sha = hashlib.sha256(ledger.read_bytes()).hexdigest()
+    # unchanged + committed -> returns the same sha (the consumed == preflight bytes)
+    assert ev.assert_ledger_unchanged_since_preflight(str(tmp_path), str(ledger), sha, git=FakeGit()) == sha
+    # file changed on disk since preflight (still "committed" per the fake git) -> refuse
+    ledger.write_bytes(b'{"question_id":"o1"}\n{"question_id":"o2"}\n')
+    with pytest.raises(UnlockError, match="changed on disk"):
+        ev.assert_ledger_unchanged_since_preflight(str(tmp_path), str(ledger), sha, git=FakeGit())
+    # uncommitted at read time -> refuse via assert_ledger_committed, even when the sha argument matches
+    now = hashlib.sha256(ledger.read_bytes()).hexdigest()
+    with pytest.raises(UnlockError, match="committed-clean"):
+        ev.assert_ledger_unchanged_since_preflight(str(tmp_path), str(ledger), now, git=FakeGit(committed=False))
+
+
+def test_emit_records_judge_ledger_sha256_when_provided(unlock_dir):
+    # metrics.json._meta binds the gate-B numbers to the committed ledger sha (RUN emit passes it); the
+    # hermetic emit path omits it -> absent (schema-legal, optional _meta field).
+    m_with = ev.emit_metrics(_suite(), _gate_b(), root_dir=unlock_dir, git=FakeGit(),
+                             judge_ledger_sha256="d" * 64)
+    assert m_with["_meta"]["judge_ledger_sha256"] == "d" * 64
+    ev._validate_against_schema(m_with, os.path.join(unlock_dir, "metrics.schema.json"), what="reread")
+    m_without = ev.emit_metrics(_suite(), _gate_b(), root_dir=unlock_dir, git=FakeGit())
+    assert "judge_ledger_sha256" not in m_without["_meta"]

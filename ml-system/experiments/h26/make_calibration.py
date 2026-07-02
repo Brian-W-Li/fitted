@@ -21,7 +21,7 @@ Workflow (after the Step-1 cache/training run frees the parquet):
     # each panelist: open it, pick A/B/C/D (or "Not sure" — never guess), click "Download my answers";
     # collect the downloads renamed per person into the GITIGNORED panel_answers/ dir (raw per-person
     # label files must never reach the public repo), then:
-    .venv/bin/python -c "import make_calibration as m; m.finalize_panel(['panel_answers/alice.json','panel_answers/bob.json','panel_answers/me.json'])"
+    .venv/bin/python -c "import make_calibration as m; m.finalize_panel(['panel_answers/p1.json','panel_answers/p2.json','panel_answers/p3.json'])"
 
 Reference: docs/plans/h26-compatibility-spike-v2.md §8 / preregistration.md §F.
 """
@@ -264,20 +264,38 @@ def assemble_panel(questions: list[FitbQuestion], per_labeler: dict[str, dict[st
     }
 
 
+def _load_panel_answers(answer_paths: list[str]) -> dict[str, dict]:
+    """Map each panelist's downloaded answer file to an OPAQUE labeler id (`labeler_1`, `labeler_2`, ...)
+    in the given order — the real filename stems (which may carry names/initials/emails) NEVER enter the
+    committed, public, sha-bound `calibration_set.json` (§F / RUN PII guard; per_labeler_skip_rate is
+    keyed by these ids). Fail loud on duplicate stems: a dup means the operator did not rename per person,
+    so two files might be the same labeler (or unlabeled) — an operator-hygiene error the old stem-keyed
+    map hid by silently overwriting. Read strictly (`load_json_strict`) so a duplicate key in a
+    hand-collected answer file cannot last-win into the freeze input."""
+    stems = [os.path.splitext(os.path.basename(p))[0] for p in answer_paths]
+    dupes = sorted({s for s in stems if stems.count(s) > 1})
+    if dupes:
+        raise ValueError(
+            f"duplicate answer-file stem(s) {dupes} — rename each panelist's download to a distinct "
+            f"opaque name (p1.json, p2.json, ...); a dup would silently drop a labeler from the "
+            f"sha-frozen calibration_set.json"
+        )
+    return {f"labeler_{i}": load_json_strict(p) for i, p in enumerate(answer_paths, start=1)}
+
+
 def finalize_panel(answer_paths: list[str], *, root_dir: str = ROOT_DIR) -> str:
     """Aggregate the panel's downloaded answer files into `calibration_set.json`. Each path is one
-    labeler's `{set_id: 'A'..|'SKIP'}` download; the labeler id is the filename stem — so rename each
-    person's download (e.g. alice.json / bob.json / me.json) and collect them into the GITIGNORED
-    `panel_answers/` dir (raw per-person labels never reach the public repo; paths resolve against the
+    labeler's `{set_id: 'A'..|'SKIP'}` download; files map to OPAQUE ids (`labeler_1`, ...) so real names
+    in filenames never reach the committed artifact (§F PII guard), and duplicate stems fail loud. Collect
+    the per-person downloads (rename to opaque `p1.json`/`p2.json`/... — never real names/emails) into the
+    GITIGNORED `panel_answers/` dir (raw labels never reach the public repo; paths resolve against the
     CWD). Run after every panelist labels the SAME calibration_viewer.html."""
-    cache = json.load(open(os.path.join(root_dir, "calibration_questions.json"), encoding="utf-8"))
+    cache = load_json_strict(os.path.join(root_dir, "calibration_questions.json"))
     questions = [
         FitbQuestion(r["set_id"], tuple(r["retained"]), tuple(r["candidates"]), r["correct_index"], r["answer_category"])
         for r in cache["questions"]
     ]
-    per_labeler = {
-        os.path.splitext(os.path.basename(p))[0]: json.load(open(p, encoding="utf-8")) for p in answer_paths
-    }
+    per_labeler = _load_panel_answers(answer_paths)
     manifest = assemble_panel(questions, per_labeler)
     out = os.path.join(root_dir, "calibration_set.json")
     with open(out, "w", encoding="utf-8") as f:
@@ -307,7 +325,7 @@ def main() -> None:
     print("[calibration] each: open it, pick A–D (or 'Not sure' — never guess), 'Download my answers'.")
     print("[calibration] collect the downloads renamed per person into the gitignored panel_answers/, then:")
     print('[calibration]   python -c "import make_calibration as m; m.finalize_panel('
-          "['panel_answers/alice.json','panel_answers/bob.json','panel_answers/me.json'])\"")
+          "['panel_answers/p1.json','panel_answers/p2.json','panel_answers/p3.json'])\"")
 
 
 _VIEWER_TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">

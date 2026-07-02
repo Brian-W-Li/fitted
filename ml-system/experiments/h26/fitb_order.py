@@ -93,6 +93,16 @@ def verify_fitb_order(order: dict, corpus: Corpus, *, root_dir: str = ROOT_DIR) 
     """Re-derive the order from the corpus + the order's own seed and fail loud on ANY drift — the C4
     precondition (the gate-B prefix must be a prefix of the SAME frozen order C3 hashed). Checks the
     full-order + gate-B hashes and that the gate-B `set_id`s reproduce."""
+    # Re-derivation uses order["seed"], so a seed-swapped file would self-verify (its hashes regenerate
+    # from its own seed). Pin the order's seed to the frozen fitb_manifest.json seed first, so the order
+    # cannot silently bind a different negative/distractor draw than the one C2 froze (§12 tripwire).
+    manifest = load_json_strict(os.path.join(root_dir, "fitb_manifest.json"))
+    if order["seed"] != manifest["seed"]:
+        raise ValueError(
+            f"fitb_order.json seed {order['seed']} != fitb_manifest.json seed {manifest['seed']} — a "
+            f"seed-swapped order self-verifies against its own seed; the gate-B prefix must bind the "
+            f"frozen manifest seed (§12)"
+        )
     fresh = materialize_fitb_order(corpus, seed=order["seed"], root_dir=root_dir)
     for field in ("order_sha256", "gate_b_order_sha256", "n_questions_full", "gate_b_set_ids"):
         if fresh[field] != order[field]:

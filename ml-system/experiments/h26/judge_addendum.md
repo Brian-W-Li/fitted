@@ -12,20 +12,26 @@ unlock file. The headline cell, the A∧B∧D gates, δ, and the FITB constructi
 
 ## Freeze order is load-bearing (the blindness invariant, §1)
 
-1. Run the **judge-only** calibration pilot on the human-agreement calibration set (`preregistration.md`
-   §F): an actual-human, **diverse ≥3-person panel's** forced-choice label set (unique-plurality consensus
-   over confident votes), **disjoint from the gate-B 500 and the gate-D full FITB set**, ≥ ~50 surviving
-   questions. Tune the prompt / K / determinism envelope to best match the **human labels** — never any
-   trained-head valid- or test-split number.
-2. The ~100-Q image-only **above-chance** pilot must clear 25% chance (CI low above chance); otherwise
-   gate B is labeled **vacuous** (it still passes trivially, but the GO decision rests on A∧D — §8). This
-   does not move the frozen gate.
+1. Run the **calibration pilot** (`run_judge.py pilot`) — the **judge-only** run on the human-agreement
+   calibration set (`preregistration.md` §F): an actual-human, **diverse ≥3-person panel's** forced-choice
+   label set (unique-plurality consensus over confident votes), **disjoint from the gate-B 500 and the
+   gate-D full FITB set**, ≥ ~50 surviving questions. Tune the prompt / K / determinism envelope to best
+   match the **human labels** — never any trained-head valid- or test-split number.
+2. The calibration pilot's **above-chance readout** (`pilot_summary.correct_vs_polyvore`, image-only,
+   judge-vs-Polyvore-answer) must clear 25% chance (CI low above chance); otherwise gate B is labeled
+   **vacuous** (it still passes trivially, but the GO decision rests on A∧D — §8). This does not move the
+   frozen gate. This readout is what fills the envelope's `above_chance_pilot` block at freeze (below) —
+   its three fields are typed, so the scaffold's placeholder block fails schema validation until they are
+   filled from the calibration pilot.
 3. **Freeze this file** (set `"frozen": true`, fill the real prompt/calibration/commit hashes, K from the
-   pilot's verdict-agreement rate, N's δ-driven prefix is a *separate* `evaluate.py` degree of freedom)
-   **and commit it** — **before** any `fitb_trained_gateB − fitb_judge_gateB` comparison is computed.
-4. Only then does `evaluate.py` validate the four unlock files and first emit `metrics.json`. After the
-   freeze the **only** post-hoc freedom is the deterministic prefix length **N** over the C2-frozen
-   `fitb_order.json` — never a re-selection of questions, never a re-tune of the judge.
+   calibration pilot's verdict-agreement rate, and `above_chance_pilot` from the calibration pilot's
+   above-chance readout; N's δ-driven prefix is a *separate* `evaluate.py` degree of freedom) **and commit
+   it** — **before** any `fitb_trained_gateB − fitb_judge_gateB` comparison is computed.
+4. Only then does `evaluate.py` validate the four unlock files and first emit `metrics.json`. The
+   post-freeze **gate-B pilot prefix** (`run_judge.py gate-b --n 100`, the first 100 of the C2-frozen
+   `fitb_order.json`) is a **separate** run that only decides the δ-driven scale-up to ~500 — it **never**
+   feeds the freeze. After the freeze the **only** post-hoc freedom is that deterministic prefix length
+   **N** — never a re-selection of questions, never a re-tune of the judge.
 
 ## What freezes here
 

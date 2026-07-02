@@ -692,3 +692,47 @@ def test_build_pool_evaluates_is_available_once_when_signal_path_active(over_cap
     for t in over_cap_types:
         assert res.per_type[t].selection_kind is SelectionKind.signal
         assert res.per_type[t].reason is None
+
+
+def test_build_candidate_pool_cross_version_golden_vector():
+    # An ABSOLUTE golden pin on build_candidate_pool's cold-start (seeded-random) selection — the
+    # cross-version canary the H13 CI work needs. Every OTHER sampler determinism test self-compares via
+    # random.Random.sample, whose algorithm is guaranteed stable across Python versions only for
+    # random() — NOT sample()/shuffle(). A Python upgrade that changed sample() would pass every
+    # self-comparison yet silently reshuffle production shortlists. This fixes the exact output for one
+    # frozen (wardrobe, context): a drift here means the RNG algorithm moved (or the pipeline did), and
+    # the M5 TS adapter / any reproducibility claim must be re-examined. Cold-start (unavailable scorer)
+    # so the pure random.sample path is what is pinned. Pattern: test_seed.py's golden value.
+    import hashlib
+
+    counts = {ItemType.top: 40, ItemType.bottom: 35, ItemType.dress: 30,
+              ItemType.outer_layer: 25, ItemType.shoes: 30}
+    wardrobe = [
+        WardrobeItem(id=f"{t.value}-{i:03d}", name=f"{t.value} {i}", type=t, warmth=5,
+                     image_url=f"{t.value}{i}.jpg")
+        for t, n in counts.items()
+        for i in reversed(range(n))                          # descending -> partition's id-sort does real work
+    ]
+    ctx = RequestContext(occasion="brunch", weather="mild", session_id="u1",
+                         wardrobe_version=1, interaction_count=0)
+    res = build_candidate_pool(wardrobe, ctx, ColdStartSignalScorer())
+    assert res.scorer_available is False and res.not_enough_items is False  # cold-start random path
+
+    # The RNG's actual REMOVALS per over-cap type (the compact, readable canary — 5 dropped per type).
+    golden_dropped = {
+        "top": ["top-008", "top-012", "top-014", "top-026", "top-036"],
+        "bottom": ["bottom-000", "bottom-017", "bottom-020", "bottom-026", "bottom-028"],
+        "dress": ["dress-004", "dress-007", "dress-015", "dress-017", "dress-019"],
+        "outer_layer": ["outer_layer-007", "outer_layer-012", "outer_layer-014",
+                        "outer_layer-019", "outer_layer-021"],
+        "shoes": ["shoes-002", "shoes-005", "shoes-013", "shoes-016", "shoes-019"],
+    }
+    for t in ItemType:
+        kept = {it.id for it in res.pool[t]}
+        allids = {f"{t.value}-{i:03d}" for i in range(counts[t])}
+        assert sorted(allids - kept) == golden_dropped[t.value], f"{t.value}: seeded-random selection drifted"
+
+    # And an exact full-pool hash (kept ids, enum-then-id order) — one golden value like test_seed.py's.
+    flat = "\n".join(it.id for t in ItemType for it in res.pool[t])
+    assert hashlib.sha256(flat.encode()).hexdigest() == \
+        "74b5a6c58bdb6b3a3c528f91280431f470bf526fcca651f3540d2e72e38f54bd"

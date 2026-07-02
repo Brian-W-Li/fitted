@@ -56,6 +56,7 @@
         "seed": {"type": "integer"},
         "split_loader": {"const": "load_corpus(strict_disjoint=True)"},
         "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "judge_ledger_sha256": {"$ref": "#/$defs/sha256", "description": "sha256 of the committed gate-B judge_runs.ndjson the gate-B numbers were computed from (RUN-phase emit binds provenance; optional — absent in hermetic assemblies)."},
         "unlock_files": {
           "type": "object",
           "properties": {

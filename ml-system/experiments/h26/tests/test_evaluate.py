@@ -173,13 +173,18 @@ def test_gate_a_and_seam_diffs_are_genuinely_paired():
     assert (paired.low, paired.high) != (unpaired.low, unpaired.high)  # ...different CI -> the choice is real
 
 
-def test_compute_metric_suite_writes_no_metrics_json():
-    # C3 is the computation half ONLY: no test-set number is materialized to disk (the C4 unlock owns
-    # metrics.json). Guard that running the suite leaves no metrics.json in the package root.
+def test_compute_metric_suite_writes_nothing_to_metrics_json():
+    # C3 is the computation half ONLY: computing the suite must not create OR modify metrics.json (the C4
+    # unlock owns emission). Assert THIS CALL writes nothing — snapshot existence + mtime before/after —
+    # so the guard stays valid AFTER a legitimate RUN-phase emit has committed a real metrics.json (Task 2;
+    # the old unconditional "does not exist" went red the moment emit ran).
+    path = os.path.join(H26, "metrics.json")
+    before = (os.path.exists(path), os.path.getmtime(path) if os.path.exists(path) else None)
     corpus = make_corpus(seed=5)
     cache = make_cache(corpus.item_index)
     compute_metric_suite(cache, corpus, PairwiseEdgeHead(), ItemLevelHead(), seed=SEED, b=100)
-    assert not os.path.exists(os.path.join(H26, "metrics.json"))
+    after = (os.path.exists(path), os.path.getmtime(path) if os.path.exists(path) else None)
+    assert after == before, "compute_metric_suite must not create or modify metrics.json"
 
 
 def test_evaluate_main_prints_no_number(capsys):

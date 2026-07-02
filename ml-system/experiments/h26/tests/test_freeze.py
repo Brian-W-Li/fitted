@@ -220,20 +220,29 @@ def test_judge_addendum_schema_is_the_c4_freeze_pin():
     assert _load("preregistration.json")["unlock_validation"]["judge_addendum_schema"] == "pinned_at_C4"
 
 
-def test_committed_judge_addendum_is_still_a_scaffold():
-    # The committed judge_addendum.md MUST stay a scaffold (frozen:false) until the RUN-phase pilot
-    # freezes it — so the repo can never accidentally ship a "frozen" addendum with placeholder hashes
-    # (the freeze is a deliberate, blind, post-pilot act — §1). evaluate.extract_envelope reads the
-    # first ```json block; the unlock refuses it precisely because frozen is false.
+def test_committed_judge_addendum_is_scaffold_or_validly_frozen():
+    # Two-state (Task 2): PRE-freeze the committed judge_addendum.md MUST be a scaffold (frozen:false) so
+    # the repo never accidentally ships a "frozen" addendum with placeholder hashes; POST-freeze (the
+    # deliberate, blind, RUN-phase pilot act — §1) it MUST be a schema-valid frozen envelope. Either state
+    # is correct; the forbidden states are a frozen:true envelope that fails the schema (placeholders left
+    # in) or a scaffold that already validates. A follow-up session must NOT "fix" this by un-freezing a
+    # legitimately frozen addendum (catastrophic — it re-opens the blindness gate). Mirrors the two-state
+    # shape of test_embedding_freeze_agrees.
+    import json as _json
     import re as _re
+
+    import jsonschema
 
     md = _read("judge_addendum.md")
     block = _re.search(r"```json\s*\n(.*?)\n```", md, _re.DOTALL)
     assert block is not None, "judge_addendum.md must carry a machine-readable ```json envelope block"
-    import json as _json
-
     env = _json.loads(block.group(1))
-    assert env["frozen"] is False, "the committed addendum must be an UNFROZEN scaffold until the C4 pilot"
+    validator = jsonschema.Draft202012Validator(_load("judge_addendum.schema.json"))
+    if env["frozen"] is False:
+        assert not validator.is_valid(env), "an unfrozen scaffold must be schema-REFUSED (frozen:false)"
+    else:
+        leftover = ["/".join(map(str, e.absolute_path)) for e in validator.iter_errors(env)]
+        assert not leftover, f"committed addendum is frozen:true but not schema-valid at {leftover}"
 
 
 def test_scaffold_freezes_to_a_schema_valid_envelope():
@@ -242,13 +251,19 @@ def test_scaffold_freezes_to_a_schema_valid_envelope():
     # (drop_policy/payload_logging_policy/calibration_set.source) is left as a FILL placeholder, or
     # the recipe's fill-list drifts, freezing per the recipe would silently fail gate-b's schema gate.
     # (A real regression this guards — the recipe once told the operator to "leave the *_policy" fields
-    # while they were still FILL placeholders that the schema rejects.)
+    # while they were still FILL placeholders that the schema rejects.) Two-state (Task 2): POST-freeze the
+    # committed addendum is already frozen, so the round-trip is moot — assert it is itself schema-valid,
+    # and do NOT un-freeze it to re-run the round-trip.
     import json as _json
 
     import jsonschema
 
     env = _json.loads(re.search(r"```json\s*\n(.*?)\n```", _read("judge_addendum.md"), re.DOTALL).group(1))
     validator = jsonschema.Draft202012Validator(_load("judge_addendum.schema.json"))
+    if env["frozen"] is not False:
+        leftover = ["/".join(map(str, e.absolute_path)) for e in validator.iter_errors(env)]
+        assert not leftover, f"committed frozen addendum is not schema-valid at {leftover}"
+        return
     assert not validator.is_valid(env), "the committed addendum must be an unfrozen scaffold (schema-refused)"
     # Fill ONLY the genuinely per-run fields (the recipe's fill-list) — nothing else.
     env["frozen"] = True
