@@ -1,8 +1,14 @@
-# Judge addendum — the C4 `gpt-5.4-mini` freeze (SCAFFOLD — not yet frozen)
+# Judge addendum — the C4 `gpt-5.4-mini` freeze (FROZEN)
 
-> **Status: SCAFFOLD.** The envelope block below sets `"frozen": false` with placeholder hashes, so it
-> **fails** `judge_addendum.schema.json` and `evaluate.py` **refuses to emit `metrics.json`** while this
-> file is a scaffold. It freezes (→ `"frozen": true`, real hashes) only at the RUN-phase step below.
+> **Status: FROZEN — K=3, image-only headline arm.** The envelope block below is `"frozen": true` with
+> real hashes and the calibration + above-chance readouts from the judge-only §F panel pilot, so it now
+> **passes** `judge_addendum.schema.json`. It was frozen and committed **before** any gate-B/gate-D run
+> scored a held-out test question (the §1 blindness order below) — the judge envelope was fixed blind to
+> every trained-head metric, tuned only against the panel's human labels. K=3 chosen from the pilot K-sweep
+> (K∈{2,3,5}, indistinguishable on human-agreement within sample noise → the pre-registered prefer-K=3
+> anchor stands; K=2 rejected on parse-drop robustness). The dated snapshot + envelope do **not** move
+> after C4. `evaluate.py` still additionally requires the other three unlock files + the committed gate-B
+> ledger before it will emit `metrics.json`.
 > Authoritative spec: `docs/plans/h26-compatibility-spike-v2.md` §8 / §12 / §15-C4; `preregistration.md` §F.
 
 This file is the C4 pre-registration **addendum**: the judge prompt + determinism envelope that §1 holds
@@ -61,40 +67,40 @@ gated set. Source it from valid/train Polyvore (or the closet) — never a test 
 
 ```json
 {
-  "frozen": false,
+  "frozen": true,
   "spike": "h26",
-  "model_snapshot": "<gpt-5.4-mini-YYYY-MM-DD — fill at C4 from the served snapshot>",
+  "model_snapshot": "gpt-5.4-mini-2026-03-17",
   "snapshot_rule": "dated_snapshot_frozen_at_C4_does_not_move_after",
   "temperature": 0,
-  "k_samples": null,
+  "k_samples": 3,
   "both_order_policy": "forward_plus_exact_reverse_consistent_only",
   "adjudication_convention": "inconsistent_is_miss",
   "conservative_cross_check_convention": "inconsistent_is_half",
-  "max_tokens": null,
+  "max_tokens": 16,
   "sdk_token_param": "max_completion_tokens",
   "reasoning_effort": "none",
   "image_detail": "low",
-  "retry_budget": null,
+  "retry_budget": 2,
   "drop_policy": "unparseable after the retry budget -> drop the sample + log; both models score the reduced shared question set",
   "payload_logging_policy": "full request/response payloads -> gitignored raw_payloads/; committed judge_runs.ndjson is scalar-only (question_id+order+choice+flags+provenance)",
   "system_fingerprint_policy": "logged opportunistically; may be null on gpt-5.4-mini (not the drift mechanism)",
-  "prompt_sha256": "<fill at C4: sha256 of the committed judge prompt>",
+  "prompt_sha256": "56347c30b76b5ba5170e5e3343b98f3e6d2b655f406a8d4737b3473bf21ccebd",
   "response_format": "json_object {\"choice\": \"<letter>\"}",
   "logprob_escape_hatch": {"image_logprobs_available": false, "rechecked_at_C4": false},
   "calibration_set": {
     "manifest_path": "calibration_set.json",
-    "manifest_sha256": "<fill at C4: sha256 of the calibration manifest>",
-    "size": "<fill at C4: surviving consensus question count from finalize_panel>",
+    "manifest_sha256": "7425af3b0125904b82049982113b7b6be97ef661a050bbbf2e48b7769f52acda",
+    "size": 88,
     "source": "polyvore_valid_train_image_only_panel",
     "label_kind": "actual_human_forced_choice",
     "single_annotator": false,
-    "n_annotators": "<fill at C4: number of panel labelers (>=3)>",
-    "inter_annotator_agreement": null,
+    "n_annotators": 4,
+    "inter_annotator_agreement": 0.4651600753295669,
     "disjoint_from": ["gate_B_set", "gate_D_full_fitb"],
     "judge_only_use": "select_judge_envelope_never_scores_trained_head"
   },
   "arms": ["image_only", "image_title", "text_attribute"],
-  "above_chance_pilot": {"image_only_fitb_point": null, "image_only_fitb_ci_low": null, "above_chance": null},
-  "commit_hash": "<fill at C4: the freeze commit sha>"
+  "above_chance_pilot": {"image_only_fitb_point": 0.5273, "image_only_fitb_ci_low": 0.3979, "above_chance": true},
+  "commit_hash": "433e513d0f1803d77f10ab60683f5c0682901b1b"
 }
 ```
