@@ -149,7 +149,147 @@ Full per-agent extractions + verdicts: run journal `wf_efcfa4b1-1c2/journal.json
 
 ---
 
-## Fresh-session Fable merit review — handoff
+## Fable merit verdict (2026-07-05 — handoff below EXECUTED; verdict recorded here)
+
+Fresh session ran the handoff as specified: full reading list read (spec whole, appendix C.0/C.1/C.8 +
+critic hat, CLAUDE.md, this report, the H26 committed state), Fable seat spawned with the prompt + evidence.
+Every load-bearing cite in the verdict was source-verified by the orchestrating session before recording.
+
+**VERDICT: GO** — with one narrative-honesty condition: the taste-learning half of the promise must be told
+as *designed, not demonstrated* (a zero-user fork can never accumulate the feedback volume the Lin-et-al
+personalization arm needs; §20 M6 behavioral arm / §23-H9 stage it correctly, but it stays a hypothesis).
+
+**Load-bearing reasons:**
+1. **Feasibility is mostly *behind* the project, not ahead** — answered by committed measurements, not
+   borrowed precedent: the paper→solo-ship chasm is what H26 C1–C4 already crossed (frozen prereg, 83k-id
+   cache, trained pairwise head, and the comparator already measured — judge 54.1% consistent at N=500,
+   CI-low 0.486 ≫ 0.25, ~CSN-tier). Remaining gate risk is modest (a 2025 fashion-tuned backbone need only
+   match a 2018 SiameseNet, 0.81/51.8%); `converged:false` @48/50 risks a *weaker number*, not a broken
+   thesis; a miss ships preregistered as a clean engineering verdict.
+2. **The systems-decision reframe converts an unwinnable contest into a winnable one, evidence in hand:**
+   the production-model judge is only 54.1% consistent and **flips 35.4% under order swap** — measured
+   nondeterminism matching the verified GPT-4V finding (correlations 0.117–0.519 vs human 0.716–0.815).
+   The §9 cost/determinism/availability table is the right headline for a systems-depth portfolio, and Loom
+   (confirmed 3-0) independently validates the hybrid division of labor.
+3. **The green-shirt job is an activation/trust problem, not a fine-aesthetics problem**, so the bounded
+   style ceiling doesn't gut the promise: the measured **46.5% human inter-annotator agreement** shows the
+   un-modeled nuance is substantially *irreducible*; the user needs believable non-clashing completions +
+   one teachable StyleMove (precision-at-3 over ~10 candidates), which the prior + fenced LLM demonstrably
+   deliver (Spearhead H40: 100% forced-item inclusion, 0 hallucinated ids). Fit/body stays the honest cap —
+   "believable on the hanger, correctable on the body" (`not_practical`/`not_me` §16, H27 archetype prior);
+   the flop only materializes if the narrative over-promises taste mastery.
+
+**Stress-test answers (condensed):** Q1 — precedent load-bearing for the content prior (same-dataset/
+split/protocol anchors); two non-fatal gaps: (a) catalog→closet transfer is the one unmeasured load-bearing
+link (underpowered, report-only), (b) the personalization precedent isn't practically load-bearing at N≈1
+users. Q2 — no flop for the promise as written in §1; the delegation maps each documented gap onto the
+component best able to carry it. Q3 — yes, implement; value order: finish emit (nearly free) → power the
+closet transfer (below) → M5 (highest-value engineering artifact; converts offline result + dormant
+substrate into a deployed end-to-end system) → M6 content-prior arm only. **Hold, don't build:** B-track
+boards compiler, R-track, H44 anti-capture detector, scoped-memory *behavior* — worst effort-to-evidence
+ratio at N≈1; keeping them seams-only *is* the reshape, applied continuously. Terminal portfolio deliverable
+= the single-user end-to-end demo (Brian's closet, his green shirt, before/after, snapshot-backed) + the §9
+systems table.
+
+**If you change one thing:** promote the catalog→closet transfer from underpowered report-only afterthought
+to a **powered first-class experiment immediately after H26 emits, before the full M5+M6 spend** — extend
+the B3 mechanism to **3–5 real closets** (recruit friends via the someday-launch path as closet donors,
+~30–50 labeled items each), evaluated offline with the already-built H26 tooling; fold in the H40 pre-M5
+believability read. Cheap relative to M5, no deploy needed, decision-grade either way: a good number
+de-risks everything downstream; a bad one redirects M6 toward the actual bottleneck (closet-photo
+ingestion/representation transfer) before the effort is sunk. (Post-emit + separately reported — does not
+touch the frozen prereg or the current four-file unlock.)
+
+---
+
+## Post-verdict synthesis — simplification & feature candidates (2026-07-05, same session)
+
+Recorded as **candidates, not decisions** — each adoption is its owning milestone's `/spec` call (M5 unless
+noted), per the promise-driven-decision convention. Nothing here edits the spec; conflicts with §15/§18 are
+deliberate proposals, flagged as such.
+
+**Simplify / hold:**
+1. **M5 candidate-cache → "regen = re-rank the parent snapshot"** (design call; retires spec §15 R1's TTL
+   cache, so it needs the M5 `/spec` + a Fable read). The GenerationSnapshot already stores the full
+   candidate funnel; a re-roll can re-rank the *parent snapshot's* candidates (client passes the parent
+   `snapshotId`; Steps 4–6 rerun per request unchanged). Settles **H4** (stability promise = within the
+   regen chain, which is H4's own default lean with a chain instead of a TTL), kills **H49** (cache-hit
+   snapshot provenance — a re-roll snapshot references its parent explicitly), **H51** (cache locus /
+   cross-runtime key reproduction — no key exists), **H17** (`forceRegenerate` — just don't pass a parent),
+   and simplifies **H7** (`generationIndex` = position in the regen chain). Cost: one GPT call per fresh
+   session instead of TTL reuse — negligible at N≈1. Keeps every promise the cache served: cheap re-roll,
+   within-chain determinism, dislike-vanishes-on-next-render.
+2. **W-track async queue + item-state machine: hold until a launch path activates.** The offline manifest
+   path (`assemble_closet.py`) already feeds the closet-transfer experiment — friend closets included —
+   without touching the app; the in-app data faucet the demo needs is the existing upload + a minimal
+   review form. The Mongo job queue + 5-state machine serve upload concurrency that doesn't exist at N≈1.
+   (The §18 *contract* — states, single bump transition — stays specced; only the build is held.)
+3. **M5 trust-boundary gates: sequence last / cut-line after the demo vertical works** (still mandatory
+   before any launch). They protect zero users today. **Exception: the §16 feedback-authenticity gate stays
+   M5-core** — it guards training truth, not users.
+4. **Spec hygiene:** `Fitted_Spec_v2.md` is at 1303 of the 1500-line ceiling; when compaction trips, the
+   RESOLVED §23 rows are the compression target (one-liner + pointer, Appendix-A style).
+
+**Cheap new artifacts (post-emit; reuse existing H26 tooling; only if the head clears its gates):**
+1. **Offline orphan/coverage demo** — run the trained head over the B3 closet manifest (and each donated
+   friend closet): per-item best-completion scores → "which items have no believable completions" (orphan
+   detection, §11 cold-start) + a closet-coverage number. Zero UI; the green-shirt promise demonstrated on
+   a *real* closet; gives the closet-transfer experiment a product-shaped readout beside AUC/FITB; drops
+   straight into the writeup.
+2. **Determinism figure for the §9 table** — the head scores the same FITB query identically every time;
+   the judge flipped 35.4% under order swap. One figure; the systems thesis made visceral.
+
+**Nothing to outright delete** was found in `fitted_core`/H26 — the substrate is lean; the fat is all in
+not-yet-built surface, which is why the list above is "hold/simplify," not "remove."
+
+**Narrative honesty (the verdict's condition, restated as a writeup rule):** the personalization/taste
+arm is *designed, not demonstrated* — say so in every outward-facing artifact.
+
+### Brainstorm round 2 (same session; frame corrected per Brian: the goal IS the personal, growth-focused stylist)
+
+Candidates only — each adopts at its owning milestone's `/spec`. None touch the critical path
+(B3 → emit → C6 → friend-closet transfer).
+
+**A. Proving the taste engine (turn "designed, not demonstrated" into a planned experiment):**
+1. **Pre-registered dogfood study (post-M5).** 60 days of daily use by Brian; metrics named *in advance*,
+   H26-style (acceptance-rate trend, rescued-item repeat-wear, `not_me` rate over time, cooldown hits).
+   Honest framing: a single-subject longitudinal case study. Cost ≈ a one-page mini-prereg + discipline;
+   the snapshots/feedback rows are already the instrumentation.
+2. **Persona-replay harness (offline, zero users; M5/M6-adjacent).** Define 2–3 synthetic personas with
+   fixed tastes (color families / formality / boldness); drive simulated feedback through the *real*
+   pipeline (interactions → projections → ranker); show ranking converges toward each persona AND
+   anti-capture holds (inject one outlier dislike → profile does not yank). Circularity is fine — it's a
+   *mechanism* test of rung-2/4 machinery, framed as such, not a quality claim.
+3. **Friends-week (post-M5).** 2–3 of the closet donors also *use* the deployed app for a week — first
+   non-owner feedback + a live onboarding-friction read, off the someday-launch friends path.
+
+**B. Making growth feel good (product policies, near-free):**
+4. **Design the first success.** The first rescue offered = the *easiest win*: the orphan with the highest
+   best-completion score under the head, that fits well, appropriate to today's weather — not an arbitrary
+   orphan. One ranking policy at the M5/H45 surface; maximizes first-success probability (C.1: "the first
+   success should lower fear, not maximize novelty").
+5. **One-tap fit flag at ingestion** (`fits great / fits weird` per item; W-track review form). The
+   cheapest possible fit/body signal — no body modeling; orders rescues toward pieces that fit; the honest
+   floor under the H27 archetype prior.
+6. **Weekly recap digest (CLI/cron first, no UI).** Computed from snapshots + feedback: "green shirt worn
+   2×; two new trusted pairings; safe cluster grew by 1." Makes growth *visible*; doubles as the dogfood
+   study's auto-diary; a humble text precursor of the NORTH-STAR Progress surface (H46) with no new schema.
+
+**C. Systems polish:**
+7. **Head-checks-the-LLM (M6, once the head is on the §23-H28 rank() hook).** Use the trained head to
+   sanity-check each StyleMove's claimed pairing (`changedItemIds` pair score); flag/regenerate on clash.
+   The deterministic model auditing the LLM's prose — extends "backend owns structure, GPT owns style" one
+   rung further, and is a distinctive systems-story beat.
+8. **Golden lens matrix (M5 regression net).** Replay a small grid of golden requests
+   (intent × weather × occasion) against the real-closet fixture after every M5 change — extends the
+   Spearhead C6 `evaluation`/`cli` surface; catches vertical-wide drift cheaply.
+9. **One-command demo.** `make demo` (or equivalent): boot service + app + seeded closet → clickable
+   green-shirt flow in minutes. Portfolio reviewers don't run multi-step setups; the README clone→demo
+   path is part of the deliverable.
+
+---
+
+## Fresh-session Fable merit review — handoff (EXECUTED 2026-07-05; kept for provenance)
 
 Run this in a **fresh `/clear`ed session** (clean reading list, no RUN-phase weeds).
 
