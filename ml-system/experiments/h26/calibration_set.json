@@ -1,0 +1,1591 @@
+{
+ "_README": "Human-agreement calibration set (\u00a7F): a diverse PANEL's forced-choice picks on valid/train Polyvore FITB questions, image-only, aggregated by unique-plurality consensus over confident (non-skip) votes. question_ids feed the evaluate.py unlock disjointness check; human_choice (0-based consensus index) is the judge-selection target. NOT Polyvore co-occurrence ground truth. Judge-envelope selection only; never scores the trained head.",
+ "spike": "h26",
+ "seed": 424242,
+ "source": "polyvore_valid_train_image_only_panel",
+ "single_annotator": false,
+ "n_annotators": 4,
+ "consensus_rule": "unique_plurality_over_confident_votes_min2",
+ "min_confident_votes": 2,
+ "inter_annotator_agreement": 0.4651600753295669,
+ "dropped_no_consensus": 12,
+ "dropped_detail": {
+  "too_few_confident": 0,
+  "tie": 12
+ },
+ "per_labeler_skip_rate": {
+  "labeler_1": 0.02,
+  "labeler_2": 0.07,
+  "labeler_3": 0.0,
+  "labeler_4": 0.15
+ },
+ "question_ids": [
+  "133780503",
+  "223430226",
+  "205715309",
+  "217798567",
+  "224143094",
+  "208184420",
+  "220822528",
+  "216555748",
+  "219613773",
+  "213185061",
+  "224507721",
+  "223496584",
+  "210540910",
+  "223070002",
+  "193834691",
+  "221264441",
+  "224935415",
+  "220635840",
+  "210867262",
+  "209955562",
+  "222948075",
+  "225325047",
+  "223477313",
+  "209708478",
+  "134504747",
+  "215074871",
+  "222561548",
+  "209541535",
+  "219814805",
+  "208884491",
+  "158104866",
+  "221664824",
+  "216983893",
+  "223963399",
+  "161948574",
+  "220533017",
+  "222315253",
+  "216307905",
+  "220178538",
+  "148152948",
+  "223097964",
+  "223533434",
+  "219465342",
+  "222254894",
+  "225332327",
+  "223076483",
+  "223763510",
+  "217204468",
+  "222195209",
+  "170238703",
+  "81385869",
+  "111163598",
+  "219226685",
+  "223418936",
+  "213590321",
+  "215236342",
+  "223494313",
+  "217311993",
+  "219841099",
+  "219176603",
+  "206591548",
+  "218572330",
+  "222412049",
+  "206979794",
+  "225219599",
+  "208856415",
+  "217320763",
+  "217902538",
+  "212587470",
+  "217512861",
+  "218438685",
+  "224080249",
+  "222292690",
+  "221269252",
+  "220105269",
+  "223659793",
+  "221354903",
+  "207089947",
+  "209503662",
+  "96346034",
+  "219241338",
+  "182339231",
+  "218489887",
+  "165913408",
+  "222232080",
+  "224925028",
+  "197856517",
+  "205390452"
+ ],
+ "questions": [
+  {
+   "set_id": "133780503",
+   "retained": [
+    "117806326",
+    "117357707"
+   ],
+   "candidates": [
+    "210658622",
+    "61820570",
+    "208137033",
+    "107715360"
+   ],
+   "correct_index": 3,
+   "answer_category": "10",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223430226",
+   "retained": [
+    "194282674",
+    "203208708"
+   ],
+   "candidates": [
+    "196850292",
+    "210702532",
+    "176456914",
+    "210442796"
+   ],
+   "correct_index": 1,
+   "answer_category": "104",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "205715309",
+   "retained": [
+    "181288739"
+   ],
+   "candidates": [
+    "181288718",
+    "191102245",
+    "200492091",
+    "200250497"
+   ],
+   "correct_index": 0,
+   "answer_category": "11",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "217798567",
+   "retained": [
+    "201700886",
+    "173539736"
+   ],
+   "candidates": [
+    "200027962",
+    "197388106",
+    "195141763",
+    "194302527"
+   ],
+   "correct_index": 1,
+   "answer_category": "15",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "224143094",
+   "retained": [
+    "206960213"
+   ],
+   "candidates": [
+    "140563076",
+    "213695518",
+    "200022940",
+    "163757069"
+   ],
+   "correct_index": 1,
+   "answer_category": "1607",
+   "human_choice": 0,
+   "n_confident": 3
+  },
+  {
+   "set_id": "208184420",
+   "retained": [
+    "164226743",
+    "191537937"
+   ],
+   "candidates": [
+    "154651474",
+    "118871033",
+    "140923902",
+    "184754620"
+   ],
+   "correct_index": 3,
+   "answer_category": "17",
+   "human_choice": 2,
+   "n_confident": 3
+  },
+  {
+   "set_id": "220822528",
+   "retained": [
+    "193839849"
+   ],
+   "candidates": [
+    "26949794",
+    "207893189",
+    "184708606",
+    "66078611"
+   ],
+   "correct_index": 1,
+   "answer_category": "18",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "216555748",
+   "retained": [
+    "194672587"
+   ],
+   "candidates": [
+    "188075415",
+    "208715966",
+    "199653239",
+    "205281405"
+   ],
+   "correct_index": 2,
+   "answer_category": "21",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "219613773",
+   "retained": [
+    "196514296",
+    "200676145"
+   ],
+   "candidates": [
+    "166762569",
+    "204172516",
+    "184047572",
+    "110204877"
+   ],
+   "correct_index": 1,
+   "answer_category": "23",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "213185061",
+   "retained": [
+    "179590845",
+    "193586580"
+   ],
+   "candidates": [
+    "113289600",
+    "413558",
+    "210744051",
+    "194155650"
+   ],
+   "correct_index": 1,
+   "answer_category": "237",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "224507721",
+   "retained": [
+    "194618140",
+    "164328718"
+   ],
+   "candidates": [
+    "103142849",
+    "204805384",
+    "71981227",
+    "60336440"
+   ],
+   "correct_index": 1,
+   "answer_category": "238",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223496584",
+   "retained": [
+    "205284020",
+    "206845925"
+   ],
+   "candidates": [
+    "214614638",
+    "194872033",
+    "169337782",
+    "203954905"
+   ],
+   "correct_index": 3,
+   "answer_category": "239",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "210540910",
+   "retained": [
+    "185534950",
+    "188186594"
+   ],
+   "candidates": [
+    "207128587",
+    "207061482",
+    "73475954",
+    "162266085"
+   ],
+   "correct_index": 3,
+   "answer_category": "240",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223070002",
+   "retained": [
+    "211484874",
+    "195108648"
+   ],
+   "candidates": [
+    "195521179",
+    "139945306",
+    "140957882",
+    "159887697"
+   ],
+   "correct_index": 2,
+   "answer_category": "241",
+   "human_choice": 1,
+   "n_confident": 3
+  },
+  {
+   "set_id": "193834691",
+   "retained": [
+    "91234567"
+   ],
+   "candidates": [
+    "140609386",
+    "160101783",
+    "74761701",
+    "168458593"
+   ],
+   "correct_index": 3,
+   "answer_category": "243",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "221264441",
+   "retained": [
+    "203859093"
+   ],
+   "candidates": [
+    "202172350",
+    "183753505",
+    "207720680",
+    "203703141"
+   ],
+   "correct_index": 1,
+   "answer_category": "244",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "224935415",
+   "retained": [
+    "212992927",
+    "214228857",
+    "208711785"
+   ],
+   "candidates": [
+    "121937326",
+    "175608408",
+    "214990851",
+    "179752233"
+   ],
+   "correct_index": 2,
+   "answer_category": "25",
+   "human_choice": 2,
+   "n_confident": 3
+  },
+  {
+   "set_id": "220635840",
+   "retained": [
+    "205716121"
+   ],
+   "candidates": [
+    "199183558",
+    "207416110",
+    "151520827",
+    "203150591"
+   ],
+   "correct_index": 3,
+   "answer_category": "250",
+   "human_choice": 3,
+   "n_confident": 3
+  },
+  {
+   "set_id": "210867262",
+   "retained": [
+    "184688836",
+    "189636914"
+   ],
+   "candidates": [
+    "184613868",
+    "189636923",
+    "101542930",
+    "200903638"
+   ],
+   "correct_index": 1,
+   "answer_category": "252",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "209955562",
+   "retained": [
+    "185534936",
+    "187918040"
+   ],
+   "candidates": [
+    "187859289",
+    "189636914",
+    "147896745",
+    "192022006"
+   ],
+   "correct_index": 0,
+   "answer_category": "253",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "222948075",
+   "retained": [
+    "206290743",
+    "194822881"
+   ],
+   "candidates": [
+    "149175946",
+    "173328130",
+    "140678751",
+    "190544375"
+   ],
+   "correct_index": 1,
+   "answer_category": "255",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "225325047",
+   "retained": [
+    "214248601",
+    "165273274"
+   ],
+   "candidates": [
+    "118011155",
+    "206620698",
+    "208641808",
+    "196184080"
+   ],
+   "correct_index": 2,
+   "answer_category": "256",
+   "human_choice": 2,
+   "n_confident": 3
+  },
+  {
+   "set_id": "223477313",
+   "retained": [
+    "121610587"
+   ],
+   "candidates": [
+    "65701179",
+    "185304318",
+    "153627143",
+    "208086366"
+   ],
+   "correct_index": 3,
+   "answer_category": "257",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "209708478",
+   "retained": [
+    "185589010",
+    "187543181"
+   ],
+   "candidates": [
+    "161705611",
+    "178158868",
+    "187542949",
+    "206036233"
+   ],
+   "correct_index": 2,
+   "answer_category": "26",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "134504747",
+   "retained": [
+    "115185256",
+    "112965827"
+   ],
+   "candidates": [
+    "147804497",
+    "209478763",
+    "214381957",
+    "116875902"
+   ],
+   "correct_index": 3,
+   "answer_category": "261",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "215074871",
+   "retained": [
+    "139880306",
+    "95412464"
+   ],
+   "candidates": [
+    "180119023",
+    "159079448",
+    "199944123",
+    "144324550"
+   ],
+   "correct_index": 0,
+   "answer_category": "262",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "222561548",
+   "retained": [
+    "203208336",
+    "195372366"
+   ],
+   "candidates": [
+    "111663898",
+    "92009215",
+    "200681910",
+    "146824285"
+   ],
+   "correct_index": 2,
+   "answer_category": "263",
+   "human_choice": 2,
+   "n_confident": 3
+  },
+  {
+   "set_id": "209541535",
+   "retained": [
+    "186885020"
+   ],
+   "candidates": [
+    "120902850",
+    "191215910",
+    "184716576",
+    "184871681"
+   ],
+   "correct_index": 2,
+   "answer_category": "264",
+   "human_choice": 2,
+   "n_confident": 3
+  },
+  {
+   "set_id": "219814805",
+   "retained": [
+    "200541387",
+    "189783083"
+   ],
+   "candidates": [
+    "204492209",
+    "206923421",
+    "166004153",
+    "174203660"
+   ],
+   "correct_index": 0,
+   "answer_category": "265",
+   "human_choice": 0,
+   "n_confident": 3
+  },
+  {
+   "set_id": "208884491",
+   "retained": [
+    "185310708",
+    "178439303"
+   ],
+   "candidates": [
+    "194842393",
+    "171824560",
+    "185785151",
+    "179590845"
+   ],
+   "correct_index": 2,
+   "answer_category": "266",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "158104866",
+   "retained": [
+    "134254085"
+   ],
+   "candidates": [
+    "165429176",
+    "201315692",
+    "127663587",
+    "166742829"
+   ],
+   "correct_index": 2,
+   "answer_category": "267",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "221664824",
+   "retained": [
+    "100826318",
+    "207224999"
+   ],
+   "candidates": [
+    "209216617",
+    "177090329",
+    "203250319",
+    "184413459"
+   ],
+   "correct_index": 3,
+   "answer_category": "268",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "216983893",
+   "retained": [
+    "171730921",
+    "200170638"
+   ],
+   "candidates": [
+    "188220250",
+    "42874105",
+    "192399016",
+    "211888121"
+   ],
+   "correct_index": 0,
+   "answer_category": "27",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223963399",
+   "retained": [
+    "209725043",
+    "200654529",
+    "206189548"
+   ],
+   "candidates": [
+    "211196644",
+    "202495963",
+    "187525689",
+    "209189620"
+   ],
+   "correct_index": 3,
+   "answer_category": "275",
+   "human_choice": 1,
+   "n_confident": 3
+  },
+  {
+   "set_id": "161948574",
+   "retained": [
+    "132159606",
+    "136701362"
+   ],
+   "candidates": [
+    "177938398",
+    "200545255",
+    "181003780",
+    "36477910"
+   ],
+   "correct_index": 3,
+   "answer_category": "278",
+   "human_choice": 0,
+   "n_confident": 3
+  },
+  {
+   "set_id": "220533017",
+   "retained": [
+    "200805537",
+    "207145528"
+   ],
+   "candidates": [
+    "211015612",
+    "189581358",
+    "212370969",
+    "207257786"
+   ],
+   "correct_index": 3,
+   "answer_category": "28",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "222315253",
+   "retained": [
+    "208050589",
+    "145490542"
+   ],
+   "candidates": [
+    "98736277",
+    "75552297",
+    "206297034",
+    "210454502"
+   ],
+   "correct_index": 2,
+   "answer_category": "280",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "216307905",
+   "retained": [
+    "128091961",
+    "47195839"
+   ],
+   "candidates": [
+    "201265630",
+    "106101640",
+    "168711659",
+    "166271922"
+   ],
+   "correct_index": 3,
+   "answer_category": "288",
+   "human_choice": 1,
+   "n_confident": 3
+  },
+  {
+   "set_id": "220178538",
+   "retained": [
+    "168307250",
+    "206677351"
+   ],
+   "candidates": [
+    "203686130",
+    "207246776",
+    "205071573",
+    "160469626"
+   ],
+   "correct_index": 2,
+   "answer_category": "29",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "148152948",
+   "retained": [
+    "124273043",
+    "124605419"
+   ],
+   "candidates": [
+    "115066684",
+    "208162724",
+    "214807516",
+    "130655785"
+   ],
+   "correct_index": 0,
+   "answer_category": "291",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223097964",
+   "retained": [
+    "150800502"
+   ],
+   "candidates": [
+    "94818326",
+    "206615769",
+    "123916079",
+    "210015074"
+   ],
+   "correct_index": 3,
+   "answer_category": "292",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223533434",
+   "retained": [
+    "203033142"
+   ],
+   "candidates": [
+    "211529849",
+    "209118381",
+    "201594381",
+    "212696174"
+   ],
+   "correct_index": 3,
+   "answer_category": "294",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "219465342",
+   "retained": [
+    "193184373",
+    "165908320"
+   ],
+   "candidates": [
+    "204809148",
+    "131677305",
+    "181408704",
+    "177991382"
+   ],
+   "correct_index": 0,
+   "answer_category": "297",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "222254894",
+   "retained": [
+    "185030615"
+   ],
+   "candidates": [
+    "209077518",
+    "208665479",
+    "180811790",
+    "213418045"
+   ],
+   "correct_index": 0,
+   "answer_category": "3",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "225332327",
+   "retained": [
+    "127528770"
+   ],
+   "candidates": [
+    "176304915",
+    "186589405",
+    "212060699",
+    "168367756"
+   ],
+   "correct_index": 1,
+   "answer_category": "30",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223076483",
+   "retained": [
+    "203250319"
+   ],
+   "candidates": [
+    "170551698",
+    "210827210",
+    "140917979",
+    "213842955"
+   ],
+   "correct_index": 1,
+   "answer_category": "309",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223763510",
+   "retained": [
+    "213148754",
+    "213148470"
+   ],
+   "candidates": [
+    "183639308",
+    "188040867",
+    "61628854",
+    "203527526"
+   ],
+   "correct_index": 2,
+   "answer_category": "310",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "217204468",
+   "retained": [
+    "184311972",
+    "194317190",
+    "201321555"
+   ],
+   "candidates": [
+    "208108578",
+    "209164491",
+    "214091272",
+    "201201606"
+   ],
+   "correct_index": 3,
+   "answer_category": "315",
+   "human_choice": 3,
+   "n_confident": 3
+  },
+  {
+   "set_id": "222195209",
+   "retained": [
+    "177991382",
+    "206297034"
+   ],
+   "candidates": [
+    "207760069",
+    "208827670",
+    "171679288",
+    "171249954"
+   ],
+   "correct_index": 0,
+   "answer_category": "343",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "170238703",
+   "retained": [
+    "138372468",
+    "139471393"
+   ],
+   "candidates": [
+    "144153940",
+    "215225264",
+    "207504603",
+    "202167018"
+   ],
+   "correct_index": 0,
+   "answer_category": "4",
+   "human_choice": 3,
+   "n_confident": 2
+  },
+  {
+   "set_id": "81385869",
+   "retained": [
+    "74590292",
+    "78889850"
+   ],
+   "candidates": [
+    "176979758",
+    "76294105",
+    "132287914",
+    "130554800"
+   ],
+   "correct_index": 1,
+   "answer_category": "41",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "111163598",
+   "retained": [
+    "87073976",
+    "90544387"
+   ],
+   "candidates": [
+    "185029701",
+    "60136340",
+    "98640406",
+    "193292256"
+   ],
+   "correct_index": 2,
+   "answer_category": "42",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "219226685",
+   "retained": [
+    "151508463"
+   ],
+   "candidates": [
+    "134760821",
+    "202513182",
+    "186170776",
+    "195592666"
+   ],
+   "correct_index": 1,
+   "answer_category": "43",
+   "human_choice": 0,
+   "n_confident": 3
+  },
+  {
+   "set_id": "223418936",
+   "retained": [
+    "203633599",
+    "207943248"
+   ],
+   "candidates": [
+    "189755494",
+    "191900080",
+    "122992768",
+    "191550425"
+   ],
+   "correct_index": 1,
+   "answer_category": "4452",
+   "human_choice": 1,
+   "n_confident": 3
+  },
+  {
+   "set_id": "213590321",
+   "retained": [
+    "131981194"
+   ],
+   "candidates": [
+    "63435777",
+    "189318309",
+    "172315069",
+    "172352711"
+   ],
+   "correct_index": 1,
+   "answer_category": "4454",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "215236342",
+   "retained": [
+    "187982881",
+    "194290416"
+   ],
+   "candidates": [
+    "198805945",
+    "199273387",
+    "65596043",
+    "194645049"
+   ],
+   "correct_index": 3,
+   "answer_category": "4455",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223494313",
+   "retained": [
+    "202872631",
+    "211630464",
+    "202867943"
+   ],
+   "candidates": [
+    "195351410",
+    "194209354",
+    "212163898",
+    "196226854"
+   ],
+   "correct_index": 2,
+   "answer_category": "4456",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "217311993",
+   "retained": [
+    "161433894",
+    "195498377"
+   ],
+   "candidates": [
+    "193506626",
+    "148111453",
+    "156098142",
+    "146832725"
+   ],
+   "correct_index": 2,
+   "answer_category": "4458",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "219841099",
+   "retained": [
+    "183756068",
+    "185053751"
+   ],
+   "candidates": [
+    "206095763",
+    "204248003",
+    "206437861",
+    "206858073"
+   ],
+   "correct_index": 1,
+   "answer_category": "4465",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "219176603",
+   "retained": [
+    "202027176",
+    "195491421"
+   ],
+   "candidates": [
+    "205137580",
+    "162141376",
+    "191310312",
+    "191242770"
+   ],
+   "correct_index": 3,
+   "answer_category": "4496",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "206591548",
+   "retained": [
+    "173461910"
+   ],
+   "candidates": [
+    "129008975",
+    "178197572",
+    "201243950",
+    "211535692"
+   ],
+   "correct_index": 1,
+   "answer_category": "46",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "218572330",
+   "retained": [
+    "201065271"
+   ],
+   "candidates": [
+    "202771904",
+    "83988411",
+    "199251379",
+    "175139817"
+   ],
+   "correct_index": 0,
+   "answer_category": "47",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "222412049",
+   "retained": [
+    "203474291"
+   ],
+   "candidates": [
+    "205591027",
+    "208883637",
+    "208673360",
+    "209988175"
+   ],
+   "correct_index": 3,
+   "answer_category": "48",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "206979794",
+   "retained": [
+    "175726744",
+    "154499176",
+    "166762569"
+   ],
+   "candidates": [
+    "172838356",
+    "152659031",
+    "180736887",
+    "202651056"
+   ],
+   "correct_index": 2,
+   "answer_category": "49",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "225219599",
+   "retained": [
+    "215210708"
+   ],
+   "candidates": [
+    "151508463",
+    "167012086",
+    "215222599",
+    "87073976"
+   ],
+   "correct_index": 2,
+   "answer_category": "5",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "208856415",
+   "retained": [
+    "181267702",
+    "182664668"
+   ],
+   "candidates": [
+    "200921489",
+    "182085837",
+    "184897804",
+    "213085983"
+   ],
+   "correct_index": 1,
+   "answer_category": "50",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "217320763",
+   "retained": [
+    "195937486"
+   ],
+   "candidates": [
+    "163451038",
+    "211662467",
+    "210614354",
+    "197575483"
+   ],
+   "correct_index": 3,
+   "answer_category": "6",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "217902538",
+   "retained": [
+    "202481825",
+    "184869856",
+    "197793249"
+   ],
+   "candidates": [
+    "204582465",
+    "97830318",
+    "200343031",
+    "175166837"
+   ],
+   "correct_index": 2,
+   "answer_category": "7",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "212587470",
+   "retained": [
+    "191714777",
+    "152637472"
+   ],
+   "candidates": [
+    "188883964",
+    "123071026",
+    "185083975",
+    "106620023"
+   ],
+   "correct_index": 2,
+   "answer_category": "8",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "217512861",
+   "retained": [
+    "198428122",
+    "197005945"
+   ],
+   "candidates": [
+    "196737266",
+    "197296160",
+    "204784322",
+    "157874710"
+   ],
+   "correct_index": 1,
+   "answer_category": "9",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "218438685",
+   "retained": [
+    "202518681",
+    "181601684"
+   ],
+   "candidates": [
+    "135889017",
+    "214698212",
+    "202640775",
+    "107715360"
+   ],
+   "correct_index": 2,
+   "answer_category": "10",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "224080249",
+   "retained": [
+    "212396255",
+    "211831950"
+   ],
+   "candidates": [
+    "146459010",
+    "95982638",
+    "213702604",
+    "168322469"
+   ],
+   "correct_index": 2,
+   "answer_category": "104",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "222292690",
+   "retained": [
+    "208273252"
+   ],
+   "candidates": [
+    "195525278",
+    "203429300",
+    "170689447",
+    "207359882"
+   ],
+   "correct_index": 3,
+   "answer_category": "15",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "221269252",
+   "retained": [
+    "173070048"
+   ],
+   "candidates": [
+    "205728152",
+    "207522010",
+    "179087200",
+    "211248782"
+   ],
+   "correct_index": 0,
+   "answer_category": "1607",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "220105269",
+   "retained": [
+    "173783989",
+    "204699537"
+   ],
+   "candidates": [
+    "197963088",
+    "157020855",
+    "200290490",
+    "192904167"
+   ],
+   "correct_index": 3,
+   "answer_category": "17",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "223659793",
+   "retained": [
+    "206454428",
+    "211928074"
+   ],
+   "candidates": [
+    "127134374",
+    "211216893",
+    "134377639",
+    "209212273"
+   ],
+   "correct_index": 2,
+   "answer_category": "21",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "221354903",
+   "retained": [
+    "208851617",
+    "208851564"
+   ],
+   "candidates": [
+    "196315872",
+    "75052806",
+    "158107992",
+    "208698849"
+   ],
+   "correct_index": 3,
+   "answer_category": "23",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "207089947",
+   "retained": [
+    "179466122",
+    "120663757"
+   ],
+   "candidates": [
+    "168448578",
+    "141478331",
+    "119515149",
+    "120654751"
+   ],
+   "correct_index": 2,
+   "answer_category": "236",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "209503662",
+   "retained": [
+    "172327892",
+    "127159539",
+    "182751519"
+   ],
+   "candidates": [
+    "85359643",
+    "110137166",
+    "413558",
+    "179615299"
+   ],
+   "correct_index": 3,
+   "answer_category": "237",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "96346034",
+   "retained": [
+    "65962428",
+    "83133334"
+   ],
+   "candidates": [
+    "71981227",
+    "60336440",
+    "199537108",
+    "204805384"
+   ],
+   "correct_index": 1,
+   "answer_category": "238",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "219241338",
+   "retained": [
+    "193643502",
+    "144326016"
+   ],
+   "candidates": [
+    "203945449",
+    "214614638",
+    "198169475",
+    "205238316"
+   ],
+   "correct_index": 0,
+   "answer_category": "239",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "182339231",
+   "retained": [
+    "132625581",
+    "146461366"
+   ],
+   "candidates": [
+    "145236688",
+    "161000952",
+    "160219795",
+    "191625374"
+   ],
+   "correct_index": 0,
+   "answer_category": "24",
+   "human_choice": 0,
+   "n_confident": 4
+  },
+  {
+   "set_id": "218489887",
+   "retained": [
+    "177991519",
+    "131023488"
+   ],
+   "candidates": [
+    "78889850",
+    "74928659",
+    "76069059",
+    "193092536"
+   ],
+   "correct_index": 3,
+   "answer_category": "240",
+   "human_choice": 1,
+   "n_confident": 4
+  },
+  {
+   "set_id": "165913408",
+   "retained": [
+    "133152126"
+   ],
+   "candidates": [
+    "144353166",
+    "146029946",
+    "140609386",
+    "204623819"
+   ],
+   "correct_index": 2,
+   "answer_category": "243",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "222232080",
+   "retained": [
+    "209593246"
+   ],
+   "candidates": [
+    "207720680",
+    "209152806",
+    "208239601",
+    "176985952"
+   ],
+   "correct_index": 2,
+   "answer_category": "244",
+   "human_choice": 3,
+   "n_confident": 4
+  },
+  {
+   "set_id": "224925028",
+   "retained": [
+    "165584160",
+    "201358970",
+    "205742034"
+   ],
+   "candidates": [
+    "133728607",
+    "212777074",
+    "151064139",
+    "157364256"
+   ],
+   "correct_index": 1,
+   "answer_category": "25",
+   "human_choice": 2,
+   "n_confident": 4
+  },
+  {
+   "set_id": "197856517",
+   "retained": [
+    "170172376"
+   ],
+   "candidates": [
+    "207416110",
+    "199183558",
+    "169194772",
+    "203150591"
+   ],
+   "correct_index": 2,
+   "answer_category": "250",
+   "human_choice": 0,
+   "n_confident": 3
+  },
+  {
+   "set_id": "205390452",
+   "retained": [
+    "170740002",
+    "168064322"
+   ],
+   "candidates": [
+    "101542930",
+    "184613868",
+    "180618578",
+    "200903638"
+   ],
+   "correct_index": 2,
+   "answer_category": "252",
+   "human_choice": 3,
+   "n_confident": 3
+  }
+ ]
+}

@@ -1124,3 +1124,14 @@ enumerates exactly this set.
 - **`results.md` framing (keep):** the benchmark measures **co-worn-ness, a proxy** for compatibility (positives are
   co-worn pairs; the mechanical negatives are not-co-worn, *not* human-judged "incompatible") — frame results as a
   co-worn proxy; the judge's "errors" include genuinely-compatible-but-never-co-worn pairs.
+- **`results.md` framing — temporal representativeness / construct validity (keep):** Polyvore is a years-old scrape;
+  fashion drifts, so *learned* Polyvore-compatibility ≠ *current* good style (panel feedback surfaced dated aesthetics
+  — dominant skinny-cut, off palettes). This is an **external / construct-validity** boundary, **not** an
+  internal-validity threat to gates A/B/D: every H26 comparison is *within the same corpus* (head vs zero-shot cosine,
+  head vs the LLM judge, head vs the Vasileva Polyvore anchor), so the dataset's dating is a **shared handicap that
+  cancels** — it bounds *what the parity number means*, not whether the comparison is fair (§0). Trend currency is
+  **not** this prior's job: in the product it enters via the `gpt-5.4-mini` generator (current) + personalization (the
+  behavioral `SignalScorer` seam and the M6 lens-first style graph learned from the user's **own** closet — current by
+  construction; §13, canonical §20/§23-H28), while the content prior stays the slow-moving *do-these-cohere* signal.
+  `results.md` states this as a named limitation and points to M6 personalization as the escape from a stale corpus —
+  naming the boundary is a credibility strength, not a wound.
