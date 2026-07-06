@@ -66,6 +66,14 @@ def test_gate_a_straddle_fails(prereg):
     assert not v["A"]["pass"] and v["verdict"] == "NO-GO"
 
 
+def test_gate_a_boundary_ci_low_exactly_at_threshold_fails(prereg):
+    # Gate A is STRICT (`ci.low > threshold`, threshold 0.0 — metrics.py §12): a CI whose lower bound
+    # sits EXACTLY on the threshold is not decisively above the zero-shot floor, so it must FAIL. Pins
+    # the strict-`>` — a `>=` regression would wrongly PASS on the boundary (caught by mutation, CP3a).
+    v = ev.apply_gates(_metrics(gate_A_diff=_ci(0.05, 0.0, 0.10)), prereg)   # low == 0.0 threshold
+    assert not v["A"]["pass"] and v["verdict"] == "NO-GO"
+
+
 def test_gate_b_power_subrule_underpowered_is_no_go(prereg):
     """The letter-check shape: CI_low clears -delta decisively (the head even BEATS the judge)
     but half_width > delta at the cap -> 'underpowered / inconclusive' -> NO-GO (§B verbatim)."""
@@ -96,6 +104,16 @@ def test_gate_d_floor_reads_ci_low(prereg):
     assert not v["D"]["legs"]["outfit_auc"]["pass"] and v["verdict"] == "NO-GO"
     v2 = ev.apply_gates(_metrics(fitb_trained_full=_ci(0.51, 0.49, 0.53)), prereg)
     assert not v2["D"]["legs"]["fitb_trained_full"]["pass"] and v2["verdict"] == "NO-GO"
+
+
+def test_gate_d_floor_inclusive_at_exact_floor_passes(prereg):
+    # Gate D is INCLUSIVE (`ci.low >= floor` — metrics.py §12): a CI whose lower bound sits EXACTLY on
+    # a floor still passes. Pins the inclusive-`>=` — a strict-`>` regression would wrongly FAIL on the
+    # boundary (caught by mutation, CP3a). Floors: outfit_auc 0.81, fitb_trained_full 0.50.
+    v = ev.apply_gates(_metrics(outfit_auc=_ci(0.83, 0.81, 0.85)), prereg)          # low == 0.81 floor
+    assert v["D"]["legs"]["outfit_auc"]["pass"]
+    v2 = ev.apply_gates(_metrics(fitb_trained_full=_ci(0.52, 0.50, 0.54)), prereg)  # low == 0.50 floor
+    assert v2["D"]["legs"]["fitb_trained_full"]["pass"] and v2["verdict"] == "GO"
 
 
 def test_transfer_bands_are_descriptive_not_gating(prereg):

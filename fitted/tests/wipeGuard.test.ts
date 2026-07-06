@@ -27,6 +27,13 @@ describe("parseMongoUri", () => {
   it("reports (default) when no db path is present", () => {
     expect(parseMongoUri("mongodb://localhost:27017").dbName).toBe("(default)");
   });
+
+  it("returns sentinels on an unparseable URI (never throws)", () => {
+    expect(parseMongoUri("::::not a uri::::")).toEqual({
+      host: "(unparseable)",
+      dbName: "(unknown)",
+    });
+  });
 });
 
 describe("isWipeAllowed", () => {
@@ -46,6 +53,15 @@ describe("isWipeAllowed", () => {
     expect(isWipeAllowed("fitted-dev-shadow.prod.mongodb.net", NO_OVERRIDE)).toBe(false);
     expect(isWipeAllowed("myfitted-development.net", NO_OVERRIDE)).toBe(false);
     expect(isWipeAllowed("prod.mongodb.net", NO_OVERRIDE)).toBe(false);
+  });
+
+  it("REFUSES a host where a label has a right boundary but NO left boundary", () => {
+    // The label must sit at a LEFT boundary too. A host that ends a longer token with the label
+    // (valid right boundary, no left boundary) must be refused — else "xlocalhost"/"notfitted-dev"
+    // would bypass the guard. Pins the `(^|[.@/:])` left anchor (caught by mutation, CP3a).
+    expect(isWipeAllowed("xlocalhost:27017", NO_OVERRIDE)).toBe(false);
+    expect(isWipeAllowed("notfitted-dev.abc.mongodb.net", NO_OVERRIDE)).toBe(false);
+    expect(isWipeAllowed("evil127.0.0.1:27017", NO_OVERRIDE)).toBe(false);
   });
 
   it("REFUSES a host that only dot-prefixes an exact label (no localhost.evil bypass)", () => {
