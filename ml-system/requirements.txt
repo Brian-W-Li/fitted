@@ -9,9 +9,5 @@ pytest>=7.4
 # pytest suite import and run with `openai` ABSENT; only a live generation call needs it.
 openai>=1.0
 
-# CV / clothing attribute inference (clothing_cv.py)
-numpy>=1.20
-Pillow>=9.0
-torch>=2.0
-transformers>=4.30
-rembg[cpu]>=2.0
+# The H26 experiment has its own pinned deps: experiments/h26/requirements.txt
+# (torch/open_clip/etc. — installed in that directory's own venv, never here).
