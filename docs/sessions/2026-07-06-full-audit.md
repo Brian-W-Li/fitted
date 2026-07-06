@@ -249,3 +249,69 @@ so the fixture shape is validated against reality. Deep three-way-contract reali
 - `gemini.ts` untested — best-effort optional path; add a null-on-no-key + timeout test if it survives M5.
 
 ---
+
+## CHECKPOINT 4 — the Python core, adversarially (2026-07-06)
+
+Outcome: **CLEAN across all four lanes — no BLOCKER/IMPORTANT; NITs are report-only.** No code
+changed (verification checkpoint). 4a/4b ran as parallel agents (verified against source + empirically);
+4c/4d I ran directly on the real local data (`data/` 136M Polyvore + closet photos + embeddings all present).
+
+### 4a — fitted_core re-check (agent + spot-verify)
+- **Determinism: bit-identical.** Same `RescueRequest` twice → dict-equal AND `json.dumps(sort_keys=True)`-equal
+  wire docs; different seed (generation_index / session_id) moves both the sampler draw and the tie-break order.
+  `seed.py` uses `hashlib.sha256` (not process-salted `hash()`) + a dedicated `random.Random`.
+- **Boundaries degrade gracefully:** empty wardrobe → clean `ValueError` (forced item can't exist); single-item /
+  all-one-type → `not_enough_items` + hint; single dress → 1 valid variant; giant (5001 items) → sub-quadratic
+  (16× items ≈ 6× time; caps bound the pool before O(n²)).
+- **M4b three-way contract COHERENT:** every TS `required` field (minus the two M5-owned `user`/`interactionCountAtRequest`)
+  is authored by the Python producer; casing round-trips (`type`→`clothingType`, data-Map key `outer_layer` verbatim);
+  version constants match (`fitted_core_version` 0.4.0 ↔ `fittedCoreVersion`; `ranker_config_version` sha ↔ `rankerConfigVersion`);
+  `schemaVersion` correctly TS-only. Both `test_m4_e2e_fixture.py` and `m4bSnapshotContract` green.
+- **NIT (report-only) — empty-items `ZeroDivisionError`** in `response.compatibility()`/`visibility()`
+  (`_neutral_anchor`/`_occasion_overlap`/`_statement_tags` do `sum/len(items)` with no empty guard, unlike the
+  pair-helpers). **I verified it is UNREACHABLE:** `is_valid_slotmap(SlotMap())` → `(False, empty_base)`, so ≥1 item
+  is an upstream invariant. Correctly NIT (were it reachable it'd be a BLOCKER). → chip for M5 (these are the public
+  "M6 seam" fns; add `if not items: return 0.0` when wired live).
+- **NIT (report-only) — `admittedViaFallbackStage`** in `GenerationSnapshot.ts:112` `CandidateSnapshotSchema` is never
+  authored by the Python builder (optional → both suites still pass). Reserved-but-unwired; M5 decides populate-or-drop.
+
+### 4b — Determinism + numerical sweep (whole Python surface, agent)
+All 8 hazard classes CLEAN on every load-bearing path (metrics.json / committed artifacts / seeds / ranked output):
+unseeded-random (every RNG seeded — `random.Random(seed)` / `np.random.default_rng(seed)`); wall-clock (only
+`bench_head.py` uses `date.today()`, into an explicitly-non-frozen artifact); set/dict order (the one risky site,
+`iter_positive_edges` returning a set, is consumed through `sorted(...)`); filesystem order (`sorted(glob.glob)`,
+`sorted(Path.glob)`; embedding cache re-keyed to corpus order); float-== (all are exact-by-construction or
+intentional bit-determinism *fail-loud* guards, never silent corruption); accumulation order (fixed loader order;
+the co-occurrence detector uses a `1e-3` tolerance); div-by-zero (every reduction guarded — `auc_pos_neg` rejects
+empty, `bootstrap_ci` requires ≥1 cluster, each cluster carries both a pos+neg score so no all-one-sign slice);
+quantile (`0.05/2==0.025` bit-exact; `two_sided_boot_p` exact-zero replicates push p in the SAFE direction). NITs:
+machine/torch-pinned reproducibility (documented, by design) + `popularity_deciles` empty-guard (unreachable/reported-only).
+
+### 4c — Independent numerical spot-audit (my fresh code, not evaluate.py)
+Re-derived / cross-checked 15+ numbers — **all consistent, correctly rounded:**
+- Every `metrics.json` CI half-width recomputed = `(high−low)/2`. **Gate-B power margin = 0.050302 − 0.05 = +0.000302**
+  (matches results.md/CLAUDE.md +3.02e-4); CI_low 0.2213 > +δ → power miss not accuracy miss ✓.
+- Gate A +0.0995 [+0.0969, +0.1022] ✓; gate D outfit_auc 0.845 (low 0.8408 > 0.81) + fitb 0.621 (low 0.6127 > 0.50) ✓;
+  judge low 0.3058 > 0.25 ✓; seam +0.216 [+0.212, +0.220], Holm p 0.0 ✓; closet AUC 0.5625 CI [0.2857, 0.75] wholly
+  below the 0.7 floor ✓; drop CI [−0.019, 0.448] straddles ✓.
+- **AUC convention verified independently:** fresh Mann-Whitney (`(wins + 0.5·ties)/(|pos||neg|)`) == `metrics.auc_pos_neg`
+  == `sklearn.roc_auc_score` to 1e-9.
+- results.md printed values match metrics.json at displayed precision (4-dp CIs); no banker's-rounding hazard surfaced.
+
+### 4d — Data-level eyeballing (the EXIF class — only found by LOOKING)
+- **EXIF (H53) validated on real pixels:** all 5 sampled closet photos carry **orientation 6** (stored 4032×3024
+  landscape); `ImageOps.exif_transpose` rights them to portrait — rendered `IMG_5061` post-transpose shows dark jeans
+  correctly vertical (would be sideways to the embedder without the transpose). Confirms H53's premise + fix direction.
+- **type_map coverage PERFECT:** all **153** distinct `category_id`s in `polyvore_item_metadata.json` have a type_map
+  entry (**0 reachable-but-unmapped**); 6 defensive extras. No item can be silently dropped/crashed for a missing map.
+- **Ledger integrity:** `judge_runs.ndjson` = 3000 rows, all sampled `payload_log_sha256` are valid 64-hex; 151/200
+  sampled `raw_payloads/*.json` hash-match a ledger row (the rest are pilot/reverse/retry payloads outside the gate-B
+  ledger — expected). Provenance chain intact. `calibration_visual_qc.json` present with the closet exclusion list.
+- Parquet corruption: not sampled fresh (image parquet is the download-gated mvasil source); indirectly clean — the
+  full AUC pipeline ran to sensible numbers over the corpus and the visual-QC exclusion list exists.
+
+### CP4 task chips
+- M5: when `response.compatibility()`/`visibility()` get wired as a live scoring seam, add the `if not items: return 0.0` guard.
+- M5: decide `admittedViaFallbackStage` — populate it in the live snapshot writer or drop it from the TS schema.
+
+---
