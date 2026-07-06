@@ -495,6 +495,55 @@ is far below that of the first live render.** CP7/CP8 close this audit; then M5.
 
 ---
 
+## CHECKPOINT 7 — ops / CI / git-hygiene / live-data (session 2, 2026-07-06)
+
+Outcome: **CLEAN — all registered/expected. 1 hygiene fix landed (eslint coverage-ignore); 1 CP0-skim
+self-correction (.DS_Store IS ignored).** Verified inline (mechanical). No live-Mongo touch (policy).
+
+### 7a — Deploy gaps: registered (M5-owned)
+No deploy config in this fork (only `fitted/next.config.ts`; no `vercel.json`) — **expected**: the deployed
+Vercel app runs the *team* repo, and M5's target is **Fly.io** for `fitted_core` (§20 M5 row: "Deploy fitted_core
+(Fly.io, always-on, Docker)"). The firebase-admin transitive npm vulns (19, from CP5 5d) are the one concrete
+deploy-prep item → already a CP7a/deploy chip. No new finding.
+
+### 7b — CI absence: registered (§23-H13, an M5 entry prereq)
+No `.github/workflows` — confirmed. **Registered §23-H13** ("Pre-M5 CI / runtime reproducibility … no CI
+workflow, no runtime pins, requirements.txt lower-bounds only", OPEN→DEFERRED-pre-M5) and named as an M5
+definition-of-ready prereq ("H13 cross-runtime CI green") in the §20 M5 row. Accurately captured; no new hole.
+
+### 7c — Git hygiene: 1 fix, 1 self-correction
+- **FIXED (tooling config) — eslint linted generated coverage.** `fitted/coverage/lcov-report/` (25 generated
+  Istanbul files, git-ignored) was walked by `npx eslint .` (globalIgnores omitted `coverage/**`), emitting a
+  spurious "unused eslint-disable" warning on generated `block-navigation.js`. Added `"coverage/**"` to
+  `eslint.config.mjs` globalIgnores. Lint 46→45 problems (the generated-artifact warning gone); the remaining
+  45 are the known legacy product/test debt M5 rewrites. Correct fix (never lint generated output), improves
+  the build-audit loop's lint signal, touches no product code.
+- **SELF-CORRECTION (CP0 skim was WRONG) — `.DS_Store` IS gitignored.** CP0 skim claimed ".DS_Store … not in
+  any .gitignore." False: root `.gitignore:24` **and** `fitted/.gitignore:24` both carry `.DS_Store` (unanchored
+  → matches at every depth; `git check-ignore` confirms all 5 on-disk copies incl `docs/`, `ml-system/experiments/h26/`
+  are ignored). Not tracked, not catchable by `git add -A`. **The CP0 CP7c chip is withdrawn — no hygiene gap.**
+- **History bloat (CP1b) — report-only, no action.** `matthew-hello-world/node_modules/` (+ its one public
+  Chromium CrUX key) lives in old shared team-era history, 0-tracked now. A history rewrite on a fork with shared
+  upstream history is not worth it; leave as-is. Not a fix, not a chip.
+
+### 7d — Live-data: NOT RUN (policy)
+`MONGODB_URI` is not in the shell env; `.env.local` exists but sourcing it to connect to live Mongo Atlas is a
+**network operation against a real consent-bound DB** — barred by this audit's zero-egress / no-live-data-touch
+posture (same rule that kept H26's `closet/`/`raw_payloads/` local). Data-shape truth was instead verified
+statically at CP4d (type_map coverage, ledger integrity, EXIF) against the local `data/`/`closet/` files. No
+live query run, by design.
+
+### CP7 verdict
+Ops posture is accurately registered. Everything a deploy needs is a named M5 prereq (H13 CI, Fly.io deploy,
+firebase-admin dep bump); git hygiene is clean (`.DS_Store` ignored, coverage now eslint-ignored, sensitive
+dirs 0-tracked per CP1b). No new load-bearing finding.
+
+### CP7 chips (M5 / deploy)
+- firebase-admin transitive npm vulns (19: 1 crit/6 high) — dep bump at deploy prep (from CP5 5d).
+- §23-H13 CI workflow — M5 entry prereq (already registered).
+
+---
+
 ## SESSION 1 STOP (2026-07-06) — clean boundary after CP4-complete + CP5-partial
 CP0–CP4 fully complete + committed. CP5 partial (security lane done + committed; robustness lane pending).
 No agents in flight. Next session: resume at CP5 robustness lane. Suite floors after this session:

@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     "node_modules/**",
     ".venv/**",
     "next-env.d.ts",
+    // Generated Istanbul coverage report — never lint generated artifacts.
+    "coverage/**",
   ]),
 ]);
 
