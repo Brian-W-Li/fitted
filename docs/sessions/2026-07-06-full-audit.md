@@ -544,6 +544,76 @@ dirs 0-tracked per CP1b). No new load-bearing finding.
 
 ---
 
+## CHECKPOINT 8 — regression-of-fixes convergence (session 2, 2026-07-06)
+
+Outcome: **CONVERGED CLEAN in one round — zero load-bearing findings.** All executable signals green
+after every session edit; one fresh-context regression agent independently re-verified all fixes against
+source (re-ran all suites, re-checked every line-cite); its single raised nit was refuted on my own
+source-read. No fix this session introduced a regression.
+
+### Executable regression (post-all-edits, all green)
+`tsc --noEmit` exit 0 · jest **377** · core pytest **752** · h26 pytest **304 (+1 skip)**. Floors met/grown:
+core 752 / h26 304+1skip / jest 377 (unchanged from session-1 close — session 2 landed no new tests, only
+doc/config edits).
+
+### Fresh-context regression agent — all 5 fix-classes VERIFIED-CORRECT
+Independently re-derived against source (did not trust the report):
+1. **CP3 gate-boundary tests** (`test_gates.py`): gate-A strict-`>` (threshold 0.0) test (a) kills the `>`→`>=`
+   mutant; gate-D inclusive-`>=` (floors 0.81/0.50) test (b) kills the `>=`→`>` mutant; both fixtures are
+   **exact floats** (prereg JSON == Python literal, numerically confirmed) → non-vacuous.
+2. **CP3 wipeGuard tests** (`wipeGuard.test.ts`): the three no-left-boundary hosts (`xlocalhost`, `notfitted-dev`,
+   `evil127.0.0.1`) correctly return **false** (refuse the wipe); the unparseable-URI case returns the exact
+   `(unparseable)` sentinel. Assert safe behavior; would fail if the left-anchor were dropped.
+3. **`export {}` markers + addItemUploadStepActions retype**: EOF-only module markers, zero runtime-semantic
+   change; the DOM-walker retype is byte-identical control flow (no assertion weakened, no branch skipped).
+4. **eslint `coverage/**`**: scoped to the generated Istanbul dir; no source dir named `coverage` exists →
+   nothing real ignored; syntactically valid.
+5. **Doc edits (§15 R5 / §19 / §20 / §23 H53-H54 / CLAUDE.md / .env.sample)**: every line-cite resolves
+   accurately against current source; the §15 R5 "async/best-effort (below)" pointer correctly resolves to the
+   §15 "Logging is async, best-effort" line; no new internal contradiction introduced.
+
+### The one agent nit — REFUTED on source-read (verify-before-acting)
+Agent flagged the CP3 gate tests' inline comment "metrics.py §12" as a wrong cite (gate operator executes in
+`evaluate.py apply_gates`, not metrics.py). **Refuted:** `metrics.py` §12 (lines 143-169) *is* the documented
+home of the boundary *semantics* — "gate A `ci.low > 0`; gate D `ci.low >= floor`" (the strict-vs-inclusive
+rationale + the `straddles`/near-gate rule). The comment is a rationale-pointer to §12, and §12 is exactly
+where that rationale lives; `evaluate.py` is merely where it executes. The agent conflated execution-locus with
+rationale-locus. Cite is accurate — no change.
+
+### CP8 verdict: CONVERGED
+One round, zero load-bearing findings, agent-nit refuted. The audit's own fixes are clean. **CP0–CP8 complete.**
+
+---
+
+## AUDIT COMPLETE (CP0–CP8) — session 2 close, 2026-07-06
+
+Full-project post-H26/pre-M5 heavy-loop audit **complete across all 9 checkpoints.** Overall verdict:
+**the project is safe, truthful, well-tested, well-aimed, and faithfully built — no BLOCKER survived, and
+every app-side robustness/security finding is §19/§23-registered + M5-owned (correct: that vertical is
+rewritten at cutover).**
+
+**What this audit changed (code/test/config):** CP2 tsc-green (4 test files), CP3 4 mutation-hardening tests
+(gate-A/D boundaries + wipeGuard left-anchor — safety-critical), CP7 eslint coverage-ignore. **Doc-truth
+fixes:** §19 NEW-1 cross-user-read amendment, §15 R5 snapshot-write trap-guard, §20 scorer-timing reconcile,
+§23 H53 (EXIF) + H54 (snapshot delete-guard) registered, CLAUDE.md env-table (Gemini) + floors, memory
+sequencing reconciled + 2 stale index lines. **No product code changed** (M5 owns the app rewrite).
+
+**Merit:** GO holds (three seats converged; H26 NO-GO priced in + seam-shape bet strengthened). **Portfolio:**
+STRONG with a "so-what" gap → **M5 is the #1 next move** (makes it run live). **Bus-factor:** RECOVERABLE.
+
+**Brian-action items (NOT code — require Brian to run), in priority order:**
+1. **[HIGH — SPOF] Push the ~90 unpushed commits + back up 3 irreplaceable dirs off-laptop** (CP1d recipe:
+   `raw_payloads/` + `closet/` + `panel_answers/`, ~70 MB non-regenerable, consent-bound local-only). Laptop
+   loss today destroys the H26 provenance chain *and* the unpushed derived artifacts.
+2. **[MED] Rewrite root `/README.md`** as a portfolio front-door (currently stale CS148 team copy that buries
+   the H26 crown jewel).
+3. Then **M5** (the live cutover — §20; carries the CP5 §19 security/robustness register + CP7 dep-bump/CI chips).
+
+**Next session:** M5 `/spec` (per §14.5 handoff), OR the two Brian-actions above first. Suite floors:
+**core 752 / h26 304 (+1 skip) / jest 377.** Session-2 commits: b58f1b5c, 914e6e23, 85f8616f, + this CP8 commit.
+
+---
+
 ## SESSION 1 STOP (2026-07-06) — clean boundary after CP4-complete + CP5-partial
 CP0–CP4 fully complete + committed. CP5 partial (security lane done + committed; robustness lane pending).
 No agents in flight. Next session: resume at CP5 robustness lane. Suite floors after this session:
