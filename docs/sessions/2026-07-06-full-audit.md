@@ -315,3 +315,64 @@ Re-derived / cross-checked 15+ numbers — **all consistent, correctly rounded:*
 - M5: decide `admittedViaFallbackStage` — populate it in the live snapshot writer or drop it from the TS schema.
 
 ---
+
+## CHECKPOINT 5 — app-side (PARTIAL — stopped at a clean boundary 2026-07-06)
+
+**STATUS: security lane (5a auth-completeness / 5b injection+upload) DONE + npm audit (part of 5d) DONE.
+The robustness lane (5c error-path+concurrency / rest of 5d type-contract+perf) was NOT run — its agent
+was interrupted before launch. RESUME CP5 by running that lane, then CP6+.** App-side findings are almost
+all §19-registered and M5-owned (no code fixes now — this vertical is rewritten at cutover); the one code
+action taken was a §19 register-accuracy fix.
+
+### 5a/5b — Security review (agent, findings verified against source)
+- **The 7 routes §19 calls "secure host-infrastructure" all check out** — each verifies the Firebase ID token
+  (`adminAuth.verifyIdToken`), derives `userId` only from the token, and scopes every Mongo query by `{user: userId}`.
+  Verified: `wardrobe` GET/POST, `wardrobe/[id]` PATCH/DELETE, `wardrobe/[id]/image` POST, `wardrobe/clear`,
+  `recommend`, `recommend/regenerate`, `cv/status`. **No unregistered auth hole on these.**
+- **NEW-1 (IMPORTANT / prod-BLOCKER) — cross-user read primitive via `interactions` POST→GET.** VERIFIED against
+  source: POST stores `items: itemIds` from the body with no ownership check (route.ts:157-159); GET's
+  `.populate({path:"items", select:"name category colors imagePath"})` (route.ts:67-71) is NOT user-scoped, so an
+  attacker POSTs an interaction referencing a victim's `WardrobeItem` ObjectId, then GETs to read that item's
+  name/category/colors/imagePath — and `imagePath` chains to the unauth `images/[imageId]` route for photo bytes.
+  This is the amplified consequence of the registered "interactions POST: no ownership check on items" hole; the
+  register's one-liner undersold it. **FIX APPLIED (docs only): §19 trust-boundary-gates line amended** to name the
+  GET-populate sink + the imagePath→images chain, so the M5 implementer scopes the populate, not just the write.
+- **REGISTERED, confirmed, under-described (noted, M5-owned):** `account/route.ts` is a read+write primitive for an
+  *arbitrary* user given only their (non-secret) Firebase UID — GET leaks email/age/gender/feedback; PATCH overwrites
+  profile + photo (input validation itself is fine — gender allowlist, age 0-130, photo data-URL regex + 3MB cap, no
+  SVG/`javascript:` bypass). `images/[imageId]` unauth + enumerable ObjectIds + an uncaught `CastError`→500 on a
+  malformed id (NIT amplifier). `cv/infer` unauth + content-type allowlisted but **no `file.size` cap** before
+  buffering the whole upload → memory/cost amplification.
+- **NEW-2 (NIT) — `cv/status` GET unauthenticated** — server-side `fetch(HEAD)` to the fixed `CV_SERVICE_URL` env
+  (not user-controlled → not SSRF); worst case an unauth caller probes/keeps-warm the CV backend.
+- **Prompt injection — LOW/NIT:** `recommend`/`regenerate` interpolate `eventDescription`/`weatherSummary`/
+  `changeTarget`/`feedbackNotes` raw into the user message; `gemini.ts` interpolates item names/occasion raw. Impact
+  is low — output is structurally validated server-side (outfits whose itemIds aren't in the caller's own shortlist
+  are dropped), it's the attacker's own session, no tools/side-effects. M5 hardening pass, not a blocker.
+- **Checked CLEAN:** NoSQL/`$`-injection (every body-id query also scoped by token `user`; `_id` ObjectId-cast; path
+  params are strings) · ReDoS (no `new RegExp(userInput)`; all dynamic regexes built from static escaped keyword lists)
+  · upload path-traversal (images stored as base64 in Mongo, ids never used as filesystem paths; 5MB cap + jpeg/png/webp
+  allowlist; SVG excluded so `images` can't serve an XSS payload).
+
+### 5d (partial) — npm vulnerability scan
+`npm audit`: **19 vulnerabilities (1 critical, 6 high, 11 moderate, 1 low)** — all transitive under `firebase-admin`
+(→ `@google-cloud/firestore` → `google-gax`; `teeny-request`→`uuid`; `retry-request`). Not app code; a dependency-bump
+task for the M5 deploy prep. → CP7a/deploy chip. (License scan + the rest of 5d fold into the deferred robustness lane.)
+
+### CP5 status / resume
+- **DONE:** auth-completeness, injection, upload, npm-vuln. **NOT RUN:** error-path UX, concurrency/races
+  (double-submit interactions, parallel regenerate, wardrobeimages cascade under concurrent delete), type-contract
+  (`any`/casts on the data path, schema↔interface↔dataclass mismatches), perf (N+1, indexes-vs-queries). These feed
+  the M5 spec; run them next session, then CP6 (merit/product/portfolio) + CP7 (ops) + CP8 (convergence).
+- **CP5 task chips:** all app-side security fixes are M5-owned via §19 (now with NEW-1 folded in); firebase-admin
+  dep-vuln bump at deploy.
+
+---
+
+## SESSION 1 STOP (2026-07-06) — clean boundary after CP4-complete + CP5-partial
+CP0–CP4 fully complete + committed. CP5 partial (security lane done + committed; robustness lane pending).
+No agents in flight. Next session: resume at CP5 robustness lane. Suite floors after this session:
+**core 752 / h26 304 (+1 skip) / jest 377.** Commits this session: afb51a5d, c9a94e9d, 37a3d2f9, 2e1b74ca,
+265800c0, + the CP5 commit below.
+
+---

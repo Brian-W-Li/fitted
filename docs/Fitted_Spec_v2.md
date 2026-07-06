@@ -1047,7 +1047,7 @@ do not. The M4 deletions above (PreferenceSummary + top/bottom coerce) are safe 
 are surgically removed in the same M4 sessions.
 
 **Trust-boundary gates (verified real; fix before treating any retained route as trusted):**
-- `interactions/route.ts` POST: no ownership check on `items` (§16 gate).
+- `interactions/route.ts` POST: no ownership check on `items` (§16 gate) — **and the GET path amplifies it into a cross-user read primitive**: GET's `.populate({path:"items", select:"name category colors imagePath"})` (route.ts:67-71) is NOT user-scoped, so an attacker POSTs an interaction referencing a *victim's* `WardrobeItem` ObjectId then GETs `/api/interactions` to read that item's name/category/colors/imagePath — and `imagePath` chains to the unauth `images/[imageId]` route below for the photo bytes. M5 must scope the populate (or validate `items` ownership on POST), not just gate the write.
 - `account/route.ts`: trusts body `firebaseUid`, **no Authorization-header verification** (unlike every
   other DB route) — anyone can read/modify any account.
 - `auth/sync/route.ts`: creates/finds a user from a body-supplied Firebase UID with no ID-token check.
