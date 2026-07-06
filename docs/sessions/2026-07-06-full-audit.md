@@ -187,3 +187,65 @@ read-only agents, every finding re-verified against source before fixing.
 - Legacy `npm run lint` debt (48 issues) — folds into the M5 app-side rewrite, not a standalone task.
 
 ---
+
+## CHECKPOINT 3 — the tests themselves (2026-07-06)
+
+Outcome: **3 mutation survivors found (all test-gaps, code correct) → 4 hardening tests added
++ re-verified to catch their mutations.** 3b/3d clean; 3c gaps are legacy/infra → chips.
+Floors grew: h26 302→304, jest 375→377, core 752.
+
+### 3a — Mutation sweep (12 load-bearing rules across both stacks)
+Method: mutate source line → run covering test → confirm red/green → `git checkout` revert.
+| # | Rule mutated | File | Result |
+|---|---|---|---|
+| M2 | gate-B power `hw <= delta` → `hw <= delta*2` | evaluate.py | ✅ caught (3 fail) |
+| M6 | verdict `a and b and d` → `or` | evaluate.py | ✅ caught (6 fail) |
+| M1 | gate-A `low > thr` → `>=` | evaluate.py | ❌ **SURVIVED** |
+| M5 | gate-D `low >= floor` → `>` | evaluate.py | ❌ **SURVIVED** |
+| R1 | ranker score sort `reverse=True` → `False` | ranker.py | ✅ caught |
+| R2 | ranker tie-break `full_signature` → reversed | ranker.py | ✅ caught |
+| R3 | overuse group.sort `-score` → `+score` | ranker.py | ✅ caught |
+| V1 | validator `item_id == ""` → `!= ""` | validator.py | ✅ caught (123 fail) |
+| S1 | serde `not isfinite` → `isfinite` (NaN/Inf leak) | snapshot_serde.py | ✅ caught (21 fail) |
+| W1 | wipeGuard exact-host right `[:/]` → `[.:/]` | wipeGuard.ts | ✅ caught |
+| W2 | wipeGuard left-anchor `(^\|[.@/:])` → `(.*)` | wipeGuard.ts | ❌ **SURVIVED** |
+
+**3 survivors — all TEST GAPS (the code is correct; the guarding test was missing). FIXED:**
+- **Gate A strict-`>` boundary** — no test pinned "CI_low exactly at the 0.0 threshold must FAIL"
+  (metrics.py §12 documents the strict-`>` as deliberate: a head *not decisively above* its zero-shot
+  floor must fail). Added `test_gate_a_boundary_ci_low_exactly_at_threshold_fails`.
+- **Gate D inclusive-`>=` boundary** — no test pinned "CI_low exactly on a floor still PASSES."
+  Added `test_gate_d_floor_inclusive_at_exact_floor_passes` (both floors, 0.81 + 0.50).
+- **wipeGuard `(^|[.@/:])` left-anchor** — the existing "contains-label" tests only covered invalid
+  *right* boundaries (`fitted-dev-shadow`, `myfitted-development`); a label with a **valid right but no
+  left** boundary (`xlocalhost:27017`, `notfitted-dev.abc.mongodb.net`, `evil127.0.0.1`) would authorize
+  an irreversible wipe. Safety-critical. Added the covering test + an unparseable-URI case (also closes
+  the wipeGuard line-18 coverage gap). Each new test re-verified to catch its mutation (M1/M5/W2 now red).
+
+### 3b — RUN-trap two-state class: CLEAN
+The 2026-07-02 RUN-traps (pytest deletes live ledger / tests go red on RUN success / spend) are fixed and
+robust: `test_freeze.py:244` asserts the FROZEN branch is schema-valid (not vacuous post-RUN);
+`test_evaluate.py:177 test_compute_metric_suite_writes_nothing_to_metrics_json` uses mtime-before/after
+(so it stays valid after a real emit committed metrics.json — the old "does not exist" would go red);
+`_guard_gate_b_ledger` tests use tmp scaffolds, never the live ledger. No test silently goes vacuous now
+that `frozen:true` / artifacts-present.
+
+### 3c — Coverage-guided gaps (jest-native; no pytest-cov under the no-network rule)
+Logic files 100% branch (clearWardrobe, clothingType, deriveWarmth, keywordMatch, wardrobeValidation,
+cvToWardrobeForm 98%). Load-bearing gaps: **weather.ts 0% (228 lines)** — legacy that M5 re-derives as the
+Lens field → **chip** (don't test code slated for deletion); **gemini.ts 0%** — the newly-surfaced
+best-effort path (returns null on any error) → **chip**. Infra files (db/firebaseAdmin/mongodb/imageStorage)
+low unit coverage is expected — exercised via mocked route tests. Python decision-point gaps were surfaced
+directly by the mutation sweep (higher signal than a line %) and closed above.
+
+### 3d — Independence + fixture realism: CLEAN
+Stateful h26 files (test_gates/freeze/evaluate/run_tooling/evaluate_emission) each pass **standalone** as
+well as in-suite — no cross-file coupling; monkeypatch-based isolation (auto-undone) holds. Fixture realism:
+`test_gates` runs `apply_gates` on the **real committed metrics.json** (not only the synthetic `_metrics()`),
+so the fixture shape is validated against reality. Deep three-way-contract realism → CP4a.
+
+### CP3 task chips
+- `weather.ts` (228 lines) untested — legacy, M5 deletes; no test investment.
+- `gemini.ts` untested — best-effort optional path; add a null-on-no-key + timeout test if it survives M5.
+
+---
