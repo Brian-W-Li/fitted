@@ -1067,7 +1067,7 @@ def finalize_metrics(root_dir: str = ROOT_DIR, git: GitInfo | None = None, *, b:
 def apply_gates(metrics: dict, prereg: dict) -> dict:
     """The mechanical gate-application half (§12/§15-C6): read the finalized metrics.json against
     the FROZEN preregistration.json thresholds (parsed, never re-typed) and return the full verdict
-    structure. Pure — no compute, no I/O; `main('verdict')` prints it. The near-gate rule is
+    structure. Pure — no compute, no I/O; `evaluate.py verdict` prints it. The near-gate rule is
     uniform: every conjunct passes only if its 95% CI is wholly on the pass side; gate B
     additionally fails as "underpowered / inconclusive" if the adjudicating (inconsistent = miss)
     paired-diff half-width exceeds the frozen δ — applied VERBATIM (preregistration.md §B), with
@@ -1185,6 +1185,26 @@ def _print_verdict(v: dict) -> None:
         print(f"  3-seed robustness footnote: verdicts agree across seeds: {v['seed_robustness_agree']}")
 
 
+def print_verdict_from_files(root_dir: str = ROOT_DIR) -> dict:
+    """The C6 CLI read (§12/§15-C6): load the FINALIZED metrics.json + the frozen
+    preregistration.json, apply the gates, print the verdict, and return the structure. Refuses a
+    pre-C6 file — the printed verdict must carry the seam Holm p + both mandatory sensitivity
+    blocks, so `finalize` runs first (§15 artifact dataflow)."""
+    metrics_path = os.path.join(root_dir, "metrics.json")
+    _require_present(metrics_path, reason_if_absent="metrics.json is absent — emit (C4) must run before verdict")
+    metrics = load_json_strict(metrics_path)
+    stage = metrics["_meta"]["stage"]
+    if stage != "C6":
+        raise UnlockError(
+            f"verdict requires the finalized stage C6 metrics.json, got stage {stage!r} — run "
+            f"`evaluate.py finalize` first (§15 artifact dataflow)"
+        )
+    prereg = load_json_strict(os.path.join(root_dir, "preregistration.json"))
+    verdict = apply_gates(metrics, prereg)
+    _print_verdict(verdict)
+    return verdict
+
+
 # --------------------------------------------------------------------------- #
 # RUN-phase orchestration (needs the built cache + the committed freeze — gated by B1-B3)
 # --------------------------------------------------------------------------- #
@@ -1290,14 +1310,15 @@ def materialize_metrics_json(
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """`evaluate.py` is a library plus two post-unlock CLI verbs. The real `metrics.json`
+    """`evaluate.py` is a library plus the post-unlock CLI verbs. The real `metrics.json`
     materialization (`materialize_metrics_json`) is gated on the built embedding cache + the
     committed four-file freeze (kickoff B1-B3) and is invoked by the RUN-phase driver, not here —
     there is no entrypoint that emits or prints a model number before the unlock (the §1 blindness
     boundary). `merge-closet` folds the C5 `closet_metrics.json` into the already-emitted
-    `metrics.json` (§15 artifact dataflow). `argv` defaults to no command (the explainer) — the
-    script entry below passes the real `sys.argv`, so a library call to `main()` never picks up a
-    host process's arguments."""
+    `metrics.json`; `finalize` runs the HEAVY C6 finalization; `verdict` prints the mechanical
+    gate read off the finalized file (§15 artifact dataflow). `argv` defaults to no command (the
+    explainer) — the script entry below passes the real `sys.argv`, so a library call to `main()`
+    never picks up a host process's arguments."""
     argv = list(argv or ())
     if argv == ["merge-closet"]:
         merged = merge_closet_metrics()
@@ -1308,14 +1329,27 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"[h26 C5] catalog_closet_drop = {d['point']:.4f} [{d['low']:.4f}, {d['high']:.4f}]  "
               f"(reference band: CI_high <= 0.12, descriptive)")
         return
+    if argv == ["finalize"]:
+        print("[finalize] seam Holm p (same replicate stream as the emitted CI) + the mandatory "
+              "popularity-matched re-run + the 3-seed robustness footnote, all at B=10,000 cluster "
+              "bootstraps — HEAVY (roughly an hour, single machine). Expected; do NOT interrupt.")
+        final = finalize_metrics()
+        print(f"[h26 C6] finalized metrics.json (stage {final['_meta']['stage']}): "
+              f"seam_holm_adjusted_p = {final['seam_holm_adjusted_p']:.6g}; "
+              f"popularity_matched_sensitivity + seed_robustness written. Run `evaluate.py verdict`.")
+        return
+    if argv == ["verdict"]:
+        print_verdict_from_files()
+        return
     if argv:
-        raise SystemExit(f"unknown evaluate.py command {argv!r} (known: merge-closet)")
+        raise SystemExit(f"unknown evaluate.py command {argv!r} (known: merge-closet, finalize, verdict)")
     print(
         "[h26 C4] evaluate.py = the metric-computation half (C3) + the gated emission half (C4). "
         "metrics.json first materializes via materialize_metrics_json ONLY after the four unlock files "
         "(preregistration.md/.json + judge_addendum.md + closet_manifest.json) are committed and "
         "validate, the sealed selection.json binds, and the judge ledger exists (§1/§12/§15). No "
-        "test-set number is materialized until then. Post-unlock commands: merge-closet (C5)."
+        "test-set number is materialized until then. Post-unlock commands: merge-closet (C5), "
+        "finalize (C6), verdict (C6)."
     )
 
 

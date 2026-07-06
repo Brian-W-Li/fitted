@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "stage": "C5",
+    "stage": "C6",
     "seed": 20260629,
     "split_loader": "load_corpus(strict_disjoint=True)",
-    "git_commit": "f7b7c91fe779c3b20bc7d0bb982d24da40740c28",
+    "git_commit": "446cc9c0b2b0481aae0207269f0014346d74e5d7",
     "unlock_files": {
       "preregistration.md": {
         "path": "preregistration.md",
@@ -198,5 +198,128 @@
     "low": -0.01931019518855979,
     "high": 0.44763906165777034,
     "b": 10000
+  },
+  "seam_holm_adjusted_p": 0.0,
+  "popularity_matched_sensitivity": {
+    "rule": "same_fine_category_anchor_no_cooccurrence_within_pm1_popularity_decile_of_replaced_partner",
+    "decile_basis": "value_deciles_over_split_full_item_popularity_distribution",
+    "decile_edges": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "n_pair_clusters_kept": 44627,
+    "n_pair_positives_skipped": 0,
+    "n_outfit_pairs_kept": 13899,
+    "n_outfits_skipped": 1,
+    "AUC_catalog_pair_popmatched": {
+      "point": 0.7314634532578156,
+      "low": 0.7284350549400387,
+      "high": 0.7344888674085287,
+      "b": 10000
+    },
+    "AUC_zero_shot_cosine_popmatched": {
+      "point": 0.631933424340602,
+      "low": 0.6293771908281071,
+      "high": 0.6344867110497875,
+      "b": 10000
+    },
+    "gate_A_diff_popmatched": {
+      "point": 0.09953002891721363,
+      "low": 0.0968953081216394,
+      "high": 0.10215853807804234,
+      "b": 10000
+    },
+    "outfit_auc_popmatched": {
+      "point": 0.845371277243083,
+      "low": 0.8408493104393194,
+      "high": 0.8498253410519948,
+      "b": 10000
+    }
+  },
+  "seed_robustness": {
+    "rule": "gate verdict (A/B/D pass/fail) must agree across all 3 seeds",
+    "gate_b_note": "gate B is structurally seed-pinned: its question set is the committed fitb_order.json (seed-20260629 construction, frozen at C3) and its judge side is the committed judge_runs.ndjson ledger \u2014 a footnote seed cannot re-roll either without re-scoring the judge, which the frozen order forbids; B's verdict therefore agrees across seeds by construction and its seed sensitivity is disclosed as not re-measurable in-spike",
+    "per_seed": [
+      {
+        "seed": 20260629,
+        "headline": true,
+        "gate_A_diff": {
+          "point": 0.09953002891721363,
+          "low": 0.0968953081216394,
+          "high": 0.10215853807804234,
+          "b": 10000
+        },
+        "outfit_auc": {
+          "point": 0.845371277243083,
+          "low": 0.8408493104393194,
+          "high": 0.8498253410519948,
+          "b": 10000
+        },
+        "fitb_trained_full": {
+          "point": 0.6210147535084563,
+          "low": 0.6127383951061532,
+          "high": 0.62907520690896,
+          "b": 10000
+        },
+        "gate_A_pass": true,
+        "gate_D_pass": true
+      },
+      {
+        "seed": 20260630,
+        "headline": false,
+        "gate_A_diff": {
+          "point": 0.10101080126754669,
+          "low": 0.09833656108680323,
+          "high": 0.10360966359782336,
+          "b": 10000
+        },
+        "outfit_auc": {
+          "point": 0.84182735603059,
+          "low": 0.8372458208507523,
+          "high": 0.8464282198544781,
+          "b": 10000
+        },
+        "fitb_trained_full": {
+          "point": 0.6186946823055336,
+          "low": 0.6107073469094049,
+          "high": 0.6268978916312873,
+          "b": 10000
+        },
+        "gate_A_pass": true,
+        "gate_D_pass": true
+      },
+      {
+        "seed": 20260701,
+        "headline": false,
+        "gate_A_diff": {
+          "point": 0.1023863204298544,
+          "low": 0.09978934750800707,
+          "high": 0.10505276168472878,
+          "b": 10000
+        },
+        "outfit_auc": {
+          "point": 0.8428687692609942,
+          "low": 0.8382629236116841,
+          "high": 0.8473234630451281,
+          "b": 10000
+        },
+        "fitb_trained_full": {
+          "point": 0.6098473941837028,
+          "low": 0.6017132162395623,
+          "high": 0.618197523754679,
+          "b": 10000
+        },
+        "gate_A_pass": true,
+        "gate_D_pass": true
+      }
+    ],
+    "verdicts_agree": true
   }
 }

@@ -167,3 +167,38 @@ def test_finalize_refuses_when_metrics_absent(tmp_path):
     root.mkdir()
     with pytest.raises(UnlockError, match="emit .* merge-closet"):
         ev.finalize_metrics(str(root))
+
+
+# --------------------------------------------------------------------------- #
+# the verdict CLI read (print_verdict_from_files + the main() dispatch)
+# --------------------------------------------------------------------------- #
+def test_verdict_refuses_before_finalize(tmp_path):
+    root = tmp_path / "h26"
+    root.mkdir()
+    (root / "metrics.json").write_text(json.dumps({"_meta": {"stage": "C5"}}))
+    with pytest.raises(UnlockError, match="requires the finalized stage C6"):
+        ev.print_verdict_from_files(str(root))
+
+
+def test_verdict_refuses_when_metrics_absent(tmp_path):
+    root = tmp_path / "h26"
+    root.mkdir()
+    with pytest.raises(UnlockError, match="emit .* before verdict"):
+        ev.print_verdict_from_files(str(root))
+
+
+def test_verdict_cli_on_the_real_finalized_artifacts(capsys):
+    """Pin the CLI surface on the REAL finalized file (stage C6): `evaluate.py verdict` prints the
+    letter-check NO-GO — gate B UNDERPOWERED / INCONCLUSIVE with the ~3e-4 margin disclosed — plus
+    the finalize-only footers (seam Holm p + the 3-seed robustness line). Values beyond the pinned
+    letter-check are asserted as PRESENT, not re-pinned (sensitivity blocks are reported-only)."""
+    metrics = load_json_strict(os.path.join(H26, "metrics.json"))
+    if metrics["_meta"]["stage"] != "C6":
+        pytest.fail("metrics.json is not finalized (stage C6) — run `evaluate.py finalize` (§15-C6)")
+    ev.main(["verdict"])
+    out = capsys.readouterr().out
+    assert "MECHANICAL VERDICT (A AND B AND D): NO-GO" in out
+    assert "state: UNDERPOWERED / INCONCLUSIVE" in out
+    assert "power letter-check: half-width exceeds delta by" in out
+    assert "Seam (§C.2): Holm p =" in out
+    assert "3-seed robustness footnote:" in out
