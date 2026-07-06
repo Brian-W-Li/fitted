@@ -1,34 +1,19 @@
 # H26 Compatibility Spike — Build Doc (v2)
 
-> **Status: Canonical build doc** (finalized 2026-06-28). The canonical pointers (`CLAUDE.md`,
-> `docs/Fitted_Spec_v2.md` §20 / §23-H26 / §23-H28, `docs/README.md`) resolve here. The **benchmark definition
-> is finalized**; the headline cell (§1) + the three-decision-gate block (§12, A/B/D; the catalog→closet transfer is reported, not gated) — plus the enumerated C2 ratifications
-> (artifact format §1, the §4 popularity-confound response, the §12 FITB allocation) — **freeze verbatim into
-> `preregistration.md` at C2, before any model number.**
+> **COMPLETED 2026-07-05.** C1–C6 all ran. Mechanical verdict (A∧B∧D, applied verbatim):
+> **NO-GO** — gate B "underpowered / inconclusive" (miss-convention half-width 0.050302 > δ = 0.05
+> by +3.02e-4 at the frozen N = 500 cap; the CI sits wholly above +δ — a power miss, not an
+> accuracy miss), while A and D pass and the seam ablation independently falsified the item-level
+> shape. **The deliverable is `ml-system/experiments/h26/results.md`** (systems table, parity
+> evidence, transfer, all frozen disclosures); the gate authority is `metrics.json` (stage C6).
+> M6 entry conditions + the seam resolution are recorded in `Fitted_Spec_v2.md` §20 / §23-H26 /
+> §23-H28. This doc is now the completed build reference (read on demand, not by default).
 >
 > **Production-stylist context (load-bearing for the judge baseline, §8):** the stylist is `gpt-5.4-mini`, an
 > OpenAI **mini-tier** model on **text attributes only** (`imageUrl` stripped — spec §12 / §23-H33;
 > `recommend/route.ts:450`, `regenerate/route.ts:461`). The H26 judge baseline mirrors it — a mini judge
 > hardens the cost bar (§8).
->
-> **Build progress (2026-07-01):** **C1–C4 code committed; RUN phase in progress.** C1–C3 = data layer
-> (§C1), the C2 pre-registration freeze, C3 baselines + both trained heads + the eval-driver **metric half** +
-> the materialized gate-B `fitb_order.json`. **C4 (committed)** = `gpt_judge.py` (native FITB@4 judge, both
-> orders, K-sample plurality vote, three arms, scalar-only `judge_runs.ndjson` ledger, two-stage paired
-> bootstrap; OpenAI mocked in the hermetic suite), `evaluate.py`'s **emission half** (the four-file unlock
-> validator + first `metrics.json`), `judge_addendum.schema.json` + the **scaffold** `judge_addendum.md`,
-> the RUN-phase operator tooling (`build_cache_and_select.py` / `live_content.py` / `make_calibration.py` /
-> `run_judge.py` / `assemble_closet.py`), the §F panel calibration (`finalize_panel`, ≥3 labelers,
-> inter-annotator agreement) with the coherence draw filter (`coherence.py`) + visual-QC exclude list, and
-> the §C.8 eval coherence-sensitivity (reported-never-gating). Hermetic suite **244 green / 1 skipped**
-> (the opt-in live-judge smoke — a floor, not a pin). **B2 is DONE:** the embedding cache is built (83,178
-> scorable ids) and `selection.json` is sealed + committed (winner `grid_0`; `converged:false` at epoch
-> 48/50 — if gate D later misses, the frozen epoch budget is the first suspect, and bumping it is a
-> pre-registration decision). **`metrics.json` is NOT emitted** — the RUN continues: the 100-question panel
-> viewer is generated (local artifact) → Brian's ≥3-person panel labels it → `finalize_panel` →
-> `calibration_set.json` committed → the calibration pilot (B1: Brian's key, his shell) → freeze
-> `judge_addendum.md` (blind, before any gate-B comparison) → gate-b → `emit` (also needs **B3**
-> `closet_manifest.json`, deferred by choice). Then **C5**. Per-checkpoint state is in §15.
+
 
 ---
 
