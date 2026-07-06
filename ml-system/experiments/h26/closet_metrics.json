@@ -1,0 +1,249 @@
+{
+ "_meta": {
+  "stage": "C5",
+  "seed": 20260629,
+  "checkpoint_sha256": "a172be27022d59b5cce7b64e68ec73e9709e8969a07b4311c502f77afe4b0659",
+  "closet_manifest_sha256": "bac8bd1c2ce5d520d8fc36b7c46c7b4ac9dda2d58eb23d0821b2121372f40249",
+  "embedding_revision_sha": "c56244cc94f92419e8369fa71efdaf403b124ce8",
+  "catalog_auc_point_crosscheck": 0.7314634532578156,
+  "torch_num_threads": 1
+ },
+ "AUC_closet_pair": {
+  "point": 0.5625,
+  "low": 0.2857142857142857,
+  "high": 0.75,
+  "b": 10000
+ },
+ "catalog_closet_drop": {
+  "point": 0.1689634532578156,
+  "low": -0.01931019518855979,
+  "high": 0.44763906165777034,
+  "b": 10000
+ },
+ "counts": {
+  "n_items": 13,
+  "n_items_coarsened": 2,
+  "n_worn_outfits": 19,
+  "n_distinct_positive_pairs": 39,
+  "n_kept_main_clusters": 8,
+  "n_kept_coarsened_clusters": 6,
+  "n_skipped_no_negative": 25,
+  "effective_n_outfits": 6,
+  "negative_category_pool_sizes": {
+   "11": 1,
+   "21": 3,
+   "237": 2,
+   "25": 1,
+   "253": 1,
+   "256": 1,
+   "268": 1,
+   "29": 1
+  }
+ },
+ "coarsened_slice": {
+  "policy": "null category_id -> coarsening_note; those edges reported separately (\u00a710)",
+  "items": [
+   "c09",
+   "c11"
+  ],
+  "n_clusters": 6,
+  "n_source_outfits": 4,
+  "auc_point_descriptive_no_ci": 0.3333333333333333
+ },
+ "fitb_closet": {
+  "ci": null,
+  "n_questions": 0,
+  "n_skipped_lt3_distractors": 19,
+  "note": "strict \u00a74 FITB needs >= 4 same-fine-category members; skip-and-count, never broadened to coarse type (\u00a715 scarcity rule)"
+ },
+ "clusters": [
+  {
+   "positive": [
+    "c01",
+    "c07"
+   ],
+   "negative": [
+    "c07",
+    "c04"
+   ],
+   "replaced": "c01",
+   "source_outfit": "o19",
+   "coarsened": false
+  },
+  {
+   "positive": [
+    "c02",
+    "c07"
+   ],
+   "negative": [
+    "c02",
+    "c05"
+   ],
+   "replaced": "c07",
+   "source_outfit": "o04",
+   "coarsened": false
+  },
+  {
+   "positive": [
+    "c04",
+    "c05"
+   ],
+   "negative": [
+    "c04",
+    "c07"
+   ],
+   "replaced": "c05",
+   "source_outfit": "o11",
+   "coarsened": false
+  },
+  {
+   "positive": [
+    "c04",
+    "c08"
+   ],
+   "negative": [
+    "c04",
+    "c07"
+   ],
+   "replaced": "c08",
+   "source_outfit": "o02",
+   "coarsened": false
+  },
+  {
+   "positive": [
+    "c04",
+    "c12"
+   ],
+   "negative": [
+    "c12",
+    "c01"
+   ],
+   "replaced": "c04",
+   "source_outfit": "o13",
+   "coarsened": false
+  },
+  {
+   "positive": [
+    "c05",
+    "c12"
+   ],
+   "negative": [
+    "c12",
+    "c08"
+   ],
+   "replaced": "c05",
+   "source_outfit": "o13",
+   "coarsened": false
+  },
+  {
+   "positive": [
+    "c07",
+    "c12"
+   ],
+   "negative": [
+    "c12",
+    "c08"
+   ],
+   "replaced": "c07",
+   "source_outfit": "o05",
+   "coarsened": false
+  },
+  {
+   "positive": [
+    "c08",
+    "c10"
+   ],
+   "negative": [
+    "c10",
+    "c05"
+   ],
+   "replaced": "c08",
+   "source_outfit": "o02",
+   "coarsened": false
+  },
+  {
+   "positive": [
+    "c01",
+    "c11"
+   ],
+   "negative": [
+    "c11",
+    "c04"
+   ],
+   "replaced": "c01",
+   "source_outfit": "o17",
+   "coarsened": true
+  },
+  {
+   "positive": [
+    "c04",
+    "c09"
+   ],
+   "negative": [
+    "c09",
+    "c01"
+   ],
+   "replaced": "c04",
+   "source_outfit": "o14",
+   "coarsened": true
+  },
+  {
+   "positive": [
+    "c05",
+    "c09"
+   ],
+   "negative": [
+    "c09",
+    "c08"
+   ],
+   "replaced": "c05",
+   "source_outfit": "o14",
+   "coarsened": true
+  },
+  {
+   "positive": [
+    "c05",
+    "c11"
+   ],
+   "negative": [
+    "c11",
+    "c07"
+   ],
+   "replaced": "c05",
+   "source_outfit": "o16",
+   "coarsened": true
+  },
+  {
+   "positive": [
+    "c07",
+    "c09"
+   ],
+   "negative": [
+    "c09",
+    "c08"
+   ],
+   "replaced": "c07",
+   "source_outfit": "o15",
+   "coarsened": true
+  },
+  {
+   "positive": [
+    "c08",
+    "c11"
+   ],
+   "negative": [
+    "c11",
+    "c07"
+   ],
+   "replaced": "c08",
+   "source_outfit": "o17",
+   "coarsened": true
+  }
+ ],
+ "label_slip_check": "pass",
+ "egress": {
+  "third_party_api_processing": false,
+  "gpt_closet_memorization_slice": "refused by assert_egress_consent: closet photo egress to 'openai' refused: _consent.third_party_api_processing is false (\u00a714 \u2014 the closet probe is local-only under the committed manifest)"
+ },
+ "coverage_caveat": "closet-side CI is a percentile bootstrap over the source-outfit unit; coverage at this few clusters is weak \u2014 read directionally against the \u00a712 reference band (drop <= 0.12 / closet AUC >= 0.70), never as a precise instrument (\u00a710/\u00a711)"
+}

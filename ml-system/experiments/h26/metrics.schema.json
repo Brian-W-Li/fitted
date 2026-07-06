@@ -57,6 +57,7 @@
         "split_loader": {"const": "load_corpus(strict_disjoint=True)"},
         "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
         "judge_ledger_sha256": {"$ref": "#/$defs/sha256", "description": "sha256 of the committed gate-B judge_runs.ndjson the gate-B numbers were computed from (RUN-phase emit binds provenance; optional — absent in hermetic assemblies)."},
+        "closet_metrics_sha256": {"$ref": "#/$defs/sha256", "description": "sha256 of the closet_metrics.json the C5 merge folded in (domain_probe.py provenance; required from stage C5)."},
         "unlock_files": {
           "type": "object",
           "properties": {
@@ -131,6 +132,64 @@
     "seam_diff_pairwise_minus_item_level": {"$ref": "#/$defs/ci", "description": "The PINNED seam-falsification metric (§C.2): paired CI of AUC_catalog_pair - AUC_pair_item_level (pooled PAIR-level AUC, shared (pos,neg) pair clusters). 'Falsified' requires Holm-adjusted p < 0.05 AND this CI_low > 0 (build doc §6/§11). See seam_holm_adjusted_p."},
     "seam_holm_adjusted_p": {"type": "number", "description": "Holm-Bonferroni-adjusted bootstrap two-sided p for the shape-diff hypothesis on pair-level AUC (not a CI)."},
 
+    "popularity_matched_sensitivity": {
+      "type": "object",
+      "description": "The MANDATORY C6 §C.6 sensitivity re-run (the pre-registered popularity diagnostic fired: AUC_pop_outfit > 0.55). Same-fine-category negatives re-drawn within ±1 popularity-decile of the replaced positive partner (deciles over the split's full item-popularity distribution); gate-A pair-level AUCs + diff and the gate-D outfit AUC recomputed. REPORTED ONLY — gate numbers never move.",
+      "required": [
+        "rule", "decile_basis", "decile_edges",
+        "n_pair_clusters_kept", "n_pair_positives_skipped",
+        "n_outfit_pairs_kept", "n_outfits_skipped",
+        "AUC_catalog_pair_popmatched", "AUC_zero_shot_cosine_popmatched",
+        "gate_A_diff_popmatched", "outfit_auc_popmatched"
+      ],
+      "properties": {
+        "rule": {"const": "same_fine_category_anchor_no_cooccurrence_within_pm1_popularity_decile_of_replaced_partner"},
+        "decile_basis": {"const": "value_deciles_over_split_full_item_popularity_distribution"},
+        "decile_edges": {"type": "array", "items": {"type": "number"}, "minItems": 9, "maxItems": 9},
+        "n_pair_clusters_kept": {"type": "integer", "minimum": 0},
+        "n_pair_positives_skipped": {"type": "integer", "minimum": 0},
+        "n_outfit_pairs_kept": {"type": "integer", "minimum": 0},
+        "n_outfits_skipped": {"type": "integer", "minimum": 0},
+        "AUC_catalog_pair_popmatched": {"$ref": "#/$defs/ci"},
+        "AUC_zero_shot_cosine_popmatched": {"$ref": "#/$defs/ci"},
+        "gate_A_diff_popmatched": {"$ref": "#/$defs/ci"},
+        "outfit_auc_popmatched": {"$ref": "#/$defs/ci"}
+      },
+      "additionalProperties": false
+    },
+
+    "seed_robustness": {
+      "type": "object",
+      "description": "The §C.7 3-seed robustness footnote: the whole negative set re-rolled on the pre-registered seeds; the A/D gate legs re-read per seed (headline-seed values copied from this file, not recomputed — bit-determinism proven at emit). Gate B is structurally seed-pinned (frozen fitb_order.json + committed ledger) — see gate_b_note. The frozen rule requires the gate verdict to agree across all 3 seeds; a seed that flips a gate is a finding, not noise.",
+      "required": ["rule", "gate_b_note", "per_seed", "verdicts_agree"],
+      "properties": {
+        "rule": {"const": "gate verdict (A/B/D pass/fail) must agree across all 3 seeds"},
+        "gate_b_note": {"type": "string", "minLength": 1},
+        "per_seed": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["seed", "headline", "gate_A_diff", "outfit_auc", "fitb_trained_full",
+                         "gate_A_pass", "gate_D_pass"],
+            "properties": {
+              "seed": {"type": "integer"},
+              "headline": {"type": "boolean"},
+              "gate_A_diff": {"$ref": "#/$defs/ci"},
+              "outfit_auc": {"$ref": "#/$defs/ci"},
+              "fitb_trained_full": {"$ref": "#/$defs/ci"},
+              "gate_A_pass": {"type": "boolean"},
+              "gate_D_pass": {"type": "boolean"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "verdicts_agree": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+
     "coherence_sensitivity": {
       "type": "object",
       "description": "Coherence-sliced sensitivity (preregistration.md §F amendment 2026-07-01) — REPORTED, NEVER GATING. The eval sets stay the standard unfiltered benchmark; each FITB question carries the mechanical 5-type coherence flag (coherence.py) and the gate-B diffs / judge inconsistency rate / gate-D FITB are reported per slice. Slice CIs are null when a slice has no kept question (empty, or every question judge-dropped). Pre-committed response: if the coherent-slice gate-B verdict disagrees with the headline, results.md labels gate B 'coherence-sensitive (disclosed)'; gate numbers never move.",
@@ -165,8 +224,8 @@
   },
 
   "_stage_requirements": {
-    "_note": "The root `required` list is the C4 A^B^D gate input set. `allOf` below makes C5 transfer fields and C6 seam-ablation fields real schema requirements, keyed by _meta.stage.",
-    "fields": ["AUC_pair_item_level", "seam_diff_pairwise_minus_item_level", "seam_holm_adjusted_p", "AUC_closet_pair", "catalog_closet_drop"]
+    "_note": "The root `required` list is the C4 A^B^D gate input set. `allOf` below makes C5 transfer fields and C6 seam-ablation + mandatory-sensitivity fields real schema requirements, keyed by _meta.stage.",
+    "fields": ["AUC_pair_item_level", "seam_diff_pairwise_minus_item_level", "seam_holm_adjusted_p", "AUC_closet_pair", "catalog_closet_drop", "popularity_matched_sensitivity", "seed_robustness"]
   },
 
   "required": [
@@ -193,7 +252,10 @@
         "required": ["_meta"]
       },
       "then": {
-        "required": ["AUC_closet_pair", "catalog_closet_drop"]
+        "required": ["AUC_closet_pair", "catalog_closet_drop"],
+        "properties": {
+          "_meta": {"required": ["closet_metrics_sha256"]}
+        }
       }
     },
     {
@@ -207,7 +269,8 @@
         "required": ["_meta"]
       },
       "then": {
-        "required": ["AUC_pair_item_level", "seam_diff_pairwise_minus_item_level", "seam_holm_adjusted_p"]
+        "required": ["AUC_pair_item_level", "seam_diff_pairwise_minus_item_level", "seam_holm_adjusted_p",
+                     "popularity_matched_sensitivity", "seed_robustness"]
       }
     }
   ],

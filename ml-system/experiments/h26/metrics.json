@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "stage": "C4",
+    "stage": "C5",
     "seed": 20260629,
     "split_loader": "load_corpus(strict_disjoint=True)",
-    "git_commit": "ffa47be815a0283853b32433c6dcdcb3fce1d445",
+    "git_commit": "f7b7c91fe779c3b20bc7d0bb982d24da40740c28",
     "unlock_files": {
       "preregistration.md": {
         "path": "preregistration.md",
@@ -39,7 +39,8 @@
       "checkpoint_id": "fashionsiglip_pairwise_edge_grid_0_seed20260629",
       "checkpoint_sha256": "a172be27022d59b5cce7b64e68ec73e9709e8969a07b4311c502f77afe4b0659"
     },
-    "judge_ledger_sha256": "c001633491447b24458a1537cfbf901052742b214a4c6594d001e76532790138"
+    "judge_ledger_sha256": "c001633491447b24458a1537cfbf901052742b214a4c6594d001e76532790138",
+    "closet_metrics_sha256": "a12947e54f126c01ee1b377da2c4277199b0f52e5e1e817e8f2bce018930dbbd"
   },
   "AUC_catalog_pair": {
     "point": 0.7314634532578156,
@@ -185,5 +186,17 @@
       "high": 0.655295315682281,
       "b": 10000
     }
+  },
+  "AUC_closet_pair": {
+    "point": 0.5625,
+    "low": 0.2857142857142857,
+    "high": 0.75,
+    "b": 10000
+  },
+  "catalog_closet_drop": {
+    "point": 0.1689634532578156,
+    "low": -0.01931019518855979,
+    "high": 0.44763906165777034,
+    "b": 10000
   }
 }
