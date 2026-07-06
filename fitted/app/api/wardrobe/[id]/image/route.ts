@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import { uploadWardrobeImage } from "@/lib/imageStorage";
+import { MAX_WARDROBE_IMAGE_BYTES, uploadWardrobeImage } from "@/lib/imageStorage";
+
+const MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+const MAX_WARDROBE_IMAGE_REQUEST_BYTES =
+  MAX_WARDROBE_IMAGE_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -42,6 +46,20 @@ export async function POST(
     const { id: wardrobeItemId } = await params;
     const userId = userResult.userId;
 
+    const contentLength = request.headers.get("content-length");
+    const parsedContentLength =
+      contentLength === null ? undefined : Number.parseInt(contentLength, 10);
+    if (
+      parsedContentLength !== undefined &&
+      Number.isFinite(parsedContentLength) &&
+      parsedContentLength > MAX_WARDROBE_IMAGE_REQUEST_BYTES
+    ) {
+      return NextResponse.json(
+        { error: "Image too large (max 5MB)" },
+        { status: 413 }
+      );
+    }
+
     const form = await request.formData();
     const file = form.get("file");
 
@@ -60,15 +78,15 @@ export async function POST(
 
     // 1) Load current item so we can see its existing imagePath
     const existingItem = await WardrobeItem.findOne({
-    _id: wardrobeItemId,
-    user: userId,
+      _id: wardrobeItemId,
+      user: userId,
     }).lean();
 
     if (!existingItem) {
-    return NextResponse.json(
+      return NextResponse.json(
         { error: "Wardrobe item not found (or not owned by user)" },
         { status: 404 }
-    );
+      );
     }
 
     // 2) If it already has an image, delete the old WardrobeImage doc
@@ -77,26 +95,27 @@ export async function POST(
     if (oldPathStr?.startsWith("mongo:")) {
       const oldImageId = oldPathStr.slice("mongo:".length);
       await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
-  }
+    }
 
     // 3) Store new image
     const { imagePath } = await uploadWardrobeImage({
-    userId,
-    wardrobeItemId,
-    bytes,
-    contentType,
+      userId,
+      wardrobeItemId,
+      bytes,
+      contentType,
     });
 
     // 4) Update wardrobe item with new pointer
     await WardrobeItem.updateOne(
-    { _id: wardrobeItemId, user: userId },
-    { $set: { imagePath } }
+      { _id: wardrobeItemId, user: userId },
+      { $set: { imagePath } }
     ).exec();
 
     return NextResponse.json({ imagePath });
   } catch (err) {
     console.error("wardrobe image upload error:", err);
     const message = err instanceof Error ? err.message : "Upload failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.startsWith("Image too large") ? 413 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

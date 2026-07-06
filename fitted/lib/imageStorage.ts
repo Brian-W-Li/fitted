@@ -11,6 +11,8 @@ export type UploadInput = {
   contentType: string;     // "image/jpeg" | "image/png" | ...
 };
 
+export const MAX_WARDROBE_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+
 function assertAllowedImageType(contentType: string) {
   const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
   if (!allowed.has(contentType)) throw new Error("Unsupported image type");
@@ -20,13 +22,11 @@ export async function uploadWardrobeImage(input: UploadInput): Promise<ImageUplo
   assertAllowedImageType(input.contentType);
 
   // Hard cap to avoid Mongo 16MB doc limits (and base64 bloat)
-  const MAX_BYTES = 5 * 1024 * 1024; // 5MB
-  if (input.bytes.length > MAX_BYTES) {
+  if (input.bytes.length > MAX_WARDROBE_IMAGE_BYTES) {
     throw new Error("Image too large (max 5MB)");
   }
 
   const base64 = input.bytes.toString("base64");
-
 
   const { WardrobeImage } = await initDatabase();
 

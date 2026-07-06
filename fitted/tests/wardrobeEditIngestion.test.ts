@@ -151,4 +151,34 @@ describe("PATCH /api/wardrobe/[id] — M4 ingestion (edit round-trip)", () => {
     expect("warmth" in findOneAndUpdate.mock.calls[0][1].$set).toBe(false);
     expect(findOne).not.toHaveBeenCalled();
   });
+
+  it("rejects string booleans instead of coercing them on edit", async () => {
+    const { findOneAndUpdate } = setupMocks();
+
+    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    const res = await PATCH(makeRequest({ isAvailable: "false" }), params("item-1"));
+
+    expect(res.status).toBe(400);
+    expect(findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects scalar array fields instead of clearing them on edit", async () => {
+    const { findOneAndUpdate } = setupMocks();
+
+    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    const res = await PATCH(makeRequest({ colors: "#111111" }), params("item-1"));
+
+    expect(res.status).toBe(400);
+    expect(findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects whitespace-only required strings on edit", async () => {
+    const { findOneAndUpdate } = setupMocks();
+
+    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    const res = await PATCH(makeRequest({ name: "   " }), params("item-1"));
+
+    expect(res.status).toBe(400);
+    expect(findOneAndUpdate).not.toHaveBeenCalled();
+  });
 });

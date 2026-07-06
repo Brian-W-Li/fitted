@@ -194,4 +194,54 @@ describe("POST /api/wardrobe — M4 ingestion", () => {
     expect(res.status).toBe(400);
     expect(mockCreate).not.toHaveBeenCalled();
   });
+
+  it("rejects whitespace-only required strings before create", async () => {
+    const mockCreate = okCreate();
+    setupMocks(mockCreate);
+
+    const { POST } = await import("@/app/api/wardrobe/route");
+    const res = await POST(makeRequest({ name: "   ", category: "top" }));
+
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects scalar array fields instead of silently coercing them to []", async () => {
+    const mockCreate = okCreate();
+    setupMocks(mockCreate);
+
+    const { POST } = await import("@/app/api/wardrobe/route");
+    const res = await POST(
+      makeRequest({ name: "Cotton tee", category: "top", seasons: "winter" }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects string booleans instead of coercing \"false\" to true", async () => {
+    const mockCreate = okCreate();
+    setupMocks(mockCreate);
+
+    const { POST } = await import("@/app/api/wardrobe/route");
+    const res = await POST(
+      makeRequest({ name: "Cotton tee", category: "top", isAvailable: "false" }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("persists an explicit false availability flag", async () => {
+    const mockCreate = okCreate();
+    setupMocks(mockCreate);
+
+    const { POST } = await import("@/app/api/wardrobe/route");
+    const res = await POST(
+      makeRequest({ name: "Cotton tee", category: "top", isAvailable: false }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(mockCreate.mock.calls[0][0].isAvailable).toBe(false);
+  });
 });

@@ -76,20 +76,24 @@ export async function GET(request: NextRequest) {
 
     // Format the response
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const formattedInteractions = interactions.map((interaction: any) => ({
-      id: interaction._id.toString(),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      items: interaction.items.map((item: any) => ({
-        id: item._id.toString(),
-        name: item.name,
-        category: item.category,
-        colors: item.colors || [],
-        imagePath: item.imagePath,
-      })),
-      action: interaction.action,
-      occasion: interaction.context?.occasion || "casual",
-      createdAt: interaction.createdAt,
-    }));
+    const formattedInteractions = interactions.map((interaction: any) => {
+      const items = Array.isArray(interaction.items) ? interaction.items : [];
+
+      return {
+        id: interaction._id.toString(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        items: items.filter((item: any) => item?._id).map((item: any) => ({
+          id: item._id.toString(),
+          name: item.name,
+          category: item.category,
+          colors: item.colors || [],
+          imagePath: item.imagePath,
+        })),
+        action: interaction.action,
+        occasion: interaction.context?.occasion || "casual",
+        createdAt: interaction.createdAt,
+      };
+    });
 
     return NextResponse.json({
       interactions: formattedInteractions,

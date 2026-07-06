@@ -3,6 +3,7 @@ import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { type ClothingType, CLOTHING_TYPES, deriveClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
+import { validateWardrobeCreatePayload } from "@/lib/wardrobeRequestValidation";
 
 /**
  * GET /api/wardrobe
@@ -125,7 +126,24 @@ export async function POST(request: NextRequest) {
     }
 
     const { userId } = userResult;
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Request body must be valid JSON" },
+        { status: 400 },
+      );
+    }
+
+    const validation = validateWardrobeCreatePayload(body);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 },
+      );
+    }
+
     const {
       name,
       clothingType,
@@ -141,53 +159,46 @@ export async function POST(request: NextRequest) {
       notes = "",
       isAvailable = true,
       layerRole = "",
-    } = body;
-
-    if (!name || !category) {
-      return NextResponse.json(
-        { error: "name and category are required" },
-        { status: 400 },
-      );
-    }
+    } = validation.value;
 
     const { WardrobeItem } = await initDatabase();
     // Use the form-supplied clothingType when valid; otherwise classify from
     // category/name (the form does not supply it today — §10.3 ingestion classifier).
-    const clothingTypeToSave: ClothingType = CLOTHING_TYPES.includes(clothingType)
-      ? clothingType
-      : deriveClothingType({
-          category: String(category),
-          subCategory: String(subCategory || ""),
-          name: String(name),
-          layerRole: String(layerRole || ""),
-        });
-    const seasonsToSave = Array.isArray(seasons) ? seasons : [];
+    const clothingTypeToSave: ClothingType =
+      typeof clothingType === "string" && CLOTHING_TYPES.includes(clothingType as ClothingType)
+        ? (clothingType as ClothingType)
+        : deriveClothingType({
+            category,
+            subCategory,
+            name,
+            layerRole,
+          });
     // Honor a valid supplied warmth (W-track review form / CV); else keyword-derive.
     const warmthToSave =
       typeof warmth === "number" && Number.isInteger(warmth) && warmth >= 0 && warmth <= 10
         ? warmth
         : deriveWarmth({
-            category: String(category),
-            subCategory: String(subCategory || ""),
-            name: String(name),
-            seasons: seasonsToSave,
+            category,
+            subCategory,
+            name,
+            seasons,
           });
     const itemDoc = await WardrobeItem.create({
       user: userId,
-      name: String(name).trim(),
+      name,
       clothingType: clothingTypeToSave,
       warmth: warmthToSave,
-      category: String(category).trim(),
-      subCategory: String(subCategory || "").trim() || undefined,
-      pattern: String(pattern || "").trim() || undefined,
-      colors: Array.isArray(colors) ? colors : [],
-      layerRole: String(layerRole || "").trim() || undefined,
-      fit: String(fit || "").trim() || undefined,
-      size: String(size || "").trim() || undefined,
-      seasons: seasonsToSave,
-      occasions: Array.isArray(occasions) ? occasions : [],
-      notes: String(notes || "").trim() || undefined,
-      isAvailable: Boolean(isAvailable),
+      category,
+      subCategory: subCategory || undefined,
+      pattern: pattern || undefined,
+      colors,
+      layerRole: layerRole || undefined,
+      fit: fit || undefined,
+      size: size || undefined,
+      seasons,
+      occasions,
+      notes: notes || undefined,
+      isAvailable,
     });
 
     return NextResponse.json(
@@ -225,4 +236,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

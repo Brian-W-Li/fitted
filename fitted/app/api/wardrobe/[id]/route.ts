@@ -3,6 +3,7 @@ import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { normalizeClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
+import { validateWardrobePatchPayload } from "@/lib/wardrobeRequestValidation";
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -47,40 +48,30 @@ export async function PATCH(
 
     const { userId } = userResult;
     const { id: itemId } = await params;
-    const body = await request.json();
-    const { WardrobeItem, WardrobeImage } = await initDatabase();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Request body must be valid JSON" },
+        { status: 400 },
+      );
+    }
 
-    const update: Record<string, unknown> = {};
-    const fields = [
-      "name",
-      "clothingType",
-      "category",
-      "subCategory",
-      "pattern",
-      "colors",
-      "layerRole",
-      "fit",
-      "size",
-      "seasons",
-      "occasions",
-      "notes",
-      "imagePath",
-      "isAvailable",
-    ] as const;
+    const validation = validateWardrobePatchPayload(body);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 },
+      );
+    }
 
-    for (const field of fields) {
-      if (field in body) {
-        if (field === "colors" || field === "seasons" || field === "occasions") {
-          update[field] = Array.isArray(body[field]) ? body[field] : [];
-        } else if (field === "isAvailable") {
-          update[field] = Boolean(body[field]);
-        } else if (field === "clothingType") {
-          update[field] = normalizeClothingType(body[field]);
-        } else {
-          const v = body[field];
-          update[field] = typeof v === "string" ? v.trim() : v;
-        }
-      }
+    const { WardrobeItem } = await initDatabase();
+
+    const { update, suppliedWarmth, hasSuppliedWarmth, warmthDrivingFieldsChanged } =
+      validation.value;
+    if (typeof update.clothingType === "string") {
+      update.clothingType = normalizeClothingType(update.clothingType);
     }
 
     // warmth (§6.1): stored, NOT read-time-derived — so an edit must not leave it stale, since it
@@ -88,15 +79,15 @@ export async function PATCH(
     // explicit warmth (the correction path — W-track review form / user); else re-derive when a
     // warmth-driving field changes, from the merged (update-over-existing) values. Mirrors the POST
     // handler; closes the §23-H47 staleness gap.
-    const suppliedWarmth = body.warmth;
     if (
+      hasSuppliedWarmth &&
       typeof suppliedWarmth === "number" &&
       Number.isInteger(suppliedWarmth) &&
       suppliedWarmth >= 0 &&
       suppliedWarmth <= 10
     ) {
       update.warmth = suppliedWarmth;
-    } else if (["name", "category", "subCategory", "seasons"].some((f) => f in body)) {
+    } else if (warmthDrivingFieldsChanged) {
       const existing = await WardrobeItem.findOne({ _id: itemId, user: userId })
         .select("name category subCategory seasons")
         .lean<{ name?: string; category?: string; subCategory?: string; seasons?: string[] }>()

@@ -29,6 +29,15 @@ function makeRequest(body: Record<string, unknown>) {
   };
 }
 
+function makeGetRequest(url = "http://localhost/api/interactions") {
+  return {
+    url,
+    headers: {
+      get: (h: string) => (h === "authorization" ? "Bearer fake-token" : null),
+    },
+  };
+}
+
 function setupMocks(mockCreate: jest.Mock) {
   const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
   const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
@@ -58,7 +67,92 @@ function setupMocks(mockCreate: jest.Mock) {
   });
 }
 
+function setupGetMocks(interactions: Record<string, unknown>[]) {
+  const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
+  const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
+    adminAuth: { verifyIdToken: jest.Mock };
+  };
+
+  adminAuth.verifyIdToken.mockResolvedValue({ uid: "firebase-uid" });
+
+  const find = jest.fn().mockReturnValue({
+    populate: jest.fn().mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          lean: jest.fn().mockReturnValue({
+            exec: jest.fn().mockResolvedValue(interactions),
+          }),
+        }),
+      }),
+    }),
+  });
+
+  initDatabase.mockResolvedValue({
+    User: {
+      findOne: jest.fn().mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ _id: { toString: () => "user-id" } }),
+      }),
+    },
+    OutfitInteraction: { find },
+  });
+
+  return { find };
+}
+
 // ---------------------------------------------------------------------------
+
+describe("GET /api/interactions — history display", () => {
+  beforeEach(() => {
+    jest.resetModules();
+    jest.clearAllMocks();
+  });
+
+  it("skips missing populated items instead of crashing the history response", async () => {
+    setupGetMocks([
+      {
+        _id: { toString: () => "interaction-null-items" },
+        items: null,
+        action: "accepted",
+        context: { occasion: "casual" },
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      {
+        _id: { toString: () => "interaction-mixed-items" },
+        items: [
+          null,
+          { name: "Missing id", category: "top" },
+          {
+            _id: { toString: () => "item-1" },
+            name: "Blue tee",
+            category: "top",
+            colors: ["blue"],
+            imagePath: "mongo:image-1",
+          },
+        ],
+        action: "rejected",
+        context: {},
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+      },
+    ]);
+
+    const { GET } = await import("@/app/api/interactions/route");
+    const res = await GET(makeGetRequest() as any);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.interactions).toHaveLength(2);
+    expect(body.interactions[0].items).toEqual([]);
+    expect(body.interactions[1].items).toEqual([
+      {
+        id: "item-1",
+        name: "Blue tee",
+        category: "top",
+        colors: ["blue"],
+        imagePath: "mongo:image-1",
+      },
+    ]);
+  });
+});
 
 describe("POST /api/interactions — persistence", () => {
   const originalEnv = process.env;
