@@ -1,0 +1,12 @@
+{
+  "date": "2026-07-05",
+  "machine": "arm64 / macOS-15.7.7-arm64-arm-64bit",
+  "torch": "2.12.1",
+  "torch_num_threads": 1,
+  "n_batch1_edges": 1000,
+  "batch1_ms_per_edge": 0.1077,
+  "n_batched_edges": 100000,
+  "batched_us_per_edge": 16.517,
+  "batched_edges_per_s": 60542,
+  "note": "dated machine-dependent measurement, NOT a frozen/deterministic quantity"
+}
