@@ -253,3 +253,5 @@ describe("POST /api/recommend/regenerate — disliked-item exclusion", () => {
     expect(ids).not.toContain("unavail-1");
   });
 });
+
+export {}; // mark as a module so top-level test helpers are file-scoped (tsc --noEmit: no cross-file name collisions)

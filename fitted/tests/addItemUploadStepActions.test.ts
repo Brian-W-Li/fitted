@@ -5,18 +5,22 @@ function makeFile() {
   return new File([new Uint8Array([1, 2, 3])], "shirt.png", { type: "image/png" });
 }
 
+// React 19's ReactElement defaults props to `unknown`; this DOM-walker only reads a few
+// string props, so narrow to a props-bearing element type once here.
+type El = React.ReactElement<Record<string, unknown>>;
+const asEl = (node: unknown): El | null =>
+  React.isValidElement(node) ? (node as El) : null;
+
 function nodeText(node: unknown): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(nodeText).join("");
-  if (React.isValidElement(node)) return nodeText(node.props.children);
+  const el = asEl(node);
+  if (el) return nodeText(el.props.children);
   return "";
 }
 
-function findElement(
-  node: unknown,
-  predicate: (el: React.ReactElement) => boolean
-): React.ReactElement | null {
+function findElement(node: unknown, predicate: (el: El) => boolean): El | null {
   if (node == null || typeof node === "boolean") return null;
   if (Array.isArray(node)) {
     for (const child of node) {
@@ -25,10 +29,11 @@ function findElement(
     }
     return null;
   }
-  if (!React.isValidElement(node)) return null;
+  const el = asEl(node);
+  if (!el) return null;
 
-  if (predicate(node)) return node;
-  return findElement(node.props.children, predicate);
+  if (predicate(el)) return el;
+  return findElement(el.props.children, predicate);
 }
 
 describe("AddItemUploadStepActions", () => {

@@ -112,3 +112,78 @@ results.md) survive in git — **but the 84 commits are unpushed**, so today eve
    Then move that tarball to private backup manually. (I did not egress it — consent is `third_party_api_processing:False`.)
 
 ---
+
+## CHECKPOINT 2 — is the written word true? (2026-07-06)
+
+Outcome: **6 fixes landed (2 IMPORTANT code/doc, 4 doc-truth), 4 report-only NITs, 2 CP7c chips.**
+Cheap mechanical checks run inline; the three reading-heavy lanes (2b/2c/2d) ran as parallel
+read-only agents, every finding re-verified against source before fixing.
+
+### 2a — Executable truth
+- **tsc `--noEmit` was RED (exit 1, 24 errors) — FIXED → now green (exit 0).** All 24 were in `tests/`
+  (product code app/lib/models = **0 errors**): 3 test files (`interactionPersistence`, `recommendationStability`,
+  `regenerateExclusion`) had no top-level `import`/`export` so TS treated them as global scripts → cross-file
+  helper-name collisions (`WARDROBE`, `OPENAI_EMPTY_RESPONSE`, `makeRequest`, …). Fix: appended `export {};`
+  module markers. The remaining 8 (all in `addItemUploadStepActions.test.ts`) were React-19 `props: unknown`
+  on a DOM-walker — fixed by narrowing to `type El = ReactElement<Record<string, unknown>>` + an `asEl` helper.
+  IMPORTANT because CLAUDE.md's build-audit loop prescribes `tsc --noEmit` as a verification signal; it was
+  unusable project-wide. All 4 touched tests pass; full jest 375 green; introduced **zero** new lint errors.
+- **`npm run lint` is RED pre-existing (48 issues: 28 `no-explicit-any`, 9 `next/no-img-element`, 6 unused-vars,
+  2 exhaustive-deps) across product + test code.** Known legacy debt that M5 rewrites (CLAUDE.md "match team style,
+  don't refactor for taste" + deletion license). **Report-only / out-of-scope** — scoped-to-touched-file lint (what
+  the loop actually requires) is achievable. One artifact leak: `coverage/lcov-report/*.js` is being linted (no
+  eslintignore for `coverage/`) → **CP7c chip.**
+- **`.env.sample` missing `GEMINI_MODEL` — FIXED** (added, marked optional w/ default). Env-var diff otherwise clean:
+  code reads exactly {FIREBASE×5, MONGODB_URI, OPENAI_API_KEY, GEMINI_API_KEY, GEMINI_MODEL, CV_SERVICE_URL}.
+- **Requirements coverage OK** (no fresh `pip install` — no-network rule): `fitted_core` has no third-party runtime
+  dep beyond the lazy `openai` (declared); h26 `requirements.txt` is fully pinned. pytest core+h26 + jest all green.
+- **`npm run build` not run** — requires gitignored `.env.local` (documented). tsc+jest+lint cover the TS surface.
+
+### 2b — Docs-canon truth
+- **IMPORTANT — undocumented live Gemini integration — FIXED.** `fitted/lib/gemini.ts` `inferWhyForInteraction`
+  (model `gemini-2.5-flash-lite`, `@google/generative-ai`) is fired best-effort from `app/api/interactions/route.ts`
+  when `GEMINI_API_KEY` is set, writing `OutfitInteraction.inferredWhy` (`models/OutfitInteraction.ts:46`). CLAUDE.md's
+  env table + flow omitted it entirely (a cost-incurring key claimed absent from the "env inventory"). A 2026-06-17
+  locked v2 decision said this path was "completely excised" but it survives (m4a-close note confirms only
+  PreferenceSummary's use was ripped). Fix: added `GEMINI_API_KEY`/`GEMINI_MODEL` row to CLAUDE.md env table with the
+  best-effort/optional/no-op semantics; softened the "all required" line.
+- **NIT — CLAUDE.md floors stale-low (≥715/≥366) — FIXED** → `≥751 pytest / ≥302 (+1 skip) h26 / ≥366 jest`.
+- **NIT (report-only)** — spec §16/§1079 only mentions gemini.ts in the PreferenceSummary-rip line (accurate but
+  implies removal); the surviving `inferredWhy` path is now documented in CLAUDE.md's env table (its correct home).
+- **NIT (report-only)** — CLAUDE.md:7 pairs `OutfitInteraction + FeedbackReason` as the current feedback shape, but
+  there is **no `FeedbackReason` model** in `fitted/` (it's a spec §16 design concept); current reality is `inferredWhy`.
+  Left as future-target framing (touching the top-line summary risks scope creep); env table now carries the truth.
+
+### 2c — Memory / session hygiene
+- **IMPORTANT — `MEMORY.md` index line for `project_h26_c4_build` still read "H26 blocked on ≥3 panel labels" — FIXED.**
+  The memory *file* was current but its index one-liner wasn't re-synced when H26 closed. Rewrote to "SUPERSEDED: H26
+  COMPLETE" pointing at `project_full_audit_2026_07_06`.
+- **NIT — `project_h26_c4_audit` index line said "uncommitted / Brian to commit" — FIXED** (marked historical snapshot).
+- **CORRECTION to my own CP0 skim:** `docs/sessions/RECOVERY.md` is **NOT stale** — a reset "Unfilled" template is
+  exactly the healthy resting state doc-lifecycle wants. Not a finding; my CP0 note mischaracterized it. Withdrawn.
+- Retirement banners: **all present** (h26-spike, m4, m3, m2, m0-m1, spearhead all `> COMPLETED`; spec-resolutions +
+  scope-decisions carry RETIRED banners). No session note contradicts canon (the one "GO" is the 2026-07-05 Fable
+  *ambition-merit* GO, distinct from the H26 spike NO-GO). Clean.
+
+### 2d — §23 holes register health
+- **IMPORTANT — MISSING HOLE (EXIF orientation) — FIXED → registered as H53.** results.md §6/§10: all 13 closet phone
+  photos carried EXIF orientation 6, PIL ignores EXIF on open, the first probe embedded sideways garments (closet
+  AUC 0.4375 → 0.5625 after `exif_transpose`). "M4/W-track ingestion must normalize EXIF before embedding" — a bug
+  that already halved a real measurement, feeding the pre-registered M6 re-measure. Was in results.md but unregistered.
+- **IMPORTANT — MISSING HOLE (snapshot delete-guard) — FIXED → registered as H54.** `GenerationSnapshot.ts:481-483`
+  guards update/replace/save but has **no `pre(["deleteOne","deleteMany"])`** — a raw delete can hard-remove an
+  immutable training snapshot outside the redaction seam. Nominated in the 2026-07-02 handoff, never promoted; M5
+  closes it with the live writer (redaction is the only sanctioned removal).
+- **NIT — §20 "Scorer-seam shape" row hard-coded `(post-H26, pre-M5)`** while §20 prose + §23-H28 make timing an
+  M5-`/spec` call post-NO-GO — **FIXED** (row status reconciled to the flexible timing). Conflicts are bugs.
+- **NIT (report-only)** — results.md §9.5 "dated-2017-taste" M6 risk not in §23. Register at M6 entry (M6 not greenlit;
+  the escape rides the already-registered `SignalScorer` behavioral slot). → soft chip.
+- Verified clean: no OPEN hole is silently resolved-but-still-marked-open (H13/H28/H48–H51 re-checked vs source);
+  H26/H28 correctly reflect NO-GO + item-level-shape-falsified.
+
+### CP2 task chips (out-of-scope, for CP7c / M5)
+- `coverage/` is not eslint-ignored (lint touches generated `lcov-report/*.js`).
+- `matthew-hello-world/node_modules/` bloat in git history (from CP1b) — old team era, not tracked now.
+- Legacy `npm run lint` debt (48 issues) — folds into the M5 app-side rewrite, not a standalone task.
+
+---

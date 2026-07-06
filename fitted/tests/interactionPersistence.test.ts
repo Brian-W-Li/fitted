@@ -269,3 +269,5 @@ describe("POST /api/interactions — persistence", () => {
     expect(body.interaction.action).toBe("accepted");
   });
 });
+
+export {}; // mark as a module so top-level test helpers are file-scoped (tsc --noEmit: no cross-file name collisions)

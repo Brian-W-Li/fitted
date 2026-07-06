@@ -234,3 +234,5 @@ describe("POST /api/recommend — stability: item-level dislikes do not filter t
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });
+
+export {}; // mark as a module so top-level test helpers are file-scoped (tsc --noEmit: no cross-file name collisions)
