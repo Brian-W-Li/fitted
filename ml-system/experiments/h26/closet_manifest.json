@@ -1,0 +1,300 @@
+{
+ "_schema_version": 1,
+ "_consent": {
+  "owner_id": "owner_01",
+  "third_party_api_processing": false,
+  "providers_photos_may_reach": []
+ },
+ "_taxonomy": {
+  "fine_category_key": "polyvore_category_id",
+  "reference": "closet_category_reference.json",
+  "coarsening_policy": "null category_id -> coarsening_note; those edges reported separately (\u00a710)"
+ },
+ "label_audit": {
+  "second_pass_completed": true,
+  "items_rechecked": 13,
+  "agreement_rate": 0.85
+ },
+ "items": [
+  {
+   "item_id": "c08",
+   "clothing_type": "top",
+   "polyvore_category_id": "21",
+   "fine_label_human": "olive heather athletic t-shirt",
+   "photo_path": "closet/IMG_5068.jpeg",
+   "photo_sha256": "68f5a6a24b965cac006363115bae339c6c78e958a90f1f9075188a9015e29297",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c03",
+   "clothing_type": "bottom",
+   "polyvore_category_id": "29",
+   "fine_label_human": "light grey athletic shorts",
+   "photo_path": "closet/IMG_5063.jpeg",
+   "photo_sha256": "a501ca9edb6c01ed9c77e067fe7339807f2e20f28e9a64ba72c25ae3fe216ef4",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c13",
+   "clothing_type": "shoes",
+   "polyvore_category_id": "268",
+   "fine_label_human": "dark navy and black trail running sneakers",
+   "photo_path": "closet/IMG_5073.jpeg",
+   "photo_sha256": "b259b0e4493e962c74225a72a59212096c7449274880d8c6fb88eba96486fa89",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c04",
+   "clothing_type": "bottom",
+   "polyvore_category_id": "237",
+   "fine_label_human": "washed black jeans",
+   "photo_path": "closet/IMG_5064.jpeg",
+   "photo_sha256": "4fe8c48be1a00f4dca334726d599e201659f027cfc17cd7024bd49cf4c440231",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c10",
+   "clothing_type": "outer_layer",
+   "polyvore_category_id": "25",
+   "fine_label_human": "medium wash denim jacket with contrast fabric sleeves and hood",
+   "photo_path": "closet/IMG_5070.jpeg",
+   "photo_sha256": "7eee84840300553452f99e5b5e33073fe2c24e3421e72f93f75b7136e7f1673e",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c01",
+   "clothing_type": "bottom",
+   "polyvore_category_id": "237",
+   "fine_label_human": "dark wash blue jeans",
+   "photo_path": "closet/IMG_5061.jpeg",
+   "photo_sha256": "ff6481a6869e71a26ba39a5eff9d6658c0e6366b76bcd41ca3718d1c5a5395e5",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c07",
+   "clothing_type": "top",
+   "polyvore_category_id": "21",
+   "fine_label_human": "beige t-shirt with small bear graphic",
+   "photo_path": "closet/IMG_5067.jpeg",
+   "photo_sha256": "3e14dccf7db7503bca6b1345378386862a8ea70cff80331dff9875fe2570202c",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c02",
+   "clothing_type": "bottom",
+   "polyvore_category_id": "253",
+   "fine_label_human": "black track pants with white side stripes",
+   "photo_path": "closet/IMG_5062.jpeg",
+   "photo_sha256": "d32ad2b16937ffaae7f003b4dbde3abb159908cee7e69fd95ff967569a1c2e51",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c12",
+   "clothing_type": "outer_layer",
+   "polyvore_category_id": "256",
+   "fine_label_human": "white zip-up track jacket with black stripes",
+   "photo_path": "closet/IMG_5072.jpeg",
+   "photo_sha256": "cdde0b4541ce42e289ef720cd1d673995ab0c932c4ea84497f3eeda4c350fa08",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c06",
+   "clothing_type": "top",
+   "polyvore_category_id": "11",
+   "fine_label_human": "light blue oxford button-down shirt",
+   "photo_path": "closet/IMG_5066.jpeg",
+   "photo_sha256": "87a132c03fcf7d141dcd62f70777989d2e6ebe1f2db3d888413db706dc16c512",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c05",
+   "clothing_type": "top",
+   "polyvore_category_id": "21",
+   "fine_label_human": "cream graphic t-shirt with black print",
+   "photo_path": "closet/IMG_5065.jpeg",
+   "photo_sha256": "98c361079ec9e704109c3824c5606fb4a5713d75c9d09df17ac54011c13f5aa9",
+   "coarsening_note": null
+  },
+  {
+   "item_id": "c09",
+   "clothing_type": "outer_layer",
+   "polyvore_category_id": null,
+   "fine_label_human": "dark heather grey crewneck sweatshirt",
+   "photo_path": "closet/IMG_5069.jpeg",
+   "photo_sha256": "74f77ecc30ce5287350858cf03b2722a9439eed0428175f4c2bf030b436cac9e",
+   "coarsening_note": "crewneck sweatshirt worn as an outer/mid layer; Polyvore types all sweatshirts as tops, so there is no outer_layer-typed analog"
+  },
+  {
+   "item_id": "c11",
+   "clothing_type": "outer_layer",
+   "polyvore_category_id": null,
+   "fine_label_human": "slate blue crewneck sweatshirt with front pocket",
+   "photo_path": "closet/IMG_5071.jpeg",
+   "photo_sha256": "e95529cb9833c5390709f6be0bc1a2278c897209355a746a9ccdfde35063a92d",
+   "coarsening_note": "crewneck sweatshirt worn as an outer/mid layer; Polyvore types all sweatshirts as tops, so there is no outer_layer-typed analog"
+  }
+ ],
+ "outfits": [
+  {
+   "set_id": "o01",
+   "item_ids": [
+    "c08",
+    "c03",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o02",
+   "item_ids": [
+    "c08",
+    "c04",
+    "c10",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o03",
+   "item_ids": [
+    "c08",
+    "c01",
+    "c10",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o04",
+   "item_ids": [
+    "c07",
+    "c02",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o05",
+   "item_ids": [
+    "c07",
+    "c02",
+    "c12",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o06",
+   "item_ids": [
+    "c07",
+    "c03",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o07",
+   "item_ids": [
+    "c07",
+    "c03",
+    "c12",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o08",
+   "item_ids": [
+    "c06",
+    "c01",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o09",
+   "item_ids": [
+    "c06",
+    "c04",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o10",
+   "item_ids": [
+    "c05",
+    "c03",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o11",
+   "item_ids": [
+    "c05",
+    "c04",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o12",
+   "item_ids": [
+    "c05",
+    "c01",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o13",
+   "item_ids": [
+    "c05",
+    "c04",
+    "c12",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o14",
+   "item_ids": [
+    "c05",
+    "c04",
+    "c09",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o15",
+   "item_ids": [
+    "c07",
+    "c02",
+    "c09",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o16",
+   "item_ids": [
+    "c05",
+    "c03",
+    "c11",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o17",
+   "item_ids": [
+    "c08",
+    "c01",
+    "c11",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o18",
+   "item_ids": [
+    "c08",
+    "c04",
+    "c13"
+   ]
+  },
+  {
+   "set_id": "o19",
+   "item_ids": [
+    "c07",
+    "c01",
+    "c13"
+   ]
+  }
+ ]
+}
