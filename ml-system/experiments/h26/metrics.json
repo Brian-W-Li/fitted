@@ -1,0 +1,189 @@
+{
+  "_meta": {
+    "stage": "C4",
+    "seed": 20260629,
+    "split_loader": "load_corpus(strict_disjoint=True)",
+    "git_commit": "ffa47be815a0283853b32433c6dcdcb3fce1d445",
+    "unlock_files": {
+      "preregistration.md": {
+        "path": "preregistration.md",
+        "git_blob_sha": "b6e3e07281524272c8c57b08e5e09cfa6debae6a",
+        "sha256": "95c196e0ca549fff71f7e42452bf41920cd4695b57d5cd72b2c31119d1f0b323",
+        "validated": true
+      },
+      "preregistration.json": {
+        "path": "preregistration.json",
+        "git_blob_sha": "ac591f463e2033ec45e76fb50cfaba59080ce363",
+        "sha256": "4d1343cb970d092ae8c53981c5ccfa4ba9500955e4d30c03cdefcaedb493c3c6",
+        "validated": true
+      },
+      "judge_addendum.md": {
+        "path": "judge_addendum.md",
+        "git_blob_sha": "3cf4acdd7aced07db43ec044f55bf58788db999a",
+        "sha256": "dff4a30cbbb4f6ba5fb1775623b364da4d5406642e2d7057adb8b68d6b127a08",
+        "validated": true
+      },
+      "closet_manifest.json": {
+        "path": "closet_manifest.json",
+        "git_blob_sha": "efc90303215c1e9268ff9bc5dde75a2759fb3914",
+        "sha256": "bac8bd1c2ce5d520d8fc36b7c46c7b4ac9dda2d58eb23d0821b2121372f40249",
+        "validated": true
+      }
+    },
+    "selection": {
+      "path": "selection.json",
+      "schema": "selection.schema.json",
+      "git_blob_sha": "8fd8a80e5ceb5c0b353194189160c27f2b5c7874",
+      "sha256": "e811eb63cb0709365fa922ccfe96d298e2cb07ce9dffd807d4456a1598b2e017",
+      "validated": true,
+      "checkpoint_id": "fashionsiglip_pairwise_edge_grid_0_seed20260629",
+      "checkpoint_sha256": "a172be27022d59b5cce7b64e68ec73e9709e8969a07b4311c502f77afe4b0659"
+    },
+    "judge_ledger_sha256": "c001633491447b24458a1537cfbf901052742b214a4c6594d001e76532790138"
+  },
+  "AUC_catalog_pair": {
+    "point": 0.7314634532578156,
+    "low": 0.7284350549400387,
+    "high": 0.7344888674085287,
+    "b": 10000
+  },
+  "AUC_zero_shot_cosine": {
+    "point": 0.631933424340602,
+    "low": 0.6293771908281071,
+    "high": 0.6344867110497875,
+    "b": 10000
+  },
+  "gate_A_diff": {
+    "point": 0.09953002891721363,
+    "low": 0.0968953081216394,
+    "high": 0.10215853807804234,
+    "b": 10000
+  },
+  "fitb_trained_gateB": {
+    "point": 0.6177062374245473,
+    "low": 0.5754527162977867,
+    "high": 0.6619718309859155,
+    "b": 10000
+  },
+  "fitb_judge_gateB": {
+    "point": 0.34808853118712274,
+    "low": 0.3058350100603622,
+    "high": 0.3903420523138833,
+    "b": 10000
+  },
+  "gate_B_diff_inconsistent_miss": {
+    "point": 0.2696177062374246,
+    "low": 0.221327967806841,
+    "high": 0.3219315895372233,
+    "b": 10000
+  },
+  "gate_B_diff_inconsistent_half": {
+    "point": 0.09154929577464799,
+    "low": 0.046252515090543254,
+    "high": 0.13983903420523136,
+    "b": 10000
+  },
+  "outfit_auc": {
+    "point": 0.845371277243083,
+    "low": 0.8408493104393194,
+    "high": 0.8498253410519948,
+    "b": 10000
+  },
+  "fitb_trained_full": {
+    "point": 0.6210147535084563,
+    "low": 0.6127383951061532,
+    "high": 0.62907520690896,
+    "b": 10000
+  },
+  "AUC_pop_edge": {
+    "point": 0.5282024099400469,
+    "low": 0.5264928784076367,
+    "high": 0.529849854373295,
+    "b": 10000
+  },
+  "AUC_pop_outfit": {
+    "point": 0.5596923548872911,
+    "low": 0.5551956875157458,
+    "high": 0.5641671523609983,
+    "b": 10000
+  },
+  "fitb_popularity": {
+    "point": 0.2862000719683339,
+    "low": 0.28237975290872014,
+    "high": 0.28999040422214223,
+    "b": 10000
+  },
+  "fitb_zero_shot_cosine": {
+    "point": 0.5211227060093558,
+    "low": 0.5128463476070529,
+    "high": 0.5293270960777258,
+    "b": 10000
+  },
+  "AUC_pair_item_level": {
+    "point": 0.5155033307909845,
+    "low": 0.5133576691113192,
+    "high": 0.5176294174785333,
+    "b": 10000
+  },
+  "seam_diff_pairwise_minus_item_level": {
+    "point": 0.21596012246683105,
+    "low": 0.2123763166583508,
+    "high": 0.2195333843907459,
+    "b": 10000
+  },
+  "outfit_auc_item_level": {
+    "point": 0.4986658087615432,
+    "low": 0.493075711850907,
+    "high": 0.5041792349829372,
+    "b": 10000
+  },
+  "fitb_item_level_full": {
+    "point": 0.24505217704210147,
+    "low": 0.23785534364879454,
+    "high": 0.2522490104354084,
+    "b": 10000
+  },
+  "coherence_sensitivity": {
+    "rule": "leq_one_item_per_5type_and_no_dress_with_top_or_bottom_over_retained_plus_answer",
+    "n_gate_b_coherent": 435,
+    "n_gate_b_flagged": 65,
+    "gate_B_diff_inconsistent_miss_coherent": {
+      "point": 0.2702078521939954,
+      "low": 0.21247113163972292,
+      "high": 0.3233256351039261,
+      "b": 10000
+    },
+    "gate_B_diff_inconsistent_half_coherent": {
+      "point": 0.09006928406466508,
+      "low": 0.04157043879907618,
+      "high": 0.14087759815242495,
+      "b": 10000
+    },
+    "judge_inconsistent_rate_coherent": 0.36027713625866054,
+    "gate_B_diff_inconsistent_miss_flagged": {
+      "point": 0.265625,
+      "low": 0.15625,
+      "high": 0.421875,
+      "b": 10000
+    },
+    "gate_B_diff_inconsistent_half_flagged": {
+      "point": 0.1015625,
+      "low": -0.0078125,
+      "high": 0.2265625,
+      "b": 10000
+    },
+    "judge_inconsistent_rate_flagged": 0.328125,
+    "fitb_trained_full_coherent": {
+      "point": 0.6188919621154975,
+      "low": 0.6099237281032605,
+      "high": 0.6276087503143073,
+      "b": 10000
+    },
+    "fitb_trained_full_flagged": {
+      "point": 0.6339103869653768,
+      "low": 0.6125254582484725,
+      "high": 0.655295315682281,
+      "b": 10000
+    }
+  }
+}
