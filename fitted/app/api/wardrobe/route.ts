@@ -10,7 +10,9 @@ import { validateWardrobeCreatePayload } from "@/lib/wardrobeRequestValidation";
  *   → returns all wardrobe items for the authenticated user
  *
  * POST /api/wardrobe
- *   body: { name, category, colors?, fit?, size?, seasons?, occasions?, notes? }
+ *   body: { name, category, clothingType?, warmth?, colors?, fit?, size?, seasons?, occasions?, notes?,
+ *           isAvailable?, layerRole? }
+ *   Server validation rejects malformed scalar/array/boolean shapes before persistence.
  *   → creates a wardrobe item tied to the authenticated user
  *
  * The user is derived from the Firebase ID token in the Authorization header:

@@ -27,7 +27,7 @@ const WardrobeItemSchema = new Schema(
     imageUrl: { type: String },
 
     // Points to the WardrobeImage doc in Mongo that holds the image bytes.
-    imagePath: {type: String },
+    imagePath: { type: String },
 
     notes: { type: String },
     tags: { type: [String], default: [] },

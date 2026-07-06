@@ -31,7 +31,8 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Database (MongoDB)
 
-This project uses MongoDB via Mongoose for user accounts, wardrobe items, and outfit interactions.
+This project uses MongoDB via Mongoose for user accounts, wardrobe items, wardrobe images, outfit
+interactions, and the dormant M4b `GenerationSnapshot` model.
 
 1) Install deps: `npm install` (adds `mongoose`).
 2) Configure `.env.local` with `MONGODB_URI=<your connection string>`.
@@ -41,26 +42,7 @@ This project uses MongoDB via Mongoose for user accounts, wardrobe items, and ou
 Authentication is handled via Firebase Auth (Google sign-in).
 Each developer must create a `.env.local` with Firebase config values.
 
-### Schemas (overview — `models/*.ts` is authoritative; this list predates M4)
+### Schemas
 
-> Orientation only, not current truth. The deployed schemas now carry the M4 additions —
-> `clothingType` (5-value) + `warmth` on `WardrobeItem`, the `GenerationSnapshot` model, and the
-> `OutfitInteraction` snapshot-binding + scope fields. Read `models/*.ts` for the live shape and
-> `docs/Fitted_Spec_v2.md` §6 for the v2 targets.
-
-- `User` (`models/User.ts`)
-  - `authProvider` + `authId`: links to auth (e.g., Firebase UID) and is unique.
-  - `email`, `displayName`, `photoURL`: basic profile.
-  - `metadata` (Map): optional extras; leave empty unless you need custom fields.
-  - Indexes: unique on auth identity and email.
-- `WardrobeItem` (`models/WardrobeItem.ts`)
-  - `user`: required owner ref; ensures every item belongs to exactly one user.
-  - Core descriptors only: `name`, `category`, `subCategory`, `colors`, `seasons`, `occasions`, `brand`, `fit`, `size`, `imageUrl`, `tags`, `notes`, `isFavorite`, `lastWornAt`, `metadata`.
-  - Indexes: by `user` plus `category`, `tags`, `isFavorite`, `updatedAt` for common filters.
-- `OutfitInteraction` (`models/OutfitInteraction.ts`)
-  - Records what happens when a user sees or uses an outfit, so the system can show history and learn from feedback.
-  - `user`: owner ref.
-  - `items`: wardrobe item ids in the outfit.
-  - `action`: simple feedback events (`generated`, `accepted`, `rejected`, `saved`, `worn`, `rated`).
-  - Optional `rating`, `feedback`, `context`, `metadata` for lightweight notes.
-  - Indexes: by `user`+`createdAt` (timeline) and `user`+`items` (item-level feedback).
+`models/*.ts` is authoritative for the live Mongo shape. For a short current reference, read
+`docs/database.md`; for v2 targets and deferred design decisions, read `../docs/Fitted_Spec_v2.md`.

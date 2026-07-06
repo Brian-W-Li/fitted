@@ -404,7 +404,7 @@ the main loop before acting. Baseline & after: **pytest 715→718, jest 366→36
 
 **Fixed now (load-bearing, safe):**
 - **POST `/api/wardrobe` response dropped `warmth`** (ripple lane + independent main-loop read). POST derives +
-  stores `warmth` but its response object omitted it, while GET/PATCH expose it — a missed sibling from the
+  stores `warmth` but its response object omitted it, even though GET/PATCH already exposed it — a missed sibling from the
   a61a3801 H47 fix. Warmth is authoritative + training truth (§6.1/§15.1). Added `warmth` (+ `imagePath` for
   shape parity) to the POST response; test asserts the response warmth equals the stored value.
 - **`snapshot_serde` snake↔camel converters are not inverse for non-letter-leading segments** (newer-modules +

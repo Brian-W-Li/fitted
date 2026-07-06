@@ -74,8 +74,8 @@ canonical, build-tagged design lives in [`docs/Fitted_Spec_v2.md`](docs/Fitted_S
 | H26 compatibility spike | ✅ done (NO-GO by the frozen letter) | The offline go/no-go above. |
 | M5 live cutover | ⏳ next | Deploy `fitted_core` as a service, wire the Next app behind `USE_ML_SHORTLISTER`, live snapshot write. Makes the engine run end-to-end. |
 
-**Test rigor** (floors that grow, never shrink): **752** `fitted_core` pytest · **304 (+1 skip)** H26 pytest ·
-**377** Next/jest. Determinism is verified (same request → byte-identical output); gate boundaries are
+**Test rigor** (floors that grow, never shrink): **791** `fitted_core` pytest · **305 (+1 skip)** H26 pytest ·
+**387** Next/jest. Determinism is verified (same request → byte-identical output); gate boundaries are
 mutation-tested.
 
 **Repo layout:**
