@@ -25,17 +25,12 @@ read by authority level, not by filename age or folder location.
 
 ## Retired or historical
 
-- `CODEX_HANDOFF.md` - retired M2-era handoff, gutted to a banner + pointer to canonical context (body in git).
+Kept only as forward-lookup indexes (not for product/architecture guidance). Pure CS148/v1.2 archaeology
+docs were deleted in the 2026-07-06 doc-compaction — git history preserves them.
 
-Do not use these for future-looking product or architecture guidance:
-
-- `DESIGN.md` - CS148-era app architecture document.
-- `RECOMMENDATION_MODEL.md` - old GPT/Gemini recommendation-route design, originally `NEW_DESIGN.md`.
-- `MANUAL.md` - old external manual link.
-- `scope-decisions.md` - retired ledger folded into `Fitted_Spec_v2.md`.
-- `plans/spec-resolutions.md` - retired v1.2 addendum ledger folded into `Fitted_Spec_v2.md`.
-- `plans/legacy-prospecting.md` - code archaeology. Read only when a current plan explicitly asks for old-route
-  evidence.
+- `scope-decisions.md` - retired ledger; maps old R7/R8 identifiers → their `Fitted_Spec_v2.md` homes.
+- `plans/spec-resolutions.md` - retired v1.2 addendum ledger; maps R1–R13/S4/S5/N1–N4 → `Fitted_Spec_v2.md`
+  (Appendix A concordance).
 
 ## Archive directories outside `docs/`
 

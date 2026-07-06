@@ -109,8 +109,7 @@ This is an **overhaul**. The product direction is the **lens-first personal styl
 **Historical context only — do not mine for architectural truth:**
 - `docs/Fitted_Spec_v2_recovered_appendix.md` — preserved ambition, anecdotes, dream notes, user-story inventory, and north-star concepts from the Codex brainstorm. It is intentionally separate from the implementation-facing spec.
 - `ml-system/outfit_recommender.py`, `ml-system/mlWhatWeAreGoingTodo` — legacy ML demo/brainstorm; useful context, not the active seam.
-- `docs/plans/spec-resolutions.md`, `docs/scope-decisions.md` — retired ledgers superseded by `Fitted_Spec_v2.md` (folded in via its Appendix A concordance). Read only when hunting history.
-- `docs/DESIGN.md`, `docs/MANUAL.md`, `docs/RECOMMENDATION_MODEL.md` — earlier design docs, superseded.
+- `docs/plans/spec-resolutions.md`, `docs/scope-decisions.md` — retired ledgers superseded by `Fitted_Spec_v2.md` (folded in via its Appendix A concordance). Read only when hunting history. (The old CS148/v1.2 design docs `DESIGN.md`/`MANUAL.md`/`RECOMMENDATION_MODEL.md` were deleted in the 2026-07-06 doc-compaction — git history preserves them.)
 - `meetings/`, `team/` — team artifacts (standups, contribution docs). Not relevant to the refactor.
 - `fitted/docs/ML_OVERVIEW.md`, `fitted/docs/database.md`, `ml-system/cv-integration.md` — deployed/legacy references. For code changes, read the source files; for future targets, read v2.
 - The currently-deployed app's behavior at fitted-outfits.vercel.app — what it does today is not a constraint on what v2 must do.

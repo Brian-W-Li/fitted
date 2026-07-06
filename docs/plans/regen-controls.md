@@ -16,7 +16,6 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 ## Success criteria
 
 - [x] R9 folded into `Fitted_Spec_v2.md` §14 / Appendix A with pipeline-step assignments.
-- [x] Stale "decide at M3/M5" pointers in `legacy-prospecting.md` regeneration-routing notes resolved to R9.
 - [x] M3: completed in the ranker as request-scoped filters/diagnostics over already-built
       candidates; no constrained re-entry, pinning, or merge lives in M3
       (`docs/plans/m3-ranker.md` is authoritative).
@@ -30,7 +29,6 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 
 **Now (design session, done):**
 - `docs/Fitted_Spec_v2.md` — R9 lives in §14 / Appendix A.
-- `docs/plans/legacy-prospecting.md` — regeneration-routing notes now point to R9.
 - `docs/plans/regen-controls.md` — this doc.
 
 **M3 (completed; see `docs/plans/m3-ranker.md`):**
