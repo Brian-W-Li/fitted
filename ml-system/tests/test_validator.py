@@ -99,6 +99,18 @@ def test_parse_malformed_string_returns_invalid_json(bad):
     assert result.issue.candidate_index is None
 
 
+# --- pathological nesting: RecursionError is content, not a crash (B1, pre-flight) ---
+
+def test_parse_deeply_nested_json_returns_invalid_json():
+    # A hostile/degenerate generator can emit thousands of nesting levels; json.loads
+    # raises RecursionError (NOT a ValueError subclass) — must land on the same
+    # invalidJson path as any other malformed content, never escape the parse boundary.
+    deep = '{"a":' * 2000 + "1" + "}" * 2000
+    result = parse_gpt_json(deep)
+    assert result.payload is None
+    assert result.issue.code is IssueCode.invalid_json
+
+
 # --- strict parse: NaN / Infinity / -Infinity tokens are not strictly valid JSON ---
 
 @pytest.mark.parametrize("raw", [
@@ -1007,6 +1019,17 @@ def test_forbidden_field_inside_style_move_warns_not_rejects(forbidden):
 @pytest.mark.parametrize("field", ["moveType", "oneSentence"])
 def test_empty_string_field_warns(field):
     sm = {**_VALID_STYLE_MOVE, field: ""}
+    result = _validate_pooled(_with_style_move(sm))
+    assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
+    assert len(result.candidates) == 1
+
+
+@pytest.mark.parametrize("field", ["moveType", "oneSentence"])
+@pytest.mark.parametrize("blank", ["   ", "\t", "\n  \n"])
+def test_whitespace_only_style_move_field_warns(field, blank):
+    # Whitespace-only text is as unusable as empty — it would render a blank styling
+    # explanation on the card (B2, pre-flight 2026-07-06).
+    sm = {**_VALID_STYLE_MOVE, field: blank}
     result = _validate_pooled(_with_style_move(sm))
     assert _codes(result.warnings) == [IssueCode.invalid_style_move_shape]
     assert len(result.candidates) == 1

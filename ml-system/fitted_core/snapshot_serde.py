@@ -259,6 +259,14 @@ def _convert(
     if isinstance(value, Mapping):
         result: dict[str, Any] = {}
         for raw_key, raw_val in value.items():
+            # Keys must be str even inside opaque blobs: json.dumps would silently coerce
+            # a non-str key (1 → "1"), mutating the key's type across the wire — the same
+            # silent-corruption class the non-finite/id guards reject. Fail loud instead.
+            if not isinstance(raw_key, str):
+                raise ValueError(
+                    f"mapping key under {key_context!r} must be str, "
+                    f"got {type(raw_key).__name__}: {raw_key!r}"
+                )
             if opaque:
                 # data/blob keys are preserved byte-for-byte; values stay opaque too
                 result[raw_key] = _convert(

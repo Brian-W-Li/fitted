@@ -251,3 +251,51 @@ safe path: run `/spec m5-cutover` next session with this note + §23 as the open
 note), H55 (temperature delta); landed the §15.1 fallbackStage reading-rule trap-guard; fixed
 `ml-system/requirements.txt` phantom CV block. Floors re-confirmed cold: core 752 / h26 304 (+1
 skip) / jest 377. Zero OpenAI spend; sealed H26 artifacts untouched.
+
+---
+
+## CODEX FORWARD-AUDIT RECONCILE (same day — Brian ran an independent Codex audit in parallel)
+
+Every Codex finding personally re-verified against source (read each cite; empirically probed
+B1/C1). Validity: **6/10 valid as stated (A1, B1, B2, C1, D3, F3), 2 valid-but-redispositioned
+(D1/D2 → widen the registered H29 obligation-2 helper checklist, not new holes), 2 partially
+valid (F1 — real prereg ambiguity but counterfactual-only, code follows the frozen letter, actual
+judge non-vacuous so the frozen verdict is untouched; F2 — choice-range claim true, order claim
+refuted: bad `order` fails loud via KeyError). Zero fabricated cites.** Codex's rejected fix
+directions: amending the sealed prereg (barred) / making vacuity override gate B (would rewrite
+frozen adjudication) — both handled as **disposition notes on H56** instead.
+
+**Fixes landed (all guard-class, matching package conventions, each with covering tests):**
+- **B1** `validator.py parse_gpt_json`: catch `RecursionError` → `invalidJson` (2,000-deep
+  nesting previously crashed through the "never raises on bad data" contract — reproduced).
+- **C1** `ranker.py RankerContext`: reject bare `str`/`bytes`/`bytearray` for all 6 signal
+  collections **before** tuple/frozenset coercion (reproduced: `tuple("sig-A")` →
+  `('s','i','g','-','A')`, every membership signal fails open) + reject non-`str` elements after.
+- **A1** `rescue.py RescueRequest`: `n_surfaced > k` now `ValueError` (impossible budget —
+  every render would be marked insufficient).
+- **B2** `validator.py`: `moveType`/`oneSentence` trim-checked (whitespace-only = blank card text).
+- **D3** `snapshot_serde.py _convert`: non-`str` mapping keys rejected in BOTH opaque and normal
+  branches (json.dumps would silently coerce `1`→`"1"` across the wire).
+- **F3** h26 `test_gates.py`: gate-B exact-boundary test (low == −δ ∧ hw == δ both inclusive,
+  bit-exact ÷2) — completes the CP3 A/D boundary-pin pattern.
+- **Docs:** §23-H29 helper checklist widened (finite/[0,1] scores, candidateId uniqueness,
+  shown-set membership/consistency); §23-H56 gains the F1 vacuous∧underpowered letter-reading +
+  F2 choice-range disposition notes (sealed prereg untouched).
+
+**Ripples checked:** no existing test/caller constructs `n_surfaced > k` (grep); no test pins the
+old "non-empty string" styleMove message; corpus dry-run (12 cases) unchanged; `rejection_histogram`
+is opaque so the non-opaque serde test targets `diagnostics` itself.
+
+**Pre-commit fresh-context review: SHIP, zero blocking findings.** The reviewer independently
+re-verified every guard against source + probed empirically (confirmed: no legitimate caller/payload
+is newly rejected — `_build_ranker_context` passes empty defaults, no corpus fixture overrides
+`k`/`n_surfaced`, every real serde map is str-keyed by construction; every new test kills its
+mutation; the gate-B boundary bit-exactness claim verified hex-identical in IEEE754; all doc claims
+accurate). Its 1 MINOR + 1 same-class NIT were then closed in the same pass: the
+`_validate_style_move` docstring re-synced to the trim-check, and the reviewer-surfaced
+`item_affinity` non-str-KEY fail-open (the same C1 class) guarded + tested. Its remaining NIT
+(whitespace `changedItemIds` entries) is deliberately left: the H23 subset check catches those
+downstream, and B2's scope was card text, not ids.
+
+**Suites after fixes + review closes: core 791 / h26 305 (+1 skip) / jest 377 — floors GROWN**
+(CLAUDE.md updated). CLI corpus dry-run re-smoked clean.

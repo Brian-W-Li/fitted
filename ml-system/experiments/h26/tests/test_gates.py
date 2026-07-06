@@ -99,6 +99,25 @@ def test_gate_b_vacuity_flag(prereg):
     assert v["verdict"] == "GO"       # the frozen A^B^D gate itself does not change (§B)
 
 
+def test_gate_b_exact_low_and_power_boundary_passes(prereg):
+    """Pin both inclusive B boundaries (prereg.json: 'CI_low >= -delta', 'half_width <= delta').
+
+    CI [-0.05, 0.05]: low == -delta exactly AND half_width == delta exactly ((high-low)/2
+    is an exact power-of-two division, so the comparison is bit-exact, no rounding slack)
+    -> non-inferior AND powered -> state 'pass'. Mirrors the CP3 gate-A/D boundary pins.
+    """
+    delta = prereg["gates"]["B"]["delta"]
+    assert delta == 0.05  # the frozen value the literals below must track
+    v = ev.apply_gates(
+        _metrics(gate_B_diff_inconsistent_miss=_ci(0.0, -0.05, 0.05)), prereg
+    )
+    assert v["B"]["miss"]["half_width"] == delta
+    assert v["B"]["miss"]["non_inferiority"] is True
+    assert v["B"]["miss"]["powered"] is True
+    assert v["B"]["miss"]["state"] == "pass"
+    assert v["B"]["pass"] and v["verdict"] == "GO"
+
+
 def test_gate_d_floor_reads_ci_low(prereg):
     v = ev.apply_gates(_metrics(outfit_auc=_ci(0.82, 0.805, 0.835)), prereg)
     assert not v["D"]["legs"]["outfit_auc"]["pass"] and v["verdict"] == "NO-GO"

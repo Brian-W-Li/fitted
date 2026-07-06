@@ -236,6 +236,15 @@ class RankerContext:
         if k <= 0:
             raise ValueError(f"k must be a positive int, got {k}")
 
+    _SIGNAL_COLLECTION_FIELDS = (
+        "shown_full_signatures",
+        "recent_disliked_base_keys",
+        "recent_disliked_item_ids",
+        "liked_full_signatures",
+        "contextual_disliked_item_ids",
+        "locked_item_ids",
+    )
+
     def _normalize_collections(self) -> None:
         """Freeze the signal collections so a caller's later mutation can't reach in (§4).
 
@@ -243,7 +252,22 @@ class RankerContext:
         ``tuple`` (order preserved — recency-faithful membership); unordered id sets →
         ``frozenset``; ``item_affinity`` → a ``MappingProxyType`` over a private copy
         (read-only view, independent of the caller's dict).
+
+        **Bare-``str`` trap-guard (M5 reducer boundary):** a scalar string where a
+        collection belongs would coerce silently — ``tuple("sig-A")`` is
+        ``('s','i','g','-','A')`` — and every membership check (repetition, cooldown,
+        dislike, comboBoost, locks) would fail *open* against char fragments. Reject
+        ``str``/``bytes`` containers before coercion and non-``str`` elements after,
+        so a reducer type slip fails loud, never silently disables a signal.
         """
+        for name in self._SIGNAL_COLLECTION_FIELDS:
+            value = getattr(self, name)
+            if isinstance(value, (str, bytes, bytearray)):
+                raise TypeError(
+                    f"{name} must be a collection of strings, got a bare "
+                    f"{type(value).__name__} (tuple/frozenset coercion would split it "
+                    "into characters and the signal would silently fail open)"
+                )
         object.__setattr__(self, "shown_full_signatures", tuple(self.shown_full_signatures))
         object.__setattr__(self, "recent_disliked_base_keys", tuple(self.recent_disliked_base_keys))
         object.__setattr__(self, "recent_disliked_item_ids", tuple(self.recent_disliked_item_ids))
@@ -253,6 +277,14 @@ class RankerContext:
         )
         object.__setattr__(self, "locked_item_ids", frozenset(self.locked_item_ids))
         object.__setattr__(self, "item_affinity", MappingProxyType(dict(self.item_affinity)))
+        for name in self._SIGNAL_COLLECTION_FIELDS:
+            for element in getattr(self, name):
+                if not isinstance(element, str):
+                    raise TypeError(
+                        f"{name} elements must be str, got {type(element).__name__} "
+                        "(reducer contract: pre-reduced signals are collections of "
+                        "signature/id strings)"
+                    )
 
 
 # ===================== snapshot helpers (output immutability — §4) =====================
@@ -807,6 +839,14 @@ def _guard_reducer_inputs(context: RankerContext) -> None:
             f"DISLIKE_WINDOW_SIZE={DISLIKE_WINDOW_SIZE} (the reducer owns windowing; M3 never truncates)"
         )
     for item_id, affinity in context.item_affinity.items():
+        # Keys must be str for the same fail-open reason the signal collections reject
+        # non-str elements: a non-str key (e.g. an int id) never matches any candidate's
+        # item ids, so the affinity silently contributes nothing.
+        if not isinstance(item_id, str):
+            raise TypeError(
+                f"item_affinity keys must be str item ids, got {type(item_id).__name__}: "
+                f"{item_id!r} (a non-str key never matches and the boost silently fails open)"
+            )
         # bool is an int subclass — isinstance(True, int) is True — so reject it before the
         # numeric check (mirrors the package's bool-rejection precedents). The numeric guard
         # then makes the `< 0` comparison well-defined (a non-number `< 0` would raise an

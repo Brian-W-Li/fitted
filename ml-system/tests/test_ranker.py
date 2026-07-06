@@ -271,6 +271,42 @@ def test_context_item_affinity_is_read_only_copy():
         ctx.item_affinity["i"] = 0
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "shown_full_signatures",
+        "recent_disliked_base_keys",
+        "recent_disliked_item_ids",
+        "liked_full_signatures",
+        "contextual_disliked_item_ids",
+        "locked_item_ids",
+    ],
+)
+@pytest.mark.parametrize("scalar", ["sig-A", b"sig-A", bytearray(b"sig-A")])
+def test_context_rejects_bare_string_signal_collections(field, scalar):
+    # A bare str/bytes would coerce to per-character fragments (tuple("sig-A") ->
+    # ('s','i','g','-','A')) and every membership signal would silently fail OPEN —
+    # the M5 reducer-boundary trap. Must fail loud at construction instead.
+    with pytest.raises(TypeError, match=field):
+        _ctx(**{field: scalar})
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "shown_full_signatures",
+        "recent_disliked_base_keys",
+        "recent_disliked_item_ids",
+        "liked_full_signatures",
+        "contextual_disliked_item_ids",
+        "locked_item_ids",
+    ],
+)
+def test_context_rejects_non_string_signal_elements(field):
+    with pytest.raises(TypeError, match=field):
+        _ctx(**{field: ["ok", 7]})
+
+
 # ------------------------ reducer-contract guards: window lengths (N14) ------------------------
 
 
@@ -327,6 +363,14 @@ def test_non_numeric_affinity_raises_type_error():
         ranker.rank([], _ctx(item_affinity={"x": "5"}))
     with pytest.raises(TypeError):
         ranker.rank([], _ctx(item_affinity={"x": None}))
+
+
+@pytest.mark.parametrize("bad_key", [1, None, ("t1",)])
+def test_non_string_affinity_key_raises_type_error(bad_key):
+    # Same fail-open class as the bare-str collection guard: a non-str key never matches
+    # any candidate's item ids, so the boost would silently contribute nothing.
+    with pytest.raises(TypeError, match="item_affinity keys"):
+        ranker.rank([], _ctx(item_affinity={bad_key: 1.0}))
 
 
 def test_non_finite_affinity_raises_value_error():

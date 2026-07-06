@@ -219,6 +219,25 @@ def test_non_string_item_id_raises():
         serde.to_wire(payload)
 
 
+@pytest.mark.parametrize("bad_key", [1, None, ("a",)])
+def test_opaque_map_rejects_non_string_keys(bad_key):
+    # json.dumps would silently coerce a non-str key (1 -> "1"), mutating the key's type
+    # across the wire — reject at the boundary even inside opaque blobs (D3, pre-flight).
+    payload = _sample_payload()
+    payload["constraints"] = {bad_key: "x"}
+    with pytest.raises(ValueError, match="mapping key"):
+        serde.to_wire(payload)
+
+
+def test_non_opaque_map_rejects_non_string_keys():
+    # A non-str key in a normally-cased (non-opaque) mapping is rejected by the same guard
+    # (rejection_histogram/constraints are opaque — diagnostics itself is not).
+    payload = _sample_payload()
+    payload["diagnostics"][3] = "x"
+    with pytest.raises(ValueError, match="mapping key"):
+        serde.to_wire(payload)
+
+
 def test_objectid_like_candidate_id_raises():
     class FakeObjectId:
         def __str__(self) -> str:  # looks string-ish but isn't a str

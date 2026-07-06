@@ -127,6 +127,15 @@ class RescueRequest:
             raise TypeError(f"n_surfaced must be a non-bool int, got {type(n).__name__}")
         if n <= 0:
             raise ValueError(f"n_surfaced must be a positive int, got {n}")
+        # The surfaced set is selected FROM the ranked pool of ≤ k (§G "Rescue's k vs
+        # n_surfaced"), so n_surfaced > k is an impossible budget: the ranker can never
+        # return enough and every render would be marked insufficient_after_generation.
+        # Fail loud at construction instead of silently degrading every response.
+        if n > self.k:
+            raise ValueError(
+                f"n_surfaced={n} exceeds k={self.k}; the surfaced set is drawn from the "
+                "ranked pool of at most k outfits, so this budget can never be met"
+            )
 
 
 # ============================================================================

@@ -215,6 +215,10 @@ def parse_gpt_json(raw: str) -> ParseResult:
     try:
         # json.JSONDecodeError is a ValueError subclass; our two hooks also raise
         # ValueError, so a single except covers every malformed-content failure.
+        # RecursionError is the one non-ValueError escape: pathologically deep nesting
+        # (thousands of levels) blows the parser's recursion budget — still malformed
+        # *content* from an untrusted generator, so it must land on the same invalidJson
+        # path (the "never raises on bad data" contract above), never crash the pipeline.
         payload = json.loads(
             raw,
             object_pairs_hook=_reject_duplicate_keys,
@@ -222,6 +226,11 @@ def parse_gpt_json(raw: str) -> ParseResult:
         )
     except ValueError as exc:
         return ParseResult(payload=None, issue=Issue(IssueCode.invalid_json, None, str(exc)))
+    except RecursionError:
+        return ParseResult(
+            payload=None,
+            issue=Issue(IssueCode.invalid_json, None, "JSON nesting depth exceeds the parse limit"),
+        )
     return ParseResult(payload=payload, issue=None)
 
 
@@ -436,7 +445,8 @@ def _validate_style_move(
     First-failing-check-wins in the §7 order — shape → H23 subset → duplicate ids:
     - **shape** (``invalidStyleMoveShape``): non-object (incl. ``null``); not exactly the
       three §12 fields (a forbidden/unknown key here is a *warning*, never a candidate
-      reject — M2 plan §4); ``moveType``/``oneSentence`` non-string or empty;
+      reject — M2 plan §4); ``moveType``/``oneSentence`` non-string or blank (empty or
+      whitespace-only — either renders an empty styling explanation);
       ``changedItemIds`` non-array/empty/with a non-string or empty-string entry.
     - **subset** (``styleMoveItemOutsideOutfit``): ``changedItemIds`` ⊄ the outfit's
       filled slot ids (H23 — every slot, incl. optional outer/shoes).
@@ -459,10 +469,12 @@ def _validate_style_move(
     changed = raw["changedItemIds"]
     # bool is an int, not a str — isinstance(True, str) is False, so bools fall through
     # to the shape warning (mirrors the itemId/role bool-rejection precedents).
-    if not isinstance(move_type, str) or move_type == "":
-        return None, Issue(IssueCode.invalid_style_move_shape, index, "moveType must be a non-empty string")
-    if not isinstance(one_sentence, str) or one_sentence == "":
-        return None, Issue(IssueCode.invalid_style_move_shape, index, "oneSentence must be a non-empty string")
+    # strip(): whitespace-only text is as unusable as empty — a blank moveType/oneSentence
+    # would render an empty styling explanation on the card (B2, pre-flight 2026-07-06).
+    if not isinstance(move_type, str) or move_type.strip() == "":
+        return None, Issue(IssueCode.invalid_style_move_shape, index, "moveType must be a non-blank string")
+    if not isinstance(one_sentence, str) or one_sentence.strip() == "":
+        return None, Issue(IssueCode.invalid_style_move_shape, index, "oneSentence must be a non-blank string")
     if not isinstance(changed, list) or len(changed) == 0:
         return None, Issue(IssueCode.invalid_style_move_shape, index, "changedItemIds must be a non-empty array")
     for cid in changed:

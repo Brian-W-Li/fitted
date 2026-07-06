@@ -199,6 +199,22 @@ def test_rescue_request_rejects_invalid_n_surfaced(value, exc):
         )
 
 
+def test_rescue_request_rejects_n_surfaced_greater_than_k():
+    # The surfaced set is drawn FROM the ranked pool of <= k (§G), so n_surfaced > k is an
+    # impossible budget — every render would be marked insufficient_after_generation.
+    with pytest.raises(ValueError, match="n_surfaced=4 exceeds k=3"):
+        RescueRequest(
+            wardrobe=[_item("t1", ItemType.top)],
+            forced_item_id="t1",
+            occasion="casual",
+            weather="mild",
+            session_id="s",
+            wardrobe_version=1,
+            k=3,
+            n_surfaced=4,
+        )
+
+
 @pytest.mark.parametrize(
     ("value", "exc"),
     [(0, ValueError), (-1, ValueError), (False, TypeError), (1.5, TypeError), ("10", TypeError)],
