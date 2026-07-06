@@ -425,6 +425,76 @@ trap-guard in s2). No NEW unregistered load-bearing hole survived verification a
 
 ---
 
+## CHECKPOINT 6 — merit / product / portfolio (session 2, 2026-07-06)
+
+Outcome: **GO HOLDS (unchanged from the 2026-07-05 Fable review). No merit shift; no product-code
+drift.** Three deep-reasoning seats (adversarial merit-delta+fidelity / portfolio+bus-factor / Fable
+synthesis), all converged. **1 doc-consistency fix (memory sequencing reconciled to canon); 2 Brian-action
+chips reiterated (backup, README front-door); 1 fidelity watch-item (rank() hook timing) — report-only.**
+
+### 6a/6b — Merit-delta + promise-fidelity (adversarial): GO HOLDS
+- **The H26 NO-GO does not move the GO** — it was priced in on 2026-07-05, and the spike was *framed so the
+  verdict can't move merit*: a **power miss** (CI wholly above +δ), gates A/D pass, and the **item-level seam
+  ablation strengthened the architecture bet** (§23-H28 pairwise shape now empirically de-risked on the
+  project's own data, not just literature). Merit arguably *increased*.
+- **Biggest merit risk:** M6 (the trained-scorer centerpiece) is formally NO-GO and both re-open levers need
+  data a zero-user fork has no organic pipeline for. Fable's sharpening (verified against `results.md` §10):
+  the *cheapest* verdict-flipping lever is **re-powering gate B by extending the frozen-ordered judged prefix**
+  (13,395 questions unjudged; "a cost choice, not a data limit") — self-sufficient, no data-acquisition
+  dependency — while friend-closets remain the *higher-value* change (attacks the real transfer risk). Both
+  are M6-entry, not pre-M5.
+- **Fidelity — clean, two watch-items:**
+  - **F1 (report-only watch):** §5's "single most important structural deliverable" — the pairwise `rank()`
+    hook — is honestly tagged **reserved-not-in-code** (§5, §23-H28); H26's NO-GO demoted its timing from
+    *scheduled* (H26→M5) to *conditional* (M5-`/spec` call or defer to M6). Accurately represented in canon;
+    the watch is that it not drift indefinitely (it's the seam the whole ML-dive narrative rests on). No action.
+  - **F2 (FIXED — conflict reconciled):** the 2026-07-05 merit memory scoped the friend-closet one-change
+    "before M5/M6 spend," but canon says otherwise (§20 "M5 is now the immediate next rung"; `results.md` §10
+    parks the transfer as an **M6 entry condition**, post-M5). Verified all three sources. Canon wins → edited
+    `project_merit_review_2026_07_05.md`: the gather is a cheap offline side-task adjacent to/after M5, feeds
+    M6 entry, **never gates M5**. Sealed `results.md` + §20 untouched (already consistent).
+  - **F3/F4/F5 (clean):** no product-code drift from this audit's CP1–CP5 churn (all doc-truth/register fixes);
+    the built substrate (`rescue.py` forced-orphan + reliable/bridge/stretch) genuinely embodies the green-shirt
+    graph vision, not a degenerated sampler; M6 scope has **not** crept to the item-level slot (H28 routing
+    consistent across §5/§11/§20/§23).
+
+### 6c/6d — Portfolio + bus-factor (deep read): STRONG / RECOVERABLE
+- **Portfolio: STRONG, one caveat.** H26 reads as senior-grade experimental engineering (pre-registration,
+  hash-binds, A∧B∧D printed-not-narrated, a NO-GO that ships as a complete result); `fitted_core` shows real
+  depth (bit-determinism, three-way contract, floors-not-vanity tests). **Caveat = the "so-what" gap:** nothing
+  this fork built runs live where a viewer can see it (deployed app = team's repo; H26 offline; `fitted_core`
+  never served a request). **Highest-leverage undone thing = M5** (converts substrate+experiment into a running
+  system) — all three seats independently reached M5 as the #1 next move, reasoned from the promise (Fable:
+  "the promise's next unit of merit is purchasable only at M5").
+- **README front-door chip (verified):** root `/README.md` is still **CS148 team pitch copy** ("our web app
+  will allow users to store clothes… our ML model will kick in") — never mentions `fitted_core`, H26, or the
+  solo rewrite. A cold reviewer sees the weakest, most-dated framing first while the crown-jewel `results.md`
+  is buried. **~1 session, near-zero cost, currently actively misleading.** → **Brian-action chip** (framing/voice
+  is his call; portfolio-framing, not launch/marketing which is scoped-out). Ranking: README now → M5 → writeup.
+- **Bus-factor: RECOVERABLE.** Docs are a model of externalized state — next action unambiguous (§20 ladder +
+  CLAUDE.md + `docs/README.md` all converge on M5), §23 holes register is an exceptional decision ledger, all
+  completed plans retired with forward pointers, single-home rule holding (this session's CP2 *caught* the
+  drift that existed). MEMORY.md index current post-fix.
+- **THE single point of failure (reiterated from CP1d — Brian must run):** ~90 unpushed commits + ~70 MB
+  non-regenerable laptop-only data (`raw_payloads/` paid-API provenance, `closet/` consent-bound photos,
+  `panel_answers/` labeler data). Laptop loss today destroys the H26 provenance chain *and* the unpushed
+  derived artifacts. Remediation documented in CP1d (push the certified-safe commits; tar irreplaceables to
+  private storage — never a public remote). **Highest-priority Brian-action, independent of everything.**
+
+### CP6 verdict
+Still **both well-aimed AND faithfully built.** GO holds; the ambition survived the NO-GO intact (seam-shape
+bet got stronger); the substrate honestly embodies the [NOW] rung. The aim now hangs on one unbuilt seam
+(rank() hook, F1) and the live cutover (M5) — both already the canonical next work. Fable's meta-note, worth
+heeding: the audit discipline is now **past diminishing returns — the marginal merit of the next audit round
+is far below that of the first live render.** CP7/CP8 close this audit; then M5.
+
+### CP6 chips (Brian-action / M5)
+- **[HIGH] Push ~90 commits + back up the 3 irreplaceable dirs off-laptop** (CP1d recipe). SPOF.
+- **[MED] Rewrite root `/README.md`** as a portfolio front-door (systems thesis + H26-as-discipline + fitted_core + link results.md). Currently team-era copy.
+- **[watch] rank() pairwise hook** (F1) — reserved-not-in-code; land with M5 or M6-entry, don't let it drift.
+
+---
+
 ## SESSION 1 STOP (2026-07-06) — clean boundary after CP4-complete + CP5-partial
 CP0–CP4 fully complete + committed. CP5 partial (security lane done + committed; robustness lane pending).
 No agents in flight. Next session: resume at CP5 robustness lane. Suite floors after this session:
