@@ -704,7 +704,13 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   enters — it validates types, non-empty ids/strings, and tag-container shape through one predictable error
   channel. The dataclass keeps only its two narrow guards (enum coercion of `clothingType`,
   `warmth ∈ 0..10`) as a last-resort backstop and is **not** the wire boundary (it accepts `warmth=True`,
-  since a Python bool is an int — the trap-guard).
+  since a Python bool is an int — the trap-guard). **R5 is load-bearing for snapshot-write integrity, not
+  just sampler correctness:** the `GenerationSnapshot.ts` schema pins `weather` to the 5-value enum and marks
+  both `weather` and `occasion` `required`, so an un-bucketed weather or empty occasion throws a Mongoose
+  `ValidationError` on insert — and because the snapshot write is async/best-effort (below), that **silently
+  drops the training row** rather than surfacing. R5 normalization must therefore complete *before* the
+  snapshot is constructed; the adapter validates-or-logs-and-skips, never lets Mongoose throw mid-write.
+  (`RescueRequest.weather/occasion` are plain `str` — the dataclass does not enforce the bucket, by design.)
 - **GenerationSnapshot** (training truth, `[NEXT]`): one immutable record per rendered response — request
   inputs + StyleProfileSnapshot + the full candidate funnel + **shown outfit ids/positions** +
   model/prompt/scorer versions + **immutable item feature snapshots**. Feedback binds to the server-issued

@@ -369,6 +369,62 @@ task for the M5 deploy prep. → CP7a/deploy chip. (License scan + the rest of 5
 
 ---
 
+### 5c/5d — Robustness lane (session 2, resumed 2026-07-06)
+
+Outcome: **CLEAN — no NEW load-bearing hole. 1 doc trap-guard landed (spec §15 R5).** Three parallel
+read-only sub-lanes (concurrency+error-path / type-contract / perf); every load-bearing claim re-verified
+against source. One cross-agent conflict resolved by reading the Mongoose source myself. Findings are all
+§19/§15-registered + M5-owned (this vertical is rewritten at cutover). No app-code changed.
+
+**Concurrency + error-path (agent + spot-verify): CLEAN.**
+- Double-submit interactions: no unique index (`OutfitInteraction.ts:104` is plain multikey), two POSTs → two
+  rows + 2× Gemini fire. **Registered §23-H11** (append-only by design; dedup is an M5 read-time reducer). NIT
+  caveat: legacy rows never write `snapshotId`/`candidateId`, so the H11 dedup key degenerates to `{null,null,action}`
+  for the pre-M5 corpus — moot under the M5 DB-wipe; M5 must wire the binding write before relying on the reducer.
+- Parallel regenerate: **genuinely race-free** — `recommend`/`regenerate` routes are DB-read-only (no exclusion
+  write, no snapshot counter — the racy snapshot write doesn't exist yet). No finding.
+- wardrobeimages cascade: single-item DELETE (`wardrobe/[id]/route.ts:176-199`) is item-first then best-effort
+  `WardrobeImage.deleteOne` in a log-and-continue try/catch — non-atomic, orphan-image-on-mid-failure (the *safe*
+  direction: leaked doc, never a dangling pointer). Image **replacement** (`image/route.ts:74-94`) deletes old
+  before storing new = data-loss ordering — **registered §23-H14** (DEFERRED-W-track). No Mongo txn anywhere
+  (`lib/mongodb.ts` plain pooled conn). Minor NIT extension of H14, not separately blocking.
+- Error-path: systemic **500-on-CastError** (malformed ObjectId → generic catch → 500 where 400 is right) across
+  the legacy vertical — NIT, M5 "validate ObjectIds at the boundary". Best-effort Gemini side-effect is correct
+  posture (durable save at `:157` before enrichment fires). No data corruption anywhere.
+
+**CONFLICT RESOLVED (I read Mongoose 8.23.0 source myself):** the type-contract agent's F4 claimed interactions
+GET crashes 500 on a deleted-item ref (`item._id.toString()` on a null populate result). **REFUTED against
+`node_modules/mongoose/lib/helpers/populate/assignVals.js` `valueFilter`:** for a dangling array ref with
+`retainNullValues` falsy (the default), the loop hits `continue` and **strips** the element — `interaction.items`
+holds only successfully-populated docs, so the `.map` never sees null. The concurrency agent was right; F4 is
+wrong. The `item: any` cast there is cosmetic, not a load-bearing crash-hider.
+
+**Type-contract (agent + source-verify): three-way contract is TYPE-safe for every field Python authors.**
+Enums / int-vs-float / nullability / nested shapes / version constants all agree; the serde rejects the two
+corruption classes (non-finite floats `snapshot_serde.py:291`, non-string ids `:204`) at author time. The one
+genuine forward-compat gap (**F1/F2, verified**): `GenerationSnapshot.ts:272-273` pins `occasion` `required` +
+`weather` to a 5-value `enum`+`required`, but `RescueRequest.weather/occasion` (`rescue.py:88-89`) cross as
+unvalidated free `str` (`__post_init__` validates only generation_index/k/n_surfaced). **Ownership already
+registered** (§15 R5 = M5 adapter owns weather-bucketing + occasion-normalization; §7 step-0). What was
+missing = the *consequence*: a normalization miss hard-fails the Mongoose insert and, since the write is
+async/best-effort, **silently drops the training row**. → **FIX APPLIED (doc): spec §15 R5 bullet gains a
+trap-guard** — "R5 is load-bearing for snapshot-write integrity, validate-or-log-and-skip before constructing
+the snapshot, never let Mongoose throw mid-write." Conflict-free amplification, not a new hole.
+
+**Perf (agent + index-vs-query table verified): no DB-level defect.** Every user-scoped query is index-backed
+(`User{authProvider,authId}` unique; `WardrobeItem{user}` + `{user,updatedAt}`; `OutfitInteraction{user,createdAt}`;
+all cascades `deleteMany({user})` on `{user:1}`). The interactions-GET populate is **batched** (one `$in`), not
+an N+1. Dormant M4b GenerationSnapshot indexes already match the planned M5 read shapes. Two NITs both inside
+M5-deleted code: `docs.find` in a `.map` (`recommend:606`/`regenerate:600` — should be a Map, negligible at closet
+scale); unbounded per-user `WardrobeItem.find({user})` feeding the shortlister (single-user bounded, the #112
+cap-at-80 is the intended mitigation). All expected demo-scale legacy; the M5 sampler is their principled replacement.
+
+**CP5 VERDICT: COMPLETE.** Security lane (session 1) + robustness lane (session 2) both done. Zero app-code
+fixes (correct — the vertical is M5-rewritten); 2 doc actions total (§19 NEW-1 register-accuracy in s1, §15 R5
+trap-guard in s2). No NEW unregistered load-bearing hole survived verification across either lane.
+
+---
+
 ## SESSION 1 STOP (2026-07-06) — clean boundary after CP4-complete + CP5-partial
 CP0–CP4 fully complete + committed. CP5 partial (security lane done + committed; robustness lane pending).
 No agents in flight. Next session: resume at CP5 robustness lane. Suite floors after this session:
