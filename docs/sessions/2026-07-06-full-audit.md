@@ -601,13 +601,20 @@ sequencing reconciled + 2 stale index lines. **No product code changed** (M5 own
 **Merit:** GO holds (three seats converged; H26 NO-GO priced in + seam-shape bet strengthened). **Portfolio:**
 STRONG with a "so-what" gap → **M5 is the #1 next move** (makes it run live). **Bus-factor:** RECOVERABLE.
 
-**Brian-action items (NOT code — require Brian to run), in priority order:**
-1. **[HIGH — SPOF] Push the ~90 unpushed commits + back up 3 irreplaceable dirs off-laptop** (CP1d recipe:
-   `raw_payloads/` + `closet/` + `panel_answers/`, ~70 MB non-regenerable, consent-bound local-only). Laptop
-   loss today destroys the H26 provenance chain *and* the unpushed derived artifacts.
-2. **[MED] Rewrite root `/README.md`** as a portfolio front-door (currently stale CS148 team copy that buries
-   the H26 crown jewel).
-3. Then **M5** (the live cutover — §20; carries the CP5 §19 security/robustness register + CP7 dep-bump/CI chips).
+**Brian-action items — ALL THREE DONE this session (2026-07-06, on Brian's go-ahead):**
+1. ✅ **Pushed all commits to `origin/main`** (`…525524b7..f4445ac8`; 0 unpushed) — the certified-safe 1b set
+   plus this session's audit commits. Protects all committed/derived artifacts remotely.
+2. ✅ **Backed up the 3 irreplaceable dirs to `~/Desktop/h26-irreplaceable-20260706.tar.gz`** (53 MB, 4667
+   files, integrity-verified via `tar -tzf`). **Caveat flagged to Brian:** Desktop is same-laptop — it guards
+   against accidental `git clean`/deletion but NOT laptop loss; move the tarball to an external drive / private
+   cloud to fully close the SPOF (never a public remote — closet photos are consent-bound `third_party=False`).
+3. ✅ **Rewrote root `/README.md`** as a portfolio front-door: H26-as-disciplined-systems-experiment headline
+   (NO-GO framed as a complete result; every number source-verified against `results.md` §1 incl. the
+   19,900-edge/0.33s vs $82/24h systems table + the 35.6% position-flip), the fork-vs-deployed distinction,
+   what's-built table, honest "designed-not-demonstrated / nothing runs live in this fork yet" framing
+   (narrative-honesty rule), run instructions, and CS148/MIT provenance. Replaces the stale team pitch.
+
+**Next: M5** (the live cutover — §20; carries the CP5 §19 security/robustness register + CP7 dep-bump/CI chips).
 
 **Next session:** M5 `/spec` (per §14.5 handoff), OR the two Brian-actions above first. Suite floors:
 **core 752 / h26 304 (+1 skip) / jest 377.** Session-2 commits: b58f1b5c, 914e6e23, 85f8616f, + this CP8 commit.
