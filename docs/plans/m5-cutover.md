@@ -159,12 +159,16 @@ Browser ─▶ Next route (one recommend route)                   Fly.io service
     `[0,2]` clamp: clamping *is* client control, contradicting D6's service-side enforcement.) **The cap
     is provenance too:** `max_completion_tokens` changes truncation/parse-fail/candidate distributions,
     so it is recorded in the payload's `generator` block (§G item 6) for M6 stratification.
-  - **Input clamps:** length-clamp every body-controlled text field (`occasion`, `weatherRaw`, `location`)
-    and cap the `wardrobe` array length + total request body size at the ASGI layer. **M5 constraints
-    posture:** `lens.constraints` must be `{}`; any non-empty map is `contract_invalid` before generation
-    and writes no snapshot. Constraints stay in the wire/schema as the v2 placeholder, but they are not
-    corpus truth until they are engine-active.
-    (Prompt *items* are already structurally capped by the per-type sampler caps ⇒ `MAX_PROMPT_ITEMS`.)
+  - **Input clamps + pre-spend Lens validation:** length-clamp every body-controlled text field
+    (`occasion`, `weatherRaw`, `location`), reject blank/whitespace-only `occasion`, reject any `weather`
+    bucket outside `hot|mild|cold|indoor|outdoor`, and cap the `wardrobe` array length + total request body
+    size at the ASGI layer. These checks run **before generation**; relying on Mongoose enum/required
+    failures after the GPT call is spend leakage and yields no corpus row. **M5 constraints posture:**
+    `lens.constraints` must be `{}`; any non-empty map is `contract_invalid` before generation and writes no
+    snapshot. Constraints stay in the wire/schema as the v2 placeholder, but they are not corpus truth until
+    they are engine-active. (Prompt *items* are already structurally capped by the per-type sampler caps =>
+    `MAX_PROMPT_ITEMS`.) The engine parser also rejects hostile-but-parseable JSON deeper than
+    `MAX_JSON_NESTING_DEPTH=512` as `invalidJson`, before downstream validation walks it.
   - **Rate ceiling:** a simple in-process token bucket per instance (stateless service, single instance —
     a crude ceiling is enough; it bounds a leaked-secret blast radius to a known rate).
   - **Hard budget:** a monthly spend cap on the OpenAI project (dashboard setting, zero code) — the
@@ -179,6 +183,7 @@ Browser ─▶ Next route (one recommend route)                   Fly.io service
 {
   "snapshotId": "<TS ObjectId hex>",          // TS-preallocated (§15.1 identity)
   "requestId": "<client idempotency token>",   // §C.4 — UUIDv4/ULID minted once per Generate action, reused on retry
+  "sessionId": "<verified user id>",            // Next-derived from Firebase auth, never client-supplied; feeds R8 seeds/keys
   "intent": "daily" | "rescue_item",
   "generationIndex": 0,                        // NEXT-computed: 0 first render; parent+1 on a re-roll
                                                //   (§C.1 lineage gate — never taken from the client)
@@ -194,7 +199,7 @@ Browser ─▶ Next route (one recommend route)                   Fly.io service
   "behavioralRows": { /* §H RAW rows the SERVICE reduces: recentSnapshots[] (shownFullSignatures+nSurfaced+
                          createdAt+_id, H19 window) + interactionRows[] (BOUNDED, §H projection) */ },
   "generator": { "provider": "openai", "model": "gpt-5.4-mini", "temperature": 0.5,
-                 "maxCompletionTokens": 900 } // illustrative; exact Appendix-B/service config cap
+                 "maxCompletionTokens": 900 } // exact service config/env cap `M5_MAX_COMPLETION_TOKENS`
   // ^ Next's EXPECTATION, exact-match-validated against the service's own config (§A) — the service
   //   generates and records provenance from its own config, never from this object
 }
@@ -259,12 +264,14 @@ Next catches them (§D). The H12 trigger set maps: `unreachable|timeout` → Nex
 Generalize the rescue vertical to an intent-generic orchestrator. **Real current signatures** (verified):
 
 ```python
-# rescue.py today — the shape to generalize:
-@dataclass  # RescueRequest: wardrobe, forced_item_id: str (REQUIRED), occasion, weather, session_id,
-            # wardrobe_version, generation_index=0, k=DEFAULT_K, n_surfaced=N_SURFACED, date=None
-def rescue(request: RescueRequest, generator: Generator) -> RescueResult: ...
-def rescue_with_trace(request: RescueRequest, generator: Generator) -> RescueTrace: ...
-def _build_request_context(request) -> RequestContext:  # pins interaction_count=0  ← M5 must parameterize
+# rescue.py today — generalized without breaking the RescueRequest import sites:
+RenderRequest = RescueRequest  # fields include intent, Optional forced_item_id, interaction_count
+def render(request: RenderRequest, generator: Generator, *, signal_scorer=None,
+           behavioral_signals=None) -> RenderResult: ...
+def render_with_trace(request: RenderRequest, generator: Generator, *, signal_scorer=None,
+                      behavioral_signals=None) -> RenderTrace: ...
+def rescue(request: RescueRequest, generator: Generator, *, signal_scorer=None,
+           behavioral_signals=None) -> RescueResult: ...  # dispatch target for rescue_item
 ```
 
 **Deliverables:**
@@ -275,11 +282,12 @@ def _build_request_context(request) -> RequestContext:  # pins interaction_count
   (feeds `RequestContext.interaction_count` — no longer hard-`0`). Keep the existing k / n_surfaced /
   generation_index validators. **Daily's `n_surfaced` is pinned = 3** (decided, not inherited: the
   `(path×risk)` spread argument holds for daily too, and it halves per-render token/UI cost vs the legacy
-  `maxOutfits=5`; the field stays request-settable if the product call changes). `RenderRequest` satisfies
-  the `LensRequest` Protocol by shape (occasion+weather) — verified: the Protocol docstring already
-  anticipates "any future daily/upgrade request".
-- `render(request, generator, *, signal_scorer=None) -> RenderResult` and
-  `render_with_trace(request, generator, *, signal_scorer=None) -> RenderTrace` dispatch on
+  `maxOutfits=5`; implemented as the default, **not** a hard dataclass raise, so the field stays
+  request-settable if the product call changes). `RenderRequest` satisfies the `LensRequest` Protocol by
+  shape (occasion+weather) — verified: the Protocol docstring already anticipates "any future daily/upgrade
+  request".
+- `render(request, generator, *, signal_scorer=None, behavioral_signals=None) -> RenderResult` and
+  `render_with_trace(request, generator, *, signal_scorer=None, behavioral_signals=None) -> RenderTrace` dispatch on
   `request.intent`. **Rescue path** = today's `rescue`/`rescue_with_trace` behavior (forced-item scoping +
   sufficiency). **Daily path** = full-pool sample (§10, no forced-item scoping) → **pre-GPT
   `not_enough_items` short-circuit** (the sampler reports `not_enough_items` when `requested == 0`,
@@ -290,9 +298,10 @@ def _build_request_context(request) -> RequestContext:  # pins interaction_count
   `flags.notEnoughItems=true`, a **valid non-degenerate payload** with `nSurfaced=0`, snapshot written) →
   §12 generation (daily
   prompt) → validator → **intent-generic StyleMove drop (below)** → `rank_with_audit` → response. Keep
-  `rescue`/`rescue_with_trace` as thin
-  intent-`rescue_item` wrappers over `render` (their M0–Spearhead tests stay green). `signal_scorer=None`
-  defaults to `ColdStartSignalScorer()` — the wrappers and all goldens stay byte-identical. Candidate
+  `rescue`/`rescue_with_trace` as rescue-item entrypoints over the same substrate (their M0–Spearhead
+  tests stay green). `signal_scorer=None` defaults to `ColdStartSignalScorer()` and
+  `behavioral_signals=None` leaves `RankerContext` at its empty defaults — the wrappers and all goldens stay
+  byte-identical. Candidate
   count from the standard M1 scaling (§10 — daily has no forced item; use `build_candidate_pool`'s
   scaled ask).
 - **Split `_drop_invalid` — the StyleMove drop is intent-generic, the forced-item drop is rescue-only.**
@@ -301,11 +310,14 @@ def _build_request_context(request) -> RequestContext:  # pins interaction_count
   today is `rescue._drop_invalid` (`rescue.py:578+`) — a rescue-only step bundling **two** drops (forced
   item + StyleMove presence). M2 leaves `style_move=None` on absent-or-malformed moves and the ranker is
   StyleMove-agnostic, so a daily path without the drop **AssertionErrors on the first malformed
-  StyleMove** — exactly the untested daily-prompt × `gpt-5.4-mini` delta the prompt bullet below warns
+  StyleMove** — exactly the untested daily-prompt x `gpt-5.4-mini` delta the prompt bullet below warns
   about. Fix shape: extract the StyleMove-presence drop into an intent-generic pre-rank step both paths
   run; the forced-item drop stays rescue-only. Requiring the StyleMove stays (the "one thing that made
   it work" promise) — the fix is dropping the candidate, never letting `None` reach assembly, and never
-  weakening the assert.
+  weakening the assert. **Taxonomy pin:** rescue keeps the existing `dropStage="rescue"` /
+  `dropReason="rescue_*"` codes for byte-stability; daily StyleMove drops use intent-neutral
+  `dropStage="render"` / `dropReason="stylemove_invalid"` so the append-only candidate taxonomy does not
+  freeze rescue-branded provenance onto daily rows.
 - **Sampler signal slot — wire the real occupant, don't just re-label the fallback.** *Trap-guard:* the
   slot opens only when `interaction_count ≥ MIN_SIGNAL_THRESHOLD` **AND** `scorer.is_available()`
   (`sampler.py:247/:260-262`), and `ColdStartSignalScorer.is_available()` is hard-`False` (`:140-141`) —
@@ -341,7 +353,8 @@ pre-rank** (never reaches `_assemble_variant` — no AssertionError; honest part
 `rescue`/`rescue_with_trace` (golden corpus dry-run unchanged); `RenderRequest(intent="rescue_item")` with
 no `forced_item_id` raises; with `interaction_count ≥ 5` **and** a non-empty `AffinitySignalScorer`, at
 least one type's `selection_kind == signal` and the top-affinity item is selected; with an empty affinity
-map or count < 5 the sampler output is byte-identical to cold.
+map the sampler output is byte-identical to cold; with a non-empty scorer but count < 5 the selected pool and
+per-type fallback surface match cold while `scorer_available` remains true as a diagnostic.
 
 ## C. Regenerate = constrained fresh generation with lineage (D2)
 
@@ -362,13 +375,14 @@ Four contract pins:
    it is the feedback-binding token). **Next then enforces the lineage gate before calling the service:**
    re-read the parent by `{_id: parentSnapshotId, user}` (**ownership enforced** — a nonexistent or
    cross-user parent → stable 404, pre-service, no spend); **derive the child's Lens verbatim from the
-   parent row** (occasion, weather, weatherRaw, location, constraints, seedDate — M5 constraints are
-   always `{}` because non-empty constraints are rejected until the engine consumes them; D2's "same Lens, same
-   `session_seed` → same sampled pool" is *enforced by construction*, not hoped from a client echo;
+   parent row** (`sessionId`, `intent`, `forcedItemId`, occasion, weather, weatherRaw, location, constraints,
+   seedDate — M5 constraints are always `{}` because non-empty constraints are rejected until the engine
+   consumes them; D2's "same Lens, same `session_seed` → same sampled pool" is *enforced by construction*,
+   not hoped from a client echo;
    only the wardrobe is fetched live, so deletions/new dislikes reflect); and **compute
    `generationIndex = parent.generationIndex + 1` server-side** — a client-supplied `generationIndex`
-   or Lens on a re-roll is ignored (the wire fields exist for first renders and for Next→service, both
-   inside the trust boundary; the *client* is not). First render `= 0`. The child stores
+   or Lens/intent/forced item on a re-roll is ignored (the wire fields exist for first renders and for
+   Next→service, both inside the trust boundary; the *client* is not). First render `= 0`. The child stores
    `parentSnapshotId` in a **new §G field (does not exist today; verified absent)**. `generationIndex` stays barred from any key/seed input except `tiebreak_seed` (already
    wired via `RankerContext`, verified); the **sampler** seed (`session_seed`) excludes it, so a re-roll
    re-samples the same pool deterministically and the fresh GPT draw is the variety source.
@@ -401,7 +415,8 @@ Four contract pins:
 3. **Regen controls (R9 / H59).** `controls.lockedItemIds` / `controls.dislikedItemIds` are per-request
    fields. **Preflight (all three checks run before any GPT spend):** `locked ∩ disliked ≠ ∅` → stable
    `400/409`, never empty-success; a locked id absent from the live wardrobe → stable `400`; **a
-   structurally infeasible lock set → stable `400` with a reason code** — validate the locked items
+   rescue `forcedItemId` absent from the live wardrobe → stable `400`; a structurally infeasible lock set →
+   stable `400` with a reason code** — validate the locked items
    against the template algebra via `clothingType`: at most one lock per slot (`top`/`bottom`/`dress`/
    `outer`/`shoes`), and a locked `dress` is mutually exclusive with a locked `top` or `bottom` (two
    locked shoes, or dress+top, can never co-occupy a valid slot map — without this check the request
@@ -429,7 +444,10 @@ Four contract pins:
      mints a new `requestId`. An index-less read-check-then-create has a TOCTOU window spanning the whole
      render latency and catches nothing under a double-click.
    - **Write path:** on `E11000` the route re-reads the winner by `{user, requestId}` and returns its
-     shown set — idempotent response, one corpus row.
+     shown set — idempotent response, one corpus row. Reconstruction source is the stored snapshot
+     (`candidates[]` + `itemSnapshots[]`), using the same candidate→§6.5 hydration helper as the live response
+     path; no client echo and no second hand-rolled mapper. Acceptance: retry response shape/order equals the
+     winning response.
    - **Early read-check** (step 2 in §A): a best-effort spend guard that catches completed-render retries
      before calling the service. It does **not** bound in-flight duplicates — the index does.
    - **Client minting rule (load-bearing):** `requestId` is minted **once per user Generate action** and
@@ -461,8 +479,10 @@ internal failure point — including before generation runs.
   writer** (matches the R5 validate-or-log-and-skip rule already in §15). Not the unobservable "did the
   engine run".
 - **Invalid request ≠ engine failure (corpus-purity boundary, pinned).** A request that fails the
-  service's **input validation** — clamp violations, `reject_duplicate_ids` on the wardrobe, malformed
-  shapes, a `RenderRequest` guard raise (e.g. rescue with no `forced_item_id`) — is a **caller bug**: it
+  service's **input validation** — unsupported intent (anything outside the implemented M5 set
+  `daily|rescue_item`), clamp violations, blank occasion, invalid weather bucket, `reject_duplicate_ids` on
+  the wardrobe, malformed shapes, missing/absent rescue `forcedItemId`, or a `RenderRequest` guard raise
+  (construction happens inside the pre-validation boundary) — is a **caller bug**: it
   returns the `contract_invalid` error envelope, **no payload, no snapshot** (Next logs + counts it; a
   TS adapter bug must surface as a loud 4xx to fix, never become a training-corpus row). **Degenerate
   payloads are reserved for internal engine failures on a VALID request** — a sampler/ranker bug
@@ -492,7 +512,7 @@ internal failure point — including before generation runs.
   - **`build_degenerate_payload(request, failure)` is a C3 deliverable** — `build_snapshot_payload`
     requires a `RescueTrace` (verified `snapshot.py:491`), which a pre-trace exception doesn't have.
     It carries the **full §G.1 identity/echo-through set** — in particular `request_id`: a degenerate
-    write without it escapes the §C.4 partial unique index (`$exists` never matches) and duplicates on
+    write without it escapes the §C.4 partial unique index (`$type:"string"` never matches) and duplicates on
     retry, exactly the failure mode the index exists to stop.
   - Known micro-gap, recorded not fixed: a generator exception mid-trace-capture (`rescue.py:813`) loses
     the in-flight attempt's raw text; the failure is recorded via `diagnostics.engineFailure` only.
@@ -597,6 +617,7 @@ this is the **Lens half**.
 
 | Service `lens` field | Deployed source | Transform |
 |---|---|---|
+| `sessionId` | verified Firebase user id | Next-derived inside the auth boundary; never accepted from the browser. It feeds `RenderRequest.session_id`, `session_seed`, `candidate_cache_key`, and `GenerationSnapshot.sessionId`. |
 | `occasion` | `eventDescription` / occasion text | verbatim, **trim-check** (whitespace-only `"   "` PASSES Mongoose `required`, verified pre-flight lane 4 — the adapter must reject/normalize it, else a blank-occasion snapshot) |
 | `weather` (bucket) | `getWeatherContext` raw → bucket | R5 bucketing: temp/condition → `hot|mild|cold|indoor|outdoor`. Refactor the adapter/helper to return `{weatherBucket, weatherRaw}`; the legacy `TemperatureHint` union is byte-identical to the Mongo enum (pre-flight lane 3) so straight wiring is safe; **un-bucketed raw throws Mongoose enum on write** → bucket *before* the payload is built |
 | `weatherRaw` / `location` | raw weather / geo | pass-through (nullable) |
@@ -736,13 +757,17 @@ pre-reduced signal fields (verified names): `item_affinity: Mapping[str,int|floa
 `liked_full_signatures: frozenset[str]`, `shown_full_signatures: Sequence[str]`,
 `recent_disliked_base_keys`, `recent_disliked_item_ids` — plus the sampler's `AffinitySignalScorer` (§B).
 (`contextual_disliked_item_ids` / `locked_item_ids` come from the request `controls`, never the reducers.)
+**Serialization pin:** `behavioralRows` crosses the service boundary as verbatim camelCase JSON, with no
+`snapshot_serde` snake↔camel conversion. Next serializes ObjectIds to hex strings and Dates to ISO-8601
+strings before POSTing; numeric epoch timestamps are not accepted (milliseconds vs seconds would silently
+change the dedup window).
 
 - **Action → signal mapping (pinned; the reducers' contract):**
 
   | Interaction row | Signal contribution |
   |---|---|
   | `action="accepted"` | `item_affinity` **+1 per outfit item** (after dedup, below); `fullSignature` → `liked_full_signatures` |
-  | `action="rejected"` | `baseKey` → cooldown buffer (last `COOLDOWN_BUFFER_SIZE`); **disliked item ids = `perItemFeedback[].itemId` where `disliked=true` ONLY** — an outfit-level dislike never marks every item (a wrong-vibe outfit ≠ five bad garments) |
+  | `action="rejected"` | `baseKey` → cooldown buffer (most-recent distinct `COOLDOWN_BUFFER_SIZE` base keys); **disliked item ids = `perItemFeedback[].itemId` where `disliked=true` ONLY** — an outfit-level dislike never marks every item (a wrong-vibe outfit ≠ five bad garments) |
   | `saved`/`worn`/`rated`/`planned`/`packed`/`corrected`/`generated` | **excluded from v1 reducers** — §16 calls them weaker secondary evidence with `[NEXT]` weights; registered here so the exclusion is a decision, not a silent drop |
 
 - **Bounded scan (no unbounded read anywhere).** `interactionRows` are fetched last-`INTERACTION_ROWS_SCAN_LIMIT`
@@ -758,14 +783,16 @@ pre-reduced signal fields (verified names): `item_affinity: Mapping[str,int|floa
   `REPETITION_WINDOW_SIZE`. Output an **ordered `Sequence[str]`** (the ranker normalizes to a tuple), **not a
   set**.
 - **Feedback-dedup reducer (H11, §16).** The `item_affinity` counted projection collapses rows sharing
-  `{snapshotId, candidateId, action}` within `FEEDBACK_DEDUP_WINDOW` to one counted event. Set/recency
+  `{snapshotId, candidateId, action}` within `FEEDBACK_DEDUP_WINDOW` to one counted event. Missing or
+  unparsable `createdAt` is fail-closed and treated as duplicate for counted projection. Set/recency
   projections (`liked_full_signatures`, cooldown) are idempotent under duplication — no dedup. Interaction
   writes are **append-only** (§I).
 - **Constants (Appendix B trap-guard — mechanism pinned):** `REPETITION_WINDOW_SNAPSHOTS`,
   `FEEDBACK_DEDUP_WINDOW`, `INTERACTION_ROWS_SCAN_LIMIT` are **reducer** config with their **own
   provenance axis**. Mechanism: the constants live in **`reducers.py` itself** (their own module
   namespace) with a `REDUCER_CONFIG_VERSION` auto-hash digest over *that module's* `UPPER_SNAKE` globals
-  (same `_compute_*` pattern as `config.py:171-190`); **`config.py` is not touched** — its
+  (same `_compute_*` pattern as `config.py:171-190`), including the public action-mapping constants
+  `COUNTED_ACTIONS` / `REJECTED_ACTION`; **`config.py` is not touched** — its
   `RANKER_CONFIG_VERSION` hashes *every* `UPPER_SNAKE` global in its module with only a two-name
   exclusion set (verified), so placing reducer constants there folds them into ranker provenance (a
   scan-limit tune would shift `rankerConfigVersion` though ranking never changed). Record
@@ -776,7 +803,8 @@ pre-reduced signal fields (verified names): `item_affinity: Mapping[str,int|floa
 dedup reducer collapses in-window retries but counts genuine repeats; the affinity/cooldown projections
 match hand-computed golden rows **per mapping-table line** (an `accepted` row boosts, a `rejected` row
 cools the baseKey and dislikes only per-item-marked ids, a `worn` row contributes nothing); the scan bound
-is enforced (a fetch asking beyond the limit fails the test); an unbound row is skipped.
+is enforced by reducer slicing (rows beyond `INTERACTION_ROWS_SCAN_LIMIT` /
+`REPETITION_WINDOW_SNAPSHOTS` contribute nothing; C5 owns DB fetch-limit tests); an unbound row is skipped.
 
 ## I. Trust-boundary gates (D4 — close all §19)
 
@@ -868,21 +896,28 @@ contract only; legacy code is rollback/reference scaffolding until C8 deletion, 
 
 #### C1 — Daily orchestrator + generator params (fitted_core)
 **Touches:** `rescue.py` (→ `RenderRequest`/`render`/`render_with_trace` + rescue wrappers + the
-`signal_scorer=` injection param + **the `_drop_invalid` split — intent-generic StyleMove drop, §B**),
+`signal_scorer=` and `behavioral_signals=` injection params + **the `_drop_invalid` split —
+intent-generic StyleMove drop, §B**),
 `snapshot.py` (`build_snapshot_payload` intent parameterization),
 `generation.py` (daily prompt + `gpt-5.4-mini`/`0.5`/`max_completion_tokens` defaults, H55), `config.py`
 if new prompt constant. **Deliverables:** §B (incl. daily `n_surfaced=3` + the StyleMove-drop split).
 **Acceptance:** §B (the
 signal-slot cases run at C2 when `AffinitySignalScorer` exists; C1 asserts the injection default keeps
-goldens byte-identical). **Dependencies:** none — lands first. Closed M0–Spearhead + M4b suites green.
+goldens byte-identical). **Dependencies:** none for daily/rescue behavior; if the typed
+`behavioral_signals` hook lands in the same file, land the C2 module in the same Python close-out. Closed
+M0–Spearhead + M4b suites green.
 
 #### C2 — Reducers + AffinitySignalScorer as pure functions (fitted_core)
 **Touches:** new `ml-system/fitted_core/reducers.py` (reducers + `AffinitySignalScorer` + the action→signal
-mapping + **the reducer constants `REPETITION_WINDOW_SNAPSHOTS`/`FEEDBACK_DEDUP_WINDOW`/
+mapping + `BehavioralSignals` bundle + **the reducer constants `REPETITION_WINDOW_SNAPSHOTS`/`FEEDBACK_DEDUP_WINDOW`/
 `INTERACTION_ROWS_SCAN_LIMIT` and their own `REDUCER_CONFIG_VERSION` digest — `config.py` is NOT touched,
-per the §H mechanism pin**). **Deliverables:** §H + §B's occupant. **Acceptance:** §H + §B signal-slot
+per the §H mechanism pin**). **Deliverables:** §H + §B's occupant + end-to-end `behavioral_signals` →
+`RankerContext` plumbing. **Acceptance:** §H + §B signal-slot
 cases; a reducer-constant bump shifts `REDUCER_CONFIG_VERSION` and does **not** shift
-`RANKER_CONFIG_VERSION`. **Dependencies:** none (parallel to C1).
+`RANKER_CONFIG_VERSION`; a repetition-window signature supplied via `BehavioralSignals` penalizes a matching
+candidate end-to-end. **Dependencies:** pure reducers/scorer have none; the end-to-end
+`behavioral_signals` -> `RankerContext` acceptance depends on C1's render entrypoint, so the green
+C1/C2 close-out is atomic even if the pure pieces are reviewed separately.
 
 #### C3 — Stateless HTTP service (ml-system/service)
 **Touches:** new `ml-system/service/app.py`, `Dockerfile`, `fly.toml`, `ml-system/service/tests/`;
@@ -893,6 +928,7 @@ mappings incl. `_ID_KEYS += parent_snapshot_id` and DATA-keyed
 `constraints` — the degenerate builder needs the full identity set, §D**); `seed.py`
 (**`candidate_cache_key()` + golden vectors + the stale "M5 cache key" docstring fix, §C.1 — the
 service cannot build a payload without it**). **Deliverables:** §A wire contract + auth (two-key) + error envelope
+and service-owned `M5_MAX_COMPLETION_TOKENS=900` config/env exact-match validation
 + **the §A service-side bounds** (generator exact-match validation, service-owned token cap,
 text/body clamps, rate ceiling); `OPENAI_API_KEY` server-side; `/render` calling `render_with_trace` +
 `to_wire` + **the §A shown-identity zip (by `full_signature`, candidateId on every shown entry) + the
@@ -1173,9 +1209,10 @@ code paths.
   (`available` = scoreTrace populated, never rank-order influence); the `candidateCacheKey` algorithm
   (§C.1) recorded where §15's superseded cache bullet dies; §F Lens table added parallel to §15.2
   (including M5's reject-non-empty-constraints posture); §20/H28 updated so M5 = producer scoreTrace seam
-  and M6 = rank-order hook; `docs/plans/regen-controls.md` marked superseded or rewritten for fresh
-  generation/no cache/no drop-lock behavior; H4/H16/H17/H28/H48/H49/H50/H51/H57/H58/H12 re-disposed in §23
-  (§J).
+  and M6 = rank-order hook; §20's M5 row entry-prereq wording reconciled so H13 cross-runtime CI is a C8
+  deliverable, not an already-green entry gate; `docs/plans/regen-controls.md` marked superseded or rewritten
+  for fresh generation/no cache/no drop-lock behavior; H4/H7/H8/H10/H11/H12/H16/H17/H19/H28/H29/H48/H49/
+  H50/H51/H54/H55/H57/H58/H59/H60 re-disposed in §23 (§J).
 
 ## §J. Hole dispositions (reconcile §23 as C-work lands)
 
@@ -1196,7 +1233,7 @@ by the ladder sequencing invariant; only the shareable before/after growth card 
 ## Open questions
 
 None blocking. Deferred with a home:
-- `FEEDBACK_DEDUP_WINDOW`, `SERVICE_TIMEOUT_MS`, `INTERACTION_ROWS_SCAN_LIMIT` numeric values — tuned at
-  C2/C5 (scan-limit default 500); documented in Appendix B, but the reducer constants' **code** home is
-  `reducers.py` per the §H mechanism pin (never `config.py`).
+- `SERVICE_TIMEOUT_MS` numeric value — tuned at C5. Reducer values are now pinned in `reducers.py`
+  (`FEEDBACK_DEDUP_WINDOW=300`, `INTERACTION_ROWS_SCAN_LIMIT=500`, `REPETITION_WINDOW_SNAPSHOTS=50`), and
+  `M5_MAX_COMPLETION_TOKENS=900` is service config/env owned by C3.
 - ASGI framework (FastAPI vs minimal) — a C3 implementation call.
