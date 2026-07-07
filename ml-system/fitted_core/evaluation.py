@@ -88,6 +88,12 @@ class RecordingGenerator:
         return raw
 
     @property
+    def last_finish_status(self):
+        # Forward the inner generator's §A.6 finish/refusal metadata so a traced run through
+        # this wrapper still attributes per-attempt finish status (None for stubs/replays).
+        return getattr(self._inner, "last_finish_status", None)
+
+    @property
     def raw_outputs(self) -> list[str]:
         return [raw for _, raw in self.calls]
 

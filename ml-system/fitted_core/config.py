@@ -31,6 +31,15 @@ MAX_PROMPT_ITEMS = 135  # v2 §10 — total items the prompt may carry (= sum of
 # --- Candidate generation (v2 §10 / Appendix B) ---
 MAX_CANDIDATES = 40  # max outfit candidates requested from GPT
 
+# Ceiling on the DAILY LLM ask (m5-cutover.md §A.6 point 3 — the truncation blocker).
+# The sampler's general candidate_requested (min(MAX_CANDIDATES, total_base*3)) sizes the
+# candidate *pool*; a paid GPT ask that large (~130–170 output tokens per outfit) truncates
+# mid-JSON under any sane M5_MAX_COMPLETION_TOKENS and parse-fails every normal-closet daily
+# render. The daily orchestrator caps its ask here (rescue keeps its own
+# _rescue_candidate_requested override). Load-bearing invariant, validated empirically on the
+# real model before C5: M5_MAX_COMPLETION_TOKENS ≥ this × per-outfit-tokens + headroom.
+DAILY_MAX_CANDIDATES = 12
+
 # v2 §10's 70/30 split is NOT a config constant — it's structural, not a tunable knob (R6).
 # It lives as the sampler-owned random_count(cap) helper: (cap*7+5)//10, integer half-up.
 

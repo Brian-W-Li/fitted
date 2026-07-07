@@ -14,6 +14,15 @@ def test_candidate_and_prompt_ceilings():
     assert config.MAX_PROMPT_ITEMS == 135
 
 
+def test_daily_ask_ceiling_pinned_and_ordered():
+    # The daily LLM-ask ceiling (m5-cutover.md §A.6 point 3 — the truncation blocker).
+    # Must hold at least the surfaced set and never exceed the general candidate cap;
+    # the ask×per-outfit-tokens fit against M5_MAX_COMPLETION_TOKENS is validated
+    # empirically on the real model before C5 (a service-side gate, not testable here).
+    assert config.DAILY_MAX_CANDIDATES == 12
+    assert config.N_SURFACED <= config.DAILY_MAX_CANDIDATES <= config.MAX_CANDIDATES
+
+
 def test_per_type_cap_values():
     # Pin each cap individually (v2 §10). The sum guard below alone passes under a
     # compensating drift (e.g. 36/29/... still = 135) that would change M1-3's per-type

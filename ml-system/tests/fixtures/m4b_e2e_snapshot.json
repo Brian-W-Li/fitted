@@ -592,7 +592,7 @@
   ],
   "nSurfaced": 3,
   "occasion": "weekend brunch",
-  "rankerConfigVersion": "9a9d9bf8302f24fc9e0208f42fe19d7b7cb1bc35f848b5b6c7449771d2b213ad",
+  "rankerConfigVersion": "a2c36017516c092921b9247a1d06d4c96488343bdc07d8c334cadb05b1b40981",
   "scorer": {
     "available": false,
     "kind": "cold_start",

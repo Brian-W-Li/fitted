@@ -2,7 +2,16 @@ import json
 
 import pytest
 
-from fitted_core.config import MIN_SIGNAL_THRESHOLD, REPETITION_PENALTY
+from fitted_core.config import (
+    COMBO_BOOST,
+    COOLDOWN_PENALTY,
+    DAILY_MAX_CANDIDATES,
+    DISLIKE_PENALTY,
+    ITEM_BOOST_WEIGHT,
+    MIN_SIGNAL_THRESHOLD,
+    REPETITION_PENALTY,
+)
+from fitted_core.generation import FinishStatus
 from fitted_core.models import ItemType, Role, WardrobeItem
 from fitted_core.reducers import AffinitySignalScorer, BehavioralSignals
 from fitted_core.rescue import (
@@ -76,6 +85,7 @@ def test_daily_render_success_builds_daily_snapshot_payload():
 
     assert stub.call_count == 1
     assert trace.result.not_enough_items is False
+    # Below DAILY_MAX_CANDIDATES the daily ask passes the sampler count through unchanged.
     assert trace.candidate_requested == trace.sampler_result.candidate_requested
     assert "Forced item" not in stub.prompts[0].user
     assert "MUST include the forced item" not in stub.prompts[0].system
@@ -188,6 +198,111 @@ def test_daily_traced_stylemove_drop_uses_render_provenance_in_snapshot_payload(
     assert payload.candidates[1].shown is True
 
 
+def test_large_closet_daily_ask_is_capped_at_daily_max_candidates():
+    # §A.6 point 3 — the truncation-blocker guard, asserted hermetically (no API call):
+    # a large closet's sampler count (min(40, total_base*3)) must NOT become the paid GPT
+    # ask; the prompt asks for ≤ DAILY_MAX_CANDIDATES and the validator bound matches it
+    # (both ride GenerationPrompt.candidate_requested by construction).
+    wardrobe = [
+        *[_item(f"t{i}", ItemType.top) for i in range(5)],
+        *[_item(f"b{i}", ItemType.bottom) for i in range(4)],
+    ]
+    request = _daily_request(wardrobe)
+    stub = StubGenerator(_envelope(_outfit([("t0", Role.base_top), ("b0", Role.base_bottom)], ["t0"])))
+
+    trace = render_with_trace(request, stub)
+
+    assert trace.sampler_result.candidate_requested == 40  # min(40, 20*3) — the pool sizing
+    assert trace.candidate_requested == DAILY_MAX_CANDIDATES  # the actual paid ask
+    assert stub.prompts[0].candidate_requested == DAILY_MAX_CANDIDATES
+    assert f"Return up to {DAILY_MAX_CANDIDATES} outfits." in stub.prompts[0].user
+
+    # The plain (untraced) daily entrypoint builds its prompt at a separate call site — the
+    # C3 service could legally call it, so the ceiling is asserted there independently (a
+    # mutant reverting only _render_daily's cap must fail here, not just on the traced path).
+    plain_stub = StubGenerator(
+        _envelope(_outfit([("t0", Role.base_top), ("b0", Role.base_bottom)], ["t0"]))
+    )
+    render(request, plain_stub)
+    assert plain_stub.prompts[0].candidate_requested == DAILY_MAX_CANDIDATES
+
+
+def test_rescue_ask_keeps_its_own_override_above_the_daily_ceiling():
+    # The daily ceiling is daily-only: rescue keeps _rescue_candidate_requested
+    # (complementary*3 clamped to [MIN_RESCUE_CANDIDATES, MAX_CANDIDATES]), which may
+    # legitimately exceed DAILY_MAX_CANDIDATES.
+    wardrobe = [
+        _item("t1", ItemType.top),
+        *[_item(f"b{i}", ItemType.bottom) for i in range(6)],
+    ]
+    request = RenderRequest(
+        wardrobe=wardrobe,
+        forced_item_id="t1",
+        occasion="brunch",
+        weather="mild",
+        session_id="rescue-session",
+        wardrobe_version=1,
+    )
+    stub = StubGenerator(_envelope(_outfit([("t1", Role.base_top), ("b0", Role.base_bottom)], ["t1"])))
+
+    trace = render_with_trace(request, stub)
+
+    assert trace.candidate_requested == 18  # 6 complementary bottoms × 3
+    assert trace.candidate_requested > DAILY_MAX_CANDIDATES
+
+
+def test_traced_attempts_capture_generator_finish_status_when_exposed():
+    # §A.6 point 4 plumbing: a generator exposing `last_finish_status` (the real
+    # OpenAIGenerator) has it captured per attempt; plain stubs yield None.
+    wardrobe = [_item("t1", ItemType.top), _item("b1", ItemType.bottom)]
+    request = _daily_request(wardrobe)
+    canned = _envelope(_outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]))
+
+    plain = StubGenerator(canned)
+    assert render_with_trace(request, plain).attempts[0].finish_status is None
+
+    exposing = StubGenerator(canned)
+    exposing.last_finish_status = FinishStatus(finish_reason="stop", refusal=None)
+    trace = render_with_trace(request, exposing)
+    assert trace.attempts[0].finish_status == FinishStatus(finish_reason="stop", refusal=None)
+
+
+class _PerCallFinishStub(StubGenerator):
+    """Updates `last_finish_status` on every call, like the real OpenAIGenerator."""
+
+    def __init__(self, responses, statuses):
+        super().__init__(responses)
+        self._statuses = list(statuses)
+
+    def generate(self, prompt):
+        raw = super().generate(prompt)
+        self.last_finish_status = self._statuses[
+            min(self.call_count - 1, len(self._statuses) - 1)
+        ]
+        return raw
+
+
+def test_each_attempt_captures_its_own_finish_status_not_the_last_one():
+    # Attribution guard: attempt 1's status must be read BEFORE the repair call runs, so a
+    # truncated first attempt keeps finish_reason="length" even after a clean repair retry.
+    wardrobe = [_item("t1", ItemType.top), _item("b1", ItemType.bottom)]
+    request = _daily_request(wardrobe)
+    valid = _envelope(_outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]))
+    stub = _PerCallFinishStub(
+        ['{"outfits":[{"items"', valid],
+        [
+            FinishStatus(finish_reason="length", refusal=None),
+            FinishStatus(finish_reason="stop", refusal=None),
+        ],
+    )
+
+    trace = render_with_trace(request, stub)
+
+    assert stub.call_count == 2  # invalid-then-valid: the one §12 repair fired
+    assert trace.attempts[0].finish_status == FinishStatus(finish_reason="length", refusal=None)
+    assert trace.attempts[1].finish_status == FinishStatus(finish_reason="stop", refusal=None)
+
+
 def test_rescue_render_default_is_byte_equal_to_rescue_wrapper():
     wardrobe = [_item("t1", ItemType.top), _item("b1", ItemType.bottom), _item("b2", ItemType.bottom), _item("s1", ItemType.shoes)]
     request = RenderRequest(
@@ -294,6 +409,54 @@ def test_behavioral_signals_reach_ranker_context_end_to_end():
     outfit = trace.rank_audit.result.outfits[0]
     assert outfit.full_signature == shown_signature
     assert outfit.breakdown.repetition == -REPETITION_PENALTY
+
+
+def test_every_behavioral_signal_field_reaches_ranker_context_end_to_end():
+    # One end-to-end case per BehavioralSignals field (repetition is covered above), so a
+    # mutant dropping any single field from _build_ranker_context's kwargs.update fails:
+    # item_affinity → itemBoost, liked_full_signatures → comboBoost,
+    # recent_disliked_item_ids → dislike penalty, recent_disliked_base_keys → cooldown.
+    wardrobe = [
+        _item("t1", ItemType.top),
+        _item("b1", ItemType.bottom),
+        _item("t2", ItemType.top),
+        _item("b2", ItemType.bottom),
+    ]
+    request = _daily_request(wardrobe)
+    canned = _envelope(
+        _outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),
+        _outfit([("t2", Role.base_top), ("b2", Role.base_bottom)], ["t2"]),
+    )
+
+    # Phase 1 — a cold render yields the liked signature / cooldown base key to feed back.
+    cold = render_with_trace(request, StubGenerator(canned))
+    by_top = {o.slot_map.top: o for o in cold.rank_audit.result.outfits}
+    liked = by_top["t1"]
+    cooled = by_top["t2"]
+
+    warm = render_with_trace(
+        request,
+        StubGenerator(canned),
+        behavioral_signals=BehavioralSignals(
+            item_affinity={"t1": 10},
+            liked_full_signatures=frozenset({liked.full_signature}),
+            shown_full_signatures=(),
+            recent_disliked_base_keys=(cooled.base_key,),
+            recent_disliked_item_ids=("t2",),
+        ),
+    )
+
+    warm_by_top = {o.slot_map.top: o for o in warm.rank_audit.result.outfits}
+    boosted = warm_by_top["t1"]
+    assert boosted.breakdown.item == pytest.approx(10 * ITEM_BOOST_WEIGHT)
+    assert boosted.breakdown.combo == COMBO_BOOST
+    # The t2 outfit's base key is in the cooldown buffer: with k=10 unfilled it is
+    # deterministically re-admitted via the cooldown-relaxed rung, carrying the (negative)
+    # cooldown penalty — and its disliked item id draws the dislike penalty when scored.
+    readmitted = warm_by_top["t2"]
+    assert readmitted.relaxed_cooldown is True
+    assert readmitted.breakdown.cooldown == COOLDOWN_PENALTY
+    assert readmitted.breakdown.dislike == -DISLIKE_PENALTY
 
 
 def _sampler_selection_surface(result):

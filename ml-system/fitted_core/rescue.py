@@ -33,12 +33,13 @@ from dataclasses import dataclass, replace
 from typing import Mapping, Optional, Sequence
 
 from fitted_core.config import (
+    DAILY_MAX_CANDIDATES,
     DEFAULT_K,
     MAX_CANDIDATES,
     MIN_RESCUE_CANDIDATES,
     N_SURFACED,
 )
-from fitted_core.generation import GenerationPrompt, Generator
+from fitted_core.generation import FinishStatus, GenerationPrompt, Generator
 from fitted_core.models import IssueCode, ItemType, Role, SlotMap, Template, WardrobeItem
 from fitted_core.ranker import (
     FallbackStage,
@@ -584,6 +585,22 @@ def _build_daily_user_message(
     )
 
 
+def _daily_candidate_requested(sampler_count: int) -> int:
+    """Cap the daily GPT ask at ``DAILY_MAX_CANDIDATES`` (m5-cutover.md §A.6 point 3).
+
+    The sampler's general count (``min(MAX_CANDIDATES=40, total_base*3)``) sizes the candidate
+    *pool*, not the paid ask: at ~130–170 output tokens per §12 outfit, an up-to-40 ask needs
+    ~5,000–6,800 completion tokens and truncates mid-JSON under any sane
+    ``M5_MAX_COMPLETION_TOKENS`` — parse-failing every normal-closet daily render. Daily
+    bounds its own LLM ask here, mirroring rescue's ``_rescue_candidate_requested`` override
+    (the closed M1 sampler is never reopened); ~10–12 drafts still give the ranker /
+    ``select_spread`` ample surplus over ``n_surfaced=3``. The capped value rides
+    ``GenerationPrompt.candidate_requested``, so the "Return up to N" ask and the validator
+    bound stay the same number by construction.
+    """
+    return min(sampler_count, DAILY_MAX_CANDIDATES)
+
+
 def _build_daily_prompt(
     pool: Mapping[ItemType, list[WardrobeItem]],
     request: RenderRequest,
@@ -901,6 +918,11 @@ class GenerationAttemptTrace:
     is_repair: bool
     parse_issue: Optional[IssueCode]
     payload_parsed: bool
+    # §A.6 point 4: the generator's finish/refusal metadata for THIS attempt (None for
+    # generators that don't expose it — stubs/replays). The C3 service reads it to route a
+    # refused/cap-truncated run to the §D degenerate corpus with the status recorded in
+    # `generationAttempts[]`, never a silent empty.
+    finish_status: Optional[FinishStatus] = None
 
 
 @dataclass(frozen=True)
@@ -944,6 +966,11 @@ def _generate_and_parse_with_trace(
 
     Mirrors the closed ``_generate_and_parse`` exactly (one §12 invalidJson repair) but records the
     raw generation string of every attempt instead of discarding it. The closed function is untouched.
+
+    Each attempt also captures the generator's ``last_finish_status`` (§A.6 point 4) — the
+    ``OpenAIGenerator`` sets it per call; generators without the attribute (stubs/replays)
+    yield ``None``. Read immediately after each ``generate()`` so a repair retry's status
+    never overwrites the first attempt's.
     """
     raw = generator.generate(prompt)
     parsed = parse_gpt_json(raw)
@@ -953,6 +980,7 @@ def _generate_and_parse_with_trace(
             is_repair=False,
             parse_issue=parsed.issue.code if parsed.issue is not None else None,
             payload_parsed=parsed.issue is None,
+            finish_status=getattr(generator, "last_finish_status", None),
         )
     ]
     if parsed.issue is None:
@@ -965,6 +993,7 @@ def _generate_and_parse_with_trace(
             is_repair=True,
             parse_issue=repaired.issue.code if repaired.issue is not None else None,
             payload_parsed=repaired.issue is None,
+            finish_status=getattr(generator, "last_finish_status", None),
         )
     )
     return repaired.payload, tuple(attempts)
@@ -1142,7 +1171,11 @@ def _render_daily(
     if sampler_result.not_enough_items:
         return _not_enough_daily_result()
 
-    prompt = _build_daily_prompt(sampler_result.pool, request, sampler_result.candidate_requested)
+    prompt = _build_daily_prompt(
+        sampler_result.pool,
+        request,
+        _daily_candidate_requested(sampler_result.candidate_requested),
+    )
     prompt_pool = _flatten_pool(sampler_result.pool)
     payload = _generate_and_parse(generator, prompt)
     if payload is None:
@@ -1193,7 +1226,11 @@ def _render_daily_with_trace(
             build_trace=None,
         )
 
-    prompt = _build_daily_prompt(sampler_result.pool, request, sampler_result.candidate_requested)
+    prompt = _build_daily_prompt(
+        sampler_result.pool,
+        request,
+        _daily_candidate_requested(sampler_result.candidate_requested),
+    )
     payload, attempts = _generate_and_parse_with_trace(generator, prompt)
     if payload is None:
         validation: Optional[ValidationResult] = None
