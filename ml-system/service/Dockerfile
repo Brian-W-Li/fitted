@@ -1,5 +1,7 @@
 # M5 render service (m5-cutover.md C3 / G3 — pinned runtime, reproducible builds).
-# Build from the ml-system/ root (the context must contain fitted_core/ AND service/):
+# Build context is ALWAYS the ml-system/ root (it must contain fitted_core/ AND service/);
+# ml-system/fly.toml pins this (`dockerfile = "service/Dockerfile"`, deploy = `cd ml-system
+# && fly deploy`) and ml-system/.dockerignore keeps experiments//test assets out. Manually:
 #   cd ml-system && docker build -f service/Dockerfile -t fitted-render-service .
 FROM python:3.12-slim
 

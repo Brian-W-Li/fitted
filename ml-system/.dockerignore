@@ -1,0 +1,19 @@
+# Keep the Fly/Docker build context (ml-system/) lean: only fitted_core/ + service/ ship.
+# experiments/h26 carries a multi-GB venv + corpora; test-images and the venv are dev-only.
+experiments/
+.venv/
+test-images/
+tests/
+service/tests/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.dockerignore
+fly.toml
+outfit_recommender.py
+mlWhatWeAreGoingTodo
+README.md
+cv-integration.md
+requirements.txt
+pytest.ini

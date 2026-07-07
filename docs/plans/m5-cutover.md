@@ -1326,8 +1326,9 @@ legacy deletion)** per CLAUDE.md.
 > ask ceiling (§A.6 point 3), the full §A.6 generator surface (strict `json_schema` default,
 > `reasoning_effort="none"`, `store:false`, `max_completion_tokens`, finish/refusal surfaced via
 > `FinishStatus` → `GenerationAttemptTrace.finish_status`), and the empirical mutant checks on both daily
-> call sites. **✅ C3 COMPLETE (2026-07-07).** Suite floor: **908 pytest** (`pytest tests service/tests`).
-> Next checkpoint: **C4**.
+> call sites. **✅ C3 COMPLETE (2026-07-07, incl. the post-review integration fixes: blank-imageUrl
+> acceptance + the fly.toml deploy-context pin).** Suite floor: **910 pytest** (`pytest tests
+> service/tests`). Next checkpoint: **C4**.
 
 **Ladder sequencing invariant (trap-guard — the second-eval High finding, recalibrated for no legacy
 users):** at every checkpoint boundary the app must render **and** bind feedback end-to-end in at least
@@ -1380,6 +1381,21 @@ candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all insi
   `MAX_ITEM_TAG_CHARS=60`, `MAX_ITEM_TAGS=25`, `MAX_ITEM_ATTR_CHARS=60`, `MAX_IMAGE_URL_CHARS=2048`;
   behavioralRows lengths are bounded to the §H scan constants. Rate ceiling named:
   `RATE_LIMIT_BURST=5`, `RATE_LIMIT_REFILL_PER_SECOND=0.2` (12/min/instance).
+  **⚠ C5 mirror obligation:** the deployed model caps NONE of these (`name` has no maxlength;
+  `colors` elements are untrimmed) — C5's adapter/route must enforce the same clamps Next-side
+  (filter blank tag elements per §15.2 R12; reject/cap over-long names at ingestion or adapter),
+  else a stored-but-over-clamp item makes a closet permanently unrenderable through the service.
+- **No-image items are legitimate (deployed-model fact, post-review fix):** `WardrobeItem.imageUrl`/
+  `imagePath` are both optional and §15.2 pins the adapter mapping `imageUrl → else imagePath →
+  else ""` — the service accepts a **blank** `imageUrl` (field still required + capped; the engine
+  never prompts on it, H33) and stores it verbatim engineVisible. Empty tag arrays likewise
+  (deployed `[]` defaults; `styleTags` has no column until W-track). Both integration facts are
+  pinned by service tests.
+- **Deploy context is pinned by construction (post-review fix):** the Fly config lives at
+  **`ml-system/fly.toml`** with `dockerfile = "service/Dockerfile"`, so the build context is always
+  `ml-system/` (the directory containing BOTH `fitted_core/` and `service/`); `ml-system/.dockerignore`
+  keeps `experiments/`/venvs/test assets out of the context. Deploy = `cd ml-system && fly deploy`.
+  A CI dry `docker build` joins the C8 Commit-2 workflow.
 - **Service-side `forcedItemId`-absent → `contract_invalid`** (the §D input-validation locus); the
   user-facing `409 forced_item_unavailable` state-conflict arm stays Next-side at C5/C6 (§C.3/G16).
 - **Degenerate response flag:** `degenerate = engineFailure present OR (attempts non-empty AND

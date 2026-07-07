@@ -356,3 +356,46 @@ def test_mid_generation_exception_records_the_true_generator_call_count():
     assert parse["generatorCalls"] == 1
     assert parse["repairUsed"] is False
     assert parse["parseSuccess"] is False
+
+
+def test_no_image_wardrobe_items_render_fine():
+    # Integration fact, not a hypothetical: the deployed WardrobeItem model does NOT require
+    # an image (imageUrl/imagePath both optional, WardrobeItem.ts), and spec §15.2 pins the
+    # adapter mapping as imageUrl → else imagePath → else "". A blank imageUrl is therefore a
+    # legitimate closet state and must never be rejected pre-generation — the engine doesn't
+    # prompt on it (H33) and stores it verbatim in the engineVisible snapshot.
+    wardrobe = [
+        wire_item("t1", "top", imageUrl=""),
+        wire_item("t2", "top"),
+        wire_item("b1", "bottom", imageUrl=""),
+        wire_item("b2", "bottom"),
+        wire_item("s1", "shoes"),
+    ]
+    status, body, _ = _render(render_body(wardrobe=wardrobe))
+    assert status == 200
+    assert body["degenerate"] is False
+    assert body["shown"]
+    snapshots = {s["itemId"]: s for s in body["payload"]["itemSnapshots"]}
+    assert snapshots["t1"]["engineVisible"]["imageUrl"] == ""
+    assert snapshots["t2"]["engineVisible"]["imageUrl"] == "https://img/t2.png"
+
+
+def test_tagless_wardrobe_items_render_fine():
+    # The deployed columns default to [] (colors/occasions) and styleTags has no column until
+    # the W-track — §15.2 emits []; empty tag arrays are a legitimate adapter output.
+    wardrobe = [
+        wire_item("t1", "top", colorTags=[], occasionTags=[], styleTags=[]),
+        wire_item("b1", "bottom", colorTags=[], occasionTags=[], styleTags=[]),
+    ]
+    status, body, _ = _render(
+        render_body(
+            wardrobe=wardrobe,
+            # the stub envelope must only reference pool items:
+        ),
+        responses=envelope(
+            outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),
+        ),
+    )
+    assert status == 200
+    assert body["degenerate"] is False
+    assert body["shown"]

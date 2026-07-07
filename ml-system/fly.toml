@@ -6,12 +6,18 @@
 # autoscale here (Fly HA otherwise provisions >=2 machines, silently doubling the ceiling —
 # https://fly.io/docs/launch/scale-count/). Deploy with `fly scale count 1` and keep it.
 # The monthly OpenAI project cap (dashboard) is the hard backstop regardless.
+#
+# DEPLOY CONTEXT (unambiguous by construction): this config lives at ml-system/fly.toml so
+# the build context is ml-system/ — the directory that contains BOTH fitted_core/ and
+# service/ (the Dockerfile COPYies both; .dockerignore keeps experiments//test assets out).
+# Deploy exactly:
+#   cd ml-system && fly deploy
 
 app = "fitted-render-service"
 primary_region = "lax"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "service/Dockerfile"
 
 [http_service]
   internal_port = 8080

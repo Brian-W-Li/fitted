@@ -259,7 +259,12 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
     }
     material = _optional_string(raw.get("material"), f"{where}.material", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
     formality = _optional_string(raw.get("formality"), f"{where}.formality", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
-    image_url = _string(raw["imageUrl"], f"{where}.imageUrl", max_chars=cfg.MAX_IMAGE_URL_CHARS)
+    # Blank is a LEGITIMATE value here (spec §15.2: imageUrl → else imagePath → else "" — the
+    # deployed model does not require an image), unlike id/name; the engine never prompts on it
+    # (H33 strips image_url) and stores it verbatim in the engineVisible snapshot.
+    image_url = _string(
+        raw["imageUrl"], f"{where}.imageUrl", max_chars=cfg.MAX_IMAGE_URL_CHARS, allow_blank=True
+    )
     try:
         return WardrobeItem(
             id=item_id,
