@@ -607,8 +607,10 @@ parallelize. **C1–C3 = M4a (ships partly live); C4–C8 = M4b (dormant substra
 > `autoIndex:true` and `db.ts` calls `Model.init()` per model at connect. So every index declared below
 > builds automatically on first boot against the wiped/empty DB — **no migration script.** The only
 > obligation is to **register each new/changed model in `db.ts`'s init list** (C5 must add
-> `GenerationSnapshot` there, or its indexes + immutability guard never load). (Production note: autoIndex
-> should be turned off on the always-on M5 service later — an M5 concern.)
+> `GenerationSnapshot` there, or its indexes + immutability guard never load). (Production note: **disposed
+> by the M5 plan (C8)** — Next is the only Mongo client (the Python service has no DB); M5 keeps
+> `autoIndex:true` at solo scale with a mandatory pre-flip `listIndexes` existence check on the
+> `{user, requestId}` unique index; `autoIndex:false` is deferred to scale.)
 
 ---
 

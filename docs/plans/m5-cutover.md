@@ -6,11 +6,14 @@
 > traced through source, both passes converged): **D2's re-rank half is overturned — regenerate = one
 > constrained fresh generation with lineage**; H50 = a partial unique index; §H gains the action→signal
 > mapping + a bounded interaction scan; §B wires the sampler signal-slot's first real occupant.
-> **Contract-tightened 2026-07-06 (second external review, 9 confirmed findings — all spec-precision or
-> sequencing; no D# overturned):** C6 now owns the UI contract cutover (§ladder), §G.1 pins the
-> Python↔TS merge boundary field-by-field, the shown-identity zip is pinned (§A), the StyleMove drop
-> goes intent-generic (§B), and the cache-key algorithm / scorer semantics / reducer provenance /
-> `engineFailure` schema home / structural lock preflight are each pinned in place.
+> **Contract-tightened 2026-07-06 (two external review rounds, 15 confirmed findings — all
+> spec-precision or sequencing; no D# overturned):** C6 owns the UI contract cutover (§ladder); §G.1
+> pins the Python↔TS merge boundary field-by-field; shown-identity zip pinned (§A); the StyleMove drop
+> goes intent-generic (§B); C8 deletes the legacy **arm**, never the rewritten route file; generator
+> config is service-owned with exact-match validation (§A/D6); `candidateCacheKey` = a **Lens-chain
+> key** landing at C3; the delete guard covers all four Mongoose delete paths (§G); autoIndex stays on
+> with a mandatory pre-flip index-existence check (C8); plus the scorer-semantics / reducer-provenance /
+> `engineFailure`-schema / structural-lock-preflight pins.
 > Where this plan and `Fitted_Spec_v2.md` §15/§6.7 disagree on caching/regenerate, **this plan wins**
 > until the scheduled same-commit spec rewrite lands (§C.5 / Verification).
 > **Reading list for implementation:** this doc + `docs/Fitted_Spec_v2.md` (§12/§15/§15.1/§15.2/§16/§19/
@@ -48,7 +51,7 @@ migrated.
 | M5 inherits/owns | `m4…` §14.5 | symbol-and-path concrete |
 | Holes | §23 H4/H7/H8/H10/H11/H12/H16/H17/H19/H28/H29/H45/H48/H49/H50/H51/H54/H55/H57/H58/H59/H60 | dispositions in §J |
 | Rescue engine (generalize) | `ml-system/fitted_core/rescue.py`, `snapshot.py`, `response.py`, `ranker.py` | signatures in §B/§E |
-| Legacy vertical (delete) | `fitted/app/api/recommend/route.ts`, `.../regenerate/route.ts` | §19 delete list |
+| Legacy vertical (delete) | `.../regenerate/route.ts` (whole file) + the legacy **arm** inside the rewritten `recommend/route.ts` | §19 delete list — the M5 route itself is never deleted (C8) |
 | Snapshot model | `fitted/models/GenerationSnapshot.ts` | §G additions |
 | Interaction model + route | `fitted/models/OutfitInteraction.ts`, `fitted/app/api/interactions/route.ts` | §H/§I |
 | Wire serde | `ml-system/fitted_core/snapshot_serde.py` | `to_wire`/`from_wire` |
@@ -62,7 +65,7 @@ migrated.
 | **D3** | Engine-failure fallback | **Snapshot iff a valid engine payload reached the Next writer.** Engine-internal failures → the **service** degrades to a degenerate payload (§D — provenance is derivable from request + module constants, so it is satisfiable even pre-generation). No payload → **no snapshot** + graceful non-bindable response + availability counter. No schema widening. | H12 |
 | **D4** | Trust-boundary gates | **Close all §19 gates** (backend + client-side). | §19, H11 |
 | **D5** | Service architecture | **Stateless pure-function service.** Next fetches all inputs from Mongo, passes them in; the service runs the pure pipeline + reducers, returns the payload; **Next allocates `snapshotId`, validates, owns all writes.** The **service holds `OPENAI_API_KEY`**; Next stops needing it **once the legacy vertical is deleted at C8** (until then the flag-off legacy arm still calls OpenAI in Next). Because the key lives service-side, the **independent spend bounds live service-side too** (§A). | H58 |
-| **D6** | Generator params | `gpt-5.4-mini`, `temperature=0.5`, `max_completion_tokens` cap (GPT-5.x rejects `max_tokens`). Set explicitly, **enforced service-side** (§A — the wire `generator` object is provenance input, never control). | H55, H60 |
+| **D6** | Generator params | `gpt-5.4-mini`, `temperature=0.5`, `max_completion_tokens` cap (GPT-5.x rejects `max_tokens`). **Service-owned config** (§A): the service generates and authors provenance from its own config; the wire `generator` object is an exact-match-validated **expectation**, never control — mismatch → `contract_invalid`, never clamped. | H55, H60 |
 | **D7** | Scorer-seam hook | **Land it at M5** (ambition-forward), in two honest moves: declare the `OutfitScorer` type, and **exercise it in the snapshot producer** (`build_snapshot_payload`, which has items via `trace.prompt_pool`) to populate `scoreTrace.compatibility/visibility` for **every scored candidate** (unifies **H48**); first occupant = the existing cold-start `compatibility`/`visibility`. **The ranker is untouched → M3 byte-identical.** The rank-**order** hook (a precomputed per-candidate signal on `RankerContext`, preserving item-blindness) is **reserved for M6** (§E) — cold-start compat must not reorder the shipped ranker. The H48-headline store-vs-recover call is **decided: store (option (a))** — see §E for the corrected recoverability rationale. | H28, H48 |
 
 ## Success criteria (verifiable)
@@ -131,10 +134,14 @@ Browser ─▶ Next route (one recommend route)                   Fly.io service
   set-next → flip-Next → clear-old sequence with no deploy-order coupling.
 - **Service-side spend bounds (the key lives here, so the defense lives here — never trust Next's H60
   clamps alone):**
-  - **Generator allowlist:** the wire `generator` object is **provenance input, never control** — the
-    service validates `model` against an allowlist (`{"gpt-5.4-mini"}`), clamps `temperature` to `[0, 2]`,
-    and sets `max_completion_tokens` from its **own** config (H55/H60), rejecting anything else with
-    `contract_invalid`.
+  - **Generator config is service-owned; the wire `generator` is a cross-checked expectation, never
+    control.** The service runs generation with **its own** configured params — model from its allowlist
+    (`{"gpt-5.4-mini"}`), `temperature=0.5` (D6), `max_completion_tokens` from its own config (H55/H60) —
+    and the payload's `generator` provenance block is authored **from that config**, never from the wire.
+    The wire object is validated by **exact match** against the service config (`model` in allowlist,
+    `temperature ==` the configured value); a mismatch → `contract_invalid` — it means Next's expectation
+    and the service's reality have drifted, which must fail loudly, not be clamped into silence. (No
+    `[0,2]` clamp: clamping *is* client control, contradicting D6's service-side enforcement.)
   - **Input clamps:** length-clamp every body-controlled text field (`occasion`, `weatherRaw`, `location`,
     `constraints` values) and cap the `wardrobe` array length + total request body size at the ASGI layer.
     (Prompt *items* are already structurally capped by the per-type sampler caps ⇒ `MAX_PROMPT_ITEMS`.)
@@ -166,7 +173,8 @@ Browser ─▶ Next route (one recommend route)                   Fly.io service
   "behavioralRows": { /* §H RAW rows the SERVICE reduces: recentSnapshots[] (shownFullSignatures+nSurfaced+
                          createdAt+_id, H19 window) + interactionRows[] (BOUNDED, §H projection) */ },
   "generator": { "provider": "openai", "model": "gpt-5.4-mini", "temperature": 0.5 }
-  // ^ provenance input — validated against the service's own allowlist, never obeyed blindly (§A bounds)
+  // ^ Next's EXPECTATION, exact-match-validated against the service's own config (§A) — the service
+  //   generates and records provenance from its own config, never from this object
 }
 ```
 `POST /render` response: `{ "payload": <GenerationSnapshotPayload wire dict, to_wire()>, "shown":
@@ -290,21 +298,27 @@ Four contract pins:
    absent)**. `generationIndex` stays barred from any key/seed input except `tiebreak_seed` (already
    wired via `RankerContext`, verified); the **sampler** seed (`session_seed`) excludes it, so a re-roll
    re-samples the same pool deterministically and the fresh GPT draw is the variety source.
-   `candidateCacheKey` stays a service-computed input-hash grouping identical-input renders and keeps the
-   existing **non-unique** `{user, candidateCacheKey, generationIndex}` sibling index (verified
-   `GenerationSnapshot.ts:495`); it remains `required` (verified `:262`). **Algorithm (pinned — the field
-   is required, so an implementer must not invent it):** `candidate_cache_key()` = full sha256 hex over
-   the `_frame` length-prefix framing (reuse `seed.py`'s `_frame`/`_canonical_seed` machinery — same
-   injectivity + `None`-sentinel discipline §15 already pins) of the canonical ordered fields
+   `candidateCacheKey` stays a service-computed input hash and keeps the existing **non-unique**
+   `{user, candidateCacheKey, generationIndex}` sibling index (verified `GenerationSnapshot.ts:495`); it
+   remains `required` (verified `:262`). **Semantics (pinned): a *Lens-chain key*, NOT an
+   "identical-input" key** — it groups renders sharing the same session-stable Lens inputs; the R9
+   `controls` (locks/dislikes) and behavioral rows **deliberately do not enter it**, though they change
+   what generation produces (a locked re-roll stays in its parent's Lens chain, so sibling grouping
+   survives mid-chain control changes; per-render input precision lives in the snapshot's own
+   `controls`/lineage fields, never in this key). **Algorithm (pinned — the field is required, so an
+   implementer must not invent it):** `candidate_cache_key()` = full sha256 hex over the `_frame`
+   length-prefix framing (reuse `seed.py`'s `_frame`/`_canonical_seed` machinery — same injectivity +
+   `None`-sentinel discipline §15 already pins) of the canonical ordered fields
    `(session_id, wardrobe_version, occasion, weather, intent, forced_item_id, seed_date)`. **No
-   `generationIndex`** (siblings must share the key); **no behavioral rows** (ranking-only signals never
-   key candidate identity — the preserved §15 rationale); **no `styleProfileVersion` until B-track adds
-   the field** (a later field addition re-keys future rows only — the key groups siblings within a chain,
-   cross-era grouping is not a promise). Lives beside `session_seed` in `seed.py` with golden vectors
-   mirroring the C8 conformance set (non-BMP occasion, `None`/empty/`"0"` date); `build_snapshot_payload`
-   keeps taking it as the caller-supplied param (verified `snapshot.py:495`); fix `seed.py:64`'s stale
-   "M5 cache key" docstring in the same commit (C4). Explicit parent-ref is the lineage truth, never key
-   coincidence.
+   `generationIndex`** (siblings must share the key); **no `controls`/behavioral rows** (the Lens-chain
+   semantics above); **no `styleProfileVersion` until B-track adds the field** (a later field addition
+   re-keys future rows only — cross-era grouping is not a promise). Lives beside `session_seed` in
+   `seed.py` with golden vectors mirroring the C8 conformance set (non-BMP occasion, `None`/empty/`"0"`
+   date); `build_snapshot_payload` keeps taking it as the caller-supplied param (verified
+   `snapshot.py:495`); fix `seed.py:64`'s stale "M5 cache key" docstring in the same commit. **Lands at
+   C3, not C4** — the service cannot call `build_snapshot_payload` without it (the builder requires the
+   kwarg), so C3's "/render returns a valid payload" acceptance depends on it. Explicit parent-ref is
+   the lineage truth, never key coincidence.
 2. **Own provenance.** The child snapshot carries **its own** `generator` block + `generationAttempts[]`
    from its own generation run. H49 (cache-hit provenance / copy-forward semantics) **dissolves** — there
    is no render without a generation, so `createdAt` is generation time and `sourceAttemptId` always
@@ -366,8 +380,8 @@ internal failure point — including before generation runs.
   engine run".
 - **Service owns degrade-to-payload — and provenance never depends on generation.** Every
   provenance-required field is derivable from the request + module constants (`fitted_core_version`,
-  `prompt_version`, `ranker_config_version` are constants; `generator` is request-supplied post-allowlist;
-  `scorer` is config) — so a schema-valid degenerate payload is constructable even for failures **before**
+  `prompt_version`, `ranker_config_version` are constants; `generator` is the service's own config (§A —
+  never the wire object); `scorer` is config) — so a schema-valid degenerate payload is constructable even for failures **before**
   any GPT call (a request-guard raise, `reject_duplicate_ids`, a sampler/ranker bug). *Trap-guard:* never
   reason "generation didn't run ⇒ provenance unknown ⇒ no snapshot" — that routes recordable failures to
   the no-snapshot arm and loses the failure corpus §15.1 wants.
@@ -514,10 +528,16 @@ GenerationSnapshotSchema.index(
 );
 
 // 3. Delete guard (H54 — the immutability contract has update/replace/save guards but NO delete guard;
-//    verified absent). Redaction (redacted:true) is the only sanctioned removal:
-GenerationSnapshotSchema.pre(["deleteOne", "deleteMany"], function () {
+//    verified absent). Redaction (redacted:true) is the only sanctioned removal.
+//    Trap-guard (verified against mongoose's own docs, schema.js pre() jsdoc): pre('deleteOne') alone
+//    registers QUERY middleware only — Document#deleteOne() needs {document:true}, and
+//    findOneAndDelete/findByIdAndDelete fire their own 'findOneAndDelete' hook. All three registrations
+//    or the guard has bypasses:
+const NO_DELETE = () => {
   throw new Error("GenerationSnapshot is immutable training truth; use redaction, never delete");
-});
+};
+GenerationSnapshotSchema.pre(["deleteOne", "deleteMany", "findOneAndDelete"], NO_DELETE); // query paths
+GenerationSnapshotSchema.pre("deleteOne", { document: true, query: false }, NO_DELETE);   // doc.deleteOne()
 
 // 4. Engine-failure record (§D — strict mode otherwise silently strips the write):
 //    inside the diagnostics subschema:
@@ -560,7 +580,8 @@ of gap fails silently.
   so a writer that drops it disables idempotency **with every write succeeding**. C5 acceptance must
   read the written document back and assert the field, never trust write-success.
 
-**Acceptance:** jest — delete guard rejects `deleteOne`/`deleteMany`; the helper rejects each invalid class
+**Acceptance:** jest — delete guard rejects **all four delete paths** (`Model.deleteOne`/`deleteMany`,
+`doc.deleteOne()`, `findOneAndDelete`/`findByIdAndDelete`); the helper rejects each invalid class
 (non-finite, out-of-[0,1], dup candidateId, inconsistent shown set, oversized raw, shown-identity mismatch
 §A); `parentSnapshotId` round-trips through serde as an opaque string; two concurrent
 same-`{user,requestId}` `.create()`s yield one document + a caught `E11000`; **a written document read
@@ -687,7 +708,9 @@ cases; a reducer-constant bump shifts `REDUCER_CONFIG_VERSION` and does **not** 
 `snapshot.py` + `snapshot_serde.py` (**the §G.1 payload gains: `DiagnosticsPayload.engine_failure` +
 the five echo-through kwargs (`request_id`, `parent_snapshot_id`, `weather_raw`, `location`,
 `constraints`) + their serde mappings incl. `_ID_KEYS += parent_snapshot_id` and DATA-keyed
-`constraints` — the degenerate builder needs the full identity set, §D**). **Deliverables:** §A wire contract + auth (two-key) + error envelope
+`constraints` — the degenerate builder needs the full identity set, §D**); `seed.py`
+(**`candidate_cache_key()` + golden vectors + the stale "M5 cache key" docstring fix, §C.1 — the
+service cannot build a payload without it**). **Deliverables:** §A wire contract + auth (two-key) + error envelope
 + **the §A service-side bounds** (generator allowlist, temperature clamp, service-owned token cap,
 text/body clamps, rate ceiling); `OPENAI_API_KEY` server-side; `/render` calling `render_with_trace` +
 `to_wire` + **the §A shown-identity zip (by `full_signature`, candidateId on every shown entry)**;
@@ -695,9 +718,12 @@ text/body clamps, rate ceiling); `OPENAI_API_KEY` server-side; `/render` calling
 **Acceptance:** integration test with a fake
 `Generator` — `/render` returns a valid payload+shown with **`shown[].candidateId` equal to
 `payload.shownCandidateIds` in order**; missing `X-Fitted-Service-Key` → 401; a
-disallowed `generator.model` → `contract_invalid`; an overlong `occasion` → clamped/rejected; injected
+disallowed `generator.model` **or a `generator.temperature` ≠ the service's configured value** →
+`contract_invalid` (never clamped); the payload's `generator` block is authored from the service config,
+not echoed from the wire; an overlong `occasion` → clamped/rejected; injected
 post-generation failure → degenerate payload with attempts; injected pre-generation failure → degenerate
-payload with empty attempts + `diagnostics.engineFailure`. **Dependencies:** C1 (needs `render`) + C2
+payload with empty attempts + `diagnostics.engineFailure`; the `candidate_cache_key()` golden vectors
+pass. **Dependencies:** C1 (needs `render`) + C2
 (the service runs the §H reducers over `behavioralRows`). Set the OpenAI project's monthly budget cap
 (dashboard) when the key is provisioned.
 
@@ -707,17 +733,19 @@ payload with empty attempts + `diagnostics.engineFailure`. **Dependencies:** C1 
 `ranker.py` (H48-headline: attach the Step-5 `ScoreBreakdown` to variant-cap losers in
 the `rank_with_audit` trace — the closed M3 `rank()` is **not** touched), `response.py` (cold-start scorer
 adapter), `rescue.py`/service (the §C constrained fresh-gen regenerate: lock-scoped pool + prompt pin +
-post-validate lock drop + **the three-check preflight incl. structural feasibility, §C.3**), `seed.py`
-(**`candidate_cache_key()` helper + golden vectors + the stale "M5 cache key" docstring fix, §C.1**),
+post-validate lock drop + **the three-check preflight incl. structural feasibility, §C.3**),
 `diagnostics.ranker` signal + `reducer_config_version` persistence (§E/§H). (The §G.1 echo-through
-payload fields + serde mappings landed at C3.) **Deliverables:** §C
-(pins 1–3, 5) + §E. **Acceptance:** §C + §E + cache-key golden vectors. **Dependencies:** C1, C2
+payload fields + serde mappings + the `candidate_cache_key()` helper landed at C3.) **Deliverables:** §C
+(pins 1–3, 5) + §E. **Acceptance:** §C + §E. **Dependencies:** C1, C2
 (`REDUCER_CONFIG_VERSION` for the diagnostics record), C3.
 
 #### C5 — Next-side integration  [HEAVY AUDIT before + after]
-**Touches:** new `fitted/app/api/recommend/route.ts` (one route), `fitted/lib/` request adapter + service
-client, `fitted/models/GenerationSnapshot.ts` (§G additions incl. the partial unique index), `fitted/lib/`
-payload-validation helper. **Deliverables:** `USE_ML_SHORTLISTER` flag; §F Lens adapter + §15.2 item map;
+**Touches:** `fitted/app/api/recommend/route.ts` **rewritten in place** (one route; same path as the
+legacy file — flag-on → the M5 vertical, flag-off → the legacy behavior, **extracted to a clearly-named
+legacy module** (e.g. `fitted/app/api/recommend/legacy.ts`) called from the flag-off arm, so C8 commit 2
+is a module deletion + one-line arm removal, never a surgical excision of the live route), `fitted/lib/`
+request adapter + service client, `fitted/models/GenerationSnapshot.ts` (§G additions incl. the partial
+unique index), `fitted/lib/` payload-validation helper. **Deliverables:** `USE_ML_SHORTLISTER` flag; §F Lens adapter + §15.2 item map;
 `snapshotId` pre-allocation; §C.4 idempotency (early read-check + `E11000` winner-re-read); service
 `fetch()` + `SERVICE_TIMEOUT_MS` + graceful degrade (§D); central TS validation helper (§G); snapshot
 `.create()`; delete guard (§G/H54); no-post-Python-refetch test (H10); regenerate folded into the one route
@@ -759,19 +787,30 @@ new recommend route (H59/H60), `dashboard/page.tsx`, `wardrobe/page.tsx`, `(app)
 rewrite lands there).
 
 #### C8 — Cutover  [HEAVY AUDIT; **two commits**]
-**Commit 1 — flip + smoke:** Fly.io deploy; `autoIndex:false` on the service (m4 §14.5); **the pre-flip
+**Commit 1 — flip + smoke:** Fly.io deploy; **index disposition (disambiguates m4 §14.5's "autoIndex off
+on the M5 service" note — the Python service has no Mongo; Next is the only Mongo client):** keep
+`autoIndex:true` + `db.ts` `Model.init()` at M5 (solo scale, near-empty collections — boot-time index
+builds are cheap and are what actually creates the §G indexes; verified `mongodb.ts` `autoIndex:true` +
+`db.ts` init list); `autoIndex:false` is a **scale-time optimization, registered not built**. **Pre-flip
+index-existence check (mandatory):** assert via `listIndexes` on `generationsnapshots` that the
+`{user, requestId}` partial unique index exists in the live Atlas DB before flipping — an absent unique
+index is silent idempotency death (the §G.1 trap class: every write succeeds, nothing is enforced);
+**the pre-flip
 daily mechanical read** (extend the **Spearhead-C6**/H40 eval CLI to the daily intent — not this plan's
 C6; ~5 runs on the golden wardrobe
 with the real `gpt-5.4-mini`; gates mechanical — parse rate, hallucinated ids, schema-rejection rate;
 believability stays descriptive per H40); **capture the legacy baseline numbers** (the writeup's "before");
 flip `USE_ML_SHORTLISTER=true`; live smoke — **the UI already speaks the new contract (C6), so the smoke
 exercises dashboard daily + rescue + re-roll + bound feedback end-to-end, not just the route**.
-**Commit 2 — deletion:** delete the §19 list (`recommend/route.ts`, `recommend/regenerate/route.ts`,
-`lib/weather.ts` legacy arm, `lib/gemini.ts`, the string-grep/footwear-inject paths — exact lines in §19;
-spot-verified: `inferItemType` recommend `:472` / regen `:484`, footwear auto-inject recommend `:512-527` /
-regen `:511-525`), **the C6 legacy-shape compat branch in `dashboard/page.tsx`** (the UI rewrite itself
-landed at C6), CI workflow (H13), CLAUDE.md env-table update (Gemini row removed; `OPENAI_API_KEY` moves
-to the service).
+**Commit 2 — deletion:** delete the §19 list — **`recommend/regenerate/route.ts` (whole file) + the
+flag-off legacy arm of the rewritten `recommend/route.ts`** (the C5 legacy module + its one-line call
+site; **the M5 route file itself is NEVER deleted** — it IS the live endpoint; post-deletion flag-off =
+degraded empty state per the rollback story), `lib/weather.ts` legacy arm, `lib/gemini.ts`, the
+string-grep/footwear-inject paths (exact lines in §19; spot-verified pre-rewrite: `inferItemType`
+recommend `:472` / regen `:484`, footwear auto-inject recommend `:512-527` / regen `:511-525` — these
+live inside the extracted legacy module after C5), **the C6 legacy-shape compat branch in
+`dashboard/page.tsx`** (the UI rewrite itself landed at C6), CI workflow (H13), CLAUDE.md env-table
+update (Gemini row removed; `OPENAI_API_KEY` moves to the service).
 **Rollback story (pinned):** post-deletion, `flag=false` means **degraded empty state**, not legacy — the
 flag's remaining job is service-outage degradation; rollback = git revert of commit 2 + redeploy.
 **Deliverables:** cross-runtime CI (Python + jest + a seed/serde conformance check on golden vectors —
@@ -828,6 +867,8 @@ writes a lineaged child, append-only feedback binds; flag-off degrades gracefull
 - Bump a reducer constant → `REDUCER_CONFIG_VERSION` must shift and `RANKER_CONFIG_VERSION` must **not** (catches the constants-moved-into-`config.py` mutant, where the bump would shift ranker provenance).
 - Remove the structural lock preflight → the two-locked-shoes 400 test must fail (a generator call would fire).
 - Enable feedback controls on a legacy-shaped (snapshot-less) response in the C6 compat branch → the non-bindable-feedback test must fail.
+- Remove any one of the three delete-guard registrations (query `deleteOne`/`deleteMany`/`findOneAndDelete`, or the `{document:true}` variant) → its jest rejection case must fail.
+- Make the service clamp-or-obey a mismatched wire `generator.temperature` instead of rejecting → the exact-match `contract_invalid` test must fail.
 
 ## Out of scope
 
@@ -859,9 +900,10 @@ writes a lineaged child, append-only feedback binds; flag-off degrades gracefull
 - **Cross-runtime CI (H13):** both suites + a seed/serde conformance check on golden vectors.
 - **Pre-flip daily mechanical read (C8 commit 1):** the Spearhead-C6/H40 eval CLI extended to the daily intent —
   parse rate / hallucinated ids / schema-rejection on the real `gpt-5.4-mini`; believability descriptive.
-- **Live smoke:** deploy to Fly.io, flip `USE_ML_SHORTLISTER=true`, drive daily + rescue + a re-roll in the
-  running app, confirm one snapshot per render + a lineaged child + `{snapshotId,candidateId}` + append-only
-  feedback; flip off → graceful degrade.
+- **Live smoke:** deploy to Fly.io, **assert the `{user, requestId}` partial unique index exists in live
+  Atlas (`listIndexes`, pre-flip — C8)**, flip `USE_ML_SHORTLISTER=true`, drive daily + rescue + a re-roll
+  in the running app, confirm one snapshot per render + a lineaged child + `{snapshotId,candidateId}` +
+  append-only feedback; flip off → graceful degrade.
 - **Doc reconciliation (same commits as C4/C5):** §15's two-stage-cache paragraphs + §6.7 + the §20-M5-row
   rewritten for the cache kill **and** the fresh-generation regenerate; **§15.1's "a snapshot is written for
   every render attempt" clause softened to "every render where a valid payload reached the writer"** + the
