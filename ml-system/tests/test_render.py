@@ -78,9 +78,11 @@ def test_daily_render_success_builds_daily_snapshot_payload():
         trace,
         request,
         candidate_cache_key="daily-cache",
+        request_id="21111111-1111-4111-8111-111111111111",
         generator_provider="openai",
         generator_model="gpt-5.4-mini",
         generator_temperature=0.5,
+        generator_max_completion_tokens=2200,
     )
 
     assert stub.call_count == 1
@@ -108,9 +110,11 @@ def test_daily_not_enough_short_circuits_without_generation_but_preserves_prompt
         trace,
         request,
         candidate_cache_key="daily-empty",
+        request_id="21111111-1111-4111-8111-111111111112",
         generator_provider="openai",
         generator_model="gpt-5.4-mini",
         generator_temperature=0.5,
+        generator_max_completion_tokens=2200,
     )
 
     assert stub.call_count == 0
@@ -183,9 +187,11 @@ def test_daily_traced_stylemove_drop_uses_render_provenance_in_snapshot_payload(
         trace,
         request,
         candidate_cache_key="daily-drop",
+        request_id="21111111-1111-4111-8111-111111111113",
         generator_provider="openai",
         generator_model="gpt-5.4-mini",
         generator_temperature=0.5,
+        generator_max_completion_tokens=2200,
     )
 
     assert len(trace.rescue_drops) == 1

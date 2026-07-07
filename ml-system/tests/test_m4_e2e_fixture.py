@@ -89,7 +89,9 @@ def _build_e2e_wire() -> dict:
     trace = rescue_with_trace(request, StubGenerator(_e2e_envelope()))
     payload = build_snapshot_payload(
         trace, request, candidate_cache_key="ck-e2e",
+        request_id="e1111111-1111-4111-8111-111111111111",
         generator_provider="openai", generator_model="gpt-4o", generator_temperature=0.8,
+        generator_max_completion_tokens=2200,
     )
     return snapshot_serde.to_wire(dataclasses.asdict(payload))
 

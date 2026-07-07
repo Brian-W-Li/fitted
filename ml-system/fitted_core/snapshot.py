@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from fitted_core import PROMPT_VERSION, RANKER_CONFIG_VERSION, __version__
+from fitted_core.generation import RESPONSE_FORMAT_JSON_SCHEMA_STRICT
 from fitted_core.models import Role, SlotMap, WardrobeItem
 from fitted_core.rescue import RenderRequest, RenderTrace
 
@@ -102,6 +103,10 @@ class GenerationAttemptPayload:
     aggregate_warning_codes: tuple[str, ...] = ()
     candidate_count_emitted: int = 0
     raw_text: Optional[str] = None  # the snapshot writer applies the byte cap + hash + flag
+    # §A.6 point 4 (C3 routing half): the attempt's finish/refusal metadata as a plain wire
+    # dict {finish_reason, refusal} — a refused/cap-truncated attempt is money spent, so it is
+    # recorded here, never a silent empty. None for generators that don't expose it (stubs).
+    finish_status: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +124,11 @@ class DiagnosticsPayload:
     parse: dict  # {parse_success, repair_used, generator_calls} → wire diagnostics.parse.{...}
     ranker: dict
     rescue: dict
+    # §D recording-locus split (C3): a failure WITHOUT a generation attempt (pre-GPT raise,
+    # caught internal exception) is recorded here — the §G item-4 shape authored by
+    # ``EngineFailure.to_payload_dict()`` — never as a fabricated attempt. None on healthy
+    # renders and on failures that DO have attempts (those live in generation_attempts[]).
+    engine_failure: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -140,13 +150,23 @@ class GenerationSnapshotPayload:
     session_id: str
     candidate_cache_key: str
     generation_index: int
+    # A' — §G.1 echo-through of the validated wire request (C3): the payload stays the single
+    # validated artifact. request_id is the §C.4 idempotency token (a client-minted plain
+    # string, never an ObjectId); parent_snapshot_id is the lineage pointer (None on roots).
+    request_id: str
+    parent_snapshot_id: Optional[str]
     # B — request context (the Lens)
     intent: str
     occasion: str
     weather: str
+    weather_raw: Optional[str]
+    location: Optional[str]
     forced_item_id: Optional[str]
     wardrobe_version: int
     seed_date: Optional[str]
+    # M5 invariant: always {} — non-empty constraints are rejected pre-generation, never
+    # stored as inert provenance (m5-cutover.md §A/§G.1).
+    constraints: dict
     # C — provenance / versions (required non-null on every live write)
     fitted_core_version: str
     generator: dict  # provider / model / temperature / prompt_version
@@ -164,6 +184,85 @@ class GenerationSnapshotPayload:
     shown_full_signatures: tuple[str, ...]
     n_surfaced: int
     spread_collapsed: bool
+
+
+# ---------------------------------------------------------------------------
+# §D engine-failure record (C3) — the diagnostics.engineFailure shape (§G item 4).
+# ---------------------------------------------------------------------------
+
+# Closed vocabularies (m5-cutover.md §G item 4). The TS helper re-enforces them; append-only.
+ENGINE_FAILURE_STAGES = frozenset(
+    {"sample", "generate", "parse", "validate", "rank", "assemble", "pre_generation", "unknown"}
+)
+ENGINE_FAILURE_CODES = frozenset(
+    {
+        "parse_fail",
+        "empty_valid_set",
+        "refusal",
+        "truncated",
+        "internal_exception",
+        "sampler_error",
+        "ranker_error",
+        "unknown",
+    }
+)
+ENGINE_FAILURE_MESSAGE_MAX_CHARS = 300  # §G/G13 — the TS helper rejects longer
+
+# G13 trap-guard: `message` comes from THIS fixed catalogue, keyed by code — never
+# ``str(exception)``, never raw model text, never an interpolated runtime value (a hex/secret
+# filter must never have to reason about a legitimate 24-hex ObjectId; structured detail lives
+# in ``detail{item_id, count}`` instead). Every string here is bounded well under the cap.
+_ENGINE_FAILURE_MESSAGES: dict[str, str] = {
+    "parse_fail": "GPT output failed JSON repair",
+    "empty_valid_set": "no generated candidate survived validation",
+    "refusal": "the model refused the generation request",
+    "truncated": "the model response was truncated by the completion-token cap",
+    "internal_exception": "an internal engine error interrupted the render",
+    "sampler_error": "the sampler failed on a valid request",
+    "ranker_error": "the ranker failed on a valid request",
+    "unknown": "an unknown engine failure interrupted the render",
+}
+
+
+@dataclass(frozen=True)
+class EngineFailure:
+    """An internal engine failure on a VALID request (§D) — the no-attempt recording locus.
+
+    Reserved for failures the degenerate corpus must record without a generation attempt
+    (a pre-GPT raise, a caught internal exception). Never constructed for input-validation
+    failures — those are caller bugs → the ``contract_invalid`` envelope, no payload (§D
+    corpus-purity boundary).
+    """
+
+    stage: str
+    code: str
+    detail: Optional[dict] = None  # structured values only: {"item_id": str, "count": int}
+
+    def __post_init__(self) -> None:
+        if self.stage not in ENGINE_FAILURE_STAGES:
+            raise ValueError(f"engine-failure stage {self.stage!r} is outside the closed set")
+        if self.code not in ENGINE_FAILURE_CODES:
+            raise ValueError(f"engine-failure code {self.code!r} is outside the closed set")
+        if self.detail is not None:
+            unknown = set(self.detail) - {"item_id", "count"}
+            if unknown:
+                raise ValueError(
+                    f"engine-failure detail keys {sorted(unknown)} are outside the closed "
+                    "set {'item_id', 'count'} — runtime values never ride `message`"
+                )
+
+    def to_payload_dict(self) -> dict:
+        """The §G item-4 wire shape (snake_case; serde camelCases the field names)."""
+        message = _ENGINE_FAILURE_MESSAGES[self.code]
+        out: dict = {
+            "stage": self.stage,
+            "code": self.code,
+            "message": message,
+            "message_truncated": False,  # catalogue strings are bounded by construction
+        }
+        if self.detail is not None:
+            out["detail"] = dict(self.detail)
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -418,9 +517,39 @@ def _build_attempts(trace: RenderTrace) -> tuple[GenerationAttemptPayload, ...]:
                 aggregate_warning_codes=aggregate_warning_codes if is_last else (),
                 candidate_count_emitted=len(trace.parsed_outfits) if is_last else 0,
                 raw_text=attempt.raw_text,
+                finish_status=_finish_status_dict(attempt.finish_status),
             )
         )
     return tuple(out)
+
+
+def _finish_status_dict(finish_status) -> Optional[dict]:
+    """A ``FinishStatus`` → the plain wire dict, or None for generators that don't expose it."""
+    if finish_status is None:
+        return None
+    return {"finish_reason": finish_status.finish_reason, "refusal": finish_status.refusal}
+
+
+def abnormal_finish_status(trace: RenderTrace) -> Optional[dict]:
+    """The producing attempt's finish status IFF it marks a refusal/truncation (§A.6 point 4).
+
+    The §G ``generator.finishStatus`` provenance is optional — a clean run leaves it unset —
+    so this returns the last attempt's status only when it is abnormal: a non-null refusal, or
+    a ``finish_reason`` outside ``{None, "stop"}`` (``"length"`` = cap-truncated; anything else
+    non-stop, e.g. ``content_filter``, is equally a paid-but-no-JSON §D trigger). The C3
+    service records it in the payload's generator block and routes the run to the degenerate
+    corpus, never a silent empty and never ``contract_invalid``.
+    """
+    if not trace.attempts:
+        return None
+    status = trace.attempts[-1].finish_status
+    if status is None:
+        return None
+    refused = status.refusal is not None
+    truncated = status.finish_reason not in (None, "stop")
+    if not (refused or truncated):
+        return None
+    return {"finish_reason": status.finish_reason, "refused": refused}
 
 
 def _sampler_per_type_diag(sampler) -> dict:
@@ -493,9 +622,20 @@ def build_snapshot_payload(
     request: RenderRequest,
     *,
     candidate_cache_key: str,
+    request_id: str,
     generator_provider: str,
     generator_model: str,
     generator_temperature: float,
+    generator_max_completion_tokens: int,
+    generator_api_surface: str = "chat_completions",
+    generator_response_format: str = RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
+    generator_reasoning_effort: str = "none",
+    generator_store_mode: str = "none",
+    generator_finish_status: Optional[dict] = None,
+    parent_snapshot_id: Optional[str] = None,
+    weather_raw: Optional[str] = None,
+    location: Optional[str] = None,
+    constraints: Optional[dict] = None,
     fitted_core_version: str = __version__,
     prompt_version: str = PROMPT_VERSION,
     ranker_config_version: str = RANKER_CONFIG_VERSION,
@@ -504,8 +644,17 @@ def build_snapshot_payload(
 
     Issues the deterministic per-candidate ``candidate_id`` over the full funnel, preserves every
     candidate's content (§8.2-F), and populates diagnostics from the sampler/ranker/rescue results.
-    The version/provenance constants default to C4's module constants; the generator metadata +
-    cache key are supplied by the caller (M5 knows them).
+    The version/provenance constants default to C4's module constants; the generator config +
+    cache key + the §G.1 echo-through identity (``request_id``/``parent_snapshot_id``/
+    ``weather_raw``/``location``/``constraints``) are supplied by the caller — the C3 service,
+    which knows them (never the wire ``generator`` expectation, §A). ``request_id`` is required:
+    a write without it escapes the §C.4 partial unique index and duplicates on retry.
+
+    §A.6/§G generator provenance: the ``generator`` block records the full API surface the run
+    used — ``max_completion_tokens`` (the cap changes truncation/parse-fail/candidate
+    distributions, so M6 stratifies by it), ``api_surface``/``response_format``/
+    ``reasoning_effort``/``store_mode``, and the run's abnormal ``finish_status`` (a clean run
+    leaves it unset — pass :func:`abnormal_finish_status`).
     """
     candidates = _build_candidates(trace, source_attempt_id=f"a{max(len(trace.attempts) - 1, 0)}")
     item_snapshots = tuple(
@@ -520,19 +669,30 @@ def build_snapshot_payload(
         session_id=request.session_id,
         candidate_cache_key=candidate_cache_key,
         generation_index=request.generation_index,
+        request_id=request_id,
+        parent_snapshot_id=parent_snapshot_id,
         intent=request.intent,
         occasion=request.occasion,
         weather=request.weather,
+        weather_raw=weather_raw,
+        location=location,
         forced_item_id=request.forced_item_id,
         wardrobe_version=request.wardrobe_version,
         seed_date=request.date,
+        constraints=dict(constraints) if constraints else {},
         fitted_core_version=fitted_core_version,
-        generator={
-            "provider": generator_provider,
-            "model": generator_model,
-            "temperature": generator_temperature,
-            "prompt_version": prompt_version,
-        },
+        generator=_generator_block(
+            provider=generator_provider,
+            model=generator_model,
+            temperature=generator_temperature,
+            prompt_version=prompt_version,
+            max_completion_tokens=generator_max_completion_tokens,
+            api_surface=generator_api_surface,
+            response_format=generator_response_format,
+            reasoning_effort=generator_reasoning_effort,
+            store_mode=generator_store_mode,
+            finish_status=generator_finish_status,
+        ),
         ranker_config_version=ranker_config_version,
         # M6: a trained scorer flips kind/model_id/available here (cold-start until then)
         scorer={"kind": "cold_start", "model_id": None, "available": False},
@@ -544,4 +704,141 @@ def build_snapshot_payload(
         shown_full_signatures=shown_full_signatures,
         n_surfaced=len(shown),
         spread_collapsed=trace.result.spread_collapsed,
+    )
+
+
+def _generator_block(
+    *,
+    provider: str,
+    model: str,
+    temperature: float,
+    prompt_version: str,
+    max_completion_tokens: int,
+    api_surface: str,
+    response_format: str,
+    reasoning_effort: str,
+    store_mode: str,
+    finish_status: Optional[dict],
+) -> dict:
+    """The §A.6/§G generator provenance block — authored from the service's OWN config.
+
+    ``finish_status`` is included only when set (a clean run leaves it unset, §G item 6).
+    """
+    block: dict = {
+        "provider": provider,
+        "model": model,
+        "temperature": temperature,
+        "prompt_version": prompt_version,
+        "max_completion_tokens": max_completion_tokens,
+        "api_surface": api_surface,
+        "response_format": response_format,
+        "reasoning_effort": reasoning_effort,
+        "store_mode": store_mode,
+    }
+    if finish_status is not None:
+        block["finish_status"] = dict(finish_status)
+    return block
+
+
+def build_degenerate_payload(
+    request: RenderRequest,
+    failure: EngineFailure,
+    *,
+    candidate_cache_key: str,
+    request_id: str,
+    generator_provider: str,
+    generator_model: str,
+    generator_temperature: float,
+    generator_max_completion_tokens: int,
+    generator_api_surface: str = "chat_completions",
+    generator_response_format: str = RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
+    generator_reasoning_effort: str = "none",
+    generator_store_mode: str = "none",
+    parent_snapshot_id: Optional[str] = None,
+    weather_raw: Optional[str] = None,
+    location: Optional[str] = None,
+    constraints: Optional[dict] = None,
+    generator_calls: int = 0,
+    fitted_core_version: str = __version__,
+    prompt_version: str = PROMPT_VERSION,
+    ranker_config_version: str = RANKER_CONFIG_VERSION,
+) -> GenerationSnapshotPayload:
+    """A schema-valid degenerate payload for a failure with NO ``RenderTrace`` (§D, C3).
+
+    ``generator_calls`` is the number of paid ``generate()`` calls the caller observed before
+    the failure (the C3 service counts them) — the trace's raw attempt text is lost on a
+    mid-trace exception (the known §D micro-gap), but the spend COUNT is knowable and must
+    not be recorded as an affirmatively-false zero.
+
+    ``build_snapshot_payload`` requires a trace, which a pre-trace exception doesn't have —
+    but every provenance-required field is derivable from the request + module constants +
+    the service's own generator config, so the failure corpus §15.1 wants is always
+    constructable (*trap-guard:* never reason "generation didn't run ⇒ provenance unknown ⇒
+    no snapshot"). Attempts are **empty** (§8.2-E: never fabricate an attempt) and the
+    failure is recorded in ``diagnostics.engine_failure``. Carries the full §G.1
+    identity/echo-through set — in particular ``request_id``: a degenerate write without it
+    escapes the §C.4 partial unique index and duplicates on retry.
+
+    Reserved for **internal engine failures on a valid request** — an input-validation
+    failure is a caller bug → the ``contract_invalid`` envelope, no payload (§D).
+    """
+    diagnostics = DiagnosticsPayload(
+        sampler_per_type={},
+        candidate_requested=None,
+        prompt_item_count=None,
+        not_enough_items=False,
+        scorer_available=False,
+        rejection_histogram={},
+        warning_histogram={},
+        parse={
+            "parse_success": False,
+            "repair_used": generator_calls >= 2,  # the 2nd call is the one §12 repair retry
+            "generator_calls": generator_calls,
+        },
+        ranker={},
+        rescue={
+            "not_enough_items": False,
+            "insufficient_after_generation": False,
+            "spread_collapsed": False,
+        },
+        engine_failure=failure.to_payload_dict(),
+    )
+    return GenerationSnapshotPayload(
+        session_id=request.session_id,
+        candidate_cache_key=candidate_cache_key,
+        generation_index=request.generation_index,
+        request_id=request_id,
+        parent_snapshot_id=parent_snapshot_id,
+        intent=request.intent,
+        occasion=request.occasion,
+        weather=request.weather,
+        weather_raw=weather_raw,
+        location=location,
+        forced_item_id=request.forced_item_id,
+        wardrobe_version=request.wardrobe_version,
+        seed_date=request.date,
+        constraints=dict(constraints) if constraints else {},
+        fitted_core_version=fitted_core_version,
+        generator=_generator_block(
+            provider=generator_provider,
+            model=generator_model,
+            temperature=generator_temperature,
+            prompt_version=prompt_version,
+            max_completion_tokens=generator_max_completion_tokens,
+            api_surface=generator_api_surface,
+            response_format=generator_response_format,
+            reasoning_effort=generator_reasoning_effort,
+            store_mode=generator_store_mode,
+            finish_status=None,  # no attempt ran — there is no finish status to record
+        ),
+        ranker_config_version=ranker_config_version,
+        scorer={"kind": "cold_start", "model_id": None, "available": False},
+        item_snapshots=(),
+        generation_attempts=(),
+        candidates=(),
+        diagnostics=diagnostics,
+        shown_candidate_ids=(),
+        shown_full_signatures=(),
+        n_surfaced=0,
+        spread_collapsed=False,
     )

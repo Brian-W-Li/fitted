@@ -1326,7 +1326,8 @@ legacy deletion)** per CLAUDE.md.
 > ask ceiling (§A.6 point 3), the full §A.6 generator surface (strict `json_schema` default,
 > `reasoning_effort="none"`, `store:false`, `max_completion_tokens`, finish/refusal surfaced via
 > `FinishStatus` → `GenerationAttemptTrace.finish_status`), and the empirical mutant checks on both daily
-> call sites. Suite floor after reconciliation: **833 pytest**. Next checkpoint: **C3**.
+> call sites. **✅ C3 COMPLETE (2026-07-07).** Suite floor: **908 pytest** (`pytest tests service/tests`).
+> Next checkpoint: **C4**.
 
 **Ladder sequencing invariant (trap-guard — the second-eval High finding, recalibrated for no legacy
 users):** at every checkpoint boundary the app must render **and** bind feedback end-to-end in at least
@@ -1361,7 +1362,33 @@ held: a reducer-constant bump shifts `REDUCER_CONFIG_VERSION` and not `RANKER_CO
 `RankerContext` (repetition penalty, itemBoost, comboBoost, dislike penalty, cooldown re-admit — one test
 per field, so a single-field plumbing drop fails).
 
-#### C3 — Stateless HTTP service (ml-system/service)
+#### C3 — Stateless HTTP service (ml-system/service) — ✅ DONE (2026-07-07)
+**Landed:** `ml-system/service/` (`app.py` + `config.py` + `tests/` + pinned `Dockerfile`/`fly.toml`/
+`requirements.txt`), the §G.1 payload gains on `snapshot.py` (`request_id`/`parent_snapshot_id`/
+`weather_raw`/`location`/`constraints` + `DiagnosticsPayload.engine_failure` +
+`GenerationAttemptPayload.finish_status` + the §A.6 generator provenance block) with
+`build_degenerate_payload` + the `EngineFailure` closed-set/catalogue record, the serde
+`parent_snapshot_id` `_ID_KEYS` entry + `variant_to_wire()` §6.5 goldens, and `seed.py
+candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all inside the §A license):
+- **Framework = hand-rolled minimal ASGI, no FastAPI** (§A sanctions it): two routes with fully custom
+  envelopes either way; the hermetic suite stays dependency-free; `uvicorn` (pinned) serves it.
+- **C3 controls posture:** any **non-empty** `controls` array → `contract_invalid` until C4 activates the
+  regen vertical (accepting locks the engine doesn't yet consume would be an F6 corpus lie); the
+  `MAX_CONTROL_IDS` bound is tested now, the at-limit-passes half becomes meaningful at C4.
+- **Service-side clamp additions in the G7 spirit** (prompt-reaching item text is spend surface the §A
+  table didn't cover): `MAX_SESSION_ID_CHARS=128`, `MAX_ID_CHARS=64`, `MAX_ITEM_NAME_CHARS=200`,
+  `MAX_ITEM_TAG_CHARS=60`, `MAX_ITEM_TAGS=25`, `MAX_ITEM_ATTR_CHARS=60`, `MAX_IMAGE_URL_CHARS=2048`;
+  behavioralRows lengths are bounded to the §H scan constants. Rate ceiling named:
+  `RATE_LIMIT_BURST=5`, `RATE_LIMIT_REFILL_PER_SECOND=0.2` (12/min/instance).
+- **Service-side `forcedItemId`-absent → `contract_invalid`** (the §D input-validation locus); the
+  user-facing `409 forced_item_unavailable` state-conflict arm stays Next-side at C5/C6 (§C.3/G16).
+- **Degenerate response flag:** `degenerate = engineFailure present OR (attempts non-empty AND
+  nSurfaced==0)`; a pre-GPT `not_enough_items` exit is a valid empty render, never degenerate.
+- **⚠ C5 schema ripple (trap-guard):** the TS `GenerationAttemptSchema` has NO `finishStatus` path —
+  strict mode would silently strip the §A.6 per-attempt finish/refusal provenance the payload now
+  carries. C5 must add an optional `finishStatus {finishReason, refusal}` subdoc (`_id:false`) to the
+  attempts subschema alongside the §G item-6 generator additions, and read it back in acceptance.
+
 **Touches:** new `ml-system/service/app.py`, `Dockerfile`, `fly.toml`, `ml-system/service/tests/`;
 `snapshot.py` + `snapshot_serde.py` (**the §G.1 payload gains: `DiagnosticsPayload.engine_failure` +
 the five echo-through kwargs (`request_id`, `parent_snapshot_id`, `weather_raw`, `location`,
@@ -1845,13 +1872,14 @@ None blocking. Deferred with a home:
 - `SERVICE_TIMEOUT_MS` numeric value — tuned at C5. Reducer values are pinned in `reducers.py`
   (`FEEDBACK_DEDUP_WINDOW=300`, `INTERACTION_ROWS_SCAN_LIMIT=500`, `REPETITION_WINDOW_SNAPSHOTS=50`) and
   the daily ask ceiling is landed (`DAILY_MAX_CANDIDATES=12`, `config.py`). Still open:
-  `M5_MAX_COMPLETION_TOKENS` (**ask-sized, not a flat 900 — §A.6 point 3**; ≈2,200 for the 12-ask) is C3
-  service config, validated with the ceiling as a pair on real `gpt-5.4-mini` **before C5** (the cap must
-  hold the ask, or every daily render truncates; lower the ceiling or raise the cap until it fits).
-- The §A rate-ceiling value (token-bucket refill/burst per instance) — a C3 service-config/env constant
-  (a crude leaked-secret blast-radius bound; the monthly OpenAI project cap is the hard backstop). Named
-  when C3 sets the service config, alongside `M5_MAX_COMPLETION_TOKENS`.
-- ASGI framework (FastAPI vs minimal) — a C3 implementation call.
+  `M5_MAX_COMPLETION_TOKENS` **landed as C3 service config** (`service/config.py`
+  `DEFAULT_MAX_COMPLETION_TOKENS=2200`, env-overridable) but the **pre-C5 empirical validation is still
+  owed**: the (cap, ask-ceiling) pair proven on real `gpt-5.4-mini` **before C5** (the cap must hold the
+  ask, or every daily render truncates; lower the ceiling or raise the cap until it fits).
+- ~~The §A rate-ceiling value~~ **named at C3**: `RATE_LIMIT_BURST=5` /
+  `RATE_LIMIT_REFILL_PER_SECOND=0.2` per instance (`service/config.py`), global only under the fly.toml
+  single-machine pin; the monthly OpenAI project cap is the hard backstop.
+- ~~ASGI framework~~ **decided at C3**: hand-rolled minimal ASGI (no FastAPI), `uvicorn` pinned to serve.
 - **New M5 constants (2026-07-07) — all have inline homes + defaults; values tuned at their checkpoint, the
   load-bearing part is they are *concrete + boundary-tested*, not adjectives:** the §A/G7 input-clamp set
   (`MAX_OCCASION_CHARS`/`MAX_WEATHER_RAW_CHARS`/`MAX_LOCATION_CHARS`/`MAX_WARDROBE_ITEMS`/

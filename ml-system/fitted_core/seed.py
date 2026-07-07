@@ -69,7 +69,10 @@ def session_seed(
     weather: str,
     date: Optional[str] = None,
 ) -> int:
-    """Session seed — no generationIndex. Used by sampling (M1) and the M5 cache key.
+    """Session seed — no generationIndex. Used by sampling (M1).
+
+    The M5 cache key is NOT this seed — it is its own primitive
+    (:func:`candidate_cache_key` below), over a different canonical field set.
 
     ``date`` defaults to None (C1 daily re-seed inactive until M5). All args are
     **keyword-only**: ``occasion`` and ``weather`` are both ``str`` and adjacent, so a
@@ -109,6 +112,49 @@ def tiebreak_seed(
         date=date,
         generation_index=generation_index,
     )
+
+
+def candidate_cache_key(
+    *,
+    session_id: str,
+    wardrobe_version: int,
+    occasion: str,
+    weather: str,
+    intent: str,
+    forced_item_id: Optional[str],
+    seed_date: Optional[str],
+) -> str:
+    """The M5 ``candidateCacheKey`` — a *Lens-chain* key, NOT an "identical-input" key
+    (m5-cutover.md §C.1).
+
+    Full sha256 hex over the ``_frame`` length-prefix framing (same injectivity +
+    ``None``-sentinel discipline as the seeds) of the canonical ordered Lens fields
+    ``(session_id, wardrobe_version, occasion, weather, intent, forced_item_id,
+    seed_date)``. It groups renders sharing the same session-stable Lens inputs, so:
+
+      - **no** ``generation_index`` — siblings in a re-roll chain must share the key;
+      - **no** R9 ``controls`` / behavioral rows — a locked re-roll stays in its parent's
+        Lens chain (per-render input precision lives in the snapshot's own
+        ``controls``/lineage fields, never here);
+      - **no** ``constraints`` at M5 — non-empty constraints are rejected rather than
+        stored as inert provenance;
+      - **no** ``styleProfileVersion`` until B-track adds the field (a later field
+        addition re-keys future rows only — cross-era grouping is not a promise).
+
+    Keyword-only for the same adjacent-same-typed-fields reason as ``session_seed``.
+    Explicit ``parentSnapshotId`` is the lineage truth; this key is never lineage.
+    """
+    fields = (
+        session_id,
+        wardrobe_version,
+        occasion,
+        weather,
+        intent,
+        forced_item_id,
+        seed_date,
+    )
+    canonical = "".join(_frame(f) for f in fields)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def seeded_rng(seed: int) -> random.Random:

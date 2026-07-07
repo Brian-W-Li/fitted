@@ -74,11 +74,14 @@ _ENGINE_VISIBLE_PARENT_KEYS: frozenset[str] = frozenset({"engine_visible", "engi
 # Keys whose values cross as opaque strings (never an ObjectId / populatable ref — H10).
 # Both casings are listed so the guard fires in either transform direction (the key_context
 # handed to the guard is the *source* key — snake on to_wire, camel on from_wire).
+# NOTE: `request_id` deliberately does NOT belong here — it is a client-minted plain string
+# token (UUIDv4/ULID), not an ObjectId, and needs no opacity guard (m5-cutover.md §G.1).
 _ID_KEYS: frozenset[str] = frozenset(
     {
         "itemId", "item_id",
         "candidateId", "candidate_id",
         "snapshotId", "snapshot_id",
+        "parentSnapshotId", "parent_snapshot_id",
         "sourceAttemptId", "source_attempt_id",
         "attemptId", "attempt_id",
         "forcedItemId", "forced_item_id",
@@ -319,6 +322,57 @@ def to_wire(payload: Mapping[str, Any]) -> dict[str, Any]:
     and raises on a non-finite float or a non-string id anywhere in the structure.
     """
     return _convert(dict(payload), to_wire=True)
+
+
+def variant_to_wire(variant: "OutfitVariant") -> dict[str, Any]:  # noqa: F821 — doc type
+    """One §6.5 ``OutfitVariant`` → its camelCase wire dict (m5-cutover.md §A, C3).
+
+    ``OutfitVariant`` is a snake_case dataclass with enum and dataclass children, and
+    ``to_wire`` covers only the snapshot payload — so this explicit serializer is the single
+    authoritative §6.5 wire mapping (never let each implementer hand-roll it). Pins:
+
+      - ``items`` is **object-shaped** ``[{itemId, role}, …]`` with role enum ``.value``
+        strings (never the tuple shape the dataclass carries);
+      - ``templateType: variant.template.value`` — never a ``template`` field;
+      - ``optionPath``/``risk`` as enum values; ``styleMove`` with every ``FrozenStyleMove``
+        field camelCased (``changedItemIds`` as a list);
+      - ``score`` + ``scoreBreakdown`` (all seven signed term keys), ``baseKey``,
+        ``fullSignature``, ``compatibility``, ``visibility``.
+
+    The result is passed through the same finite-float/id-string boundary guards as the
+    payload (via ``_convert``), so a non-finite score or a non-string item id is rejected
+    here, never smuggled onto the wire.
+    """
+    move = variant.style_move
+    # Authored snake_case, then re-cased by the same _convert pass as the payload — so the
+    # _ID_KEYS / _ID_SEQUENCE_KEYS / finite-float boundary guards all fire (a non-string
+    # item_id or a non-finite score raises here, never smuggled onto the wire).
+    raw = {
+        "items": [{"item_id": item_id, "role": role.value} for item_id, role in variant.items],
+        "template_type": variant.template.value,
+        "option_path": variant.option_path.value,
+        "risk": variant.risk.value,
+        "style_move": {
+            "move_type": move.move_type,
+            "changed_item_ids": list(move.changed_item_ids),
+            "one_sentence": move.one_sentence,
+        },
+        "score": variant.score,
+        "score_breakdown": {
+            "base": variant.score_breakdown.base,
+            "combo": variant.score_breakdown.combo,
+            "item": variant.score_breakdown.item,
+            "dislike": variant.score_breakdown.dislike,
+            "overuse": variant.score_breakdown.overuse,
+            "repetition": variant.score_breakdown.repetition,
+            "cooldown": variant.score_breakdown.cooldown,
+        },
+        "base_key": variant.base_key,
+        "full_signature": variant.full_signature,
+        "compatibility": variant.compatibility,
+        "visibility": variant.visibility,
+    }
+    return _convert(raw, to_wire=True)
 
 
 def from_wire(wire: Mapping[str, Any]) -> dict[str, Any]:

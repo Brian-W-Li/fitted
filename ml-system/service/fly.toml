@@ -1,0 +1,34 @@
+# Fly.io config for the M5 render service (m5-cutover.md §A, C3).
+#
+# SINGLE-MACHINE PIN (load-bearing — audit-2026-07-07): the §A rate ceiling is a
+# per-instance token bucket, so it is the GLOBAL spend bound only if exactly one machine
+# runs. min_machines_running=1 + auto_stop/auto_start off + a single region; never enable
+# autoscale here (Fly HA otherwise provisions >=2 machines, silently doubling the ceiling —
+# https://fly.io/docs/launch/scale-count/). Deploy with `fly scale count 1` and keep it.
+# The monthly OpenAI project cap (dashboard) is the hard backstop regardless.
+
+app = "fitted-render-service"
+primary_region = "lax"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+  # G9: /readyz asserts config/keys/versions with ZERO OpenAI spend — a mis-configured
+  # machine never takes traffic. Asserted green again in the C8 pre-flip checklist.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/readyz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

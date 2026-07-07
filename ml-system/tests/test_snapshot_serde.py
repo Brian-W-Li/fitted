@@ -393,3 +393,93 @@ def test_from_wire_rejects_scalar_shown_candidate_ids():
     # the field itself must be an array; a bare string is valid only as an element.
     with pytest.raises(ValueError, match="list/tuple"):
         serde.from_wire({"shownCandidateIds": "c0"})
+
+
+# --- M5 C3: parentSnapshotId opacity + variant_to_wire (m5-cutover.md §A/§G.1) -------
+
+
+def test_parent_snapshot_id_crosses_as_opaque_string_and_rejects_non_string():
+    wire = serde.to_wire({"parent_snapshot_id": "66b1f0000000000000000abc"})
+    assert wire == {"parentSnapshotId": "66b1f0000000000000000abc"}
+    assert serde.from_wire(wire) == {"parent_snapshot_id": "66b1f0000000000000000abc"}
+    with pytest.raises(ValueError, match="opaque string"):
+        serde.to_wire({"parent_snapshot_id": 123})
+    with pytest.raises(ValueError, match="opaque string"):
+        serde.from_wire({"parentSnapshotId": {"$oid": "x"}})
+    # None survives (root renders carry a null lineage pointer).
+    assert serde.to_wire({"parent_snapshot_id": None}) == {"parentSnapshotId": None}
+
+
+def _variant_fixture():
+    from fitted_core.models import Role, Template
+    from fitted_core.ranker import FrozenStyleMove, ScoreBreakdown
+    from fitted_core.response import OptionPath, OutfitVariant, Risk
+
+    return OutfitVariant(
+        items=(("t1", Role.base_top), ("b1", Role.base_bottom), ("s1", Role.shoes)),
+        template=Template.two_piece,
+        option_path=OptionPath.bridge,
+        risk=Risk.noticeable,
+        style_move=FrozenStyleMove(
+            move_type="layer", changed_item_ids=("t1",), one_sentence="An idea."
+        ),
+        score=1.5,
+        score_breakdown=ScoreBreakdown(
+            base=1.0, combo=0.0, item=0.5, dislike=0.0, overuse=0.0,
+            repetition=0.0, cooldown=0.0,
+        ),
+        base_key="t1:b1",
+        full_signature="t1:b1|outer=|shoes=s1",
+        compatibility=0.62,
+        visibility=0.41,
+    )
+
+
+def test_variant_to_wire_matches_the_65_wire_golden():
+    # The §6.5 wire-conformance golden (m5-cutover.md §A): enum VALUES, object-shaped items,
+    # templateType (never `template`), every FrozenStyleMove field camelCased, all seven
+    # breakdown term keys. A renamed/dropped/snake_case field must fail this exact-dict compare.
+    assert serde.variant_to_wire(_variant_fixture()) == {
+        "items": [
+            {"itemId": "t1", "role": "base_top"},
+            {"itemId": "b1", "role": "base_bottom"},
+            {"itemId": "s1", "role": "shoes"},
+        ],
+        "templateType": "two_piece",
+        "optionPath": "bridge",
+        "risk": "noticeable",
+        "styleMove": {
+            "moveType": "layer",
+            "changedItemIds": ["t1"],
+            "oneSentence": "An idea.",
+        },
+        "score": 1.5,
+        "scoreBreakdown": {
+            "base": 1.0, "combo": 0.0, "item": 0.5, "dislike": 0.0,
+            "overuse": 0.0, "repetition": 0.0, "cooldown": 0.0,
+        },
+        "baseKey": "t1:b1",
+        "fullSignature": "t1:b1|outer=|shoes=s1",
+        "compatibility": 0.62,
+        "visibility": 0.41,
+    }
+
+
+def test_variant_to_wire_has_no_template_field_and_is_json_serializable():
+    wire = serde.variant_to_wire(_variant_fixture())
+    assert "template" not in wire  # templateType is the pinned name (§6.5)
+    json.dumps(wire)  # no enum/dataclass leaks — pure JSON types only
+
+
+def test_variant_to_wire_boundary_guards_fire():
+    import dataclasses
+
+    bad_score = dataclasses.replace(_variant_fixture(), score=float("nan"))
+    with pytest.raises(ValueError, match="non-finite"):
+        serde.variant_to_wire(bad_score)
+    bad_item = dataclasses.replace(
+        _variant_fixture(),
+        items=((123, _variant_fixture().items[0][1]),),
+    )
+    with pytest.raises(ValueError, match="opaque string"):
+        serde.variant_to_wire(bad_item)

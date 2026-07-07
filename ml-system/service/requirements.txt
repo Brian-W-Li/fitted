@@ -1,0 +1,28 @@
+# M5 render-service runtime deps — EXACT pins (m5-cutover.md C3 / G3): a floating `openai`
+# SDK could silently change the §A.6 call params (max_completion_tokens / reasoning_effort /
+# refusal shape) under the plan; reproducible builds are load-bearing for a corpus-producing
+# service. Versions match the ml-system venv the suite runs against (openai) or the newest
+# release at pin time (uvicorn); bump deliberately, re-running the pre-C5 token-budget gate.
+#
+# Framework note: the service is a hand-rolled minimal ASGI app (§A sanctions "a minimal
+# ASGI app (FastAPI acceptable)") — no fastapi/starlette pin needed; uvicorn serves it.
+openai==2.44.0
+uvicorn==0.50.2
+
+# openai's transitive set, pinned to the versions resolved in the ml-system venv:
+annotated-types==0.7.0
+anyio==4.14.0
+certifi==2026.5.20
+distro==1.9.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.18
+jiter==0.16.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+sniffio==1.3.1
+tqdm==4.68.2
+typing_extensions==4.15.0
+# uvicorn's transitive set (beyond h11, shared above):
+click==8.4.1

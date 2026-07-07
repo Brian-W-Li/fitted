@@ -12,7 +12,7 @@ import pytest
 
 from fitted_core.models import ItemType, Role, WardrobeItem
 from fitted_core.rescue import RescueRequest, rescue, rescue_with_trace
-from fitted_core.response import build_variants, build_variants_with_trace
+from fitted_core.response import build_variants
 from fitted_core.snapshot import (
     CandidatePayload,
     GenerationSnapshotPayload,
@@ -80,8 +80,9 @@ def _payload(request=None, envelope=None) -> GenerationSnapshotPayload:
     request = request or _rich_request()
     trace = rescue_with_trace(request, StubGenerator(envelope or _rich_envelope()))
     return build_snapshot_payload(
-        trace, request, candidate_cache_key="ck-c6",
+        trace, request, candidate_cache_key="ck-c6", request_id="11111111-1111-4111-8111-111111111111",
         generator_provider="openai", generator_model="gpt-4o", generator_temperature=0.8,
+        generator_max_completion_tokens=2200,
     )
 
 
@@ -284,8 +285,9 @@ def test_attempt_level_repair_retry_captured():
     stub = StubGenerator(["{ not valid json", _rich_envelope()])
     trace = rescue_with_trace(request, stub)
     payload = build_snapshot_payload(
-        trace, request, candidate_cache_key="ck-repair",
+        trace, request, candidate_cache_key="ck-repair", request_id="11111111-1111-4111-8111-111111111112",
         generator_provider="openai", generator_model="gpt", generator_temperature=0.8,
+        generator_max_completion_tokens=2200,
     )
     assert len(payload.generation_attempts) == 2
     assert payload.generation_attempts[0].is_repair is False
@@ -300,8 +302,9 @@ def test_attempt_level_root_rejection_captured_with_zero_candidates():
     bad_root = json.dumps({"outfits": "not a list"})  # parses, but the root envelope is malformed
     trace = rescue_with_trace(request, StubGenerator(bad_root))
     payload = build_snapshot_payload(
-        trace, request, candidate_cache_key="ck-root",
+        trace, request, candidate_cache_key="ck-root", request_id="11111111-1111-4111-8111-111111111113",
         generator_provider="openai", generator_model="gpt", generator_temperature=0.8,
+        generator_max_completion_tokens=2200,
     )
     assert payload.generation_attempts[-1].root_rejection_code is not None  # a root reject...
     assert payload.candidates == ()  # ...yields zero candidates, never a fabricated one
@@ -338,3 +341,199 @@ def test_not_enough_items_exit_builds_a_degenerate_payload():
     assert payload.candidates == ()
     assert payload.item_snapshots == ()  # no prompt built → no engine-visible items
     assert payload.generation_attempts == ()
+
+
+# --- M5 C3: §G.1 echo-through + generator provenance + the §D degenerate builder ------
+
+
+def _c3_payload(**overrides):
+    request = _rich_request()
+    trace = rescue_with_trace(request, StubGenerator(_rich_envelope()))
+    kwargs = dict(
+        candidate_cache_key="ck-c3",
+        request_id="31111111-1111-4111-8111-111111111111",
+        generator_provider="openai",
+        generator_model="gpt-5.4-mini",
+        generator_temperature=0.5,
+        generator_max_completion_tokens=2200,
+    )
+    kwargs.update(overrides)
+    return build_snapshot_payload(trace, request, **kwargs)
+
+
+def test_payload_carries_the_g1_echo_through_identity_set():
+    payload = _c3_payload(
+        parent_snapshot_id="66b1f0000000000000000abc",
+        weather_raw="72F sunny",
+        location="Santa Barbara, CA",
+    )
+    assert payload.request_id == "31111111-1111-4111-8111-111111111111"
+    assert payload.parent_snapshot_id == "66b1f0000000000000000abc"
+    assert payload.weather_raw == "72F sunny"
+    assert payload.location == "Santa Barbara, CA"
+    assert payload.constraints == {}  # the M5 invariant — always {}
+
+
+def test_echo_through_defaults_are_root_render_shaped():
+    payload = _c3_payload()
+    assert payload.parent_snapshot_id is None
+    assert payload.weather_raw is None
+    assert payload.location is None
+    assert payload.constraints == {}
+
+
+def test_generator_block_carries_the_a6_provenance():
+    payload = _c3_payload()
+    assert payload.generator == {
+        "provider": "openai",
+        "model": "gpt-5.4-mini",
+        "temperature": 0.5,
+        "prompt_version": payload.generator["prompt_version"],
+        "max_completion_tokens": 2200,
+        "api_surface": "chat_completions",
+        "response_format": "json_schema_strict",
+        "reasoning_effort": "none",
+        "store_mode": "none",
+    }
+    assert "finish_status" not in payload.generator  # a clean run leaves it unset (§G)
+
+
+def test_generator_finish_status_recorded_when_supplied():
+    payload = _c3_payload(
+        generator_finish_status={"finish_reason": "length", "refused": False}
+    )
+    assert payload.generator["finish_status"] == {"finish_reason": "length", "refused": False}
+
+
+def test_attempt_finish_status_maps_from_the_trace():
+    from fitted_core.generation import FinishStatus
+    from fitted_core.rescue import GenerationAttemptTrace
+    from fitted_core.snapshot import _finish_status_dict
+
+    assert _finish_status_dict(None) is None
+    assert _finish_status_dict(FinishStatus(finish_reason="length", refusal=None)) == {
+        "finish_reason": "length",
+        "refusal": None,
+    }
+    # Stub attempts carry finish_status=None → the payload attempt records None.
+    payload = _c3_payload()
+    assert all(a.finish_status is None for a in payload.generation_attempts)
+    # The mapped GenerationAttemptTrace shape is what _build_attempts consumes.
+    assert GenerationAttemptTrace("raw", False, None, True).finish_status is None
+
+
+def test_abnormal_finish_status_reads_the_producing_attempt():
+    from fitted_core.generation import FinishStatus
+    from fitted_core.snapshot import abnormal_finish_status
+
+    class _StatusStub:
+        """A stub generator exposing per-call finish statuses like OpenAIGenerator."""
+
+        def __init__(self, response: str, statuses):
+            self._response = response
+            self._statuses = list(statuses)
+            self.last_finish_status = None
+
+        def generate(self, prompt):
+            self.last_finish_status = self._statuses.pop(0)
+            return self._response
+
+    request = _rich_request()
+    # Clean run: finish_reason == "stop" → no abnormal status.
+    trace = rescue_with_trace(
+        request, _StatusStub(_rich_envelope(), [FinishStatus("stop", None)])
+    )
+    assert abnormal_finish_status(trace) is None
+    # Cap-truncated garbage: both attempts return unparseable text, last is "length".
+    trace = rescue_with_trace(
+        request,
+        _StatusStub("{ truncated", [FinishStatus("length", None), FinishStatus("length", None)]),
+    )
+    assert abnormal_finish_status(trace) == {"finish_reason": "length", "refused": False}
+    # Refusal: content empty, refusal text present.
+    trace = rescue_with_trace(
+        request, _StatusStub("", [FinishStatus("stop", "I can't help with that."),
+                                  FinishStatus("stop", "I can't help with that.")])
+    )
+    assert abnormal_finish_status(trace) == {"finish_reason": "stop", "refused": True}
+    # Attempt-level provenance also lands on the payload (§A.6 routing half).
+    payload = build_snapshot_payload(
+        trace, request,
+        candidate_cache_key="ck-refusal",
+        request_id="31111111-1111-4111-8111-111111111114",
+        generator_provider="openai", generator_model="gpt-5.4-mini",
+        generator_temperature=0.5, generator_max_completion_tokens=2200,
+        generator_finish_status=abnormal_finish_status(trace),
+    )
+    assert payload.generation_attempts[0].finish_status == {
+        "finish_reason": "stop",
+        "refusal": "I can't help with that.",
+    }
+    assert payload.generator["finish_status"] == {"finish_reason": "stop", "refused": True}
+
+
+def test_engine_failure_closed_sets_and_catalogue_message():
+    from fitted_core.snapshot import ENGINE_FAILURE_MESSAGE_MAX_CHARS, EngineFailure
+
+    failure = EngineFailure(stage="pre_generation", code="internal_exception")
+    record = failure.to_payload_dict()
+    assert record["stage"] == "pre_generation"
+    assert record["code"] == "internal_exception"
+    assert record["message_truncated"] is False
+    assert len(record["message"]) <= ENGINE_FAILURE_MESSAGE_MAX_CHARS
+    # G13: the catalogue message never interpolates runtime values (no hex runs, no traceback).
+    assert "Traceback" not in record["message"]
+    with pytest.raises(ValueError, match="stage"):
+        EngineFailure(stage="nonsense", code="unknown")
+    with pytest.raises(ValueError, match="code"):
+        EngineFailure(stage="unknown", code="nonsense")
+    with pytest.raises(ValueError, match="detail keys"):
+        EngineFailure(stage="unknown", code="unknown", detail={"message": "no"})
+    detailed = EngineFailure(
+        stage="validate", code="empty_valid_set", detail={"count": 0}
+    ).to_payload_dict()
+    assert detailed["detail"] == {"count": 0}
+
+
+def test_build_degenerate_payload_is_schema_valid_and_carries_identity():
+    import dataclasses
+
+    from fitted_core import snapshot_serde
+    from fitted_core.snapshot import EngineFailure, build_degenerate_payload
+
+    request = _rich_request()
+    payload = build_degenerate_payload(
+        request,
+        EngineFailure(stage="pre_generation", code="internal_exception"),
+        candidate_cache_key="ck-degenerate",
+        request_id="31111111-1111-4111-8111-111111111115",
+        generator_provider="openai",
+        generator_model="gpt-5.4-mini",
+        generator_temperature=0.5,
+        generator_max_completion_tokens=2200,
+        weather_raw="72F sunny",
+        location="Santa Barbara, CA",
+    )
+    # §D: never fabricate an attempt; the failure lives in diagnostics.engine_failure.
+    assert payload.generation_attempts == ()
+    assert payload.candidates == ()
+    assert payload.n_surfaced == 0
+    assert payload.diagnostics.engine_failure is not None
+    assert payload.diagnostics.engine_failure["stage"] == "pre_generation"
+    # The §G.1 identity set rides the degenerate write (the §C.4 index depends on request_id).
+    assert payload.request_id == "31111111-1111-4111-8111-111111111115"
+    assert payload.session_id == request.session_id
+    assert payload.weather_raw == "72F sunny"
+    assert payload.constraints == {}
+    # Provenance never depends on generation: versions + generator config all present.
+    assert payload.fitted_core_version and payload.ranker_config_version
+    assert payload.generator["max_completion_tokens"] == 2200
+    assert "finish_status" not in payload.generator  # no attempt ran
+    # And it crosses the wire: serde maps engine_failure → engineFailure, request_id → requestId.
+    wire = snapshot_serde.to_wire(dataclasses.asdict(payload))
+    assert wire["diagnostics"]["engineFailure"]["code"] == "internal_exception"
+    assert wire["diagnostics"]["engineFailure"]["messageTruncated"] is False
+    assert wire["requestId"] == "31111111-1111-4111-8111-111111111115"
+    assert wire["parentSnapshotId"] is None
+    assert wire["generator"]["maxCompletionTokens"] == 2200
+    assert wire["generator"]["responseFormat"] == "json_schema_strict"
