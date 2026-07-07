@@ -1,16 +1,23 @@
 # Regeneration controls: locks + contextual dislikes
 
+> **SUPERSEDED FOR M5 IMPLEMENTATION.** This note is historical design context for the old v2
+> two-stage-cache/re-rank model. `docs/plans/m5-cutover.md` is authoritative for M5: regenerate is one
+> constrained fresh generation, no TTL candidate cache, no session-pool merge, lineage is server-derived from
+> an ownership-verified parent snapshot, and an unavailable/deleted locked item is a stable pre-service error
+> rather than a silently dropped lock. Do not implement the cache/merge/drop-lock behavior below for M5.
+
 > Design note. The binding decision is **R9** in `Fitted_Spec_v2.md` §14 / Appendix A. This doc
-> preserves the regeneration-control design and M5 wiring expectations. The completed M3 ranker
-> plan supersedes the old M3 execution notes here: M3 filters/ranks cached candidates and reports
-> starvation; M5 owns any constrained Steps 1-3 re-entry, lock pinning, prompt wording, and
-> cache/session-pool merge. Interview with Brian 2026-06-12.
+> preserves the historical regeneration-control design that preceded the M5 fresh-generation decision.
+> The completed M3 ranker
+> plan supersedes the old M3 execution notes here. Historically this doc said M5 would own constrained
+> Steps 1-3 re-entry, lock pinning, prompt wording, and the now-superseded cache merge. The fresh-generation
+> cutover supersedes that cache/merge half. Interview with Brian 2026-06-12.
 
 ## Goal
 
-Carry the legacy regenerate controls — **item locks** ("keep the jeans") and **contextual
+Historical goal: carry the legacy regenerate controls — **item locks** ("keep the jeans") and **contextual
 dislikes** ("not this shirt, for this re-roll") — into the v2 two-stage-cache architecture,
-where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
+where regenerate was modeled as a re-rank of cached candidates rather than a fresh GPT call.
 `changeTarget` and `feedbackNotes` are dropped (R9).
 
 ## Success criteria
@@ -19,9 +26,8 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 - [x] M3: completed in the ranker as request-scoped filters/diagnostics over already-built
       candidates; no constrained re-entry, pinning, or merge lives in M3
       (`docs/plans/m3-ranker.md` is authoritative).
-- [ ] M5: single recommend route accepts `lockedItemIds`/`dislikedItemIds` + `generationIndex`;
-      orchestrates any constrained re-entry/pinning/merge; legacy `regenerate/route.ts` retired;
-      dashboard modal keeps lock checkboxes and per-item dislikes, drops the changeTarget dropdown.
+- [ ] M5: **superseded by `m5-cutover.md`** — single route accepts `lockedItemIds`/`dislikedItemIds`;
+      regenerate is one constrained fresh generation with server-derived lineage; no cached-pool merge.
 - [ ] Observable behavior: a locked re-roll returns K outfits all containing every locked item,
       or fewer plus an explicit notice — never silently fewer (F14 guard).
 
@@ -37,12 +43,12 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 - No constrained-pool builder, GPT re-entry, prompt pinning, or cache merge. M3 reports the
   need; M5 decides and orchestrates re-entry.
 
-**M5 (wiring):**
+**Historical M5 wiring model (superseded by `m5-cutover.md`):**
 - `fitted/app/api/recommend/route.ts` — accept the two arrays; escalation orchestration;
   `regenNotice` in the response.
 - M5 service/adapter boundary — if escalation is used, run the constrained Steps 1-3 re-entry,
-  keep locked items pinned, exclude contextual dislikes, and merge valid additions back into
-  the candidate/session pool without changing the cache key.
+  keep locked items pinned, exclude contextual dislikes. The cached-pool merge described in the old model is
+  superseded; M5 fresh generation writes a child snapshot instead.
 - `fitted/app/api/recommend/regenerate/route.ts` — **deleted** (deletion license; fails the
   M5-cutover survival test; decision recorded here per CLAUDE.md threshold).
 - `fitted/app/(app)/dashboard/page.tsx` — regenerate modal: changeTarget dropdown removed;
@@ -52,7 +58,7 @@ where regenerate is a re-rank of cached candidates rather than a fresh GPT call.
 
 ## Approach
 
-Regen controls are **per-request parameters to the Steps 4–6 re-rank**, the same class as
+Historical model: regen controls were **per-request parameters to the Steps 4–6 re-rank**, the same class as
 `generationIndex` and the cooldown buffer — they never enter `session_seed` or the cache key
 (v2 §15 invariant preserved: the cache stores the candidate stage; per-request state shapes what
 survives it).
@@ -90,7 +96,7 @@ via the feedback flow; the free re-rank has no GPT call to consume text).
 | Trigger | Behavior | Why |
 |---|---|---|
 | Same id in `lockedItemIds` and `dislikedItemIds` | 400 | Client bug; no sane semantics. |
-| Locked item deleted/`isAvailable === false`/not owned | Drop that lock, proceed, include in `regenNotice` | Wardrobe changed since the outfit was shown; honest partial beats hard failure. |
+| Locked item deleted/`isAvailable === false`/not owned | **M5 current:** stable pre-service 400; do not silently drop the lock | `m5-cutover.md` treats a requested lock as user intent and rejects unsatisfiable locks before spend. |
 | Structurally impossible lock set (one-piece + top/bottom; two of one slot — v2 §13 rules) | Reject **before** any filtering/GPT spend, explicit §19-style message | Escalation can't fix structure; don't pay for guaranteed-invalid candidates. |
 | Survivors < K after filters | M3 reports starvation; M5 may make one escalation call, merge, then re-run Steps 4–6 | M3 reports, M5 owns re-entry. |
 | Escalation candidates missing locks / failing validation | Dropped by Step 3 + containment check; may land in partial+notice | Backend never repairs GPT output (F4 lesson). |
