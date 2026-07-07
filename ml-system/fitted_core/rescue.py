@@ -54,10 +54,12 @@ from fitted_core.response import (
     build_variants,
     build_variants_with_trace,
 )
+from fitted_core.reducers import BehavioralSignals
 from fitted_core.sampler import (
     ColdStartSignalScorer,
     RequestContext,
     SamplerResult,
+    SignalScorer,
     build_candidate_pool,
     partition,
     reject_duplicate_ids,
@@ -84,7 +86,7 @@ class RescueRequest:
     """
 
     wardrobe: list[WardrobeItem]
-    forced_item_id: str
+    forced_item_id: Optional[str]
     occasion: str
     weather: str
     session_id: str
@@ -93,11 +95,26 @@ class RescueRequest:
     k: int = DEFAULT_K
     n_surfaced: int = N_SURFACED
     date: Optional[str] = None
+    intent: str = "rescue_item"
+    interaction_count: int = 0
 
     def __post_init__(self) -> None:
+        self._validate_intent()
         self._validate_generation_index()
         self._validate_k()
         self._validate_n_surfaced()
+        self._validate_interaction_count()
+
+    def _validate_intent(self) -> None:
+        if not isinstance(self.intent, str):
+            raise TypeError(f"intent must be a str, got {type(self.intent).__name__}")
+        if self.intent not in _SUPPORTED_INTENTS:
+            raise ValueError(f"unsupported render intent {self.intent!r}")
+        if self.intent == "rescue_item":
+            if not isinstance(self.forced_item_id, str) or not self.forced_item_id.strip():
+                raise ValueError("forced_item_id is required for rescue_item intent")
+        elif self.forced_item_id is not None:
+            raise ValueError(f"forced_item_id must be None for {self.intent} intent")
 
     def _validate_generation_index(self) -> None:
         gi = self.generation_index
@@ -136,6 +153,31 @@ class RescueRequest:
                 f"n_surfaced={n} exceeds k={self.k}; the surfaced set is drawn from the "
                 "ranked pool of at most k outfits, so this budget can never be met"
             )
+
+    def _validate_interaction_count(self) -> None:
+        count = self.interaction_count
+        if isinstance(count, bool):
+            raise TypeError("interaction_count must be a non-bool int, got bool")
+        if not isinstance(count, int):
+            raise TypeError(
+                f"interaction_count must be a non-bool int, got {type(count).__name__}"
+            )
+        if count < 0:
+            raise ValueError(f"interaction_count must be >= 0, got {count}")
+
+
+RenderRequest = RescueRequest
+
+_SUPPORTED_INTENTS = frozenset({"daily", "rescue_item", "outfit_upgrade", "translate"})
+
+
+def _default_signal_scorer(signal_scorer: Optional[SignalScorer]) -> SignalScorer:
+    return signal_scorer if signal_scorer is not None else ColdStartSignalScorer()
+
+
+def _ensure_intent(request: RenderRequest, expected: str) -> None:
+    if request.intent != expected:
+        raise ValueError(f"{expected} renderer received {request.intent!r} request")
 
 
 # ============================================================================
@@ -245,10 +287,9 @@ def _check_sufficiency(
 def _build_request_context(request: RescueRequest) -> RequestContext:
     """``RescueRequest`` → the sampler's ``RequestContext`` (spearhead.md §G step 3).
 
-    ``interaction_count=0`` pins cold start (rung 1): the sampler's 30% signal slot stays
-    unreachable (R11), so every type rides the seeded-random fallback — the determinism the
-    whole rescue inherits. M5's feedback reducer is what later lifts this above 0 (M4 landed the
-    OutfitInteraction binding fields, not yet the read-time affinity projection that derives it).
+    ``interaction_count`` is server-derived from the feedback reducer. At zero the sampler's
+    30% signal slot stays unreachable; once M5 passes both enough interactions and an available
+    scorer, this context opens the existing sampler seam without changing sampler internals.
     """
     return RequestContext(
         occasion=request.occasion,
@@ -256,7 +297,7 @@ def _build_request_context(request: RescueRequest) -> RequestContext:
         session_id=request.session_id,
         wardrobe_version=request.wardrobe_version,
         date=request.date,
-        interaction_count=0,
+        interaction_count=request.interaction_count,
     )
 
 
@@ -492,6 +533,72 @@ def _build_prompt(
     )
 
 
+def _build_daily_system_prompt() -> str:
+    """The daily §D system prompt: same bounded composer, no forced-item contract."""
+    lines = [
+        "You are a personal stylist. Compose outfits ONLY from the wardrobe items provided, "
+        "referencing each item by its id.",
+        "",
+        "Hard rules for every outfit:",
+        "- Each outfit is either two_piece (exactly 1 base_top + 1 base_bottom) XOR one_piece "
+        "(exactly 1 dress); plus optionally 0-1 outer_layer and 0-1 shoes. Never repeat an "
+        "item within an outfit.",
+        f"- Each item's role is exactly one of: {_ROLE_VALUES}.",
+        "- Every outfit MUST include a styleMove -- the single concrete styling idea that makes "
+        'it work -- as {"moveType", "changedItemIds", "oneSentence"}. changedItemIds must be a '
+        "NON-EMPTY subset of that outfit's own item ids.",
+        "- Return a RANGE of believable outfits, from everyday/expected to adventurous. Do NOT "
+        "label, score, or rank them.",
+        "- Respect the given weather and occasion; treat weather as high-priority styling context.",
+        "",
+        "Output format:",
+        '- Return STRICTLY VALID JSON only, no prose, exactly: {"outfits":[{"items":'
+        '[{"itemId","role"}, ...], "styleMove":{"moveType","changedItemIds","oneSentence"}}, '
+        "...]}.",
+        "- Each item object has EXACTLY two keys: itemId (the wardrobe item's id) and role. "
+        "styleMove has EXACTLY three keys.",
+        "- The item attributes above (name, type, tags, material, formality) are for SELECTION "
+        "ONLY -- do NOT copy them into the output items.",
+        "- Do NOT emit any other field. Forbidden anywhere in the output: score, rank, "
+        "optionPath, risk, vibe, label, imageUrl, warmth. Any extra field causes the whole "
+        "outfit to be rejected.",
+    ]
+    return "\n".join(lines)
+
+
+def _build_daily_user_message(
+    request: RenderRequest,
+    pool_json: str,
+    candidate_requested: int,
+) -> str:
+    return "\n".join(
+        [
+            f"Occasion: {request.occasion}",
+            f"Weather: {request.weather}",
+            "",
+            "Build believable outfits for this occasion and weather from this wardrobe:",
+            pool_json,
+            "",
+            f"Return up to {candidate_requested} outfits.",
+        ]
+    )
+
+
+def _build_daily_prompt(
+    pool: Mapping[ItemType, list[WardrobeItem]],
+    request: RenderRequest,
+    candidate_requested: int,
+) -> GenerationPrompt:
+    """Build the daily ``GenerationPrompt`` from the full sampled pool."""
+    pool_items = [_serialize_pool_item(item) for item in _flatten_pool(pool)]
+    pool_json = json.dumps(pool_items, indent=2, ensure_ascii=False)
+    return GenerationPrompt(
+        system=_build_daily_system_prompt(),
+        user=_build_daily_user_message(request, pool_json, candidate_requested),
+        candidate_requested=candidate_requested,
+    )
+
+
 # ============================================================================
 # §G steps 7–9 — rescue() orchestration (generate → parse → validate → drop → rank, C4)
 # ============================================================================
@@ -575,6 +682,22 @@ def _filled_slot_ids(slot_map: SlotMap) -> set[str]:
     }
 
 
+def _drop_missing_style_move(candidates: Sequence[ValidatedCandidate]) -> list[ValidatedCandidate]:
+    """Drop candidates whose §12 StyleMove did not validate."""
+    return [candidate for candidate in candidates if candidate.style_move is not None]
+
+
+def _drop_missing_forced_item(
+    candidates: Sequence[ValidatedCandidate], forced_item_id: str
+) -> list[ValidatedCandidate]:
+    """Drop candidates that omit the rescue forced item."""
+    return [
+        candidate
+        for candidate in candidates
+        if forced_item_id in _filled_slot_ids(candidate.slot_map)
+    ]
+
+
 def _drop_invalid(
     candidates: Sequence[ValidatedCandidate], forced_item_id: str
 ) -> list[ValidatedCandidate]:
@@ -594,14 +717,7 @@ def _drop_invalid(
     These are structural, positioning-independent drops — **not** a fashionability gate (the §G
     "bucket, never gate" trap-guard governs the C5 response layer, never this).
     """
-    survivors: list[ValidatedCandidate] = []
-    for candidate in candidates:
-        if forced_item_id not in _filled_slot_ids(candidate.slot_map):
-            continue  # omits the forced item — meaningless for a rescue
-        if candidate.style_move is None:
-            continue  # absent or present-but-invalid StyleMove (decision 8)
-        survivors.append(candidate)
-    return survivors
+    return _drop_missing_style_move(_drop_missing_forced_item(candidates, forced_item_id))
 
 
 def _repair_prompt(prompt: GenerationPrompt) -> GenerationPrompt:
@@ -632,27 +748,42 @@ def _generate_and_parse(generator: Generator, prompt: GenerationPrompt) -> Optio
     return repaired.payload  # None when still invalid → graceful fallback
 
 
-def _build_ranker_context(request: RescueRequest) -> RankerContext:
+def _build_ranker_context(
+    request: RescueRequest,
+    behavioral_signals: Optional[BehavioralSignals] = None,
+) -> RankerContext:
     """``RescueRequest`` → the M3 ``RankerContext`` (spearhead.md §G step 9).
 
-    The seed inputs are required + keyword-only (ranker.py); the behavioral-signal collections
-    are left at their empty defaults — cold start (rung 1) has no affinity / cooldown / dislike /
-    shown-history yet (M4). ``k`` is the ranker fill target (``DEFAULT_K=10``), NOT ``n_surfaced``:
-    the C5 response layer needs a pool larger than 3 to spread-select from (spearhead.md §G
-    "Rescue's k vs n_surfaced").
+    The seed inputs are required + keyword-only (ranker.py). Behavioral signals are pre-reduced
+    by the M5 reducers; ``None`` leaves the ranker at its empty cold-start defaults.
     """
-    return RankerContext(
-        session_id=request.session_id,
-        wardrobe_version=request.wardrobe_version,
-        occasion=request.occasion,
-        weather=request.weather,
-        date=request.date,
-        generation_index=request.generation_index,
-        k=request.k,
-    )
+    kwargs = {
+        "session_id": request.session_id,
+        "wardrobe_version": request.wardrobe_version,
+        "occasion": request.occasion,
+        "weather": request.weather,
+        "date": request.date,
+        "generation_index": request.generation_index,
+        "k": request.k,
+    }
+    if behavioral_signals is not None:
+        kwargs.update(
+            item_affinity=behavioral_signals.item_affinity,
+            liked_full_signatures=behavioral_signals.liked_full_signatures,
+            shown_full_signatures=behavioral_signals.shown_full_signatures,
+            recent_disliked_base_keys=behavioral_signals.recent_disliked_base_keys,
+            recent_disliked_item_ids=behavioral_signals.recent_disliked_item_ids,
+        )
+    return RankerContext(**kwargs)
 
 
-def rescue(request: RescueRequest, generator: Generator) -> RescueResult:
+def rescue(
+    request: RescueRequest,
+    generator: Generator,
+    *,
+    signal_scorer: Optional[SignalScorer] = None,
+    behavioral_signals: Optional[BehavioralSignals] = None,
+) -> RescueResult:
     """Orchestrate orphan-item rescue end-to-end on the pure substrate (spearhead.md §G).
 
     Pipeline (spearhead.md §G): resolve the forced item (1) → structural sufficiency (2) →
@@ -667,6 +798,9 @@ def rescue(request: RescueRequest, generator: Generator) -> RescueResult:
     is pure, and the ranker is seeded by the request context (spearhead.md §J). The ``generator``
     is the only impurity; the real ``OpenAIGenerator`` is never imported here.
     """
+    _ensure_intent(request, "rescue_item")
+    scorer = _default_signal_scorer(signal_scorer)
+
     # Caller-contract precondition (R12): duplicate logical ids corrupt key equality, so fail loud
     # HERE — before the pre-GPT sufficiency exit, which would otherwise mask the misuse on an
     # insufficient closet by returning not_enough_items. RescueRequest validates the numeric request
@@ -696,7 +830,7 @@ def rescue(request: RescueRequest, generator: Generator) -> RescueResult:
     # Step 3 — cold-start candidate pool (the closed M1 sampler). Rescue ignores the sampler's
     # own general-flow candidate_requested/not_enough_items and recomputes both for rescue.
     sampler_result = build_candidate_pool(
-        request.wardrobe, _build_request_context(request), ColdStartSignalScorer()
+        request.wardrobe, _build_request_context(request), scorer
     )
 
     # Step 4 — scope the pool to the forced item (the rescue "pin"; duplicate-free by construction).
@@ -724,7 +858,7 @@ def rescue(request: RescueRequest, generator: Generator) -> RescueResult:
     # Step 9 — rank (cold start: empty behavioral signals). ``rank([])`` is valid (M2/M3 "empty
     # is valid") and yields an empty, insufficient RankerResult, so the parse-fail and all-dropped
     # paths share this single exit.
-    ranked = rank(survivors, _build_ranker_context(request))
+    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals))
 
     # Step 10 — response layer: wrap the ranked survivors into §6.5 OutfitVariants (path/risk via
     # the §G cold-start scoring) and spread-select ≤ n_surfaced spanning distinct (path, risk)
@@ -775,6 +909,7 @@ class RescueDrop:
 
     candidate: ValidatedCandidate
     drop_reason: str
+    drop_stage: str = "rescue"
 
 
 @dataclass(frozen=True)
@@ -855,13 +990,36 @@ def _drop_invalid_with_trace(
     return survivors, tuple(drops)
 
 
-def rescue_with_trace(request: RescueRequest, generator: Generator) -> RescueTrace:
+def _drop_missing_style_move_with_trace(
+    candidates: Sequence[ValidatedCandidate],
+) -> tuple[list[ValidatedCandidate], tuple[RescueDrop, ...]]:
+    """Daily candidate drop trace: StyleMove is required, but no forced item exists."""
+    survivors: list[ValidatedCandidate] = []
+    drops: list[RescueDrop] = []
+    for candidate in candidates:
+        if candidate.style_move is None:
+            drops.append(RescueDrop(candidate, "stylemove_invalid", "render"))
+        else:
+            survivors.append(candidate)
+    return survivors, tuple(drops)
+
+
+def rescue_with_trace(
+    request: RescueRequest,
+    generator: Generator,
+    *,
+    signal_scorer: Optional[SignalScorer] = None,
+    behavioral_signals: Optional[BehavioralSignals] = None,
+) -> RescueTrace:
     """``rescue()`` re-run with the Option-B trace siblings — the full funnel for the snapshot.
 
     Mirrors ``rescue()``'s 10-step pipeline (spearhead.md §G) but uses the ``*_with_trace`` siblings
     so every discard site is captured. The public ``rescue()`` is untouched; ``RescueTrace.result``
     is byte-equal to ``rescue(request, generator)`` under the same deterministic generator.
     """
+    _ensure_intent(request, "rescue_item")
+    scorer = _default_signal_scorer(signal_scorer)
+
     # Caller-contract precondition (R12) — fail loud before the pre-GPT sufficiency exit (mirrors
     # rescue(); the insufficient path would otherwise mask a duplicate-id misuse).
     # RescueRequest already guards the numeric request controls at construction time.
@@ -896,7 +1054,7 @@ def rescue_with_trace(request: RescueRequest, generator: Generator) -> RescueTra
 
     # Steps 3–6 — cold-start pool, scope to the forced item, build the prompt.
     sampler_result = build_candidate_pool(
-        request.wardrobe, _build_request_context(request), ColdStartSignalScorer()
+        request.wardrobe, _build_request_context(request), scorer
     )
     scoped = _scope_pool_to_forced(sampler_result.pool, forced_item, valid_types)
     prompt_pool = tuple(_flatten_pool(scoped))  # the exact items the engine conditioned on (§8.2-D)
@@ -920,7 +1078,7 @@ def rescue_with_trace(request: RescueRequest, generator: Generator) -> RescueTra
         survivors, rescue_drops = _drop_invalid_with_trace(validation.candidates, forced_item.id)
 
     # Step 9 — rank, capturing the full scored funnel (scored-but-unshown breakdowns).
-    rank_audit = rank_with_audit(survivors, _build_ranker_context(request))
+    rank_audit = rank_with_audit(survivors, _build_ranker_context(request, behavioral_signals))
     ranked = rank_audit.result
 
     # Step 10 — response layer, capturing every assembled variant (non-selected included).
@@ -949,3 +1107,180 @@ def rescue_with_trace(request: RescueRequest, generator: Generator) -> RescueTra
         rank_audit=rank_audit,
         build_trace=build_trace,
     )
+
+
+RenderResult = RescueResult
+RenderTrace = RescueTrace
+
+_DAILY_NOT_ENOUGH_HINT = "add a top and bottom, or a dress, to get daily outfit ideas"
+
+
+def _not_enough_daily_result() -> RenderResult:
+    return RenderResult(
+        ranked=None,
+        variants=(),
+        not_enough_items=True,
+        insufficient_after_generation=False,
+        spread_collapsed=False,
+        reason_hint=_DAILY_NOT_ENOUGH_HINT,
+        fallback_stage=None,
+    )
+
+
+def _render_daily(
+    request: RenderRequest,
+    generator: Generator,
+    *,
+    signal_scorer: Optional[SignalScorer] = None,
+    behavioral_signals: Optional[BehavioralSignals] = None,
+) -> RenderResult:
+    _ensure_intent(request, "daily")
+    scorer = _default_signal_scorer(signal_scorer)
+    reject_duplicate_ids(request.wardrobe)
+
+    sampler_result = build_candidate_pool(request.wardrobe, _build_request_context(request), scorer)
+    if sampler_result.not_enough_items:
+        return _not_enough_daily_result()
+
+    prompt = _build_daily_prompt(sampler_result.pool, request, sampler_result.candidate_requested)
+    prompt_pool = _flatten_pool(sampler_result.pool)
+    payload = _generate_and_parse(generator, prompt)
+    if payload is None:
+        survivors: list[ValidatedCandidate] = []
+    else:
+        validation = validate_gpt_payload(payload, prompt_pool, prompt.candidate_requested)
+        survivors = _drop_missing_style_move(validation.candidates)
+
+    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals))
+    items_by_id = {item.id: item for item in request.wardrobe}
+    variants, spread_collapsed = build_variants(ranked, items_by_id, request, request.n_surfaced)
+    insufficient = len(ranked.outfits) < request.n_surfaced
+    return RenderResult(
+        ranked=ranked,
+        variants=variants,
+        not_enough_items=False,
+        insufficient_after_generation=insufficient,
+        spread_collapsed=spread_collapsed,
+        reason_hint=_INSUFFICIENT_AFTER_GENERATION_HINT if insufficient else None,
+        fallback_stage=ranked.fallback_stage,
+    )
+
+
+def _render_daily_with_trace(
+    request: RenderRequest,
+    generator: Generator,
+    *,
+    signal_scorer: Optional[SignalScorer] = None,
+    behavioral_signals: Optional[BehavioralSignals] = None,
+) -> RenderTrace:
+    _ensure_intent(request, "daily")
+    scorer = _default_signal_scorer(signal_scorer)
+    reject_duplicate_ids(request.wardrobe)
+
+    sampler_result = build_candidate_pool(request.wardrobe, _build_request_context(request), scorer)
+    prompt_pool = tuple(_flatten_pool(sampler_result.pool))
+    if sampler_result.not_enough_items:
+        return RenderTrace(
+            result=_not_enough_daily_result(),
+            sampler_result=sampler_result,
+            prompt_pool=prompt_pool,
+            candidate_requested=sampler_result.candidate_requested,
+            attempts=(),
+            validation=None,
+            parsed_outfits=(),
+            rescue_drops=(),
+            rank_audit=None,
+            build_trace=None,
+        )
+
+    prompt = _build_daily_prompt(sampler_result.pool, request, sampler_result.candidate_requested)
+    payload, attempts = _generate_and_parse_with_trace(generator, prompt)
+    if payload is None:
+        validation: Optional[ValidationResult] = None
+        parsed_outfits: tuple[object, ...] = ()
+        survivors: list[ValidatedCandidate] = []
+        rescue_drops: tuple[RescueDrop, ...] = ()
+    else:
+        validation_trace = validate_gpt_payload_with_trace(
+            payload, list(prompt_pool), prompt.candidate_requested
+        )
+        validation = validation_trace.result
+        parsed_outfits = validation_trace.parsed_outfits
+        survivors, rescue_drops = _drop_missing_style_move_with_trace(validation.candidates)
+
+    rank_audit = rank_with_audit(survivors, _build_ranker_context(request, behavioral_signals))
+    ranked = rank_audit.result
+    items_by_id = {item.id: item for item in request.wardrobe}
+    build_trace = build_variants_with_trace(ranked, items_by_id, request, request.n_surfaced)
+    insufficient = len(ranked.outfits) < request.n_surfaced
+    result = RenderResult(
+        ranked=ranked,
+        variants=build_trace.selected,
+        not_enough_items=False,
+        insufficient_after_generation=insufficient,
+        spread_collapsed=build_trace.spread_collapsed,
+        reason_hint=_INSUFFICIENT_AFTER_GENERATION_HINT if insufficient else None,
+        fallback_stage=ranked.fallback_stage,
+    )
+    return RenderTrace(
+        result=result,
+        sampler_result=sampler_result,
+        prompt_pool=prompt_pool,
+        candidate_requested=prompt.candidate_requested,
+        attempts=attempts,
+        validation=validation,
+        parsed_outfits=parsed_outfits,
+        rescue_drops=rescue_drops,
+        rank_audit=rank_audit,
+        build_trace=build_trace,
+    )
+
+
+def render(
+    request: RenderRequest,
+    generator: Generator,
+    *,
+    signal_scorer: Optional[SignalScorer] = None,
+    behavioral_signals: Optional[BehavioralSignals] = None,
+) -> RenderResult:
+    """Generic M5 render entrypoint for implemented intents."""
+    if request.intent == "rescue_item":
+        return rescue(
+            request,
+            generator,
+            signal_scorer=signal_scorer,
+            behavioral_signals=behavioral_signals,
+        )
+    if request.intent == "daily":
+        return _render_daily(
+            request,
+            generator,
+            signal_scorer=signal_scorer,
+            behavioral_signals=behavioral_signals,
+        )
+    raise NotImplementedError(f"{request.intent!r} render intent is not implemented in C1")
+
+
+def render_with_trace(
+    request: RenderRequest,
+    generator: Generator,
+    *,
+    signal_scorer: Optional[SignalScorer] = None,
+    behavioral_signals: Optional[BehavioralSignals] = None,
+) -> RenderTrace:
+    """Generic traced M5 render entrypoint for implemented intents."""
+    if request.intent == "rescue_item":
+        return rescue_with_trace(
+            request,
+            generator,
+            signal_scorer=signal_scorer,
+            behavioral_signals=behavioral_signals,
+        )
+    if request.intent == "daily":
+        return _render_daily_with_trace(
+            request,
+            generator,
+            signal_scorer=signal_scorer,
+            behavioral_signals=behavioral_signals,
+        )
+    raise NotImplementedError(f"{request.intent!r} render intent is not implemented in C1")

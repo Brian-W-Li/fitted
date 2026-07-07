@@ -547,6 +547,7 @@ def test_estimate_cost_usd_table_and_unknowns():
 
     assert _estimate_cost_usd("gpt-4o", 1_000_000, 1_000_000) == pytest.approx(12.50)
     assert _estimate_cost_usd("gpt-4o-mini", 1_000_000, 1_000_000) == pytest.approx(0.75)
+    assert _estimate_cost_usd("gpt-5.4-mini", 1_000_000, 1_000_000) == pytest.approx(5.25)
     assert _estimate_cost_usd("no-such-model", 100, 100) is None  # unpriced → None
     assert _estimate_cost_usd("gpt-4o", None, 100) is None  # missing tokens → None
     assert _estimate_cost_usd(None, 100, 100) is None  # unknown model → None

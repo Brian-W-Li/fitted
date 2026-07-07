@@ -14,7 +14,7 @@ Error-model convention (applies across the package):
     "you called this wrong" — a key function handed an unvalidated SlotMap
     (``keys``, ``template_of``), a wardrobe with duplicate logical item-ids
     (``build_candidate_pool``, R12), a wire value the internal dataclass guards reject
-    (``WardrobeItem``). They should be unreachable if upstream validation ran.
+    (``WardrobeItem`` / ``RenderRequest``). They should be unreachable if upstream validation ran.
   The dividing line: can a well-behaved pipeline produce this state at runtime
   (→ error channel), or only a programming error (→ raise)?
 """
@@ -41,6 +41,6 @@ from fitted_core.config import PROMPT_VERSION, RANKER_CONFIG_VERSION
 # M6 can't separate them), so these comments are the guardrail. On any change to the
 # behavioral logic above, bump __version__ here; on any §D prompt-text edit, bump
 # PROMPT_VERSION in config.py. RANKER_CONFIG_VERSION needs no manual action.
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = ["__version__", "PROMPT_VERSION", "RANKER_CONFIG_VERSION"]

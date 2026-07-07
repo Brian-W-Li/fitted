@@ -78,13 +78,23 @@ def test_dry_run_prints_global_cost_summary(capsys):
 def test_factory_real_path_builds_openai_generator_without_calling_it():
     case = cli.load_corpus_case(GREEN)
     args = cli._build_parser().parse_args(
-        ["--closet", GREEN, "--model", "gpt-4o-mini", "--temperature", "0.3"]
+        [
+            "--closet",
+            GREEN,
+            "--model",
+            "gpt-4o-mini",
+            "--temperature",
+            "0.3",
+            "--max-completion-tokens",
+            "512",
+        ]
     )
     factory = cli._make_generator_factory(args, case)
     generator = factory()  # construction only — no generate(), so no openai/key needed
     assert isinstance(generator, OpenAIGenerator)
     assert generator._model == "gpt-4o-mini"  # model is configurable (C6 A/B lever)
     assert generator._temperature == 0.3  # temperature is configurable
+    assert generator._max_completion_tokens == 512
 
 
 def test_factory_dry_run_path_builds_replay_generator():

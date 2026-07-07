@@ -18,6 +18,7 @@ import pytest
 
 from fitted_core.models import IssueCode, ItemType, StyleMove, Template, WardrobeItem
 from fitted_core.validator import (
+    MAX_JSON_NESTING_DEPTH,
     Issue,
     ParseResult,
     Severity,
@@ -102,11 +103,20 @@ def test_parse_malformed_string_returns_invalid_json(bad):
 # --- pathological nesting: RecursionError is content, not a crash (B1, pre-flight) ---
 
 def test_parse_deeply_nested_json_returns_invalid_json():
-    # A hostile/degenerate generator can emit thousands of nesting levels; json.loads
-    # raises RecursionError (NOT a ValueError subclass) — must land on the same
-    # invalidJson path as any other malformed content, never escape the parse boundary.
+    # A hostile/degenerate generator can emit thousands of nesting levels; whether json.loads
+    # raises RecursionError or the engine depth guard catches it, this must land on invalidJson.
     deep = '{"a":' * 2000 + "1" + "}" * 2000
     result = parse_gpt_json(deep)
+    assert result.payload is None
+    assert result.issue.code is IssueCode.invalid_json
+
+
+def test_parse_json_depth_guard_boundary():
+    accepted = '{"a":' * MAX_JSON_NESTING_DEPTH + "1" + "}" * MAX_JSON_NESTING_DEPTH
+    rejected = '{"a":' * (MAX_JSON_NESTING_DEPTH + 1) + "1" + "}" * (MAX_JSON_NESTING_DEPTH + 1)
+
+    assert parse_gpt_json(accepted).issue is None
+    result = parse_gpt_json(rejected)
     assert result.payload is None
     assert result.issue.code is IssueCode.invalid_json
 

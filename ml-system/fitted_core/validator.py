@@ -174,6 +174,8 @@ def _record(issue: Issue, rejections: list[Issue], warnings: list[Issue]) -> Non
 
 # ============================ strict JSON parsing ============================
 
+MAX_JSON_NESTING_DEPTH = 512
+
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
     """``object_pairs_hook`` that rejects duplicate object member names.
@@ -200,6 +202,20 @@ def _reject_non_finite(token: str) -> object:
     raise ValueError(f"non-finite JSON constant {token!r} is not strictly valid JSON")
 
 
+def _exceeds_max_json_depth(payload: object) -> bool:
+    """Iterative depth guard for hostile-but-parseable JSON."""
+    stack: list[tuple[object, int]] = [(payload, 0)]
+    while stack:
+        value, depth = stack.pop()
+        if depth > MAX_JSON_NESTING_DEPTH:
+            return True
+        if isinstance(value, dict):
+            stack.extend((child, depth + 1) for child in value.values())
+        elif isinstance(value, list):
+            stack.extend((child, depth + 1) for child in value)
+    return False
+
+
 def parse_gpt_json(raw: str) -> ParseResult:
     """Strict JSON parse of a raw GPT response string (M2 plan Decision D2/D2b).
 
@@ -224,6 +240,15 @@ def parse_gpt_json(raw: str) -> ParseResult:
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_non_finite,
         )
+        if _exceeds_max_json_depth(payload):
+            return ParseResult(
+                payload=None,
+                issue=Issue(
+                    IssueCode.invalid_json,
+                    None,
+                    "JSON nesting depth exceeds the parse limit",
+                ),
+            )
     except ValueError as exc:
         return ParseResult(payload=None, issue=Issue(IssueCode.invalid_json, None, str(exc)))
     except RecursionError:

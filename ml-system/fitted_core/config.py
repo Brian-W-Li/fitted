@@ -149,10 +149,12 @@ WEATHER_MISMATCH_PENALTY = 0.5
 #   - RANKER_CONFIG_VERSION    → auto sha256 over THIS module's Appendix B constants (catches a
 #                                one-constant tuning change __version__/PROMPT_VERSION would miss)
 
-# Bump on ANY edit to the §D rescue prompt text (rescue._build_system_prompt /
-# rescue._build_user_message — the only prompt builders today). Hand-maintained and
-# orthogonal to __version__; forgetting to bump it is the silent failure the policy warns of.
-PROMPT_VERSION = "spearhead-d.v1"
+# Bump on ANY edit to the §D prompt text (rescue._build_system_prompt /
+# rescue._build_user_message / rescue._build_daily_system_prompt /
+# rescue._build_daily_user_message). One shared prompt version covers every intent; `intent`
+# disambiguates rows. Hand-maintained and orthogonal to __version__; forgetting to bump it is
+# the silent failure the policy warns of.
+PROMPT_VERSION = "m5-c1.v1"
 
 
 def _canonical_for_digest(obj: object) -> object:

@@ -60,23 +60,23 @@ class OpenAIGenerator:
     A missing dependency / missing key surfaces only here, on a real call — the CLI path
     (C6), never the core or the stub suite (spearhead.md §H last row).
 
-    ``model``/``temperature`` are provisional believability levers tuned in the C6 eval
-    (spearhead.md §E A/B sweep); a higher temperature widens the "range of vibes" the
-    prompt asks for. ``response_format=json_object`` matches the §12 strict-JSON contract.
+    ``model``/``temperature`` are the M5 cutover defaults for bounded outfit composition.
+    ``response_format=json_object`` matches the §12 strict-JSON contract, and the optional
+    completion cap is sent as ``max_completion_tokens``.
     """
 
     def __init__(
         self,
         *,
-        model: str = "gpt-4o",
-        temperature: float = 0.8,
+        model: str = "gpt-5.4-mini",
+        temperature: float = 0.5,
         api_key: Optional[str] = None,
-        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
     ) -> None:
         self._model = model
         self._temperature = temperature
         self._api_key = api_key
-        self._max_tokens = max_tokens
+        self._max_completion_tokens = max_completion_tokens
         # C6-eval telemetry only (observational): the token usage of the most recent call,
         # or None before any call / when the API omits it. Product code (`rescue()`) never
         # reads this; the eval harness's RecordingGenerator does, to report tokens/$ (§E).
@@ -97,8 +97,8 @@ class OpenAIGenerator:
                 {"role": "user", "content": prompt.user},
             ],
         }
-        if self._max_tokens is not None:
-            kwargs["max_tokens"] = self._max_tokens
+        if self._max_completion_tokens is not None:
+            kwargs["max_completion_tokens"] = self._max_completion_tokens
         response = client.chat.completions.create(**kwargs)
         # Capture usage for the C6 cost report (observational; does not alter the return).
         usage = getattr(response, "usage", None)

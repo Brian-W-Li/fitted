@@ -465,7 +465,7 @@
     "scorerAvailable": false,
     "warningHistogram": {}
   },
-  "fittedCoreVersion": "0.4.0",
+  "fittedCoreVersion": "0.5.0",
   "forcedItemId": "t1",
   "generationAttempts": [
     {
@@ -483,7 +483,7 @@
   "generationIndex": 0,
   "generator": {
     "model": "gpt-4o",
-    "promptVersion": "spearhead-d.v1",
+    "promptVersion": "m5-c1.v1",
     "provider": "openai",
     "temperature": 0.8
   },

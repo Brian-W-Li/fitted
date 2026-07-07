@@ -6,6 +6,8 @@ satisfied by both implementations. No live OpenAI calls (spearhead.md §A/§I).
 """
 
 import dataclasses
+import sys
+import types
 
 import pytest
 
@@ -49,7 +51,7 @@ def test_stub_rejects_empty_sequence():
 
 def test_stub_and_openai_satisfy_generator_protocol():
     assert isinstance(StubGenerator("{}"), Generator)
-    assert isinstance(OpenAIGenerator(model="gpt-4o", temperature=0.5), Generator)
+    assert isinstance(OpenAIGenerator(model="gpt-5.4-mini", temperature=0.5), Generator)
 
 
 # --- GenerationPrompt contract ---
@@ -76,5 +78,41 @@ def test_openai_import_is_lazy_no_module_level_binding():
 
 def test_constructing_openai_generator_does_not_require_openai():
     # Construction touches no IO and no dependency — only a real generate() call does.
-    g = OpenAIGenerator(model="gpt-4o", temperature=0.8, max_tokens=512)
+    g = OpenAIGenerator(model="gpt-5.4-mini", temperature=0.5, max_completion_tokens=512)
     assert isinstance(g, OpenAIGenerator)
+
+
+def test_openai_generator_sends_m5_defaults_and_max_completion_tokens(monkeypatch):
+    captured: dict = {}
+
+    class _Completions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            message = types.SimpleNamespace(content='{"outfits":[]}')
+            choice = types.SimpleNamespace(message=message)
+            usage = types.SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3)
+            return types.SimpleNamespace(choices=[choice], usage=usage)
+
+    class _Chat:
+        completions = _Completions()
+
+    class _OpenAI:
+        def __init__(self, api_key=None):
+            captured["api_key"] = api_key
+            self.chat = _Chat()
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
+
+    generator = OpenAIGenerator(api_key="k", max_completion_tokens=512)
+    assert generator.generate(_prompt()) == '{"outfits":[]}'
+
+    assert captured["api_key"] == "k"
+    assert captured["model"] == "gpt-5.4-mini"
+    assert captured["temperature"] == 0.5
+    assert captured["max_completion_tokens"] == 512
+    assert "max_tokens" not in captured
+    assert generator.last_usage == {
+        "prompt_tokens": 1,
+        "completion_tokens": 2,
+        "total_tokens": 3,
+    }

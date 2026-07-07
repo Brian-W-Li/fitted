@@ -64,16 +64,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="replay each case's canned_response instead of calling OpenAI (no key needed)",
     )
     parser.add_argument(
-        "--model", default="gpt-4o", help="OpenAI model for a real run (default: gpt-4o)"
+        "--model",
+        default="gpt-5.4-mini",
+        help="OpenAI model for a real run (default: gpt-5.4-mini)",
     )
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.8,
-        help="sampling temperature — higher widens the vibe range (default: 0.8)",
+        default=0.5,
+        help="sampling temperature — higher widens the vibe range (default: 0.5)",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=None, help="optional max_tokens for a real run"
+        "--max-completion-tokens",
+        type=int,
+        default=None,
+        help="optional max_completion_tokens for a real run",
     )
     parser.add_argument(
         "--runs",
@@ -99,7 +104,9 @@ def _make_generator_factory(
             return lambda: replay_generator_for(case)
         return lambda: ReplayGenerator(_EMPTY_ENVELOPE)
     return lambda: OpenAIGenerator(
-        model=args.model, temperature=args.temperature, max_tokens=args.max_tokens
+        model=args.model,
+        temperature=args.temperature,
+        max_completion_tokens=args.max_completion_tokens,
     )
 
 

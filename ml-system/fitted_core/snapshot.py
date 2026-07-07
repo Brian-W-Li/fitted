@@ -2,7 +2,7 @@
 
 The Python producer half of the §15.1 GenerationSnapshot contract: a frozen dataclass mirror
 of the snapshot's Python-authored fields (§8.2-A/B/C/E/F/G + each item's ``engineVisible``
-projection) plus ``build_snapshot_payload``, which folds a ``RescueTrace`` (the Option-B funnel
+projection) plus ``build_snapshot_payload``, which folds a ``RenderTrace`` (the Option-B funnel
 capture) into one immutable payload. The TS side adds ``evidence`` and persists the merged doc;
 the C4 ``snapshot_serde`` carries this payload across the wire (snake→camel, ``type``→
 ``clothingType``, finite floats, opaque-string ids).
@@ -26,7 +26,7 @@ from typing import Optional
 
 from fitted_core import PROMPT_VERSION, RANKER_CONFIG_VERSION, __version__
 from fitted_core.models import Role, SlotMap, WardrobeItem
-from fitted_core.rescue import RescueRequest, RescueTrace
+from fitted_core.rescue import RenderRequest, RenderTrace
 
 # ---------------------------------------------------------------------------
 # Payload dataclasses (snake_case; the C4 serde maps to camelCase wire fields).
@@ -265,7 +265,7 @@ class _CandidateAcc:
     score_breakdown: Optional[dict] = None
 
 
-def _build_candidates(trace: RescueTrace, source_attempt_id: str) -> tuple[CandidatePayload, ...]:
+def _build_candidates(trace: RenderTrace, source_attempt_id: str) -> tuple[CandidatePayload, ...]:
     """Join every funnel stage by ``source_index`` into one candidate per GPT outfit (§8.2-F).
 
     candidateId = ``c{source_index}`` — a pure function of the funnel order, so it is deterministic
@@ -301,10 +301,10 @@ def _build_candidates(trace: RescueTrace, source_attempt_id: str) -> tuple[Candi
             c.base_key = vc.base_key
             c.full_signature = vc.full_signature
 
-    # 4 — rescue-specific drops (forced-item / StyleMove).
+    # 4 — render/rescue-specific drops (forced-item / StyleMove).
     for drop in trace.rescue_drops:
         c = get(drop.candidate.source_index)
-        c.drop_stage = "rescue"
+        c.drop_stage = drop.drop_stage
         c.drop_reason = drop.drop_reason
 
     # 5 — ranker funnel.
@@ -387,7 +387,7 @@ def _build_candidates(trace: RescueTrace, source_attempt_id: str) -> tuple[Candi
     return tuple(candidates)
 
 
-def _build_attempts(trace: RescueTrace) -> tuple[GenerationAttemptPayload, ...]:
+def _build_attempts(trace: RenderTrace) -> tuple[GenerationAttemptPayload, ...]:
     """Map each captured generate→parse attempt to a GenerationAttemptPayload (§8.2-E).
 
     The producing (last) attempt carries ``candidate_count_emitted`` = the parsed-outfit count,
@@ -444,7 +444,7 @@ def _sampler_per_type_diag(sampler) -> dict:
     }
 
 
-def _build_diagnostics(trace: RescueTrace) -> DiagnosticsPayload:
+def _build_diagnostics(trace: RenderTrace) -> DiagnosticsPayload:
     rejection_histogram: dict = {}
     warning_histogram: dict = {}
     if trace.validation is not None:
@@ -489,8 +489,8 @@ def _build_diagnostics(trace: RescueTrace) -> DiagnosticsPayload:
 
 
 def build_snapshot_payload(
-    trace: RescueTrace,
-    request: RescueRequest,
+    trace: RenderTrace,
+    request: RenderRequest,
     *,
     candidate_cache_key: str,
     generator_provider: str,
@@ -500,7 +500,7 @@ def build_snapshot_payload(
     prompt_version: str = PROMPT_VERSION,
     ranker_config_version: str = RANKER_CONFIG_VERSION,
 ) -> GenerationSnapshotPayload:
-    """Fold a ``RescueTrace`` into the immutable Python snapshot payload (§8.4 producer half).
+    """Fold a ``RenderTrace`` into the immutable Python snapshot payload (§8.4 producer half).
 
     Issues the deterministic per-candidate ``candidate_id`` over the full funnel, preserves every
     candidate's content (§8.2-F), and populates diagnostics from the sampler/ranker/rescue results.
@@ -520,7 +520,7 @@ def build_snapshot_payload(
         session_id=request.session_id,
         candidate_cache_key=candidate_cache_key,
         generation_index=request.generation_index,
-        intent="rescue_item",  # M5: parameterize from request.intent when daily/upgrade/translate land (TS enum lists all four)
+        intent=request.intent,
         occasion=request.occasion,
         weather=request.weather,
         forced_item_id=request.forced_item_id,
