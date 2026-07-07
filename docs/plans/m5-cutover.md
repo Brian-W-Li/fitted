@@ -158,7 +158,11 @@ Browser ─▶ Next route (one recommend route)                   Fly.io service
   // ^ provenance input — validated against the service's own allowlist, never obeyed blindly (§A bounds)
 }
 ```
-`POST /render` response: `{ "payload": <GenerationSnapshotPayload wire dict, to_wire()>, "shown": [<§6.5 outfit>], "degenerate": false }`.
+`POST /render` response: `{ "payload": <GenerationSnapshotPayload wire dict, to_wire()>, "shown":
+[<§6.5 outfit>], "flags": { "notEnoughItems": false, "insufficientAfterGeneration": false,
+"spreadCollapsed": false, "reasonHint": null }, "degenerate": false }` — the `flags` object carries the
+`RescueResult`/`RenderResult` user-facing state (the honest-partial / add-a-{type} UX needs it; the
+payload's `diagnostics` copy is for the corpus, not the client path).
 
 **Error envelope** (all non-2xx): `{ "error": { "code": "auth|rate_limit|parse_fail|contract_invalid|
 internal", "message": "<str>" } }`. Transport failures (unreachable / timeout) never reach an envelope —
@@ -208,7 +212,9 @@ def _build_request_context(request) -> RequestContext:  # pins interaction_count
   Deterministic (the slot picks the top-`signal_count` by score, `sampler.py:250`); new-user and golden
   paths unchanged (the count/availability gates stay closed for them). This is the designed occupant of
   the item-level behavioral seam (`sampler.py:116-118`) — the sampler-side half of "personalization comes
-  alive", alongside the ranker's `RankerContext` signals.
+  alive", alongside the ranker's `RankerContext` signals. **The service passes it for BOTH intents** (C3):
+  rescue's pre-scoping sample personalizes the same way; only the injection *default* is cold, so the
+  rescue wrappers and every golden stay byte-identical.
 - **Daily prompt** (new, `generation.py`/`rescue.py` prompt builders): mirror the rescue system/user prompt
   structure, drop the forced-item framing — "build N believable outfits for `{occasion}` / `{weatherBucket}`
   from this wardrobe". Same §12 JSON envelope + validator (no schema drift — the validator is intent-generic).
@@ -232,7 +238,12 @@ map or count < 5 the sampler output is byte-identical to cold.
 The re-roll runs the **full render pipeline again** — one GPT call — under the same Lens. Novelty comes
 from GPT stochasticity (`temperature=0.5`) plus the live behavioral layer: the §H repetition window
 penalizes re-showing what the chain already surfaced, and cooldown/contextual filters enforce
-dislike-invalidation natively. No cache, no re-rank path, no copy-forward provenance. Re-ranking must
+dislike-invalidation natively. No cache, no re-rank path, no copy-forward provenance. **Named residual
+(observe at the C8 smoke, don't pre-build):** the re-roll's prompt is byte-identical to the parent's
+(same pool, same Lens), so a mode-collapsed generator could re-emit near-identical candidate sets and
+re-create the exhaustion loop with spend attached. The cheap lever, if the live smoke shows it: append
+the chain's shown item-id combinations to the re-roll prompt as an explicit avoid-list (the service
+already holds them via `behavioralRows`) — decided at C4/C8 from observed behavior. Re-ranking must
 never mutate a parent — the shipped guards forbid it anyway (verified `GenerationSnapshot.ts:481-483`).
 Four contract pins:
 
