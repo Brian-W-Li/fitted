@@ -126,6 +126,8 @@ def test_variant_cap_loser_keeps_breakdown_and_compat_vis():
         # capped loser with a null rankerScore would be rejected by the C5 G12 helper.
         assert c.score_trace.ranker_score is not None
         assert c.score_trace.ranker_score == sum(bd.values())
+        assert c.style_move is not None
+        assert c.style_move["changed_item_ids"]
 
 
 def test_step4_hard_drop_carries_no_score_trace():
@@ -142,6 +144,7 @@ def test_step4_hard_drop_carries_no_score_trace():
     assert dropped, "the s1 outfit must be contextually dropped"
     for c in dropped:
         assert c.score_trace is None  # no breakdown ⇒ no scoreTrace (G12 inverse)
+        assert c.style_move is not None  # still a valid GPT candidate; only Step-4 filtered
 
 
 def test_shown_compat_vis_unchanged_by_the_scorer_seam():
@@ -303,6 +306,54 @@ def test_locked_optional_item_omitted_is_dropped_post_validation():
     )
     ok = render_with_trace(request, StubGenerator(with_lock)).result
     assert ok.variants and all("s1" in {i for i, _ in v.items} for v in ok.variants)
+
+
+class _NoCallGenerator:
+    """A generator that fails loudly if invoked — proves a pre-GPT short-circuit spent nothing."""
+
+    def generate(self, prompt):  # noqa: ARG002
+        raise AssertionError("generator must not be called on a controls-unbuildable render")
+
+
+def test_controls_unbuildable_short_circuits_pre_gpt_with_distinct_hint():
+    # A dress base exists (buildable WITHOUT controls), but locking the top invalidates the one_piece
+    # path and there is no bottom → the engine returns a valid not_enough render pre-GPT (zero generator
+    # calls), with the controls discriminator hint — never a raise, never a spend, never contract_invalid.
+    from fitted_core.rescue import _CONTROLS_UNBUILDABLE_HINT, _DAILY_NOT_ENOUGH_HINT
+
+    wardrobe = [_item("t1", ItemType.top), _item("d1", ItemType.dress)]
+    request = _daily(wardrobe, locked_item_ids=("t1",))
+    trace = render_with_trace(request, _NoCallGenerator())  # AssertionError if generation runs
+    assert trace.result.not_enough_items is True
+    assert trace.result.reason_hint == _CONTROLS_UNBUILDABLE_HINT
+    assert trace.result.reason_hint != _DAILY_NOT_ENOUGH_HINT  # distinct from understocked
+    assert trace.attempts == ()  # no generation attempt was made
+    assert trace.prompt_pool, "the lock-scoped engine-visible pool is still captured for the corpus"
+
+
+def test_dislike_removing_every_base_short_circuits_pre_gpt():
+    # No locks; the closet is buildable (t1+b1) but disliking the only bottom removes every base →
+    # valid not_enough render pre-GPT, no spend (the §C.3 dislike-exhausts-base valid-empty case).
+    from fitted_core.rescue import _CONTROLS_UNBUILDABLE_HINT
+
+    wardrobe = [_item("t1", ItemType.top), _item("b1", ItemType.bottom)]
+    request = _daily(wardrobe, disliked_item_ids=("b1",))
+    trace = render_with_trace(request, _NoCallGenerator())
+    assert trace.result.not_enough_items is True
+    assert trace.result.reason_hint == _CONTROLS_UNBUILDABLE_HINT
+
+
+def test_no_controls_render_never_short_circuits_on_buildability():
+    # Byte-identity guard: a no-control render must NEVER hit the controls short-circuit (a buildable
+    # closet renders normally). Uses the fake generator; the short-circuit would AssertionError-free
+    # skip generation, so reaching generation proves it did not fire.
+    wardrobe = [_item("t1", ItemType.top), _item("b1", ItemType.bottom)]
+    request = _daily(wardrobe)  # no locks, no dislikes
+    trace = render_with_trace(
+        request, StubGenerator(_envelope(_outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"])))
+    )
+    assert trace.attempts, "a no-control buildable render must generate (short-circuit must not fire)"
+    assert trace.result.not_enough_items is False
 
 
 def test_controls_block_authored_from_the_request():

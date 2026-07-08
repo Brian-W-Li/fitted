@@ -451,6 +451,7 @@ def _build_candidates(
             c.template = vc.template.value
             c.base_key = vc.base_key
             c.full_signature = vc.full_signature
+            c.style_move = _style_move_dict(vc.style_move)
 
     # 4 — render/rescue-specific drops (forced-item / StyleMove / lock).
     for drop in trace.rescue_drops:
@@ -731,10 +732,10 @@ def build_snapshot_payload(
     a write without it escapes the §C.4 partial unique index and duplicates on retry.
 
     ``outfit_scorer`` is the §E H28 seam occupant — exercised over every scored candidate to populate
-    ``scoreTrace.compatibility/visibility`` (default: the cold-start content scorer). A healthy write
-    therefore records ``scorer.available=True`` (an occupant was exercised, NOT "influenced rank
-    order" — the M6-order hook is separate). ``controls`` is authored from the request's normalized
-    locked/disliked ids (§G.1 F6).
+    ``scoreTrace.compatibility/visibility`` (default: the cold-start content scorer). A row records
+    ``scorer.available=True`` only when at least one candidate actually carries that score trace (NOT
+    "influenced rank order" — the M6-order hook is separate). No-candidate / no-scoring writes keep
+    it false. ``controls`` is authored from the request's normalized locked/disliked ids (§G.1 F6).
 
     §A.6/§G generator provenance: the ``generator`` block records the full API surface the run
     used — ``max_completion_tokens`` (the cap changes truncation/parse-fail/candidate
@@ -756,6 +757,7 @@ def build_snapshot_payload(
     shown = [c for c in candidates if c.shown]
     shown.sort(key=lambda c: (c.shown_position if c.shown_position is not None else 0))
     shown_full_signatures = tuple(c.full_signature for c in shown if c.full_signature is not None)
+    scorer_was_exercised = any(candidate.score_trace is not None for candidate in candidates)
 
     return GenerationSnapshotPayload(
         session_id=request.session_id,
@@ -790,10 +792,10 @@ def build_snapshot_payload(
             finish_status=generator_finish_status,
         ),
         ranker_config_version=ranker_config_version,
-        # §E: the OutfitScorer occupant WAS exercised over this render (available=true means "scored
-        # every candidate's scoreTrace", NOT "influenced rank order" — that stays M6). M6 flips
-        # kind→"trained"/model_id here; a degenerate write (no scoring) keeps available=False.
-        scorer={"kind": "cold_start", "model_id": None, "available": True},
+        # §E: available=true means the OutfitScorer occupant actually populated at least one
+        # candidate's scoreTrace, NOT "influenced rank order" — that stays M6. No-candidate /
+        # no-scoring writes keep available=False.
+        scorer={"kind": "cold_start", "model_id": None, "available": scorer_was_exercised},
         item_snapshots=item_snapshots,
         generation_attempts=_build_attempts(trace),
         candidates=candidates,

@@ -320,7 +320,7 @@ def _normalize_controls(raw: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
     canonical persisted arrays, never client-order-dependent), and reject the ``locked ∩ disliked``
     contradiction (a caller bug — a contradictory request must never empty-succeed). The
     wardrobe-membership + structural-feasibility checks are wardrobe-dependent and run in
-    :func:`_preflight_locks` after the wardrobe is parsed. Returns ``(locked, disliked)`` tuples.
+    :func:`_preflight_controls` after the wardrobe is parsed. Returns ``(locked, disliked)`` tuples.
     """
     where = "controls"
     if not isinstance(raw, dict):
@@ -362,7 +362,7 @@ def _lock_feasibility_error(pin_types: list[ItemType]) -> Optional[str]:
     return None
 
 
-def _preflight_locks(
+def _preflight_controls(
     locked: tuple[str, ...],
     disliked: tuple[str, ...],
     wardrobe: list,
@@ -371,22 +371,34 @@ def _preflight_locks(
 ) -> None:
     """The wardrobe-dependent §C.3 preflight (runs after the wardrobe parses, before any spend).
 
-    Check 2 — every locked id must be a live wardrobe item (a lock referencing a deleted/unknown
-    item is a caller bug → ``contract_invalid``, never a silent no-op). Check 3 — the effective pin
-    set (locks + the rescue forced item, deduped by id) must be structurally buildable. The forced
-    item is folded in so a rescue-a-top-while-locking-a-different-top request fails loud pre-spend
-    rather than spending a GPT call whose post-validate lock drop then kills every candidate.
+    Rejects ONLY the **request-decidable contradictions** — a control set that can never yield a
+    valid outfit *regardless of the closet* — as ``contract_invalid`` (a caller bug the client can and
+    must prevent, Fable 2026-07-07):
+      - a lock/dislike referencing an id absent from the live wardrobe (a stale control that shaped
+        nothing — must not be persisted as if it did);
+      - the rescue forced item also disliked (the implicit lock ∩ dislike contradiction);
+      - a structurally infeasible lock set (``_lock_feasibility_error``: >1 lock per slot, or a locked
+        dress with a locked top/bottom — closet-independent).
 
-    The forced item is an **implicit lock** (every rescue outfit must include it), so it also
-    extends the ``locked ∩ disliked`` contradiction: a rescue of an item the request also dislikes
-    would contextual-drop every candidate → an empty result after a wasted GPT spend. Reject it
-    pre-spend for the same reason the explicit ``locked ∩ disliked`` check exists.
+    It does **NOT** reject a well-formed control set the *actual wardrobe can't complete* (a locked top
+    with no bottom; dislikes that remove every base) — that is **closet-dependent**, decidable only with
+    the server wardrobe + the engine's template grammar, so it is a valid EMPTY render, not a caller
+    bug. The **engine** short-circuits that case pre-GPT to a valid ``not_enough_items`` result
+    (`rescue._controls_leave_no_buildable_outfit`) — no spend, a snapshot row IS written — never a
+    ``contract_invalid`` (§C.3; consistent with the no-controls understocked-closet path). See §J for
+    the open question of whether the stale-id checks below should soften to a 409 state-conflict
+    (deleted-item race) rather than a caller-bug 400.
     """
     by_id = {item.id: item for item in wardrobe}
     for locked_id in locked:
         if locked_id not in by_id:
             raise ContractInvalid(
                 f"controls.lockedItemIds contains {locked_id!r}, which is not in the wardrobe"
+            )
+    for disliked_id in disliked:
+        if disliked_id not in by_id:
+            raise ContractInvalid(
+                f"controls.dislikedItemIds contains {disliked_id!r}, which is not in the wardrobe"
             )
     if intent == "rescue_item" and forced_item_id is not None and forced_item_id in set(disliked):
         raise ContractInvalid(
@@ -501,8 +513,8 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
         raise ContractInvalid("lens must be an object")
     _require_keys(
         lens,
-        required={"occasion", "weather", "constraints"},
-        optional={"weatherRaw", "location", "forcedItemId", "seedDate"},
+        required={"occasion", "weather", "constraints", "seedDate"},
+        optional={"weatherRaw", "location", "forcedItemId"},
         where="lens",
     )
     occasion = _string(lens["occasion"], "lens.occasion", max_chars=cfg.MAX_OCCASION_CHARS)
@@ -517,13 +529,12 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     if (intent == "rescue_item") != (forced_item_id is not None):
         raise ContractInvalid("lens.forcedItemId is required iff intent is rescue_item")
     seed_date = lens.get("seedDate")
-    if seed_date is not None:
-        if not isinstance(seed_date, str) or not _SEED_DATE_RE.match(seed_date):
-            raise ContractInvalid("lens.seedDate must be a YYYY-MM-DD string or null (H8, UTC)")
-        try:
-            date.fromisoformat(seed_date)  # shape-valid but non-calendar (2026-13-99) rejects too
-        except ValueError as exc:
-            raise ContractInvalid("lens.seedDate is not a real calendar date") from exc
+    if not isinstance(seed_date, str) or not _SEED_DATE_RE.match(seed_date):
+        raise ContractInvalid("lens.seedDate must be a required YYYY-MM-DD string (H8, UTC)")
+    try:
+        date.fromisoformat(seed_date)  # shape-valid but non-calendar (2026-13-99) rejects too
+    except ValueError as exc:
+        raise ContractInvalid("lens.seedDate is not a real calendar date") from exc
     constraints = lens["constraints"]
     if not isinstance(constraints, dict) or constraints != {}:
         # M5 defers constraints: non-empty maps are rejected, never stored as inert provenance.
@@ -547,7 +558,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     # §C.3 wardrobe-dependent lock preflight — every locked id must be a live wardrobe item, the
     # rescue forced item must not be disliked, and the effective pin set (locks + rescue forced
     # item) must be structurally buildable, ALL pre-spend.
-    _preflight_locks(locked_item_ids, disliked_item_ids, wardrobe, forced_item_id, intent)
+    _preflight_controls(locked_item_ids, disliked_item_ids, wardrobe, forced_item_id, intent)
 
     wardrobe_version = _non_bool_int(body["wardrobeVersion"], "wardrobeVersion")
     interaction_count = _non_bool_int(body["interactionCountAtRequest"], "interactionCountAtRequest")

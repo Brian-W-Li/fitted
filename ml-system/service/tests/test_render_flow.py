@@ -190,8 +190,88 @@ def test_daily_not_enough_items_is_a_valid_empty_render_with_zero_spend():
     payload = body["payload"]
     assert payload["generationAttempts"] == []
     assert payload["nSurfaced"] == 0
+    assert payload["scorer"] == {"kind": "cold_start", "modelId": None, "available": False}
     assert payload["itemSnapshots"], "the engine-visible pool must still be captured"
     assert payload["diagnostics"]["engineFailure"] is None
+
+
+def test_daily_not_enough_items_stays_valid_when_live_dislike_is_present():
+    status, body, stub = _render(
+        render_body(
+            wardrobe=[wire_item("t1", "top")],
+            controls={"lockedItemIds": [], "dislikedItemIds": ["t1"]},
+        )
+    )
+    assert status == 200
+    assert stub.call_count == 0
+    assert body["flags"]["notEnoughItems"] is True
+    assert body["payload"]["controls"] == {"lockedItemIds": [], "dislikedItemIds": ["t1"]}
+
+
+def _assert_over_constrained_valid_empty(body, stub, *, controls):
+    # §C.3 (Fable 2026-07-07): controls the closet can't complete → a VALID empty render, no spend,
+    # a snapshot row IS written, NOT a contract_invalid. Distinct discriminator hint vs understocked.
+    assert stub.call_count == 0  # short-circuited pre-GPT
+    assert body["degenerate"] is False
+    assert body["shown"] == []
+    assert body["flags"]["notEnoughItems"] is True
+    assert "rule out every outfit" in body["flags"]["reasonHint"]  # over-constrained, not understocked
+    assert body["payload"]["nSurfaced"] == 0
+    assert body["payload"]["itemSnapshots"], "the engine-visible pool is still captured for the corpus"
+    assert body["payload"]["controls"] == controls
+    assert body["payload"]["diagnostics"]["engineFailure"] is None
+
+
+def test_daily_lock_with_no_complement_is_a_valid_empty_render_not_400():
+    # A locked top forces the two_piece path; this closet has a dress base (buildable WITHOUT controls,
+    # so not understocked) but no bottom → the lock rules everything out. Valid empty, no spend, no 400.
+    controls = {"lockedItemIds": ["t1"], "dislikedItemIds": []}
+    status, body, stub = _render(
+        render_body(wardrobe=[wire_item("t1", "top"), wire_item("d1", "dress")], controls=controls)
+    )
+    assert status == 200
+    _assert_over_constrained_valid_empty(body, stub, controls=controls)
+
+
+def test_daily_dislike_removing_every_base_is_a_valid_empty_render_not_400():
+    # The closet is buildable (t1+b1); disliking the only bottom removes every base. This is a valid
+    # empty state (identical outcome to an understocked closet), not a caller bug.
+    controls = {"lockedItemIds": [], "dislikedItemIds": ["b1"]}
+    status, body, stub = _render(
+        render_body(wardrobe=[wire_item("t1", "top"), wire_item("b1", "bottom")], controls=controls)
+    )
+    assert status == 200
+    _assert_over_constrained_valid_empty(body, stub, controls=controls)
+
+
+def test_rescue_lock_with_no_complement_is_a_valid_empty_render_not_400():
+    # Rescue a shoe; lock a top; no bottom → the locked top can't be completed. The rescue engine's
+    # own not_enough path wins (never the service preflight's contract_invalid — the regression Codex
+    # nearly shipped and this converged decision fixes).
+    controls = {"lockedItemIds": ["t1"], "dislikedItemIds": []}
+    body_in = rescue_body(
+        wardrobe=[wire_item("s1", "shoes"), wire_item("t1", "top"), wire_item("d1", "dress")],
+        lens={"forcedItemId": "s1"},
+        controls=controls,
+    )
+    app, stub = make_app(daily_envelope())
+    status, body = http(app, "POST", "/render", headers=AUTH, json_body=body_in)
+    assert status == 200
+    _assert_over_constrained_valid_empty(body, stub, controls=controls)
+
+
+def test_understocked_and_over_constrained_carry_distinct_reason_hints():
+    # The discriminator (Fable refinement 1): the corpus/UI must tell "your closet is thin" from
+    # "your controls rule everything out". Two nSurfaced=0 renders, two different reasonHints.
+    _, understocked, _ = _render(render_body(wardrobe=[wire_item("t1", "top")]))
+    _, over_constrained, _ = _render(
+        render_body(
+            wardrobe=[wire_item("t1", "top"), wire_item("d1", "dress")],
+            controls={"lockedItemIds": ["t1"], "dislikedItemIds": []},
+        )
+    )
+    assert understocked["flags"]["notEnoughItems"] is over_constrained["flags"]["notEnoughItems"] is True
+    assert understocked["flags"]["reasonHint"] != over_constrained["flags"]["reasonHint"]
 
 
 # --- §D degenerate arms ---------------------------------------------------------------
@@ -205,6 +285,11 @@ def test_parse_fail_after_repair_is_a_degenerate_payload_with_attempts():
     attempts = body["payload"]["generationAttempts"]
     assert len(attempts) == 2 and attempts[1]["isRepair"] is True
     assert not attempts[1]["payloadParsed"]
+    assert body["payload"]["scorer"] == {
+        "kind": "cold_start",
+        "modelId": None,
+        "available": False,
+    }
     # Recording-locus split: money spent WITH attempts → no engineFailure record.
     assert body["payload"]["diagnostics"]["engineFailure"] is None
     assert stub.call_count == 2

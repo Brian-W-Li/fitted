@@ -985,6 +985,20 @@ def rescue(
     # construction). No locks → the single forced-item pin (byte-identical to the pre-regen path).
     scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, forced_item))
 
+    # §C.3: locks/dislikes the closet can't complete around the forced item → a valid empty render
+    # pre-GPT (no spend), never a contract_invalid — the H22 sufficiency check already cleared the
+    # understocked case, so this is over-constrained-by-controls (Fable 2026-07-07).
+    if _controls_leave_no_buildable_outfit(scoped, request):
+        return RescueResult(
+            ranked=None,
+            variants=(),
+            not_enough_items=True,
+            insufficient_after_generation=False,
+            spread_collapsed=False,
+            reason_hint=_CONTROLS_UNBUILDABLE_HINT,
+            fallback_stage=None,
+        )
+
     # Steps 5–6 — build the prompt; it computes the rescue candidate bound ONCE and carries it on
     # ``prompt.candidate_requested`` so the prompt ask and the validator bound can never desync.
     prompt = _build_prompt(scoped, request, forced_item)
@@ -1248,6 +1262,32 @@ def rescue_with_trace(
     )
     scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, forced_item))
     prompt_pool = tuple(_flatten_pool(scoped))  # the exact items the engine conditioned on (§8.2-D)
+
+    # §C.3: controls the closet can't complete around the forced item → a valid empty render pre-GPT
+    # (no spend); the scoped engine-visible pool is still captured. Never a contract_invalid (Fable, §C.3).
+    if _controls_leave_no_buildable_outfit(scoped, request):
+        return RescueTrace(
+            result=RescueResult(
+                ranked=None,
+                variants=(),
+                not_enough_items=True,
+                insufficient_after_generation=False,
+                spread_collapsed=False,
+                reason_hint=_CONTROLS_UNBUILDABLE_HINT,
+                fallback_stage=None,
+            ),
+            sampler_result=sampler_result,
+            prompt_pool=prompt_pool,
+            candidate_requested=None,
+            attempts=(),
+            validation=None,
+            parsed_outfits=(),
+            rescue_drops=(),
+            rank_audit=None,
+            build_trace=None,
+            ranker_context=None,
+        )
+
     prompt = _build_prompt(scoped, request, forced_item)
 
     # Step 7 — generate + parse with the §12 repair, capturing every raw attempt.
@@ -1311,17 +1351,55 @@ RenderTrace = RescueTrace
 
 _DAILY_NOT_ENOUGH_HINT = "add a top and bottom, or a dress, to get daily outfit ideas"
 
+# The discriminator (Fable 2026-07-07, §C.3): a controls-induced empty is a DISTINCT reason from an
+# understocked closet — the corpus + UI must tell "your closet is thin" from "your locks/dislikes rule
+# everything out". Distinct hint string ⇒ a reader/reducer can separate the two nSurfaced=0 classes.
+_CONTROLS_UNBUILDABLE_HINT = (
+    "your locks and dislikes rule out every outfit for this closet — loosen them to see options"
+)
 
-def _not_enough_daily_result() -> RenderResult:
+
+def _not_enough_daily_result(reason_hint: str = _DAILY_NOT_ENOUGH_HINT) -> RenderResult:
     return RenderResult(
         ranked=None,
         variants=(),
         not_enough_items=True,
         insufficient_after_generation=False,
         spread_collapsed=False,
-        reason_hint=_DAILY_NOT_ENOUGH_HINT,
+        reason_hint=reason_hint,
         fallback_stage=None,
     )
+
+
+def _controls_leave_no_buildable_outfit(
+    scoped: Mapping[ItemType, list[WardrobeItem]], request: RenderRequest
+) -> bool:
+    """Can NO valid outfit form from the lock-scoped pool once disliked items are removed? (§C.3).
+
+    A **request-decidable** contradiction (two locks in one slot, locked∩disliked) is a caller bug the
+    service rejects pre-spend (``contract_invalid``). This is the **closet-dependent** case: well-formed
+    controls the actual wardrobe cannot complete — a locked top with no live non-disliked bottom, a
+    dislike set that removes every base. That is a valid EMPTY render (``not_enough_items``), NOT a
+    caller bug (Fable 2026-07-07; §C.3 request-decidability): the engine short-circuits it pre-GPT (no
+    spend) and a snapshot row is still written, never a ``contract_invalid``.
+
+    Only fires when controls are present, so a no-control render never short-circuits here (byte-identical
+    to the pre-regen path). The scoped pool already encodes the locks (pinned types hold exactly the
+    locked item; lock-invalid types are empty) AND the rescue forced item (pinned in), so removing
+    disliked ids and checking for a surviving base (top+bottom XOR dress) decides buildability for the
+    whole effective pin set. When this fires the sampler/`_check_sufficiency` did NOT — i.e. a base
+    existed pre-controls — so the reason is unambiguously "over-constrained by controls".
+    """
+    if not (request.locked_item_ids or request.disliked_item_ids):
+        return False
+    disliked = set(request.disliked_item_ids)
+
+    def survives(item_type: ItemType) -> bool:
+        return any(item.id not in disliked for item in scoped.get(item_type, ()))
+
+    has_two_piece = survives(ItemType.top) and survives(ItemType.bottom)
+    has_one_piece = survives(ItemType.dress)
+    return not (has_two_piece or has_one_piece)
 
 
 def _render_daily(
@@ -1342,6 +1420,10 @@ def _render_daily(
     # Scope the sampled pool to any R9 locks (daily has no forced item — pins = locks only). No
     # locks → a no-op copy, so the prompt/pool stay byte-identical to the pre-regen daily path.
     scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, None))
+    # §C.3: controls the closet can't complete → a valid empty render pre-GPT (no spend), never a
+    # contract_invalid — the sampler already cleared understocked, so this is over-constrained-by-controls.
+    if _controls_leave_no_buildable_outfit(scoped, request):
+        return _not_enough_daily_result(_CONTROLS_UNBUILDABLE_HINT)
     prompt = _build_daily_prompt(
         scoped,
         request,
@@ -1403,6 +1485,22 @@ def _render_daily_with_trace(
     # Scope to R9 locks (pins = locks only for daily). No locks → prompt_pool is byte-identical.
     scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, None))
     prompt_pool = tuple(_flatten_pool(scoped))  # the exact items the engine conditioned on (§8.2-D)
+    # §C.3: controls the closet can't complete → a valid empty render pre-GPT (no spend); the scoped
+    # engine-visible pool is still captured for the corpus. Never a contract_invalid (Fable, §C.3).
+    if _controls_leave_no_buildable_outfit(scoped, request):
+        return RenderTrace(
+            result=_not_enough_daily_result(_CONTROLS_UNBUILDABLE_HINT),
+            sampler_result=sampler_result,
+            prompt_pool=prompt_pool,  # the lock-scoped pool the engine considered (no gen ran)
+            candidate_requested=sampler_result.candidate_requested,
+            attempts=(),
+            validation=None,
+            parsed_outfits=(),
+            rescue_drops=(),
+            rank_audit=None,
+            build_trace=None,
+            ranker_context=None,
+        )
     prompt = _build_daily_prompt(
         scoped,
         request,

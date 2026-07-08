@@ -109,7 +109,7 @@ migrated.
   end-to-end in at least one mode (legacy flag-off through C5; new-contract flag-on from C6); the flag
   flips only after the UI speaks the new contract.
 - Legacy vertical removed; no dead paths behind the flag. Cross-runtime CI (H13) green.
-- Suite floors grow (current after the C1-C3 hardening: **ml-system 952 / h26 305+1skip / jest 388** —
+- Suite floors grow (current after C4 hardening: **ml-system 984 / h26 305+1skip / jest 388** —
   floors, not pins).
 
 ## A. Service architecture + wire contract (D5 / H58)
@@ -131,14 +131,13 @@ Browser ─▶ Next route (one recommend route)                   Fly.io service
 **One endpoint.** A regenerate is a `/render` call with `parentSnapshotId` + `generationIndex` + the R9
 `controls` set (§C) — there is no `/rerank` endpoint and no cached candidate store.
 
-**The snapshot write is blocking, on the critical path (supersedes v2 §15's async/best-effort posture).**
+**The snapshot write is blocking, on the critical path (v2 §15 reconciled to this posture).**
 Step 8 is *awaited before* the step-9 browser response, never fire-and-forget: the §C.4 `E11000`
 winner-re-read (a duplicate `requestId` must return the *winner's* shown set, not the loser's) and the
 degrade-on-write-failure arm (§D) both require the `.create()` outcome inside the request handler. A
 failed/rejected write ⇒ the §A degraded empty state, never a returned `{snapshotId, candidateId}` bound to
-a row that never persisted. v2 §15's "the snapshot write is async/best-effort … never on the critical
-path" (and the §15 line-720 logging note) describe the retired logging-style write and are reconciled with
-the cache-kill rewrite (Verification). The added Mongo write latency is negligible on this fork
+a row that never persisted. The old v2 logging-style write posture is retired; telemetry/counters may remain
+best-effort, but the GenerationSnapshot row is not. The added Mongo write latency is negligible on this fork
 (near-empty collections, solo scale).
 
 - **Service is a pure function** (no DB creds). Next queries Mongo for wardrobe + **raw** behavioral rows and
@@ -345,7 +344,7 @@ runs. These are additive to the existing `generator{provider, model, temperature
   "controls": { "lockedItemIds": [], "dislikedItemIds": [] },  // R9 regen controls; preflight §C.3
   "lens": { "occasion": "<verbatim>", "weather": "hot|mild|cold|indoor|outdoor",
             "weatherRaw": "<str?>", "location": "<str?>", "forcedItemId": "<id?>",
-            "seedDate": "<YYYY-MM-DD, UTC?>", "constraints": { } }, // M5 requires {}; non-empty is rejected
+            "seedDate": "<required UTC YYYY-MM-DD>", "constraints": { } }, // M5 requires {}; non-empty is rejected
   "wardrobe": [ { /* engineVisible projection §15.2: id,name,clothingType,warmth,colorTags,
                      occasionTags,styleTags[],material?,formality?,imageUrl */ } ],
   "wardrobeVersion": 0,
@@ -664,17 +663,34 @@ Five contract pins:
    (or vice-versa) would make the corpus mis-explain the render — forbidden. **`controls` is present on every
    M5 write:** a first/non-regen render carries `{lockedItemIds:[], dislikedItemIds:[]}` (empty, not absent —
    §G `required`+default), so "no controls" is an explicit corpus statement, never inferred from a missing
-   subdoc. **Preflight — three lock-control checks run over `normalizedControls` before any GPT spend** (the rescue
-   `forcedItemId`-absent check also runs pre-spend but is a §D **input-validation** concern, counted there,
-   not a fourth lock check): (1) `locked ∩ disliked ≠ ∅` → stable
-   `400/409`, never empty-success; (2) a locked id absent from the live wardrobe → stable `400`; (3) **a
-   structurally infeasible lock set →
-   stable `400` with a reason code** — validate the locked items
-   against the template algebra via `clothingType`: at most one lock per slot (`top`/`bottom`/`dress`/
-   `outer`/`shoes`), and a locked `dress` is mutually exclusive with a locked `top` or `bottom` (two
-   locked shoes, or dress+top, can never co-occupy a valid slot map — without this check the request
-   spends the GPT call, the post-validate lock drop then kills every candidate, and the user gets a
-   vague empty honest-partial instead of "these locks can't coexist").
+   subdoc. **The dividing line is REQUEST-DECIDABILITY (Fable 2026-07-07): a control set that can never
+   yield a valid outfit *regardless of the closet* is a caller bug the client can and must prevent →
+   `contract_invalid`; a well-formed set the *actual wardrobe can't complete* is a valid EMPTY render,
+   not a caller bug.** **Preflight — the request-decidable contradictions run over `normalizedControls`
+   before any GPT spend** (the rescue `forcedItemId`-absent check also runs pre-spend but is a §D
+   **input-validation** concern, counted there): (1) `locked ∩ disliked ≠ ∅`, and the rescue
+   `forcedItemId ∈ disliked` (the implicit-lock ∩ dislike) → stable `400`, never empty-success;
+   (2) a locked or disliked id absent from the live wardrobe → stable `400` (a stale control shaped
+   nothing, so it must not be persisted as if it did — **but see §J: under request-decidability this is
+   arguably a `409` deleted-item state-conflict, not a caller bug; open**); (3) **a structurally
+   infeasible lock set → stable `400` with a reason code** — the template algebra via `clothingType`:
+   at most one lock per slot (`top`/`bottom`/`dress`/`outer`/`shoes`), and a locked `dress` mutually
+   exclusive with a locked `top`/`bottom` (two locked shoes, or dress+top, can never co-occupy a valid
+   slot map, *closet-independent*). **The closet-DEPENDENT completion case is NOT a `400`.** A
+   well-formed effective pin set (`lockedItemIds` + rescue `forcedItemId`) the wardrobe can't complete —
+   a locked top with no non-disliked bottom, a dislike set that removes every base — is decidable only
+   with the server wardrobe + the engine grammar, so it is a **valid `not_enough_items` empty render**
+   (200, snapshot row written, no spend), identical in category to the no-controls understocked-closet
+   path. The **engine** owns it: `rescue._controls_leave_no_buildable_outfit` short-circuits pre-GPT
+   over the lock-scoped-minus-disliked pool (after the sampler / `_check_sufficiency` already cleared
+   the understocked case), returning the not-enough result with a **distinct discriminator hint**
+   (`_CONTROLS_UNBUILDABLE_HINT` — "your locks/dislikes rule out every outfit" vs the understocked
+   "add a top and bottom, or a dress") so the corpus + UI can tell the two `nSurfaced=0` classes apart.
+   Rationale (Fable): a `400` here fires on a bug-free client (race: the only bottom is deleted in
+   another tab while a top is locked — every control was valid when chosen), contradicts the G16
+   forced-item-deleted `409`-not-caller-bug precedent, and drops a self-describing corpus row
+   (`controls` serialize on the snapshot) that is exactly the hard-negative boundary signal M6 wants;
+   write-and-filter is reversible, drop-at-write is a one-way door.
    **Forced-item availability preflight (G16 — the rescue-specific pre-spend check, distinct from the lock
    checks).** For `intent="rescue_item"`, the `forcedItemId` must exist in the live wardrobe **before** any
    GPT spend. This bites hardest on a **rescue re-roll**: the child's `forcedItemId` is derived from the
@@ -764,8 +780,8 @@ Five contract pins:
      (Client storage is a best-effort convenience layer, not a trust boundary — the server-side index remains
      the actual idempotency guarantee; the envelope ensures the client *presents the same token* after a reload.)
 5. **Determinism promise + spec reconciliation (H4/H16/H17).** *Snapshots are immutable; every generation
-   — first render or re-roll — is a fresh draw.* Rewrite every v2 cache home **in the same commit as
-  C4/C5** (conflicts are bugs): §5's cache bullet ("Candidate generation … Expensive; cached"), **§9's
+   — first render or re-roll — is a fresh draw.* **ALREADY-DONE (2026-07-07 post-C4 audit):** every v2 cache
+  home now reflects the cache kill: §5's cache bullet ("Candidate generation … Expensive; cached"), **§9's
   canonical-pipeline-order table Step 7 ("cache the candidate stage" + "async log" + the "M5 cache/snapshot"
   milestone cell — the snapshot write is blocking, not "async log", §A pin)**, §6.7, **§14's R9
   cached-candidate/merge wording**, §15's two-stage-cache paragraphs, the §20
@@ -775,8 +791,14 @@ Five contract pins:
 
 **Acceptance (C4, pytest + service tests):** a re-roll request produces a child render whose payload has
 its own attempts, `generation_index = parent+1`; a contradictory `locked ∩ disliked` request returns the
-stable error pre-generation; a structurally infeasible lock set (two locked shoes; locked dress + locked
-top) returns the stable `400` with **zero generator calls**; a candidate missing a locked item is
+stable error pre-generation; a **structurally infeasible** lock set (two locked shoes; locked dress +
+locked top — *closet-independent* co-occupancy) returns the stable `400` with **zero generator calls**;
+a **closet-can't-complete** control set (locked top with no non-disliked bottom; forced optional + locked
+top with no bottom; dislikes remove every base from an otherwise-buildable wardrobe) returns a **valid
+`not_enough_items` empty render** — 200, snapshot written, **zero generator calls**, the
+`_CONTROLS_UNBUILDABLE_HINT` discriminator distinct from the understocked hint — *never* a `400` (§C.3
+request-decidability, Fable); an already-understocked closet stays the normal not-enough-items render; a
+candidate missing a locked item is
 dropped post-validation; a disliked
 item never appears in the child's surfaced set (Step-4). **(TS-side at C5:** `parentSnapshotId` stored +
 serde round-trip; duplicate-`requestId` concurrent writes yield one snapshot + the loser returns the
@@ -788,7 +810,7 @@ The boundary must be **observable**, and the degenerate payload must be construc
 internal failure point — including before generation runs.
 
 - **Boundary:** a snapshot is written **iff a parseable, adapter-valid engine payload reached the Next
-  writer** (matches the R5 validate-or-log-and-skip rule already in §15). Not the unobservable "did the
+  writer** (matches the R5 pre-write validation boundary already in §15). Not the unobservable "did the
   engine run".
 - **Invalid request ≠ engine failure (corpus-purity boundary, pinned).** A request that fails the
   service's **input validation** — unsupported intent (anything outside the implemented M5 set
@@ -938,7 +960,8 @@ class OutfitScorer(Protocol):
   compatibility signal on `RankerContext`** (mirroring how `item_affinity` is precomputed by the caller and
   consumed additively — **preserving item-blindness**). Additive, landed at M6 when trained scores exist
   (ranking on cold-start compat at M5 would both change shipped behavior and rank on a weak signal).
-  `scorer.kind="cold_start"`/`available=true` on M5 writes.
+  M5 writes `scorer.kind="cold_start"` and `available=true` only on rows where at least one candidate
+  actually received `scoreTrace.compatibility/visibility`; no-candidate / no-scoring rows stay false.
 - **`scorer` block semantics (pinned — the schema names the fields but nothing pins the referent,
   verified spec §15.1:768 + `GenerationSnapshot.ts:311-322`, and there are now TWO scorers in play):**
   the snapshot `scorer{kind, modelId, available}` block is the **outfit/rank-scorer provenance axis**
@@ -948,9 +971,9 @@ class OutfitScorer(Protocol):
   `RankerContext` signal recorded in `diagnostics.ranker`); an M6 corpus reader must never infer order
   influence from `available` alone. The **sampler** `SignalScorer`'s state (the §B
   `AffinitySignalScorer`) lives in `diagnostics.scorerAvailable` + the per-type `selection_kind` —
-  never in the `scorer` block. Today's producer writes `available=False` (verified `snapshot.py:539`);
-  it flips to `true` when the C4 producer exercise lands. Pin this semantic into spec §15.1's field
-  list at the C4/C5 doc-reconciliation.
+  never in the `scorer` block. The C4 producer exercise flips it to `true` only for rows with actual
+  scored candidates; not-enough-items and parse-fail rows remain `available=false`. Pin this semantic
+  into spec §15.1's field list at the C4/C5 doc-reconciliation.
 - **Honest tradeoff (say it, don't paper over it):** the §5 "trained scorer swaps in with no other code
   change" ideal collides with the ranker's deliberate item-blindness. M5 lands the *type* + a *real
   exercise* (both H48 instances stored → corpus complete); M6 adds the additive `RankerContext` order
@@ -980,11 +1003,12 @@ this is the **Lens half**.
 | `weatherRaw` / `location` | raw weather / geo | pass-through (nullable) |
 | `intent` | route + request shape | `/recommend` daily flow → `"daily"`; a forced-item rescue request → `"rescue_item"` (routing rule — the one route dispatches on the presence of `forcedItemId`) |
 | `forcedItemId` | rescue request | pass-through; **required iff `intent="rescue_item"`** (mirrors `RenderRequest`) |
-| `seedDate` | server clock | **UTC** `YYYY-MM-DD` (H8) — identical string computed Next-side and passed in (the service does not read a clock; determinism) |
+| `seedDate` | server clock | **required UTC** `YYYY-MM-DD` (H8) — identical string computed Next-side and passed in (the service does not read a clock; determinism); missing/null is `contract_invalid` |
 | `constraints` | request knobs | **M5 defers constraints behavior.** The adapter sends `{}` and rejects any non-empty request map before the service call; the service independently rejects non-empty maps too. H36 becomes engine-active only when prompt/ranker/key semantics are implemented together. |
 
 **Wire-validation (R12 part 2):** this adapter is the trust boundary — non-empty ids/strings, tag-container
-shape, one predictable error channel; **validate-or-log-and-skip, never let Mongoose throw mid-write.**
+shape, one predictable error channel; **reject invalid Lens/request fields before any service call or write,
+and never let Mongoose become the first validator mid-write.**
 
 ## G. Schema additions (`fitted/models/GenerationSnapshot.ts`)
 
@@ -1153,7 +1177,7 @@ of gap fails silently.
 |---|---|
 | **Python payload — existing** (verified `snapshot.py:135-165`) | `sessionId`, `candidateCacheKey`, `generationIndex`, `intent`, `occasion`, `weather`, `forcedItemId`, `wardrobeVersion`, `seedDate`, `fittedCoreVersion`, `generator{}`, `rankerConfigVersion`, `scorer{}`, `itemSnapshots[]`, `generationAttempts[]`, `candidates[]`, `diagnostics{}`, `shownCandidateIds`, `shownFullSignatures`, `nSurfaced`, `spreadCollapsed` |
 | **Python payload — GAINS at C3** (echo-through of the wire request, so the payload stays the single validated artifact; lands with the serde mappings because `build_degenerate_payload` needs them) | `requestId`, `parentSnapshotId`, `weatherRaw`, `location`, `constraints` — plus `diagnostics.engineFailure` (§D). **M5 invariant:** `constraints` is always `{}`; non-empty constraints are rejected rather than stored as inert provenance. **Mechanism:** caller-supplied kwargs on `build_snapshot_payload`/`build_degenerate_payload` (the existing `candidate_cache_key` pattern — "supplied by the caller, M5 knows them", verified `snapshot.py:495+`); `RenderRequest` stays the pure engine request, no HTTP-layer fields |
-| **Python payload — GAINS at C4** (authored from `RenderRequest` — engine input, not HTTP echo: locks/dislikes shape the pool, prompt, and Step-4 filter) | `controls{lockedItemIds, dislikedItemIds}` (empty arrays on non-regen renders). (the **generator provenance block** — `generator.maxCompletionTokens` + `apiSurface`/`responseFormat`/`reasoningEffort`/`storeMode`/`promptCacheRetention`/`timeoutSeconds`/`maxRetries`/`finishStatus`, §A.6 — lands at **C3**; the service authors the whole generator block from its own config + the run's finish status, from its first payload) |
+| **Python payload — GAINS at C4** (authored from `RenderRequest` — engine input, not HTTP echo: locks shape the pool + prompt; dislikes shape the Step-4 hard filter and pre-spend feasibility only unless the future avoid-list prompt lever bumps `PROMPT_VERSION`) | `controls{lockedItemIds, dislikedItemIds}` (empty arrays on non-regen renders). (the **generator provenance block** — `generator.maxCompletionTokens` + `apiSurface`/`responseFormat`/`reasoningEffort`/`storeMode`/`promptCacheRetention`/`timeoutSeconds`/`maxRetries`/`finishStatus`, §A.6 — lands at **C3**; the service authors the whole generator block from its own config + the run's finish status, from its first payload) |
 | **TS merge adds — exactly four** | `_id` (= pre-allocated `snapshotId`), `user` (ObjectId), `interactionCountAtRequest`, per-item `evidence{}` |
 | **Absent on M5 writes** (nullable B-track fields, no writer yet) | `baseOutfitItemIds`, `routineId`, `lens{}` (styleProfile block) |
 | **DROPPED (C4 docket (c) — the `.ts` line removal defers to C5)** | `admittedViaFallbackStage` (`GenerationSnapshot.ts:112`) — an M4b-draft per-candidate field with **no Python writer, no spec §15.1 home, and no planned writer** (unlike the reserved B-track fields, which have future writers). Its signal — which fallback rung the render reached — is already captured render-level in `diagnostics.ranker.fallbackStage`; per-candidate admission-stage tracking would require re-plumbing the closed ranker for negligible corpus value, and a permanently-null field invites a false read. Decision now (doc); the schema-line removal is a `fitted/` edit sequenced with C5's `GenerationSnapshot.ts` §G additions. |
@@ -1394,8 +1418,8 @@ legacy deletion)** per CLAUDE.md.
 > call sites. **✅ C3 COMPLETE (2026-07-07, incl. post-review hardening rounds: service-owned
 > `timeout=30s`/`max_retries=0` provenance, blank-imageUrl acceptance + the fly.toml deploy-context pin;
 > the §D assembly-failure degenerate arm + the token-cap hard ceiling/floor + the digest-pinned base image +
-> explicit service prompt-cache/readiness gates).** Suite floor: **952 pytest** (`pytest
-> tests service/tests`). Next checkpoint: **C4**.
+> explicit service prompt-cache/readiness gates).** C4 is complete below; current suite floor is **987 pytest**
+> (`pytest tests service/tests`). Next checkpoint: **C5**.
 
 **Ladder sequencing invariant (trap-guard — the second-eval High finding, recalibrated for no legacy
 users):** at every checkpoint boundary the app must render **and** bind feedback end-to-end in at least
@@ -1583,12 +1607,16 @@ each carrying its Step-5 breakdown + a `rankerScore == Σ terms` self-consistent
 additive `_FilteredCandidate.score_breakdown` (closed `rank()`/`result`/`scored` byte-identical); the §C.3
 regen vertical (`RenderRequest.locked_item_ids`/`disliked_item_ids`, `_scope_pool_to_pins` generalizing the
 forced-item pin, the prompt lock line, `_drop_missing_locked_items`, dislikes → `contextual_disliked_item_ids`);
-the service three-check preflight (`locked ∩ disliked` — incl. the rescue forced item as an implicit lock —
-lock-in-wardrobe, structural feasibility) all pre-spend; the payload `controls` field + `diagnostics.ranker`
-reduced-signals + `reducer_config_version`; serde `_ID_SEQUENCE_KEYS` (controls) + `_OPAQUE_VALUE_KEYS`
-(`item_affinity`). Suite floor grew 952 → **974 pytest**; light build-and-audit loop converged clean (two
-review passes, 2 fixes: the capped-loser `rankerScore`, the forced-item-disliked preflight). The C4 docket
-(a–d) is resolved in §A / §A.6 / §J / §G.1 + spec §15.1. **Original build notes below.**
+the service preflight for the **request-decidable contradictions** (`locked ∩ disliked` + `forced ∈
+disliked`; control-id-in-wardrobe; structural co-occupancy feasibility) → `contract_invalid` pre-spend,
+while the **closet-can't-complete** case is the engine's pre-GPT `_controls_leave_no_buildable_outfit`
+short-circuit → a valid `not_enough_items` empty render (§C.3 request-decidability, Fable); the payload
+`controls` field + `diagnostics.ranker` reduced-signals + `reducer_config_version`; serde
+`_ID_SEQUENCE_KEYS` (controls) + `_OPAQUE_VALUE_KEYS` (`item_affinity`). Suite floor grew 952 → **987
+pytest**; build-and-audit loop converged clean over multiple passes (capped-loser `rankerScore`;
+forced-item-disliked preflight; `scorer.available`-only-when-scored; accept-time `styleMove` retention;
+`seedDate` required; and the buildability re-categorization to valid-empty). The C4 docket (a–d) is
+resolved in §A / §A.6 / §J / §G.1 + spec §15.1. **Original build notes below.**
 
 **Touches:** new scorer module (`OutfitScorer` protocol + cold-start occupant), `snapshot.py`
 (`build_snapshot_payload` `outfit_scorer=` param + `_build_candidates` full-scored compat/vis population),
@@ -1599,7 +1627,12 @@ post-validate lock drop + **the three-check preflight incl. structural feasibili
 `snapshot.py`/`snapshot_serde.py` (**payload gains `controls` — authored from `RenderRequest`'s new
 locked/disliked fields — + serde mapping incl. `_ID_SEQUENCE_KEYS` for `lockedItemIds`/`dislikedItemIds`,
 §G.1**),
-`diagnostics.ranker` signal + `reducer_config_version` persistence (§E/§H). (The §G.1 echo-through
+`diagnostics.ranker` signal + `reducer_config_version` persistence (§E/§H). Post-C4 hardening requires
+locked/disliked ids to be live wardrobe ids and makes `seedDate` required at the service boundary; routes a
+closet-can't-complete control set to the **engine's valid `not_enough_items` short-circuit** (no spend, a
+snapshot row is still written — never a `contract_invalid`, §C.3 request-decidability); records
+`scorer.available=true` only when scoring actually populated a candidate trace; and keeps an accepted
+candidate's validated `styleMove` even when it is later dropped by Step-4/diversity filters. (The §G.1 echo-through
 payload fields + serde mappings + the `candidate_cache_key()` helper landed at C3.) **Deliverables:** §C
 (pins 1–3, 5) + §E. **Acceptance:** §C + §E. **Dependencies:** C1, C2
 (`REDUCER_CONFIG_VERSION` for the diagnostics record), C3.
@@ -1773,12 +1806,14 @@ code paths.
 | Generation ran, response lost in transit | Unrecorded (money spent, no row); degraded response | D3 named residual gap |
 | Re-roll (regenerate) | One constrained fresh generation; child snapshot with own attempts, `generationIndex+1`, `parentSnapshotId` | D2 |
 | Re-roll with `locked ∩ disliked ≠ ∅` | Stable 400/409 pre-generation, never empty-success | §C.3 / H59 |
-| Locked item no longer in the live wardrobe | Stable 400 (lock unsatisfiable) | §C.3 |
+| Locked/disliked item no longer in the live wardrobe | Stable 400 (control did not shape the live render, so it is not persisted as if it did) | §C.3 |
 | Post-lock/dislike filtering leaves < `n_surfaced` | Honest partial + notice; never a silent lock drop, never a second GPT call | §C.3 / R9 |
+| Lock/dislike controls leave no buildable non-disliked outfit before GPT (closet-dependent) | **Valid `not_enough_items` empty render** — 200, snapshot written, **zero generator calls**, `_CONTROLS_UNBUILDABLE_HINT` discriminator; NOT a `400` | §C.3 request-decidability — engine short-circuit, same category as the understocked closet, corpus keeps the self-describing row |
 | Double-clicked Generate (same valid `requestId`) | One snapshot (partial unique index); loser returns the winner's shown set | §C.4 / H50 |
 | Reload after the render COMPLETED, then retry | Same `requestId` from the envelope → early read-check finds the winner → idempotent replay, **no second GPT spend** | §C.4 / F10 |
 | Reload while the render is still IN FLIGHT, then retry | Same `requestId` → **one snapshot** (index + `E11000` winner-re-read), but **one extra GPT generation** runs (early read-check can't see an uncommitted render); bounded by the rate ceiling + monthly cap. The envelope still prevents the worse *new-requestId* double-commit | §C.4 / F10 — the honest bound; a server in-flight lease would close it (deferred) |
 | Missing/null/blank/malformed/overlong `requestId` on a live write | `contract_invalid` before service call/write; no shared retry sentinel | §C.4 / §G helper |
+| Missing/null/malformed `seedDate` | `contract_invalid`; no service call/write | H8 — daily reseed/key provenance is required, never date-inert |
 | Same live `requestId` reused for a DIFFERENT render (changed Lens/controls/parent) | Stable `409 request_id_conflict` — no service call, no write, no wrong-winner replay | §C.4 / G5 |
 | Rescue re-roll whose `forcedItemId` was deleted from the wardrobe | Stable `409 forced_item_unavailable` pre-spend; no snapshot; clear UI copy | §C.3 / G16 |
 | Feedback `action` outside `{accepted, rejected}` | Stable `400 invalid_action`; no row (other 7 enum values reserved) | §I / G8 |
@@ -1796,7 +1831,8 @@ code paths.
 | Empty affinity / cold scorer (`is_available()==False`, any count) | Sampler `sampler_result` **byte-identical** to cold | R11 — byte-identity is keyed on availability |
 | `interaction_count < 5` + **non-empty** affinity (available but below threshold) | Selection **surface** matches cold, but `scorer_available=True` (diagnostic differs — **not** full byte-identity) | §B / `test_render.py::test_unavailable_or_below_threshold_signal_scorers_keep_cold_start_selection` — availability ≠ count |
 | Daily candidate with missing/malformed StyleMove | Dropped pre-rank (intent-generic drop); honest partial if `< n_surfaced` | §B — `_assemble_variant` hard-asserts non-null; `None` must never reach assembly |
-| Structurally infeasible lock set (two shoes; dress+top) | Stable `400` with reason code, **zero generator calls** | §C.3 third preflight check |
+| Structurally infeasible lock set — *closet-independent co-occupancy* (two locked shoes; locked dress + locked top) | Stable `400` with reason code, **zero generator calls** | §C.3 request-decidable contradiction (a caller bug the client must prevent) |
+| Closet-can't-complete control set (locked top with no non-disliked bottom; forced optional + locked top with no bottom; dislikes remove every base from an otherwise-buildable wardrobe) | **Valid `not_enough_items` empty render** — 200, snapshot written, **zero generator calls** (engine short-circuit), never `400` | §C.3 request-decidability (Fable) — closet-dependent, so a valid empty state, not a caller bug |
 | Legacy-shaped response after C6 | Unsupported by the UI contract; no compat branch, no feedback post path | No old users; legacy code is rollback/reference only until C8 deletion |
 | Wire `shown` ids ≠ `payload.shownCandidateIds` (order/length) | `contract_invalid` at the helper — no write, no mis-bind | §A shown-identity pin |
 | `shown[].outfit` body ≠ bound `payload.candidates[candidateId]` (styleMove/risk/optionPath/items) | `contract_invalid` at the helper; the card renders from the **persisted candidate**, never the wire echo | §A display-source pin — `full_signature` is item-ids only, so the zip alone can't catch a swapped body |
@@ -1848,7 +1884,8 @@ code paths.
   or let `shownFullSignatures` drift from the shown candidates → the shown-set helper tests must fail.
 - Strip `engineFailure` from the diagnostics subschema → the pre-generation failure **read-back** test must fail (strict mode silently drops the path — write-success alone proves nothing).
 - Bump a reducer constant → `REDUCER_CONFIG_VERSION` must shift and `RANKER_CONFIG_VERSION` must **not** (catches the constants-moved-into-`config.py` mutant, where the bump would shift ranker provenance).
-- Remove the structural lock preflight → the two-locked-shoes 400 test must fail (a generator call would fire).
+- Remove the structural **co-occupancy** lock preflight → the two-locked-shoes / dress+top `400` tests must fail (a generator call would fire).
+- Turn the engine's controls-buildability short-circuit into a `contract_invalid` (or drop it so it spends) → the closet-can't-complete valid-empty tests must fail: a locked-top-with-no-bottom / dislike-exhausts-base render must be a **200 `not_enough_items`** with a snapshot + the `_CONTROLS_UNBUILDABLE_HINT` discriminator + **zero generator calls**, never a `400` and never a spend (§C.3 request-decidability).
 - Reintroduce a legacy-shaped response branch or an `itemIds`-bound feedback post path after C6 → the UI
   contract / no-legacy-feedback tests must fail.
 - Ship rescue as an API-only path — no item-select/launch UI, or a rescue outfit that can't be re-rolled
@@ -1956,14 +1993,19 @@ code paths.
   compare the re-roll's `shownFullSignatures` set to the parent's and report the overlap — never a hard gate
   (a small golden closet may legitimately re-surface), but the one end-to-end exercise of the "genuinely
   different" promise; if collapse shows, the §C avoid-list lever (a `PROMPT_VERSION` bump) is the response.
-- **Doc reconciliation (same commits as C4/C5, unless marked ALREADY-DONE):** every v2 cache home rewritten for the cache kill **and**
-  the fresh-generation regenerate (§5 cache bullet, **§9 pipeline-order table Step 7**, §6.7, §14 R9 cached-candidate/merge wording,
-  §15's two-stage-cache paragraphs, the §20-M5-row — **incl. its stale "two-stage cache" deliverable AND
-  its "pick + state an explicit interim invalidation" wardrobeVersion/TTL clause, both dead under the
-  cache-kill (freshness rides fresh generation + cooldown/repetition)** —, Appendix A R1/N1, Appendix B cache TTL);
-  **§15.1's "a snapshot is written for
+- **Doc reconciliation (same commits as C4/C5, unless marked ALREADY-DONE):**
+  **ALREADY-DONE (2026-07-07 post-C4 audit):** every v2 cache home rewritten for the cache kill **and**
+  the fresh-generation regenerate (§5 cache bullet, **§9 pipeline-order table Step 7**, §6.7, §14 R9
+  cached-candidate/merge wording, §15's two-stage-cache paragraphs, the §20-M5-row — **incl. its stale
+  "two-stage cache" deliverable AND its "pick + state an explicit interim invalidation"
+  wardrobeVersion/TTL clause, both dead under the cache-kill (freshness rides fresh generation +
+  cooldown/repetition)** —, Appendix A R1/N1, Appendix B cache TTL);
+  **ALREADY-DONE (same pass):** **§15.1's "a snapshot is written for
   every render attempt" clause softened to "every render where a valid payload reached the writer"** + the
-  transport-loss residual gap recorded (D3/§D); **§15.1's identity/provenance/score fields gain the M5
+  transport-loss residual gap recorded (D3/§D); **§15's snapshot-write posture reconciled from
+  "async/best-effort, never on the critical path" to the M5 blocking-validated-idempotent write (§A pin)
+  — the pre-alloc `snapshotId` + shown binding + `E11000` winner-re-read depend on it**;
+  **remaining C5 same-commit reconciliation:** **§15.1's identity/provenance/score fields gain the M5
   tightenings** (`requestId` is UUIDv4/ULID live-write idempotency **and becomes schema-`required` — F7**;
   the §15.1 "once H7 closes" attribution
   corrected to **H50**; `generator.maxCompletionTokens` is
@@ -1978,9 +2020,6 @@ code paths.
   `DAILY_MAX_CANDIDATES=12`, already pointed to from Appendix B)**;
   **§15.1's `scorer` field list gains the §E semantics pin**
   (`available` = scoreTrace populated, never rank-order influence);
-  **§15's snapshot-write posture reconciled from "async/best-effort, never on the critical path" (lines
-  ~709/720) to the M5 blocking-validated-idempotent write (§A pin) — the pre-alloc `snapshotId` + shown
-  binding + `E11000` winner-re-read depend on it**;
   **§6.6's "the M5 request adapter recomputes `item_affinity`/`liked_full_signatures`/cooldown" locus
   corrected to "Next fetches raw append-only rows; the service's Python §H reducers recompute at request
   time" (the projection-not-stored principle is unchanged — only the who/where)**;
@@ -2029,6 +2068,17 @@ instances now in code — the sibling via the §E producer exercise, the headlin
 delivered at C6** — moved from C8 by the ladder sequencing invariant, so rescue is user-reachable not
 API-only, F2; only the shareable before/after growth card is deferred post-M5). Deferred: H6 (W-track), H43
 (Privacy).
+
+**OPEN (Fable refinement 2, 2026-07-07) — stale-control-id category.** The §C.3 preflight currently `400`s
+a `lockedItemIds`/`dislikedItemIds` id absent from the live wardrobe. Under the request-decidability
+principle that governs the buildability call, a *stale* control id is **not** request-decidable (it needs
+the server wardrobe) and is producible by a bug-free client via a delete/edit race — exactly the shape the
+G16 forced-item-deleted case resolves as a **`409` state conflict, not a caller bug**. So the consistent
+end-state is likely: a stale **lock** → `409` (or route to the valid-empty buildability path, since a lock
+on a vanished item can't be honored); a stale **dislike** → **drop it from `normalizedControls`** (it
+shaped nothing, so neither `400` nor persist-as-lie). Kept as `400` for now (a strong desync signal during
+M5 bring-up, and it guards the buildability logic's "control ids resolve" assumption); revisit when C5's
+client control-lifecycle is real. Whichever way it lands, the buildability decision above is unaffected.
 
 ## Open questions
 

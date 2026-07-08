@@ -207,6 +207,14 @@ def test_controls_preflight_locked_not_in_wardrobe_rejected():
     assert "not in the wardrobe" in response["error"]["message"]
 
 
+def test_controls_preflight_disliked_not_in_wardrobe_rejected():
+    # F6 corpus truth: a stale dislike cannot be persisted as if it shaped the render.
+    status, response = _reject(
+        {"controls": {"lockedItemIds": [], "dislikedItemIds": ["ghost-id"]}}
+    )
+    assert "not in the wardrobe" in response["error"]["message"]
+
+
 def test_controls_preflight_locked_intersect_disliked_rejected():
     # §C.3 check 1 — a contradictory locked ∩ disliked request never empty-succeeds (pre-spend).
     status, response = _reject(
@@ -226,13 +234,45 @@ def test_rescue_forced_item_disliked_rejected_pre_spend():
     assert stub.call_count == 0
 
 
-def test_controls_preflight_structurally_infeasible_lock_set_rejected():
-    # §C.3 check 3 — two locks in the same slot (two tops) can never co-occupy a valid slot map;
-    # rejected pre-spend with ZERO generator calls, never a GPT call whose lock drop kills all.
-    status, response = _reject(
-        {"controls": {"lockedItemIds": ["t1", "t2"], "dislikedItemIds": []}}
-    )
-    assert "more than one lock occupies the top slot" in response["error"]["message"]
+@pytest.mark.parametrize(
+    ("wardrobe", "locked_ids", "message"),
+    [
+        (None, ["t1", "t2"], "more than one lock occupies the top slot"),
+        (
+            [wire_item("t1", "top"), wire_item("b1", "bottom"),
+             wire_item("s1", "shoes"), wire_item("s2", "shoes")],
+            ["s1", "s2"],
+            "more than one lock occupies the shoes slot",
+        ),
+        (
+            [wire_item("d1", "dress"), wire_item("t1", "top"), wire_item("b1", "bottom")],
+            ["d1", "t1"],
+            "locked dress cannot coexist with a locked top or bottom",
+        ),
+        (
+            [wire_item("d1", "dress"), wire_item("t1", "top"), wire_item("b1", "bottom")],
+            ["d1", "b1"],
+            "locked dress cannot coexist with a locked top or bottom",
+        ),
+    ],
+)
+def test_controls_preflight_structurally_infeasible_lock_set_rejected(
+    wardrobe, locked_ids, message
+):
+    # §C.3 check 3 — locks that cannot co-occupy a valid slot map are rejected pre-spend,
+    # never converted into a GPT call whose post-validate lock drop kills every candidate.
+    overrides = {"controls": {"lockedItemIds": locked_ids, "dislikedItemIds": []}}
+    if wardrobe is not None:
+        overrides["wardrobe"] = wardrobe
+    status, response = _reject(overrides)
+    assert message in response["error"]["message"]
+
+
+# NOTE: a well-formed control set the *actual wardrobe can't complete* (a locked top with no bottom;
+# dislikes that remove every base) is NOT contract_invalid — it is a **closet-dependent** empty state
+# the engine short-circuits to a valid `notEnoughItems` render pre-GPT (§C.3 request-decidability,
+# Fable 2026-07-07). Those cases are covered as valid-empty flow tests in test_render_flow.py; only the
+# closet-INDEPENDENT contradictions (co-occupancy, locked∩disliked, forced∈disliked, stale ids) 400 here.
 
 
 # --- Lens validation (§A/§F/§D) --------------------------------------------------------
@@ -257,6 +297,13 @@ def test_non_empty_constraints_rejected():
 def test_malformed_seed_date_rejected():
     _reject({"lens": {"seedDate": "2026-7-7"}})
     _reject({"lens": {"seedDate": "tomorrow"}})
+
+
+def test_seed_date_is_required_not_nullable():
+    _reject({"lens": {"seedDate": None}})
+    body = render_body()
+    body["lens"].pop("seedDate")
+    _reject(body=body)
 
 
 def test_unsupported_intent_rejected():
