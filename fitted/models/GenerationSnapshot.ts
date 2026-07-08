@@ -28,6 +28,35 @@ export const RAW_TEXT_CAP_BYTES = 120_000; // per generation attempt (the full G
 export const RAW_EMITTED_CAP_BYTES = 8_000; // per candidate (one emitted outfit's raw JSON)
 export const RAW_ATTRIBUTES_CAP_BYTES = 8_000; // per item (raw CV / declared attributes)
 
+// §D engine-failure closed vocabularies — the TS mirror of the Python EngineFailure sets
+// (ml-system/fitted_core/snapshot.py ENGINE_FAILURE_STAGES/ENGINE_FAILURE_CODES). A rename on
+// either side silently empties the degenerate-corpus mapping, so the round-trip test pins the
+// mirror. The `enum` arrays below are derived from these Sets — single source per runtime.
+export const ENGINE_FAILURE_STAGES = new Set([
+  "sample",
+  "generate",
+  "parse",
+  "validate",
+  "rank",
+  "assemble",
+  "pre_generation",
+  "unknown",
+]);
+export const ENGINE_FAILURE_CODES = new Set([
+  "parse_fail",
+  "empty_valid_set",
+  "refusal",
+  "truncated",
+  "internal_exception",
+  "sampler_error",
+  "ranker_error",
+  "unknown",
+]);
+// The message is a FIXED-CATALOGUE string keyed by {stage, code} on the Python side, never an
+// interpolated runtime value (§G/G13); the TS boundary caps its length. Mirrors
+// ENGINE_FAILURE_MESSAGE_MAX_CHARS in snapshot.py.
+export const ENGINE_FAILURE_MESSAGE_MAX_CHARS = 300;
+
 // The semantic redaction whitelist — the only DOMAIN fields a post-insert write may touch at
 // M4 (the H43 seam). Everything else is immutable training truth. (Framework-managed timestamp
 // paths are exempted separately, below; the Privacy milestone extends this with the PII-null
@@ -85,6 +114,15 @@ const GenerationAttemptSchema = new Schema(
     rawTextHash: { type: String },
     rawTextBytes: { type: Number },
     rawTextTruncated: { type: Boolean },
+    // Per-attempt finish status (§A.6 point 6 — snapshot._finish_status_dict → {finishReason,
+    // refusal}); null for stubs/replays + clean runs. A declared field, or default strict:true
+    // strips the paid-but-degenerate signal the corpus needs (the D-1/D-2 class).
+    finishStatus: {
+      type: new Schema(
+        { finishReason: { type: String }, refusal: { type: String } },
+        { _id: false },
+      ),
+    },
   },
   { _id: false },
 );
@@ -281,6 +319,24 @@ const GenerationSnapshotSchema = new Schema(
     wardrobeVersion: { type: Number, required: true }, // field only; bump = W-track/H6
     interactionCountAtRequest: { type: Number, required: true },
     seedDate: { type: String },
+    // R9 regen controls (m5-cutover.md §G item 5 / §C.3 / §J D-2). The exact inputs that shaped
+    // a render (locks scope the pool+prompt; dislikes hard-filter Step-4) MUST be in its row or
+    // the corpus can't explain it. Python authors this on EVERY write (snapshot.py, §G.1 F6) —
+    // it MUST be a declared field or default strict:true strips it silently. `required:true` +
+    // a default so a first/non-regen render stores `{lockedItemIds:[], dislikedItemIds:[]}`,
+    // never an absent subdoc: "no controls" must be an explicit corpus statement, since an
+    // absent `controls` is indistinguishable from "locks were dropped".
+    controls: {
+      type: new Schema(
+        {
+          lockedItemIds: { type: [String], default: [] },
+          dislikedItemIds: { type: [String], default: [] },
+        },
+        { _id: false },
+      ),
+      required: true,
+      default: () => ({ lockedItemIds: [], dislikedItemIds: [] }),
+    },
 
     // --- C: provenance / versions — REQUIRED, non-null on every live write ---
     fittedCoreVersion: { type: String, required: true },
@@ -295,6 +351,33 @@ const GenerationSnapshotSchema = new Schema(
           model: { type: String, required: true },
           temperature: { type: Number, required: true },
           promptVersion: { type: String, required: true },
+          // §G item 6 / §A.6 — service-owned config that changes truncation/parse-fail/candidate
+          // distributions; M6 must stratify by it. Python authors the whole block from the
+          // service config (snapshot.py _generator_block) on EVERY write incl. the §D degenerate
+          // path, so these MUST be declared fields or default strict:true strips them silently
+          // (the D-1/D-2 class). `finishStatus` is the ONLY optional one (a clean run leaves it
+          // unset — snapshot.abnormal_finish_status returns None unless refusal/truncation).
+          maxCompletionTokens: { type: Number, required: true }, // cap VALUE (`maxOutputTokens` name if Responses)
+          apiSurface: { type: String, enum: ["chat_completions", "responses"], required: true },
+          responseFormat: { type: String, enum: ["json_schema_strict", "json_object"], required: true },
+          reasoningEffort: { type: String, required: true }, // e.g. "none"/"minimal"
+          storeMode: { type: String, enum: ["none"], default: "none", required: true }, // no OpenAI distillation/evals storage
+          promptCacheRetention: { type: String, enum: ["in_memory"], required: true }, // M5 rejects extended 24h retention
+          timeoutSeconds: { type: Number, required: true }, // OpenAI SDK timeout
+          maxRetries: { type: Number, required: true }, // OpenAI SDK retries; 0 for M5 live render
+          // Run-level finish status (abnormal_finish_status → {finishReason, refused}); the
+          // status/incompleteReason keys carry the Responses-API surface when adopted.
+          finishStatus: {
+            type: new Schema(
+              {
+                finishReason: { type: String },
+                status: { type: String },
+                incompleteReason: { type: String },
+                refused: { type: Boolean },
+              },
+              { _id: false },
+            ),
+          },
         },
         { _id: false },
       ),
@@ -351,6 +434,29 @@ const GenerationSnapshotSchema = new Schema(
           },
           rejectionHistogram: { type: Map, of: Number }, // keyed by IssueCode value
           warningHistogram: { type: Map, of: Number },
+          // §D engine-failure record (m5-cutover.md §G item 4 / §J D-1). Python emits this on
+          // every §D failure/degenerate write (snapshot.py EngineFailure.to_payload_dict). It
+          // MUST be a declared field or default strict:true silently strips the entire failure
+          // corpus on insert. `stage`/`code` are the closed sets above; `message` is a bounded
+          // fixed-catalogue string (G13 — no stack trace / prompt / secret); structured detail
+          // lives in `detail{itemId,count}`, never interpolated into `message`.
+          engineFailure: {
+            type: new Schema(
+              {
+                stage: { type: String, enum: [...ENGINE_FAILURE_STAGES] },
+                code: { type: String, enum: [...ENGINE_FAILURE_CODES] },
+                message: { type: String, maxlength: ENGINE_FAILURE_MESSAGE_MAX_CHARS },
+                detail: {
+                  type: new Schema(
+                    { itemId: { type: String }, count: { type: Number } }, // itemId = 24-hex ObjectId (helper-validated)
+                    { _id: false },
+                  ),
+                },
+                messageTruncated: { type: Boolean, default: false },
+              },
+              { _id: false },
+            ),
+          },
         },
         { _id: false },
       ),

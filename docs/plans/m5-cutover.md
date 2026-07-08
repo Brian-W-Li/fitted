@@ -2138,18 +2138,27 @@ client control-lifecycle is real. Whichever way it lands, the buildability decis
 
 **CONFIRMED DEFECTS (cross-layer drift-inventory sweep 2026-07-08) — pre-registered for C5, source-verified.
 Fix with BEHAVIORAL ROUND-TRIP tests (write→read a real Mongo doc), never shape-only — a `validateSync`
-over a healthy golden cannot catch a silent field-strip.** The live GenerationSnapshot write is C5, so
-these are latent today, but the committed `GenerationSnapshot.ts` schema already disagrees with the committed
-Python payload it is the write target for:
-- **D-1 `diagnostics.engineFailure` silent-drop (HIGH — data loss).** Python emits `diagnostics.engineFailure`
-  (`snapshot.py:145`, on every §D failure/degenerate write); the Mongoose `diagnostics` sub-schema
-  (`GenerationSnapshot.ts:332-356`) has no `engineFailure` field and the model runs default `strict:true`, so
-  it is stripped on insert. The entire §D failure corpus — the reason the degenerate arm exists — would be
-  lost. C5 must add the field (mirroring `ENGINE_FAILURE_STAGES`/`ENGINE_FAILURE_CODES`) + a round-trip test
-  that writes a degenerate snapshot and reads `engineFailure` back non-null.
-- **D-2 top-level `controls` silent-drop (HIGH — corpus loss).** Python emits top-level `controls`
-  (`snapshot.py:188`, "present on EVERY write", §G.1 F6); the root schema has no `controls` field → stripped.
-  The R9 regen-controls learning signal is lost from every snapshot. C5 adds the field + a round-trip test.
+over a healthy golden cannot catch a silent field-strip.** The committed `GenerationSnapshot.ts` schema
+disagreed with the committed Python payload it is the write target for:
+- **D-1 `diagnostics.engineFailure` silent-drop (HIGH — data loss) — FIXED (C5 first brick).** Python emits
+  `diagnostics.engineFailure` (`snapshot.py:145`, on every §D failure/degenerate write); the Mongoose
+  `diagnostics` sub-schema had no `engineFailure` field and the model runs default `strict:true`, so it was
+  stripped on insert — the entire §D failure corpus lost. Added as a declared sub-schema (with the closed
+  `ENGINE_FAILURE_STAGES`/`ENGINE_FAILURE_CODES` mirror + `ENGINE_FAILURE_MESSAGE_MAX_CHARS`), guarded by
+  `tests/generationSnapshotRoundTrip.test.ts` (write a degenerate snapshot → read `engineFailure` back
+  non-null; out-of-set stage/code rejected on write).
+- **D-2 top-level `controls` silent-drop (HIGH — corpus loss) — FIXED (C5 first brick).** Python emits
+  top-level `controls` (`snapshot.py:188`, "present on EVERY write", §G.1 F6); the root schema had no
+  `controls` field → stripped. Added as `required:true` + default; round-trip test asserts populated controls
+  read back AND that a first render stores `{lockedItemIds:[], dislikedItemIds:[]}` (present, never absent).
+- **Same-class item-6 strip (HIGH — provenance loss) — FIXED alongside D-1/D-2.** The identical silent-strip
+  class: the `generator` provenance block carried only the four M4 base fields, so §G-item-6 additions
+  (`maxCompletionTokens`/`apiSurface`/`responseFormat`/`reasoningEffort`/`storeMode`/`promptCacheRetention`/
+  `timeoutSeconds`/`maxRetries`) + `generator.finishStatus` + `generationAttempts[].finishStatus` were all
+  stripped on a real write. Added per §G item 6; guarded by a **full-payload round-trip test** that loads the
+  committed `m4b_e2e_snapshot.json` fixture, writes it, and asserts every generator provenance field survives
+  read-back (the class cure — a healthy golden written and read back, so no future field can hide behind the
+  `validateSync`-only contract test). Test-Mongo harness landed at `tests/helpers/mongoHarness.ts`.
 - Related unguarded cross-runtime surfaces feeding the same C5 work (full inventory + the ~35-surface catalogue
   in `docs/plans/post-m5-reset.md`): the §A response envelope + `flags` keys (hand-built `app.py:_flags`, no
   single source), the clothingType 5-value set coercing unknown→"top" (`fitted/lib/clothingType.ts`), the
