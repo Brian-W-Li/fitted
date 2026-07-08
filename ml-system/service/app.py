@@ -81,8 +81,11 @@ _ITEM_TYPE_VALUES = frozenset(t.value for t in ItemType)
 _KEY_RESERVED_CHARS = (":", "|", "=")
 _KEY_NONE_SENTINEL = "none"
 
-# User-facing hint on the §D degenerate arm (fixed catalogue — never str(exception)).
-_ENGINE_FAILURE_HINT = "something went wrong generating outfits — try again"
+# The §D degenerate-arm reasonHint (C4 docket (a), §A): a STABLE MACHINE CODE — never
+# str(exception), never an English sentence — matching the degraded browser-response code family
+# (service_unavailable/contract_invalid/…). The client maps it to localized copy; healthy-render
+# hints (notEnoughItems/insufficientAfterGeneration) stay English prose.
+_ENGINE_FAILURE_HINT = "engine_failure"
 
 
 class ContractInvalid(Exception):
@@ -310,22 +313,92 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
         raise ContractInvalid(f"{where} failed engine validation: {exc}") from exc
 
 
-def _validate_controls(raw: Any) -> None:
+def _normalize_controls(raw: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The §C.3 F6 control normalization — ONE normalized set drives generation AND persistence.
+
+    Reject blank/non-string ids (via ``_string_list``), **dedup + order-normalize** (stable sort →
+    canonical persisted arrays, never client-order-dependent), and reject the ``locked ∩ disliked``
+    contradiction (a caller bug — a contradictory request must never empty-succeed). The
+    wardrobe-membership + structural-feasibility checks are wardrobe-dependent and run in
+    :func:`_preflight_locks` after the wardrobe is parsed. Returns ``(locked, disliked)`` tuples.
+    """
     where = "controls"
     if not isinstance(raw, dict):
         raise ContractInvalid(f"{where} must be an object")
     _require_keys(raw, required={"lockedItemIds", "dislikedItemIds"}, optional=set(), where=where)
+    normalized: dict[str, tuple[str, ...]] = {}
     for key in ("lockedItemIds", "dislikedItemIds"):
         ids = _string_list(
             raw[key], f"{where}.{key}", max_items=cfg.MAX_CONTROL_IDS, max_chars=cfg.MAX_ID_CHARS
         )
-        # C3 posture: the regenerate vertical (lock scoping / dislike filter / preflight,
-        # §C.3) lands at C4 — accepting non-empty controls before the engine consumes them
-        # would render without them while the request claimed them (an F6 corpus lie).
-        if ids:
+        normalized[key] = tuple(sorted(set(ids)))  # dedup + canonical order (F6)
+    locked, disliked = normalized["lockedItemIds"], normalized["dislikedItemIds"]
+    overlap = set(locked) & set(disliked)
+    if overlap:
+        # A contradictory request pre-generation: locked ∩ disliked ≠ ∅ → never empty-success.
+        raise ContractInvalid(
+            f"{where}: an item cannot be both locked and disliked "
+            f"(overlap: {sorted(overlap)})"
+        )
+    return locked, disliked
+
+
+def _lock_feasibility_error(pin_types: list[ItemType]) -> Optional[str]:
+    """The §C.3 structural-feasibility check over the effective pins' slots (the rescue forced item
+    + the R9 locks, deduped by id). Returns a stable reason string, or ``None`` when buildable.
+
+    Two ways a lock set cannot occupy a valid slot map: **>1 lock in one slot** (two tops, two
+    shoes — a slot holds one item), or a **locked dress with a locked top/bottom** (one_piece vs
+    two_piece — mutually exclusive templates). Optional ``outer``/``shoes`` fit either template, so
+    they never conflict beyond the one-per-slot rule.
+    """
+    seen: set = set()
+    for pin_type in pin_types:
+        if pin_type in seen:
+            return f"locked items conflict: more than one lock occupies the {pin_type.value} slot"
+        seen.add(pin_type)
+    if ItemType.dress in seen and (ItemType.top in seen or ItemType.bottom in seen):
+        return "locked items conflict: a locked dress cannot coexist with a locked top or bottom"
+    return None
+
+
+def _preflight_locks(
+    locked: tuple[str, ...],
+    disliked: tuple[str, ...],
+    wardrobe: list,
+    forced_item_id: Optional[str],
+    intent: str,
+) -> None:
+    """The wardrobe-dependent §C.3 preflight (runs after the wardrobe parses, before any spend).
+
+    Check 2 — every locked id must be a live wardrobe item (a lock referencing a deleted/unknown
+    item is a caller bug → ``contract_invalid``, never a silent no-op). Check 3 — the effective pin
+    set (locks + the rescue forced item, deduped by id) must be structurally buildable. The forced
+    item is folded in so a rescue-a-top-while-locking-a-different-top request fails loud pre-spend
+    rather than spending a GPT call whose post-validate lock drop then kills every candidate.
+
+    The forced item is an **implicit lock** (every rescue outfit must include it), so it also
+    extends the ``locked ∩ disliked`` contradiction: a rescue of an item the request also dislikes
+    would contextual-drop every candidate → an empty result after a wasted GPT spend. Reject it
+    pre-spend for the same reason the explicit ``locked ∩ disliked`` check exists.
+    """
+    by_id = {item.id: item for item in wardrobe}
+    for locked_id in locked:
+        if locked_id not in by_id:
             raise ContractInvalid(
-                f"{where}.{key} must be empty — regen controls are not active until C4"
+                f"controls.lockedItemIds contains {locked_id!r}, which is not in the wardrobe"
             )
+    if intent == "rescue_item" and forced_item_id is not None and forced_item_id in set(disliked):
+        raise ContractInvalid(
+            "lens.forcedItemId cannot also be disliked — a rescue of a disliked item cannot succeed"
+        )
+    pin_ids = set(locked)
+    if intent == "rescue_item" and forced_item_id is not None:
+        pin_ids.add(forced_item_id)  # the forced item is an implicit lock (every outfit includes it)
+    pin_types = [by_id[pid].type for pid in sorted(pin_ids) if pid in by_id]
+    error = _lock_feasibility_error(pin_types)
+    if error is not None:
+        raise ContractInvalid(error)
 
 
 def _validate_generator_expectation(raw: Any, config: ServiceConfig) -> None:
@@ -421,7 +494,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
             "null parent; a re-roll carries both"
         )
 
-    _validate_controls(body["controls"])
+    locked_item_ids, disliked_item_ids = _normalize_controls(body["controls"])
 
     lens = body["lens"]
     if not isinstance(lens, dict):
@@ -471,6 +544,11 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
         # 409 forced_item_unavailable state-conflict arm is C5's — here it is a caller bug).
         raise ContractInvalid("lens.forcedItemId is not in the wardrobe")
 
+    # §C.3 wardrobe-dependent lock preflight — every locked id must be a live wardrobe item, the
+    # rescue forced item must not be disliked, and the effective pin set (locks + rescue forced
+    # item) must be structurally buildable, ALL pre-spend.
+    _preflight_locks(locked_item_ids, disliked_item_ids, wardrobe, forced_item_id, intent)
+
     wardrobe_version = _non_bool_int(body["wardrobeVersion"], "wardrobeVersion")
     interaction_count = _non_bool_int(body["interactionCountAtRequest"], "interactionCountAtRequest")
     interaction_rows, snapshot_rows = _validate_behavioral_rows(body["behavioralRows"])
@@ -490,6 +568,8 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
             date=seed_date,
             intent=intent,
             interaction_count=interaction_count,
+            locked_item_ids=locked_item_ids,
+            disliked_item_ids=disliked_item_ids,
         )
     except (TypeError, ValueError) as exc:
         # RenderRequest guard raises are inside the pre-validation boundary (§D).

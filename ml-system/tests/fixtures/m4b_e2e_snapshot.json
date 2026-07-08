@@ -13,6 +13,10 @@
   "wardrobeVersion": 3,
   "seedDate": null,
   "constraints": {},
+  "controls": {
+    "lockedItemIds": [],
+    "dislikedItemIds": []
+  },
   "fittedCoreVersion": "0.5.0",
   "generator": {
     "provider": "openai",
@@ -32,7 +36,7 @@
   "scorer": {
     "kind": "cold_start",
     "modelId": null,
-    "available": false
+    "available": true
   },
   "itemSnapshots": [
     {
@@ -607,7 +611,14 @@
       "insufficientWardrobe": true,
       "relaxedCooldownCount": 0,
       "lockedSurvivorCount": 4,
-      "insufficientLockedCandidates": false
+      "insufficientLockedCandidates": false,
+      "reducerConfigVersion": "c14b6cee52a60029e1667d96d5d654b254066a1245d4c0d4158b5ba20517e937",
+      "itemAffinity": {},
+      "likedFullSignatures": [],
+      "shownFullSignatures": [],
+      "recentDislikedBaseKeys": [],
+      "recentDislikedItemIds": [],
+      "contextualDislikedItemIds": []
     },
     "rescue": {
       "notEnoughItems": false,

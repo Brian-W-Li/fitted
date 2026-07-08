@@ -772,6 +772,16 @@ recorded here as a known gap class rather than fabricating unknowable provenance
   provenance; the backstop for the engine-vs-evidence boundary): `fittedCoreVersion`, `generator`
   (`provider`/`model`/`temperature`/`promptVersion`), `rankerConfigVersion` (a hash of the Appendix B
   constants), `scorer` (`kind` enum(`cold_start|trained`)/`modelId?`/`available`).
+  - **`scorer.available` semantic (pinned, M5 cutover §E — two scorers are in play, so the referent must be
+    explicit):** the `scorer` block is the **outfit/rank-scorer provenance axis** (the §23-H28 seam), and
+    `available:true` means **"an `OutfitScorer` occupant was exercised over this render and populated
+    `scoreTrace.compatibility/visibility` for every scored candidate"** — explicitly **NOT** "influenced
+    rank order". Rank-order influence is readable only from `kind="trained"` (+ the M6 `RankerContext`
+    signal); a corpus reader must never infer order influence from `available` alone. M5 writes
+    `kind="cold_start"`/`available:true` on healthy renders (the producer exercises the cold-start
+    occupant); a degenerate/no-scoring write leaves `available:false`. The **sampler** `SignalScorer`'s
+    state (the behavioral `AffinitySignalScorer`) lives in `diagnostics.scorerAvailable` + per-type
+    `selectionKind`, never in this block.
   - **`cvModelVersion?` (data-path provenance, nullable).** Once the W-track CV becomes the *writer* of
     `warmth`/`material`/`formality`/`styleTags` — which land in `engineVisible` as trainable features — a
     CV-model change silently shifts those features' meaning, the same drift the engine version-block guards
@@ -823,7 +833,12 @@ recorded here as a known gap class rather than fabricating unknowable provenance
   candidate, including scored-but-unshown):** `scoreTrace{ compatibility?, visibility? ([0,1] cold-start
   content scores — the M6 seam), rankerScore?, scoreBreakdown?{base,combo,item,dislike,overuse,repetition,
   cooldown}, signalScore? (reserved, trained M6) }`. Request-level `diagnostics` carries the per-type sampler
-  result, the ranker/rescue/parse flags, and rejection/warning histograms. **Reading-rule trap-guard
+  result, the ranker/rescue/parse flags, and rejection/warning histograms. **`diagnostics.ranker` also carries
+  (M5 cutover §E/§H) `reducerConfigVersion` + the reduced `RankerContext` signal collections that fed the
+  ranker — `itemAffinity` (data-keyed map), `likedFullSignatures`, `shownFullSignatures`,
+  `recentDislikedBaseKeys`, `recentDislikedItemIds`, `contextualDislikedItemIds` — so every stored score is
+  recomputable from the row alone (exact off-policy context for M6, no reducer re-runs across
+  reducer-version/window drift), each carrying its reducer provenance.** **Reading-rule trap-guard
   (pre-flight 2026-07-06):** the ranker's `fallbackStage`/`insufficientWardrobe` measure **fill-to-`k`**
   (the ladder is exhausted whenever the pool < `k=DEFAULT_K`, deliberately > `n_surfaced` so
   `select_spread` has a pool — `ranker.py` `_select_fallback_pool`), **not render health** — a healthy

@@ -30,7 +30,7 @@ from fitted_core.rescue import (
     _rescue_candidate_requested,
     _resolve_forced_item,
     _resolve_shape,
-    _scope_pool_to_forced,
+    _scope_pool_to_pins,
     _serialize_pool_item,
     rescue,
     rescue_with_trace,
@@ -265,8 +265,7 @@ def test_scope_pins_forced_drops_invalid_keeps_siblings_no_dupes():
         ItemType.outer_layer: [],
         ItemType.shoes: [shoes],
     }
-    _, valid = _resolve_shape(ItemType.top)
-    scoped = _scope_pool_to_forced(pool, forced, valid)
+    scoped = _scope_pool_to_pins(pool, [forced])
 
     assert scoped[ItemType.top] == [forced]  # pinned to exactly the forced item (t2 dropped)
     assert scoped[ItemType.bottom] == [bottom]  # usable sibling type kept
@@ -290,8 +289,7 @@ def test_scope_is_idempotent_when_forced_was_not_sampled():
         ItemType.outer_layer: [],
         ItemType.shoes: [],
     }
-    _, valid = _resolve_shape(ItemType.top)
-    scoped = _scope_pool_to_forced(pool, forced, valid)
+    scoped = _scope_pool_to_pins(pool, [forced])
     assert scoped[ItemType.top] == [forced]
     assert "t1" in {it.id for it in _flatten_pool(scoped)}
 
@@ -308,8 +306,7 @@ def test_scope_forced_dress_drops_tops_and_bottoms_keeps_optionals():
         ItemType.outer_layer: [outer],
         ItemType.shoes: [shoes],
     }
-    _, valid = _resolve_shape(ItemType.dress)
-    scoped = _scope_pool_to_forced(pool, forced, valid)
+    scoped = _scope_pool_to_pins(pool, [forced])
 
     assert set(scoped.keys()) == set(ItemType)  # every type key always present
     assert scoped[ItemType.dress] == [forced]  # pinned, sibling d2 dropped
@@ -331,8 +328,7 @@ def test_scope_forced_outer_pins_outer_keeps_every_base():
         ItemType.outer_layer: [forced, _item("o2", ItemType.outer_layer)],
         ItemType.shoes: [_item("s1", ItemType.shoes)],
     }
-    _, valid = _resolve_shape(ItemType.outer_layer)
-    scoped = _scope_pool_to_forced(pool, forced, valid)
+    scoped = _scope_pool_to_pins(pool, [forced])
 
     assert scoped[ItemType.outer_layer] == [forced]  # pinned, sibling o2 dropped
     assert [it.id for it in scoped[ItemType.top]] == ["t1"]
@@ -372,8 +368,7 @@ def test_scoped_pool_respects_max_prompt_items_via_real_sampler(over_cap_wardrob
     ctx = _build_request_context(request)
     sampler_result = build_candidate_pool(over_cap_wardrobe, ctx, ColdStartSignalScorer())
 
-    _, valid = _resolve_shape(forced.type)
-    scoped = _scope_pool_to_forced(sampler_result.pool, forced, valid)
+    scoped = _scope_pool_to_pins(sampler_result.pool, [forced])
     flat = _flatten_pool(scoped)
     ids = [it.id for it in flat]
 

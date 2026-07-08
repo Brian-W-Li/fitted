@@ -189,17 +189,50 @@ def test_wardrobe_boundary():
     _reject({"wardrobe": wardrobe + filler + [wire_item("overflow", "shoes")]})
 
 
-def test_controls_arrays_reject_over_bound_and_c3_rejects_non_empty():
-    # limit+1 trips the MAX_CONTROL_IDS bound; at/under the bound trips the C3 posture
-    # (regen controls inactive until C4) — both contract_invalid, distinguishable messages.
+def test_controls_over_bound_and_bad_element_rejected():
+    # limit+1 trips the MAX_CONTROL_IDS bound; a non-string element trips _string_list — both
+    # pre-spend contract_invalid. (C4 activates regen controls; the C3 "not active" posture is gone.)
     over = [f"i{n}" for n in range(cfg.MAX_CONTROL_IDS + 1)]
     status, response = _reject({"controls": {"lockedItemIds": over, "dislikedItemIds": []}})
     assert f"exceeds {cfg.MAX_CONTROL_IDS}" in response["error"]["message"]
-    status, response = _reject(
-        {"controls": {"lockedItemIds": ["one-id"], "dislikedItemIds": []}}
-    )
-    assert "not active until C4" in response["error"]["message"]
     _reject({"controls": {"lockedItemIds": [], "dislikedItemIds": [123]}})  # non-string id
+    _reject({"controls": {"lockedItemIds": ["  "], "dislikedItemIds": []}})  # blank id
+
+
+def test_controls_preflight_locked_not_in_wardrobe_rejected():
+    # §C.3 check 2 — a locked id that is not a live wardrobe item is a caller bug, pre-spend.
+    status, response = _reject(
+        {"controls": {"lockedItemIds": ["ghost-id"], "dislikedItemIds": []}}
+    )
+    assert "not in the wardrobe" in response["error"]["message"]
+
+
+def test_controls_preflight_locked_intersect_disliked_rejected():
+    # §C.3 check 1 — a contradictory locked ∩ disliked request never empty-succeeds (pre-spend).
+    status, response = _reject(
+        {"controls": {"lockedItemIds": ["t1"], "dislikedItemIds": ["t1"]}}
+    )
+    assert "both locked and disliked" in response["error"]["message"]
+
+
+def test_rescue_forced_item_disliked_rejected_pre_spend():
+    # The forced item is an implicit lock; disliking it would contextual-drop every candidate →
+    # empty after a wasted spend. Rejected pre-spend like the explicit locked ∩ disliked check.
+    body = rescue_body(controls={"lockedItemIds": [], "dislikedItemIds": ["t1"]})
+    app, stub = make_app(daily_envelope())
+    status, response = http(app, "POST", "/render", headers=AUTH, json_body=body)
+    assert response["error"]["code"] == "contract_invalid"
+    assert "cannot also be disliked" in response["error"]["message"]
+    assert stub.call_count == 0
+
+
+def test_controls_preflight_structurally_infeasible_lock_set_rejected():
+    # §C.3 check 3 — two locks in the same slot (two tops) can never co-occupy a valid slot map;
+    # rejected pre-spend with ZERO generator calls, never a GPT call whose lock drop kills all.
+    status, response = _reject(
+        {"controls": {"lockedItemIds": ["t1", "t2"], "dislikedItemIds": []}}
+    )
+    assert "more than one lock occupies the top slot" in response["error"]["message"]
 
 
 # --- Lens validation (§A/§F/§D) --------------------------------------------------------

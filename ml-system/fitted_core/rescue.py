@@ -7,8 +7,8 @@ never modifies it (spearhead.md §B "NOT touched").
 
 **C2–C5 scope (this file):** the pure pre-GPT helpers — forced-item resolution,
 template/valid-type resolution (H22), the structural sufficiency check (the H22 min-closet
-rule), the sampler ``RequestContext`` builder, the forced-item pool "pin"
-(``_scope_pool_to_forced`` + ``_flatten_pool``), the rescue-specific candidate count (C2) —
+rule), the sampler ``RequestContext`` builder, the forced-item + R9-lock pool "pin"
+(``_scope_pool_to_pins`` + ``_flatten_pool``), the rescue-specific candidate count (C2) —
 plus ``_build_prompt`` and the §D prompt artifact (C3): a pure ``GenerationPrompt`` builder
 over the scoped pool — plus the **C4** ``rescue()`` orchestration + ``RescueResult``: generate
 → ``parse_gpt_json`` (one §12 repair) → ``validate_gpt_payload`` → ``_drop_invalid`` (forced
@@ -98,6 +98,12 @@ class RescueRequest:
     date: Optional[str] = None
     intent: str = "rescue_item"
     interaction_count: int = 0
+    # R9 regen controls (§C.3) — the SERVICE normalizes (dedup / blank-reject / order-sort) and
+    # runs the three-check preflight pre-spend; this dataclass only type-guards the id lists and
+    # freezes them to tuples, so the SAME normalized set drives generation AND persistence (F6).
+    # Empty on a first/non-regen render (`controls` is present-but-empty in the payload, never absent).
+    locked_item_ids: tuple[str, ...] = ()
+    disliked_item_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         self._validate_intent()
@@ -105,6 +111,7 @@ class RescueRequest:
         self._validate_k()
         self._validate_n_surfaced()
         self._validate_interaction_count()
+        self._validate_controls()
 
     def _validate_intent(self) -> None:
         if not isinstance(self.intent, str):
@@ -165,6 +172,29 @@ class RescueRequest:
             )
         if count < 0:
             raise ValueError(f"interaction_count must be >= 0, got {count}")
+
+    def _validate_controls(self) -> None:
+        """Type-guard + freeze the regen control id lists (§C.3 F6).
+
+        Reject a bare ``str``/``bytes`` (the tuple-coercion char-split trap ``RankerContext``
+        guards) and non-``str``/blank elements; coerce to a tuple so a caller's later mutation
+        can't reach in. The *semantic* preflight (``locked ∩ disliked``, lock-in-wardrobe,
+        structural feasibility) is the service's pre-spend job (§C.3), not this construction guard;
+        the SERVICE normalizes (dedup / order-sort) before building the request, so this preserves
+        the given order rather than re-normalizing (a second normalization could diverge, F6).
+        """
+        for name in ("locked_item_ids", "disliked_item_ids"):
+            value = getattr(self, name)
+            if isinstance(value, (str, bytes, bytearray)):
+                raise TypeError(
+                    f"{name} must be a collection of str item ids, got a bare "
+                    f"{type(value).__name__} (tuple coercion would split it into characters)"
+                )
+            coerced = tuple(value)
+            for element in coerced:
+                if not isinstance(element, str) or not element.strip():
+                    raise ValueError(f"{name} elements must be non-blank str item ids")
+            object.__setattr__(self, name, coerced)
 
 
 RenderRequest = RescueRequest
@@ -307,33 +337,80 @@ def _build_request_context(request: RescueRequest) -> RequestContext:
 # ============================================================================
 
 
-def _scope_pool_to_forced(
-    pool: Mapping[ItemType, list[WardrobeItem]],
-    forced_item: WardrobeItem,
-    valid_types: frozenset[ItemType],
-) -> dict[ItemType, list[WardrobeItem]]:
-    """Pin the forced item into the pool and drop unusable types (spearhead.md §G step 4).
+def _valid_types_for_pins(pinned_types: Sequence[ItemType]) -> frozenset[ItemType]:
+    """The template-valid pool types for a set of pinned items (the intersection of each pin's
+    §G-step-1 shape). Empty pin set → all five types (an unconstrained daily pool).
 
+    Each pin's ``_resolve_shape`` gives the types that can co-occur with it; a **feasible** pin
+    set (guaranteed by the §C.3 structural-feasibility preflight — ≤1 lock per slot, dress
+    mutually exclusive with top/bottom) has a non-empty intersection that still admits every
+    pinned type. An *infeasible* set (dress + top) intersects to a set excluding the pinned
+    types — harmless here (the pins are still pinned below and the post-validate lock drop kills
+    the impossible candidates), because the preflight already rejected it pre-spend.
+    """
+    valid = _ALL_TYPES
+    for item_type in pinned_types:
+        _, item_valid = _resolve_shape(item_type)
+        valid &= item_valid
+    return valid
+
+
+def _resolve_pins(request: RenderRequest, forced_item: Optional[WardrobeItem]) -> list[WardrobeItem]:
+    """The items every generated outfit must include: the rescue forced item (if any) + the R9
+    locks (§C.3), resolved against the live wardrobe, deduped by id in a stable order.
+
+    A locked id absent from the wardrobe is caller-contract misuse (``ValueError`` like
+    ``_resolve_forced_item``) — but the **service preflight rejects it pre-spend** (§C.3 check 2),
+    so this raise is a defense-in-depth backstop that never fires on the real path.
+    """
+    pins: list[WardrobeItem] = []
+    seen: set[str] = set()
+    if forced_item is not None:
+        pins.append(forced_item)
+        seen.add(forced_item.id)
+    if request.locked_item_ids:
+        by_id = {item.id: item for item in request.wardrobe}
+        for locked_id in request.locked_item_ids:
+            if locked_id in seen:
+                continue
+            item = by_id.get(locked_id)
+            if item is None:
+                raise ValueError(
+                    f"locked item {locked_id!r} is not in the wardrobe — service preflight "
+                    "should have rejected this pre-spend (§C.3)"
+                )
+            pins.append(item)
+            seen.add(locked_id)
+    return pins
+
+
+def _scope_pool_to_pins(
+    pool: Mapping[ItemType, list[WardrobeItem]],
+    pins: Sequence[WardrobeItem],
+) -> dict[ItemType, list[WardrobeItem]]:
+    """Pin every forced/locked item into the pool and drop unusable types (§C.3; §G step 4).
+
+    Generalizes the rescue forced-item pin to a **set** of pins (the forced item + R9 locks).
     For each ``ItemType``:
-      - the forced item's **own type** → exactly ``[forced_item]`` (one base/optional slot
-        can hold only the forced item, so its siblings can never co-occur with it; this also
-        re-includes the forced item if cap-sampling had dropped it — §H "Forced item dropped
-        by cap sampling");
-      - a type **not in ``valid_types``** → ``[]`` (it cannot appear in any valid template
-        around the forced item — e.g. dresses for a forced top, tops/bottoms for a forced
-        dress);
+      - a **pinned** type → exactly ``[the pin]`` (one base/optional slot holds only that item,
+        so its siblings can never co-occur; also re-includes a pin cap-sampling had dropped);
+      - a type **not template-valid** given the pin set → ``[]`` (e.g. dresses for a forced/locked
+        top);
       - any remaining usable type → kept **as sampled**.
 
-    This IS the rescue pin: the forced item is in the pool by construction, the op is
-    idempotent (a no-op even if the forced item was also sampled), and the flattened pool
-    (``_flatten_pool``) has **no duplicate ids** — so ``validate_gpt_payload``'s duplicate-id
-    guard never trips. Scoping only *removes* items, so ``prompt_item_count ≤
+    Empty pin set (a daily render with no locks) → ``{type: as-sampled}`` for every type: a
+    no-op copy that leaves the flattened pool byte-identical (absent types stay empty). A single
+    forced-item pin reproduces the historical ``_scope_pool_to_forced`` output exactly. The
+    ≤1-pin-per-slot invariant (preflight) makes ``pinned_by_type`` collision-free; the flattened
+    pool has no duplicate ids, and scoping only *removes* items so ``prompt_item_count ≤
     MAX_PROMPT_ITEMS`` still holds.
     """
+    pinned_by_type = {pin.type: pin for pin in pins}
+    valid_types = _valid_types_for_pins([pin.type for pin in pins])
     scoped: dict[ItemType, list[WardrobeItem]] = {}
     for item_type in ItemType:  # fixed enum order — matches partition/flatten ordering (R4)
-        if item_type == forced_item.type:
-            scoped[item_type] = [forced_item]
+        if item_type in pinned_by_type:
+            scoped[item_type] = [pinned_by_type[item_type]]
         elif item_type in valid_types:
             scoped[item_type] = list(pool.get(item_type, []))
         else:
@@ -430,13 +507,37 @@ def _serialize_pool_item(item: WardrobeItem) -> dict[str, object]:
     }
 
 
-def _build_system_prompt(forced_item: WardrobeItem) -> str:
+def _additional_locked_ids(
+    request: RenderRequest, forced_item_id: Optional[str] = None
+) -> tuple[str, ...]:
+    """The R9 locked ids to call out in the prompt, excluding the rescue forced item (which has
+    its own "must include" line). Daily passes ``forced_item_id=None`` → every lock."""
+    return tuple(lid for lid in request.locked_item_ids if lid != forced_item_id)
+
+
+def _locked_items_line(locked_item_ids: Sequence[str]) -> Optional[str]:
+    """The §C.3 lock prompt-pin instruction (one line), or ``None`` when there are no locks — so a
+    no-lock render's prompt stays byte-identical to the pre-regen path."""
+    if not locked_item_ids:
+        return None
+    ids = ", ".join(f'"{lid}"' for lid in locked_item_ids)
+    return (
+        f"- Every outfit MUST ALSO include these locked wardrobe items, each referenced by its "
+        f"id: {ids}. An outfit that omits any locked item is rejected."
+    )
+
+
+def _build_system_prompt(
+    forced_item: WardrobeItem, locked_item_ids: Sequence[str] = ()
+) -> str:
     """The §D system prompt — the hard rules carried from §12 (spearhead.md §D).
 
-    Pure and deterministic: a function of the forced item's id and type only. The
+    Pure and deterministic: a function of the forced item's id/type + the R9 locks. The
     forced-dress sub-case line is emitted **only** for a forced dress (the lone-``one_piece``
     outfit is the only single-item outfit that can occur), so an empty/absent
-    ``changedItemIds`` can't silently drop the dress-alone variant (validator + decision 8).
+    ``changedItemIds`` can't silently drop the dress-alone variant (validator + decision 8). The
+    lock line (§C.3) appears only when locks are present — a no-lock rescue prompt is byte-identical
+    to the pre-regen path.
     """
     lines = [
         "You are a personal stylist. Compose outfits ONLY from the wardrobe items provided, "
@@ -444,6 +545,11 @@ def _build_system_prompt(forced_item: WardrobeItem) -> str:
         "",
         "Hard rules for every outfit:",
         f'- Every outfit MUST include the forced item, id "{forced_item.id}".',
+    ]
+    locked_line = _locked_items_line(locked_item_ids)
+    if locked_line is not None:
+        lines.append(locked_line)
+    lines += [
         "- Each outfit is either two_piece (exactly 1 base_top + 1 base_bottom) XOR one_piece "
         "(exactly 1 dress); plus optionally 0-1 outer_layer and 0-1 shoes. Never repeat an "
         "item within an outfit.",
@@ -528,19 +634,24 @@ def _build_prompt(
     pool_items = [_serialize_pool_item(item) for item in _flatten_pool(scoped)]
     pool_json = json.dumps(pool_items, indent=2, ensure_ascii=False)
     return GenerationPrompt(
-        system=_build_system_prompt(forced_item),
+        system=_build_system_prompt(forced_item, _additional_locked_ids(request, forced_item.id)),
         user=_build_user_message(request, forced_item, pool_json, candidate_requested),
         candidate_requested=candidate_requested,
     )
 
 
-def _build_daily_system_prompt() -> str:
+def _build_daily_system_prompt(locked_item_ids: Sequence[str] = ()) -> str:
     """The daily §D system prompt: same bounded composer, no forced-item contract."""
     lines = [
         "You are a personal stylist. Compose outfits ONLY from the wardrobe items provided, "
         "referencing each item by its id.",
         "",
         "Hard rules for every outfit:",
+    ]
+    locked_line = _locked_items_line(locked_item_ids)
+    if locked_line is not None:
+        lines.append(locked_line)
+    lines += [
         "- Each outfit is either two_piece (exactly 1 base_top + 1 base_bottom) XOR one_piece "
         "(exactly 1 dress); plus optionally 0-1 outer_layer and 0-1 shoes. Never repeat an "
         "item within an outfit.",
@@ -606,11 +717,11 @@ def _build_daily_prompt(
     request: RenderRequest,
     candidate_requested: int,
 ) -> GenerationPrompt:
-    """Build the daily ``GenerationPrompt`` from the full sampled pool."""
+    """Build the daily ``GenerationPrompt`` from the (lock-scoped) sampled pool."""
     pool_items = [_serialize_pool_item(item) for item in _flatten_pool(pool)]
     pool_json = json.dumps(pool_items, indent=2, ensure_ascii=False)
     return GenerationPrompt(
-        system=_build_daily_system_prompt(),
+        system=_build_daily_system_prompt(request.locked_item_ids),
         user=_build_daily_user_message(request, pool_json, candidate_requested),
         candidate_requested=candidate_requested,
     )
@@ -737,6 +848,22 @@ def _drop_invalid(
     return _drop_missing_style_move(_drop_missing_forced_item(candidates, forced_item_id))
 
 
+def _drop_missing_locked_items(
+    candidates: Sequence[ValidatedCandidate], locked_item_ids: Sequence[str]
+) -> list[ValidatedCandidate]:
+    """The §C.3 post-validate lock drop: keep only candidates whose filled slots include EVERY
+    locked item (the hard guarantee that a regen lock is honored, never silently dropped).
+
+    Intent-generic (daily + rescue). No locks → a no-op that returns the input unchanged, so a
+    non-regen render's survivor set is byte-identical. Mirrors ``_drop_missing_forced_item`` — the
+    lock scoping + prompt pin make GPT *likely* to include locks; this drop makes it *certain*.
+    """
+    if not locked_item_ids:
+        return list(candidates)
+    locked = set(locked_item_ids)
+    return [c for c in candidates if locked <= _filled_slot_ids(c.slot_map)]
+
+
 def _repair_prompt(prompt: GenerationPrompt) -> GenerationPrompt:
     """The repair-augmented prompt for the one §12 re-generation (spearhead.md §G step 7).
 
@@ -772,7 +899,11 @@ def _build_ranker_context(
     """``RescueRequest`` → the M3 ``RankerContext`` (spearhead.md §G step 9).
 
     The seed inputs are required + keyword-only (ranker.py). Behavioral signals are pre-reduced
-    by the M5 reducers; ``None`` leaves the ranker at its empty cold-start defaults.
+    by the M5 reducers; ``None`` leaves the ranker at its empty cold-start defaults. The R9 regen
+    **dislikes** feed ``contextual_disliked_item_ids`` — the ranker's Step-4 **hard** filter, so a
+    disliked item can never appear in the surfaced set (§C.3); empty on a non-regen render, so the
+    context is byte-identical there. (Locks are enforced via the pool pin + prompt + post-validate
+    drop, NOT the ranker's lock filter — §C.3 keeps ``locked_item_ids`` out of ``RankerContext``.)
     """
     kwargs = {
         "session_id": request.session_id,
@@ -791,6 +922,8 @@ def _build_ranker_context(
             recent_disliked_base_keys=behavioral_signals.recent_disliked_base_keys,
             recent_disliked_item_ids=behavioral_signals.recent_disliked_item_ids,
         )
+    if request.disliked_item_ids:
+        kwargs["contextual_disliked_item_ids"] = frozenset(request.disliked_item_ids)
     return RankerContext(**kwargs)
 
 
@@ -824,10 +957,8 @@ def rescue(
     # controls at construction time so the pre-GPT exit cannot mask an invalid budget/index either.
     reject_duplicate_ids(request.wardrobe)
 
-    # Step 1 — resolve the forced item (ValueError on a missing id: caller misuse, fail loud)
-    # and its template/valid-type shape (H22).
+    # Step 1 — resolve the forced item (ValueError on a missing id: caller misuse, fail loud).
     forced_item = _resolve_forced_item(request.wardrobe, request.forced_item_id)
-    _, valid_types = _resolve_shape(forced_item.type)
 
     # Step 2 — structural sufficiency (the H22 min-closet rule), on full counts, PRE-GPT. A
     # non-None hint ⇒ no valid template can be built around the forced item ⇒ return before any
@@ -850,8 +981,9 @@ def rescue(
         request.wardrobe, _build_request_context(request), scorer
     )
 
-    # Step 4 — scope the pool to the forced item (the rescue "pin"; duplicate-free by construction).
-    scoped = _scope_pool_to_forced(sampler_result.pool, forced_item, valid_types)
+    # Step 4 — scope the pool to the forced item + R9 locks (the "pin"; duplicate-free by
+    # construction). No locks → the single forced-item pin (byte-identical to the pre-regen path).
+    scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, forced_item))
 
     # Steps 5–6 — build the prompt; it computes the rescue candidate bound ONCE and carries it on
     # ``prompt.candidate_requested`` so the prompt ask and the validator bound can never desync.
@@ -862,19 +994,22 @@ def rescue(
     payload = _generate_and_parse(generator, prompt)
 
     # Step 8 — validate against the SAME bound the prompt asked for (prompt.candidate_requested,
-    # never recomputed), then drop forced-item/StyleMove failures (decision 8). A None payload or
-    # a fully-rejected payload both collapse to zero survivors.
+    # never recomputed), then drop forced-item/StyleMove failures (decision 8) + the post-validate
+    # lock drop (§C.3 — candidates missing a locked item die here, never a silent lock). A None
+    # payload or a fully-rejected payload both collapse to zero survivors.
     if payload is None:
         survivors: list[ValidatedCandidate] = []
     else:
         validation = validate_gpt_payload(
             payload, _flatten_pool(scoped), prompt.candidate_requested
         )
-        survivors = _drop_invalid(validation.candidates, forced_item.id)
+        survivors = _drop_missing_locked_items(
+            _drop_invalid(validation.candidates, forced_item.id), request.locked_item_ids
+        )
 
-    # Step 9 — rank (cold start: empty behavioral signals). ``rank([])`` is valid (M2/M3 "empty
-    # is valid") and yields an empty, insufficient RankerResult, so the parse-fail and all-dropped
-    # paths share this single exit.
+    # Step 9 — rank (cold start: empty behavioral signals; dislikes → the Step-4 contextual hard
+    # filter, §C.3). ``rank([])`` is valid (M2/M3 "empty is valid") and yields an empty,
+    # insufficient RankerResult, so the parse-fail and all-dropped paths share this single exit.
     ranked = rank(survivors, _build_ranker_context(request, behavioral_signals))
 
     # Step 10 — response layer: wrap the ranked survivors into §6.5 OutfitVariants (path/risk via
@@ -957,6 +1092,10 @@ class RescueTrace:
     rescue_drops: tuple[RescueDrop, ...]
     rank_audit: Optional[RankAudit]
     build_trace: Optional[BuildVariantsTrace]
+    # The M3 RankerContext that fed rank_with_audit — the source of the diagnostics.ranker reduced
+    # signal collections + reducer provenance the snapshot producer persists (M5 cutover §E/§H).
+    # None on the pre-GPT not_enough_items exit (no rank reached).
+    ranker_context: Optional[RankerContext] = None
 
 
 def _generate_and_parse_with_trace(
@@ -1033,6 +1172,28 @@ def _drop_missing_style_move_with_trace(
     return survivors, tuple(drops)
 
 
+def _drop_missing_locked_items_with_trace(
+    candidates: Sequence[ValidatedCandidate], locked_item_ids: Sequence[str]
+) -> tuple[list[ValidatedCandidate], tuple[RescueDrop, ...]]:
+    """``_drop_missing_locked_items`` capturing WHICH candidates a lock removed + why (§C.3, §8.2-F).
+
+    Same predicate + order as the closed drop (so ``survivors`` is byte-identical), recording each
+    lock-dropped candidate as ``dropStage="render"`` / ``dropReason="lock_unsatisfied"`` — an
+    intent-neutral code (locks are a regen-generic control, not rescue-branded). No locks → a no-op.
+    """
+    if not locked_item_ids:
+        return list(candidates), ()
+    locked = set(locked_item_ids)
+    survivors: list[ValidatedCandidate] = []
+    drops: list[RescueDrop] = []
+    for candidate in candidates:
+        if locked <= _filled_slot_ids(candidate.slot_map):
+            survivors.append(candidate)
+        else:
+            drops.append(RescueDrop(candidate, "lock_unsatisfied", "render"))
+    return survivors, tuple(drops)
+
+
 def rescue_with_trace(
     request: RescueRequest,
     generator: Generator,
@@ -1056,7 +1217,6 @@ def rescue_with_trace(
 
     # Steps 1–2 — resolve the forced item + the PRE-GPT structural sufficiency exit (no GPT call).
     forced_item = _resolve_forced_item(request.wardrobe, request.forced_item_id)
-    _, valid_types = _resolve_shape(forced_item.type)
     hint = _check_sufficiency(_partition_counts(request.wardrobe), forced_item.type)
     if hint is not None:
         result = RescueResult(
@@ -1079,20 +1239,22 @@ def rescue_with_trace(
             rescue_drops=(),
             rank_audit=None,
             build_trace=None,
+            ranker_context=None,
         )
 
-    # Steps 3–6 — cold-start pool, scope to the forced item, build the prompt.
+    # Steps 3–6 — cold-start pool, scope to the forced item + R9 locks, build the prompt.
     sampler_result = build_candidate_pool(
         request.wardrobe, _build_request_context(request), scorer
     )
-    scoped = _scope_pool_to_forced(sampler_result.pool, forced_item, valid_types)
+    scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, forced_item))
     prompt_pool = tuple(_flatten_pool(scoped))  # the exact items the engine conditioned on (§8.2-D)
     prompt = _build_prompt(scoped, request, forced_item)
 
     # Step 7 — generate + parse with the §12 repair, capturing every raw attempt.
     payload, attempts = _generate_and_parse_with_trace(generator, prompt)
 
-    # Step 8 — validate (with the parsed-outfit content trace) + the rescue-specific drops.
+    # Step 8 — validate (with the parsed-outfit content trace) + the rescue-specific drops + the
+    # §C.3 post-validate lock drop (candidates missing a locked item recorded as lock_unsatisfied).
     if payload is None:
         validation: Optional[ValidationResult] = None
         parsed_outfits: tuple[object, ...] = ()
@@ -1104,10 +1266,15 @@ def rescue_with_trace(
         )
         validation = validation_trace.result
         parsed_outfits = validation_trace.parsed_outfits
-        survivors, rescue_drops = _drop_invalid_with_trace(validation.candidates, forced_item.id)
+        survivors, forced_drops = _drop_invalid_with_trace(validation.candidates, forced_item.id)
+        survivors, lock_drops = _drop_missing_locked_items_with_trace(
+            survivors, request.locked_item_ids
+        )
+        rescue_drops = forced_drops + lock_drops
 
     # Step 9 — rank, capturing the full scored funnel (scored-but-unshown breakdowns).
-    rank_audit = rank_with_audit(survivors, _build_ranker_context(request, behavioral_signals))
+    ranker_context = _build_ranker_context(request, behavioral_signals)
+    rank_audit = rank_with_audit(survivors, ranker_context)
     ranked = rank_audit.result
 
     # Step 10 — response layer, capturing every assembled variant (non-selected included).
@@ -1135,6 +1302,7 @@ def rescue_with_trace(
         rescue_drops=rescue_drops,
         rank_audit=rank_audit,
         build_trace=build_trace,
+        ranker_context=ranker_context,
     )
 
 
@@ -1171,18 +1339,23 @@ def _render_daily(
     if sampler_result.not_enough_items:
         return _not_enough_daily_result()
 
+    # Scope the sampled pool to any R9 locks (daily has no forced item — pins = locks only). No
+    # locks → a no-op copy, so the prompt/pool stay byte-identical to the pre-regen daily path.
+    scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, None))
     prompt = _build_daily_prompt(
-        sampler_result.pool,
+        scoped,
         request,
         _daily_candidate_requested(sampler_result.candidate_requested),
     )
-    prompt_pool = _flatten_pool(sampler_result.pool)
+    prompt_pool = _flatten_pool(scoped)
     payload = _generate_and_parse(generator, prompt)
     if payload is None:
         survivors: list[ValidatedCandidate] = []
     else:
         validation = validate_gpt_payload(payload, prompt_pool, prompt.candidate_requested)
-        survivors = _drop_missing_style_move(validation.candidates)
+        survivors = _drop_missing_locked_items(
+            _drop_missing_style_move(validation.candidates), request.locked_item_ids
+        )
 
     ranked = rank(survivors, _build_ranker_context(request, behavioral_signals))
     items_by_id = {item.id: item for item in request.wardrobe}
@@ -1216,7 +1389,7 @@ def _render_daily_with_trace(
         return RenderTrace(
             result=_not_enough_daily_result(),
             sampler_result=sampler_result,
-            prompt_pool=prompt_pool,
+            prompt_pool=prompt_pool,  # the unscoped engine-visible wardrobe considered (no gen ran)
             candidate_requested=sampler_result.candidate_requested,
             attempts=(),
             validation=None,
@@ -1224,10 +1397,14 @@ def _render_daily_with_trace(
             rescue_drops=(),
             rank_audit=None,
             build_trace=None,
+            ranker_context=None,
         )
 
+    # Scope to R9 locks (pins = locks only for daily). No locks → prompt_pool is byte-identical.
+    scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, None))
+    prompt_pool = tuple(_flatten_pool(scoped))  # the exact items the engine conditioned on (§8.2-D)
     prompt = _build_daily_prompt(
-        sampler_result.pool,
+        scoped,
         request,
         _daily_candidate_requested(sampler_result.candidate_requested),
     )
@@ -1243,9 +1420,14 @@ def _render_daily_with_trace(
         )
         validation = validation_trace.result
         parsed_outfits = validation_trace.parsed_outfits
-        survivors, rescue_drops = _drop_missing_style_move_with_trace(validation.candidates)
+        survivors, style_drops = _drop_missing_style_move_with_trace(validation.candidates)
+        survivors, lock_drops = _drop_missing_locked_items_with_trace(
+            survivors, request.locked_item_ids
+        )
+        rescue_drops = style_drops + lock_drops
 
-    rank_audit = rank_with_audit(survivors, _build_ranker_context(request, behavioral_signals))
+    ranker_context = _build_ranker_context(request, behavioral_signals)
+    rank_audit = rank_with_audit(survivors, ranker_context)
     ranked = rank_audit.result
     items_by_id = {item.id: item for item in request.wardrobe}
     build_trace = build_variants_with_trace(ranked, items_by_id, request, request.n_surfaced)
@@ -1270,6 +1452,7 @@ def _render_daily_with_trace(
         rescue_drops=rescue_drops,
         rank_audit=rank_audit,
         build_trace=build_trace,
+        ranker_context=ranker_context,
     )
 
 

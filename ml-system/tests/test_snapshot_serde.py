@@ -395,6 +395,29 @@ def test_from_wire_rejects_scalar_shown_candidate_ids():
         serde.from_wire({"shownCandidateIds": "c0"})
 
 
+def test_controls_id_arrays_round_trip_and_reject_non_string():
+    # §G.1: controls.lockedItemIds/dislikedItemIds are id-sequences — strings round-trip, a numeric
+    # element is rejected at the boundary (never crosses as an inert number / mismatched control).
+    payload = {"controls": {"locked_item_ids": ["t1", "b1"], "disliked_item_ids": []}}
+    wire = serde.to_wire(payload)
+    assert wire["controls"] == {"lockedItemIds": ["t1", "b1"], "dislikedItemIds": []}
+    assert serde.from_wire(wire) == payload
+    with pytest.raises(ValueError, match="opaque string"):
+        serde.to_wire({"controls": {"locked_item_ids": ["t1", 123], "disliked_item_ids": []}})
+    with pytest.raises(ValueError, match="opaque string"):
+        serde.from_wire({"controls": {"dislikedItemIds": [7]}})
+
+
+def test_diagnostics_ranker_item_affinity_keys_are_opaque():
+    # itemAffinity is a data-keyed Map (item id → count): an underscore id must survive verbatim,
+    # never camelCased (the affinity would bind to the wrong id otherwise).
+    payload = {"diagnostics": {"ranker": {"item_affinity": {"my_item": 3}, "reducer_config_version": "abc"}}}
+    wire = serde.to_wire(payload)
+    assert wire["diagnostics"]["ranker"]["itemAffinity"] == {"my_item": 3}
+    assert wire["diagnostics"]["ranker"]["reducerConfigVersion"] == "abc"
+    assert serde.from_wire(wire) == payload
+
+
 # --- M5 C3: parentSnapshotId opacity + variant_to_wire (m5-cutover.md §A/§G.1) -------
 
 

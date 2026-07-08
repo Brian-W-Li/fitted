@@ -32,7 +32,11 @@ from fitted_core.generation import (
     RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
 )
 from fitted_core.models import Role, SlotMap, WardrobeItem
+from fitted_core.ranker import _breakdown_total
+from fitted_core.reducers import REDUCER_CONFIG_VERSION
 from fitted_core.rescue import RenderRequest, RenderTrace
+from fitted_core.response import cold_start_scorer
+from fitted_core.scorer import OutfitScorer
 
 # ---------------------------------------------------------------------------
 # Payload dataclasses (snake_case; the C4 serde maps to camelCase wire fields).
@@ -177,6 +181,11 @@ class GenerationSnapshotPayload:
     # M5 invariant: always {} — non-empty constraints are rejected pre-generation, never
     # stored as inert provenance (m5-cutover.md §A/§G.1).
     constraints: dict
+    # R9 regen controls (§C.3 / §G.1) — authored from the RenderRequest's normalized locked/disliked
+    # id lists (engine input, NOT an HTTP echo: they shaped the pool, prompt, and Step-4 filter).
+    # Present on EVERY write: {locked_item_ids: [], disliked_item_ids: []} on a first/non-regen render
+    # (empty, never absent — "no controls" is an explicit corpus statement, F6).
+    controls: dict
     # C — provenance / versions (required non-null on every live write)
     fitted_core_version: str
     generator: dict  # provider / model / temperature / prompt_version
@@ -341,6 +350,16 @@ def _breakdown_dict(breakdown) -> dict:
     }
 
 
+def _controls_dict(request: RenderRequest) -> dict:
+    """The §G.1 ``controls`` payload block, authored from the request's normalized locked/disliked
+    id lists (F6 — the SAME set that shaped the pool/prompt/Step-4 filter). Empty lists on a
+    first/non-regen render (present, never absent)."""
+    return {
+        "locked_item_ids": list(request.locked_item_ids),
+        "disliked_item_ids": list(request.disliked_item_ids),
+    }
+
+
 def _style_move_dict(style_move) -> Optional[dict]:
     if style_move is None:
         return None
@@ -378,18 +397,37 @@ class _CandidateAcc:
     score_breakdown: Optional[dict] = None
 
 
-def _build_candidates(trace: RenderTrace, source_attempt_id: str) -> tuple[CandidatePayload, ...]:
+def _build_candidates(
+    trace: RenderTrace,
+    source_attempt_id: str,
+    request: RenderRequest,
+    outfit_scorer: OutfitScorer,
+) -> tuple[CandidatePayload, ...]:
     """Join every funnel stage by ``source_index`` into one candidate per GPT outfit (§8.2-F).
 
     candidateId = ``c{source_index}`` — a pure function of the funnel order, so it is deterministic
     and permutation-stable, and unique within the snapshot.
+
+    **The H28 scorer exercise (§E):** every candidate carrying a Step-5 breakdown — ``rank_audit.scored``
+    (the H48 *sibling*: scored, incl. scored-but-unshown) ∪ the Step-4-passing variant-cap losers in
+    ``.filtered`` (the H48 *headline*) — is scored by ``outfit_scorer`` over ``(slot_map, items_by_id,
+    request)`` with ``items_by_id`` from ``trace.prompt_pool``, so the ``scoreTrace`` surface is
+    uniform (breakdown ⇒ compat/vis). Shown-candidate values are unchanged — the cold-start occupant
+    is the same pure ``compatibility``/``visibility`` the response layer bucketed ``optionPath``/
+    ``risk`` from.
     """
     acc: dict[int, _CandidateAcc] = {}
+    items_by_id = {item.id: item for item in trace.prompt_pool}
 
     def get(idx: int) -> _CandidateAcc:
         if idx not in acc:
             acc[idx] = _CandidateAcc(source_index=idx)
         return acc[idx]
+
+    def score(slot_map: SlotMap) -> tuple[float, float]:
+        """Exercise the OutfitScorer; the M5 invariant guarantees finite [0,1] compat AND vis."""
+        outfit_score = outfit_scorer(slot_map, items_by_id, request)
+        return outfit_score.compatibility, outfit_score.visibility
 
     # 1 — seed every generated candidate from the parsed outfits (raw_emitted = content).
     for idx, outfit in enumerate(trace.parsed_outfits):
@@ -414,19 +452,29 @@ def _build_candidates(trace: RenderTrace, source_attempt_id: str) -> tuple[Candi
             c.base_key = vc.base_key
             c.full_signature = vc.full_signature
 
-    # 4 — render/rescue-specific drops (forced-item / StyleMove).
+    # 4 — render/rescue-specific drops (forced-item / StyleMove / lock).
     for drop in trace.rescue_drops:
         c = get(drop.candidate.source_index)
         c.drop_stage = drop.drop_stage
         c.drop_reason = drop.drop_reason
 
-    # 5 — ranker funnel.
+    # 5 — ranker funnel. Every candidate carrying a Step-5 breakdown is scored here so the
+    # scoreTrace surface is uniform (breakdown ⇒ compat/vis, §E).
     if trace.rank_audit is not None:
         for fc in trace.rank_audit.filtered:
             c = get(fc.candidate.source_index)
             c.stage_reached = "ranked"
             c.drop_stage = "ranker"
             c.drop_reason = fc.drop_reason
+            if fc.score_breakdown is not None:
+                # H48 headline: a Step-4-passing variant-cap loser keeps its Step-5 breakdown +
+                # gets scored (a Step-4 lock/contextual/cooldown drop carries neither — G12 inverse).
+                # ranker_score is the pre-diversity Step-5 total the cap sorted on, kept EQUAL to the
+                # sum of the breakdown terms so the scoreTrace stays self-consistent (N4/G12: a
+                # scoreBreakdown-carrying candidate must have rankerScore == Σ terms).
+                c.score_breakdown = _breakdown_dict(fc.score_breakdown)
+                c.ranker_score = _breakdown_total(fc.score_breakdown)
+                c.compatibility, c.visibility = score(fc.candidate.slot_map)
         for ro in trace.rank_audit.scored:
             c = get(ro.source_index)
             c.stage_reached = "ranked"
@@ -437,8 +485,11 @@ def _build_candidates(trace: RenderTrace, source_attempt_id: str) -> tuple[Candi
             c.items = _slot_items(ro.slot_map)
             c.slot_map = _slot_dict(ro.slot_map)
             c.style_move = _style_move_dict(ro.style_move)
+            c.compatibility, c.visibility = score(ro.slot_map)  # H48 sibling: every scored candidate
 
-    # 6 — response funnel: attach the cold-start scores + path/risk by full_signature, then mark shown.
+    # 6 — response funnel: attach path/risk by full_signature (from the assembled top-k variants),
+    # then mark shown. compat/vis come from the step-5 scorer (identical to the response layer's for
+    # shown candidates — same pure functions), never re-read here.
     full_sig_to_index = {}
     if trace.rank_audit is not None:
         full_sig_to_index = {ro.full_signature: ro.source_index for ro in trace.rank_audit.scored}
@@ -448,8 +499,6 @@ def _build_candidates(trace: RenderTrace, source_attempt_id: str) -> tuple[Candi
             if idx is None:
                 continue
             c = get(idx)
-            c.compatibility = variant.compatibility
-            c.visibility = variant.visibility
             c.option_path = variant.option_path.value
             c.risk = variant.risk.value
         for position, variant in enumerate(trace.build_trace.selected):
@@ -605,6 +654,19 @@ def _build_diagnostics(trace: RenderTrace) -> DiagnosticsPayload:
             "locked_survivor_count": rr.locked_survivor_count,
             "insufficient_locked_candidates": rr.insufficient_locked_candidates,
         }
+        # §E/§H: persist the reduced RankerContext signals + their reducer provenance, so every
+        # stored score is recomputable from the row alone (no reducer re-run across version/window
+        # drift). item_affinity is a DATA-keyed map (item id → count) — the serde keeps its keys
+        # verbatim (registered in _OPAQUE_VALUE_KEYS); the rest are ordered/id-set collections.
+        rc = trace.ranker_context
+        if rc is not None:
+            ranker["reducer_config_version"] = REDUCER_CONFIG_VERSION
+            ranker["item_affinity"] = dict(rc.item_affinity)
+            ranker["liked_full_signatures"] = sorted(rc.liked_full_signatures)
+            ranker["shown_full_signatures"] = list(rc.shown_full_signatures)
+            ranker["recent_disliked_base_keys"] = list(rc.recent_disliked_base_keys)
+            ranker["recent_disliked_item_ids"] = list(rc.recent_disliked_item_ids)
+            ranker["contextual_disliked_item_ids"] = sorted(rc.contextual_disliked_item_ids)
 
     result = trace.result
     rescue = {
@@ -653,6 +715,7 @@ def build_snapshot_payload(
     weather_raw: Optional[str] = None,
     location: Optional[str] = None,
     constraints: Optional[dict] = None,
+    outfit_scorer: OutfitScorer = cold_start_scorer,
     fitted_core_version: str = __version__,
     prompt_version: str = PROMPT_VERSION,
     ranker_config_version: str = RANKER_CONFIG_VERSION,
@@ -667,6 +730,12 @@ def build_snapshot_payload(
     which knows them (never the wire ``generator`` expectation, §A). ``request_id`` is required:
     a write without it escapes the §C.4 partial unique index and duplicates on retry.
 
+    ``outfit_scorer`` is the §E H28 seam occupant — exercised over every scored candidate to populate
+    ``scoreTrace.compatibility/visibility`` (default: the cold-start content scorer). A healthy write
+    therefore records ``scorer.available=True`` (an occupant was exercised, NOT "influenced rank
+    order" — the M6-order hook is separate). ``controls`` is authored from the request's normalized
+    locked/disliked ids (§G.1 F6).
+
     §A.6/§G generator provenance: the ``generator`` block records the full API surface the run
     used — ``max_completion_tokens`` (the cap changes truncation/parse-fail/candidate
     distributions, so M6 stratifies by it), ``api_surface``/``response_format``/
@@ -674,7 +743,12 @@ def build_snapshot_payload(
     the run's abnormal ``finish_status`` (a clean run leaves it unset — pass
     :func:`abnormal_finish_status`).
     """
-    candidates = _build_candidates(trace, source_attempt_id=f"a{max(len(trace.attempts) - 1, 0)}")
+    candidates = _build_candidates(
+        trace,
+        source_attempt_id=f"a{max(len(trace.attempts) - 1, 0)}",
+        request=request,
+        outfit_scorer=outfit_scorer,
+    )
     item_snapshots = tuple(
         ItemSnapshotPayload(item_id=item.id, engine_visible=_engine_visible(item))
         for item in trace.prompt_pool
@@ -698,6 +772,7 @@ def build_snapshot_payload(
         wardrobe_version=request.wardrobe_version,
         seed_date=request.date,
         constraints=dict(constraints) if constraints else {},
+        controls=_controls_dict(request),
         fitted_core_version=fitted_core_version,
         generator=_generator_block(
             provider=generator_provider,
@@ -715,8 +790,10 @@ def build_snapshot_payload(
             finish_status=generator_finish_status,
         ),
         ranker_config_version=ranker_config_version,
-        # M6: a trained scorer flips kind/model_id/available here (cold-start until then)
-        scorer={"kind": "cold_start", "model_id": None, "available": False},
+        # §E: the OutfitScorer occupant WAS exercised over this render (available=true means "scored
+        # every candidate's scoreTrace", NOT "influenced rank order" — that stays M6). M6 flips
+        # kind→"trained"/model_id here; a degenerate write (no scoring) keeps available=False.
+        scorer={"kind": "cold_start", "model_id": None, "available": True},
         item_snapshots=item_snapshots,
         generation_attempts=_build_attempts(trace),
         candidates=candidates,
@@ -908,6 +985,7 @@ def build_degenerate_payload(
         wardrobe_version=request.wardrobe_version,
         seed_date=request.date,
         constraints=dict(constraints) if constraints else {},
+        controls=_controls_dict(request),  # present on EVERY write, incl. degenerate (§G.1 F6)
         fitted_core_version=fitted_core_version,
         generator=_generator_block(
             provider=generator_provider,

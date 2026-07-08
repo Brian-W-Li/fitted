@@ -930,13 +930,21 @@ def rank(candidates: Sequence[ValidatedCandidate], context: RankerContext) -> Ra
 class _FilteredCandidate:
     """A validated candidate that entered ``rank()`` but was dropped BEFORE final scoring.
 
-    These never reach ``ordered`` (the scored funnel), so they carry no ``ScoreBreakdown`` — only
-    a ``drop_reason`` (an OPEN, append-only code-set string, §8.2-F). Distinct from the
+    A ``drop_reason`` (an OPEN, append-only code-set string, §8.2-F) labels why. Distinct from the
     scored-but-unshown candidates (``RankAudit.scored[k:]``), which WERE scored then truncated.
+
+    **H48 headline (M5 cutover §E — additive):** a **variant-cap loser** (``drop_reason ==
+    "ranker_diversity_capped"``) *cleared* every Step-4 predicate and WAS Step-5 scored before the
+    BaseKey variant cap dropped it (``_apply_variant_cap`` sorts by ``-score``), so its Step-5
+    ``ScoreBreakdown`` is a selection-bias signal H29(a) wants preserved. ``score_breakdown`` carries
+    it for exactly those candidates (re-run deterministically in ``rank_with_audit``); it stays
+    ``None`` for the genuinely pre-scoring drops (lock/contextual/cooldown), which carry no breakdown
+    — the G12 inverse guard (§G.1: a ``dropStage="ranker"`` breakdown-less drop needs no ``scoreTrace``).
     """
 
     candidate: ValidatedCandidate
     drop_reason: str
+    score_breakdown: Optional[ScoreBreakdown] = None
 
 
 @dataclass(frozen=True)
@@ -992,8 +1000,28 @@ def rank_with_audit(candidates: Sequence[ValidatedCandidate], context: RankerCon
     scored = tuple(_assemble_ranked_outfit(scored_candidate) for scored_candidate in ordered)
     scored_source_indexes = {outfit.source_index for outfit in scored}
     filtered = tuple(
-        _FilteredCandidate(candidate=candidate, drop_reason=_ranker_drop_reason(candidate, context))
+        _filtered_candidate(candidate, context)
         for candidate in candidates
         if candidate.source_index not in scored_source_indexes
     )
     return RankAudit(result=result, scored=scored, filtered=filtered)
+
+
+def _filtered_candidate(candidate: ValidatedCandidate, context: RankerContext) -> _FilteredCandidate:
+    """Label a pre-final-scoring drop, preserving a variant-cap loser's Step-5 breakdown (§E, H48).
+
+    A ``ranker_diversity_capped`` drop cleared all three Step-4 predicates and WAS Step-5 scored
+    (the cap sorts by ``-score``), so re-run ``_score_candidate`` — deterministic, the exact Step-5
+    breakdown the cap saw (pre-diversity: ``overuse``/``repetition`` = 0, ``cooldown`` = 0 for a
+    survivor) — and attach it. Every other drop reason (lock/contextual/cooldown) never reached
+    scoring, so it carries no breakdown (the G12 inverse guard).
+    """
+    drop_reason = _ranker_drop_reason(candidate, context)
+    score_breakdown = (
+        _score_candidate(candidate, context).breakdown
+        if drop_reason == "ranker_diversity_capped"
+        else None
+    )
+    return _FilteredCandidate(
+        candidate=candidate, drop_reason=drop_reason, score_breakdown=score_breakdown
+    )

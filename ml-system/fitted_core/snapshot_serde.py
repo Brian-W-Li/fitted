@@ -99,6 +99,10 @@ _ID_SEQUENCE_KEYS: frozenset[str] = frozenset(
         "shownFullSignatures", "shown_full_signatures",
         "changedItemIds", "changed_item_ids",
         "baseOutfitItemIds", "base_outfit_item_ids",
+        # R9 regen controls (§G.1) — non-string lock/dislike ids fail at the boundary, never
+        # cross as inert numbers or mismatched persisted controls.
+        "lockedItemIds", "locked_item_ids",
+        "dislikedItemIds", "disliked_item_ids",
     }
 )
 
@@ -130,6 +134,9 @@ _OPAQUE_VALUE_KEYS: frozenset[str] = frozenset(
         "sampler_per_type", "samplerPerType",
         "rejection_histogram", "rejectionHistogram",
         "warning_histogram", "warningHistogram",
+        # diagnostics.ranker.itemAffinity (§E/§H) — a Map keyed by *item id*, so its keys must
+        # survive verbatim (camelCasing "my_item" → "myItem" would corrupt the stored affinity).
+        "item_affinity", "itemAffinity",
         "raw_emitted", "rawEmitted",
         "raw_attributes", "rawAttributes",
         "style_profile_snapshot", "styleProfileSnapshot",

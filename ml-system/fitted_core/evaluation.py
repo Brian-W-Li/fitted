@@ -47,8 +47,8 @@ from fitted_core.rescue import (
     _flatten_pool,
     _generate_and_parse,
     _resolve_forced_item,
-    _resolve_shape,
-    _scope_pool_to_forced,
+    _resolve_pins,
+    _scope_pool_to_pins,
     rescue,
 )
 from fitted_core.response import OutfitVariant
@@ -412,11 +412,10 @@ def evaluate_case(case: CorpusCase, generator: Generator) -> CaseEvaluation:
     # carries the validator's candidate bound). This mirrors rescue() steps 1/3/4/5-6; the
     # product-equality test guards it against drift.
     forced_item = _resolve_forced_item(request.wardrobe, request.forced_item_id)
-    _, valid_types = _resolve_shape(forced_item.type)
     sampler_result = build_candidate_pool(
         request.wardrobe, _build_request_context(request), ColdStartSignalScorer()
     )
-    scoped = _scope_pool_to_forced(sampler_result.pool, forced_item, valid_types)
+    scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, forced_item))
     prompt = _build_prompt(scoped, request, forced_item)
 
     # Replay rescue()'s OWN parse+repair over the recorded output → the identical payload,

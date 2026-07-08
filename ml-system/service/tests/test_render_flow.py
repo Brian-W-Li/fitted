@@ -84,6 +84,53 @@ def test_daily_render_returns_a_valid_payload_and_bound_shown_set():
     assert stub.call_count == 1
 
 
+def test_regen_lock_pins_the_item_and_records_controls_and_scorer():
+    # A locked shoe (s1): every generated outfit including it surfaces; the payload's controls
+    # mirror the request (F6), scorer.available flips True (§E), and diagnostics.ranker carries
+    # reducer provenance (§H). A base-only outfit is lock-dropped (never a silent lock).
+    lock_env = envelope(
+        outfit([("t1", Role.base_top), ("b1", Role.base_bottom), ("s1", Role.shoes)], ["s1"]),
+        outfit([("t2", Role.base_top), ("b2", Role.base_bottom), ("s1", Role.shoes)], ["s1"]),
+        outfit([("t1", Role.base_top), ("b2", Role.base_bottom), ("s1", Role.shoes)], ["s1"]),
+        outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),  # omits the lock → dropped
+    )
+    status, body, stub = _render(
+        render_body(controls={"lockedItemIds": ["s1"], "dislikedItemIds": []}),
+        responses=lock_env,
+    )
+    assert status == 200 and body["degenerate"] is False
+    assert body["shown"], "lock-satisfying outfits must surface"
+    for entry in body["shown"]:
+        assert any(i["itemId"] == "s1" for i in entry["outfit"]["items"])
+    payload = body["payload"]
+    assert payload["controls"] == {"lockedItemIds": ["s1"], "dislikedItemIds": []}
+    assert payload["scorer"] == {"kind": "cold_start", "modelId": None, "available": True}
+    assert payload["diagnostics"]["ranker"]["reducerConfigVersion"]
+    # a scored candidate carries finite [0,1] compat/vis (the §E producer exercise crossed the wire)
+    scored = [c for c in payload["candidates"] if c.get("scoreTrace")]
+    assert scored
+    for c in scored:
+        assert 0.0 <= c["scoreTrace"]["compatibility"] <= 1.0
+        assert 0.0 <= c["scoreTrace"]["visibility"] <= 1.0
+
+
+def test_regen_dislike_removes_the_item_from_the_surfaced_set():
+    # A disliked shoe (s1): the Step-4 hard filter guarantees it never surfaces; controls persist it.
+    dislike_env = envelope(
+        outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),
+        outfit([("t2", Role.base_top), ("b2", Role.base_bottom), ("s1", Role.shoes)], ["s1"]),
+        outfit([("t1", Role.base_top), ("b2", Role.base_bottom)], ["t1"]),
+    )
+    status, body, _ = _render(
+        render_body(controls={"lockedItemIds": [], "dislikedItemIds": ["s1"]}),
+        responses=dislike_env,
+    )
+    assert status == 200
+    for entry in body["shown"]:
+        assert all(i["itemId"] != "s1" for i in entry["outfit"]["items"])
+    assert body["payload"]["controls"] == {"lockedItemIds": [], "dislikedItemIds": ["s1"]}
+
+
 def test_rescue_render_forces_the_item_through_every_shown_outfit():
     rescue_envelope = envelope(
         outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),

@@ -59,6 +59,7 @@ from fitted_core.config import (
 )
 from fitted_core.models import Role, SlotMap, Template, WardrobeItem
 from fitted_core.ranker import FrozenStyleMove, RankedOutfit, RankerResult, ScoreBreakdown
+from fitted_core.scorer import OutfitScore
 
 
 # ============================ response-layer label enums ============================
@@ -424,6 +425,25 @@ def visibility(
 
 
 # ============================ path / risk bucketing ============================
+
+
+def cold_start_scorer(
+    slot_map: SlotMap, items_by_id: Mapping[str, WardrobeItem], request: LensRequest
+) -> OutfitScore:
+    """The cold-start `OutfitScorer` occupant (m5-cutover.md §E; the §23-H28 seam).
+
+    Wraps the two pure content functions into the `scorer.OutfitScore` shape the snapshot
+    producer exercises at M5. `signal_score` is `None` (reserved for the trained M6 scorer).
+    Both scores are `[0,1]`-clamped by construction (the M5 invariant: finite, non-null
+    compatibility AND visibility for every scored candidate). Pure and deterministic — the
+    producer computes the same values the response path buckets `optionPath`/`risk` from, so
+    shown-candidate `scoreTrace` values are unchanged.
+    """
+    return OutfitScore(
+        compatibility=compatibility(slot_map, items_by_id, request),
+        visibility=visibility(slot_map, items_by_id, request),
+        signal_score=None,
+    )
 
 
 def assign_path(compat: float) -> OptionPath:

@@ -294,7 +294,13 @@ Grounded in the official OpenAI docs (Responses/Structured-Outputs/Reasoning gui
    outcome is exactly §D's "internal engine failure on a valid request"). Detection, per surface:
    Chat Completions → `choices[0].finish_reason == "length"` (truncated) and non-null `message.refusal`;
    Responses → `status == "incomplete"` + `incomplete_details.reason == "max_output_tokens"`, and a
-   `type:"refusal"` output item. Any of {incomplete/length, refusal, empty-parse-with-nonzero-usage} routes to
+   `type:"refusal"` output item. **Any non-`stop` finish_reason routes to the degenerate corpus (C4 docket
+   (b), ratified — code already generalizes: `abnormal_finish_status`, `snapshot.py`, treats
+   `finish_reason not in {None, "stop"}` as abnormal, NOT a narrow `{length, refusal}` allowlist).** The
+   rule is general on purpose: an unrecognized non-stop completion (`content_filter`, any future reason) is
+   still a paid-but-no-clean-JSON outcome the corpus must record — narrowing to a fixed set would let a new
+   reason slip through as a false "healthy empty". So any of {incomplete/length, refusal, **any other
+   non-stop finish_reason**, empty-parse-with-nonzero-usage} routes to
    the degenerate payload with the finish/refusal status recorded in `generationAttempts[]` (the money *was*
    spent — it is a real attempt, not a no-attempt raise). This is the same repair-then-degenerate path §12/§D
    already own; A.6 only pins that **refusal and cap-truncation join parse-fail** as its triggers.
@@ -358,6 +364,16 @@ false, "insufficientAfterGeneration": false, "spreadCollapsed": false, "reasonHi
 "degenerate": false }` — the `flags` object carries the `RescueResult`/`RenderResult` user-facing state
 (the honest-partial / add-a-{type} UX needs it; the payload's `diagnostics` copy is for the corpus, not
 the client path).
+
+**`reasonHint` convention (C4 docket (a), pinned).** `flags.reasonHint` speaks TWO registers by render
+outcome, and the client keys on `degenerate`/the degraded envelope to know which: **healthy renders**
+(`notEnoughItems`/`insufficientAfterGeneration`) carry a **content-specific English hint** (e.g. "add a
+bottom to build an outfit around this top") — it is genuinely-variable user advice. **Failure paths carry a
+stable machine code** the client maps to localized copy: a `degenerate:true` engine-failure arm (§D) emits
+`reasonHint="engine_failure"` (both `app.py` degenerate arms use the one constant — never `str(exception)`,
+never an English sentence), joining the degraded browser-response machine-code family
+(`service_unavailable`/`contract_invalid`/`rate_limited`/`auth_failed`, below). Rationale: all *failure*
+reasonHints share one code vocabulary the client localizes uniformly, while healthy hints stay prose.
 
 **Degraded browser response (C5/C6 — Next-only, no payload).** When the service is unreachable, times out,
 returns `5xx`, rejects auth/rate-limit, or returns `contract_invalid` after a service call, Next discards the
@@ -888,8 +904,9 @@ class OutfitScorer(Protocol):
 ```
 
 - **Exercise it in the producer (M5), resolving the H48 *sibling* (response-layer tail).** Extend
-  `snapshot._build_candidates` step 6 (`snapshot.py:330-345` — today it attaches compat/vis **only** for
-  candidates present in `trace.build_trace.all_variants`, i.e. ≤k, which is exactly the H48 tail) to compute
+  `snapshot._build_candidates` steps 5–6 (`snapshot.py` "ranker funnel" + "response funnel" blocks,
+  ~`:423-462` — today step 6 attaches compat/vis **only** for candidates present in
+  `trace.build_trace.all_variants`, i.e. ≤k, which is exactly the H48 tail) to compute
   compat/vis for **every candidate carrying a Step-5 breakdown — `trace.rank_audit.scored` ∪ the
   Step-4-passing variant-cap losers in `.filtered`** (the headline set below; the scoreTrace surface must
   be uniform: breakdown ⇒ compat/vis, or the corpus rows are unevenly explainable), calling the `outfit_scorer` over
@@ -1139,6 +1156,7 @@ of gap fails silently.
 | **Python payload — GAINS at C4** (authored from `RenderRequest` — engine input, not HTTP echo: locks/dislikes shape the pool, prompt, and Step-4 filter) | `controls{lockedItemIds, dislikedItemIds}` (empty arrays on non-regen renders). (the **generator provenance block** — `generator.maxCompletionTokens` + `apiSurface`/`responseFormat`/`reasoningEffort`/`storeMode`/`promptCacheRetention`/`timeoutSeconds`/`maxRetries`/`finishStatus`, §A.6 — lands at **C3**; the service authors the whole generator block from its own config + the run's finish status, from its first payload) |
 | **TS merge adds — exactly four** | `_id` (= pre-allocated `snapshotId`), `user` (ObjectId), `interactionCountAtRequest`, per-item `evidence{}` |
 | **Absent on M5 writes** (nullable B-track fields, no writer yet) | `baseOutfitItemIds`, `routineId`, `lens{}` (styleProfile block) |
+| **DROPPED (C4 docket (c) — the `.ts` line removal defers to C5)** | `admittedViaFallbackStage` (`GenerationSnapshot.ts:112`) — an M4b-draft per-candidate field with **no Python writer, no spec §15.1 home, and no planned writer** (unlike the reserved B-track fields, which have future writers). Its signal — which fallback rung the render reached — is already captured render-level in `diagnostics.ranker.fallbackStage`; per-candidate admission-stage tracking would require re-plumbing the closed ranker for negligible corpus value, and a permanently-null field invites a false read. Decision now (doc); the schema-line removal is a `fitted/` edit sequenced with C5's `GenerationSnapshot.ts` §G additions. |
 
 - **Serde:** `parent_snapshot_id` joins `_ID_KEYS` (ObjectId→string opacity, H10). **`request_id` must
   NOT join `_ID_KEYS`** — it is a client-minted plain string token, not an ObjectId. `weather_raw`/
@@ -1557,7 +1575,21 @@ The gate's output re-tunes the **whole spend-envelope trio together** (`DEFAULT_
 `/readyz` enforces against a fat-fingered under-cap, so a gate that raises the default without raising the
 floor re-opens the ready-but-unusable hole.
 
-#### C4 — Regenerate vertical + the H28 seam (fitted_core + service)
+#### C4 — Regenerate vertical + the H28 seam (fitted_core + service) — ✅ DONE (2026-07-07)
+Landed hermetically (fake `Generator` only, no live/paid calls): `fitted_core/scorer.py` (`OutfitScore` +
+`OutfitScorer` protocol); `response.cold_start_scorer` adapter; the `snapshot._build_candidates` scorer
+exercise over every scored candidate (H48 sibling) ∪ the Step-4-passing variant-cap losers (H48 headline,
+each carrying its Step-5 breakdown + a `rankerScore == Σ terms` self-consistent score); `ranker.rank_with_audit`
+additive `_FilteredCandidate.score_breakdown` (closed `rank()`/`result`/`scored` byte-identical); the §C.3
+regen vertical (`RenderRequest.locked_item_ids`/`disliked_item_ids`, `_scope_pool_to_pins` generalizing the
+forced-item pin, the prompt lock line, `_drop_missing_locked_items`, dislikes → `contextual_disliked_item_ids`);
+the service three-check preflight (`locked ∩ disliked` — incl. the rescue forced item as an implicit lock —
+lock-in-wardrobe, structural feasibility) all pre-spend; the payload `controls` field + `diagnostics.ranker`
+reduced-signals + `reducer_config_version`; serde `_ID_SEQUENCE_KEYS` (controls) + `_OPAQUE_VALUE_KEYS`
+(`item_affinity`). Suite floor grew 952 → **974 pytest**; light build-and-audit loop converged clean (two
+review passes, 2 fixes: the capped-loser `rankerScore`, the forced-item-disliked preflight). The C4 docket
+(a–d) is resolved in §A / §A.6 / §J / §G.1 + spec §15.1. **Original build notes below.**
+
 **Touches:** new scorer module (`OutfitScorer` protocol + cold-start occupant), `snapshot.py`
 (`build_snapshot_payload` `outfit_scorer=` param + `_build_candidates` full-scored compat/vis population),
 `ranker.py` (H48-headline: attach the Step-5 `ScoreBreakdown` to variant-cap losers in
@@ -1986,9 +2018,14 @@ the CI workflow file lands with the Commit-2 cleanup; the §20-M5-row "entry: H1
 reconciled to "green before the flip", Verification)**, H55/H60 (§A/D6/§F), H57 (§B), H58 (§A/§F), H59 (§C.3), H54
 (§G), H10 (serde opacity §G + no-post-Python-refetch §A/C5), H29 (§G), H11 (append-only §I + dedup reducer
 §H), H19 (§H), H48 (**both instances decided**: sibling stored via the §E producer exercise; headline
-stored via option (a) — basis: converged dual-pass 2026-07-06). Reworded: H4/H16 (§C.5 determinism — no
-cache; snapshots immutable, generations fresh). Landed-not-resolved: H28 (§E hook lands; trained scorer =
-M6). Resolved-design / pending C6 delivery: H45 (route + StyleMove card **+ the item-select/launch rescue UI
+stored via option (a) — basis: converged dual-pass 2026-07-06). **C4 docket dispositions (2026-07-07):**
+(a) the §D degenerate `reasonHint` is the stable machine code `"engine_failure"` (§A); (b) any non-`stop`
+`finish_reason` routes to the degenerate corpus (§A.6 point 6, ratifying the shipped code); (c)
+`admittedViaFallbackStage` is DROPPED (§G.1 — no writer/home; `.ts` removal deferred to C5). Reworded: H4/H16 (§C.5 determinism — no
+cache; snapshots immutable, generations fresh). **Landed at C4 (2026-07-07):** H28 (the producer-side
+`OutfitScorer` exercise + `scoreTrace` population is in code; the rank-order hook stays M6) and H48 (both
+instances now in code — the sibling via the §E producer exercise, the headline via the additive
+`_FilteredCandidate.score_breakdown` in `rank_with_audit`). Resolved-design / pending C6 delivery: H45 (route + StyleMove card **+ the item-select/launch rescue UI
 delivered at C6** — moved from C8 by the ladder sequencing invariant, so rescue is user-reachable not
 API-only, F2; only the shareable before/after growth card is deferred post-M5). Deferred: H6 (W-track), H43
 (Privacy).
