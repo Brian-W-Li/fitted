@@ -189,17 +189,21 @@ function fail4(msg: string): never {
 
 export function crossCheckAuthorship(payload: unknown, expected: AuthorshipExpectation): void {
   const p = (payload ?? {}) as Any;
-  eq(s(p.sessionId), expected.sessionId, "sessionId");
+  // Optional string fields are normalized on BOTH sides (s() maps ""→null): a blank optional Lens
+  // field ("" location / weatherRaw / forcedItemId) is semantically absent, so "" and null must
+  // compare equal — else a legit render with a blank field would false-fail here and be degraded
+  // (the payload side already normalizes, but buildLens preserves "" verbatim, so expected can be "").
+  eq(s(p.sessionId), s(expected.sessionId), "sessionId");
   eq(p.intent, expected.intent, "intent");
   eq(p.occasion, expected.occasion, "occasion");
   eq(p.weather, expected.weather, "weather");
-  eq(s(p.weatherRaw), expected.weatherRaw, "weatherRaw");
-  eq(s(p.location), expected.location, "location");
-  eq(s(p.forcedItemId), expected.forcedItemId, "forcedItemId");
+  eq(s(p.weatherRaw), s(expected.weatherRaw), "weatherRaw");
+  eq(s(p.location), s(expected.location), "location");
+  eq(s(p.forcedItemId), s(expected.forcedItemId), "forcedItemId");
   eq(p.seedDate, expected.seedDate, "seedDate");
   eq(p.wardrobeVersion, expected.wardrobeVersion, "wardrobeVersion");
   eq(p.requestId, expected.requestId, "requestId");
-  eq(s(p.parentSnapshotId), expected.parentSnapshotId, "parentSnapshotId");
+  eq(s(p.parentSnapshotId), s(expected.parentSnapshotId), "parentSnapshotId");
   eq(p.generationIndex, expected.generationIndex, "generationIndex");
 
   // constraints must be exactly {} at M5.

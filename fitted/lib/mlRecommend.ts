@@ -456,9 +456,14 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     };
     return NextResponse.json(projectBrowserResponse(doc, snapshotId, wireFlags));
   } catch (error) {
+    // An input-contract violation from any pre-service/validation helper (e.g. malformed `controls`
+    // → normalizeControls, or a service-mangled controls in crossCheckAuthorship) is the §A
+    // contract_invalid degraded state — the adapter's documented channel — never a 500. No snapshot
+    // is written on this path (the throw precedes .create()).
+    if (error instanceof RequestContractError) return respondDegraded("contract_invalid");
     console.error("mlRecommend fatal error:", error);
-    // A programming error (never an operational failure — those degrade above). Surface as a 500 so
-    // a bug is loud, never a silent legacy fallthrough or a corpus lie.
+    // A genuine programming error (never an operational failure — those degrade above). Surface as a
+    // 500 so a bug is loud, never a silent legacy fallthrough or a corpus lie.
     return respondError(500, "internal", "recommendation failed");
   }
 }

@@ -411,3 +411,68 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     expect((await res.json()).error.code).toBe("controls_contradictory");
   });
 });
+
+describe("edge quantifier paths (review absence-shaped gaps)", () => {
+  it("a blank optional Lens field (location='') still renders — no false authorship degrade", async () => {
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch", location: "" }), makeDeps());
+    expect(res.status).toBe(200);
+    expect((await res.json()).bindable).toBe(true);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("malformed controls (non-array) → contract_invalid degraded (not a 500), no write", async () => {
+    const first = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    await first.json();
+    const parentId = ((await GenerationSnapshot.findOne({ user: userId }).lean()) as Any)._id.toString();
+    const res = await mlRecommend(
+      req({ requestId: uuid(), parentSnapshotId: parentId, controls: { lockedItemIds: "not-an-array" } }),
+      makeDeps(),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1); // only the parent
+  });
+
+  it("a healthy nSurfaced=0 render (understocked closet) STILL writes a snapshot, bindable=false", async () => {
+    const deps = makeDeps({
+      callService: fakeService({
+        overridePayload: (p) => {
+          p.candidates = [];
+          p.itemSnapshots = [];
+          p.generationAttempts = [];
+          p.shownCandidateIds = [];
+          p.shownFullSignatures = [];
+          p.nSurfaced = 0;
+        },
+      }),
+    });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);
+    const { status, body } = await json(res);
+    expect(status).toBe(200);
+    expect(body.bindable).toBe(false);
+    expect(body.shown).toEqual([]);
+    const row = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+    expect(row).not.toBeNull();
+    expect(row.nSurfaced).toBe(0);
+  });
+
+  it("a degenerate payload (attempts present, nSurfaced=0) STILL writes a snapshot", async () => {
+    const deps = makeDeps({
+      callService: fakeService({
+        overridePayload: (p) => {
+          p.candidates = [];
+          p.itemSnapshots = [];
+          p.shownCandidateIds = [];
+          p.shownFullSignatures = [];
+          p.nSurfaced = 0; // generationAttempts stays non-empty → degenerate (money spent, nothing surfaced)
+        },
+      }),
+    });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);
+    expect(res.status).toBe(200);
+    const row = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+    expect(row).not.toBeNull();
+    expect(row.nSurfaced).toBe(0);
+    expect(row.generationAttempts.length).toBeGreaterThan(0);
+  });
+});
