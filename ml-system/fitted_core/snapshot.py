@@ -759,16 +759,26 @@ def build_degenerate_payload(
     location: Optional[str] = None,
     constraints: Optional[dict] = None,
     generator_calls: int = 0,
+    trace: Optional[RenderTrace] = None,
     fitted_core_version: str = __version__,
     prompt_version: str = PROMPT_VERSION,
     ranker_config_version: str = RANKER_CONFIG_VERSION,
 ) -> GenerationSnapshotPayload:
-    """A schema-valid degenerate payload for a failure with NO ``RenderTrace`` (§D, C3).
+    """A schema-valid degenerate payload for a failure ``build_snapshot_payload`` can't record
+    (§D, C3): a pre-trace exception, OR a post-render **assembly** failure where a completed
+    trace exists but folding it crashed.
 
     ``generator_calls`` is the number of paid ``generate()`` calls the caller observed before
     the failure (the C3 service counts them) — the trace's raw attempt text is lost on a
     mid-trace exception (the known §D micro-gap), but the spend COUNT is knowable and must
     not be recorded as an affirmatively-false zero.
+
+    ``trace``, when supplied (the assembly-failure arm — §D "constructable at EVERY internal
+    failure point"), salvages what is safely recoverable: the generation attempts (raw text +
+    finish status — real paid attempts, so dropping them would lose the negative corpus) and
+    honest parse diagnostics. Salvage is best-effort behind its own guard: if mapping the
+    attempts is itself what crashed, the failure record still ships with empty attempts —
+    the degenerate write must never die on its own salvage.
 
     ``build_snapshot_payload`` requires a trace, which a pre-trace exception doesn't have —
     but every provenance-required field is derivable from the request + module constants +
@@ -782,6 +792,24 @@ def build_degenerate_payload(
     Reserved for **internal engine failures on a valid request** — an input-validation
     failure is a caller bug → the ``contract_invalid`` envelope, no payload (§D).
     """
+    generation_attempts: tuple[GenerationAttemptPayload, ...] = ()
+    if trace is not None and trace.attempts:
+        generator_calls = len(trace.attempts)
+        try:
+            generation_attempts = _build_attempts(trace)
+        except Exception:
+            generation_attempts = ()  # salvage must never break the failure record
+        parse = {
+            "parse_success": trace.attempts[-1].payload_parsed,
+            "repair_used": any(a.is_repair for a in trace.attempts),
+            "generator_calls": generator_calls,
+        }
+    else:
+        parse = {
+            "parse_success": False,
+            "repair_used": generator_calls >= 2,  # the 2nd call is the one §12 repair retry
+            "generator_calls": generator_calls,
+        }
     diagnostics = DiagnosticsPayload(
         sampler_per_type={},
         candidate_requested=None,
@@ -790,11 +818,7 @@ def build_degenerate_payload(
         scorer_available=False,
         rejection_histogram={},
         warning_histogram={},
-        parse={
-            "parse_success": False,
-            "repair_used": generator_calls >= 2,  # the 2nd call is the one §12 repair retry
-            "generator_calls": generator_calls,
-        },
+        parse=parse,
         ranker={},
         rescue={
             "not_enough_items": False,
@@ -829,12 +853,14 @@ def build_degenerate_payload(
             response_format=generator_response_format,
             reasoning_effort=generator_reasoning_effort,
             store_mode=generator_store_mode,
-            finish_status=None,  # no attempt ran — there is no finish status to record
+            # No attempt ⇒ no finish status; with a salvaged trace the abnormal status (a
+            # refusal/truncation that preceded the assembly failure) is knowable — record it.
+            finish_status=abnormal_finish_status(trace) if trace is not None else None,
         ),
         ranker_config_version=ranker_config_version,
         scorer={"kind": "cold_start", "model_id": None, "available": False},
         item_snapshots=(),
-        generation_attempts=(),
+        generation_attempts=generation_attempts,
         candidates=(),
         diagnostics=diagnostics,
         shown_candidate_ids=(),

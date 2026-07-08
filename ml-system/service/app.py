@@ -632,17 +632,46 @@ class FittedService:
                 "degenerate": True,
             }
 
-        payload = build_snapshot_payload(
-            trace, request, **provenance, generator_finish_status=abnormal_finish_status(trace)
-        )
-        shown = _shown_entries(payload, trace)
+        try:
+            payload = build_snapshot_payload(
+                trace, request, **provenance,
+                generator_finish_status=abnormal_finish_status(trace),
+            )
+            shown = _shown_entries(payload, trace)
+            wire_payload = to_wire(dataclasses.asdict(payload))
+        except Exception:
+            # §D "constructable at EVERY internal failure point" — a payload/zip/serde bug
+            # AFTER generation is still an internal engine failure on a valid request: the
+            # money was spent, so a bare 500 here would drop the row the failure corpus
+            # exists for. Degrade with stage="assemble", salvaging the trace's real attempts
+            # (raw text + finish status) and honest parse/spend diagnostics.
+            failure = EngineFailure(stage="assemble", code="internal_exception")
+            degenerate_payload = build_degenerate_payload(
+                request, failure, trace=trace, **provenance
+            )
+            try:
+                wire_payload = to_wire(dataclasses.asdict(degenerate_payload))
+            except Exception:
+                # The salvaged attempts themselves refuse to serialize — ship the failure
+                # record without them rather than dying on the salvage (last resort before
+                # the ASGI 500).
+                stripped = dataclasses.replace(
+                    degenerate_payload, generation_attempts=()
+                )
+                wire_payload = to_wire(dataclasses.asdict(stripped))
+            return 200, {
+                "payload": wire_payload,
+                "shown": [],
+                "flags": _flags(reason_hint=_ENGINE_FAILURE_HINT),
+                "degenerate": True,
+            }
         # Degenerate = money spent with nothing surfaced (§A.6/§D: parse-fail-after-repair,
         # refusal, cap-truncation, empty valid set). A pre-GPT not_enough_items exit has no
         # attempts and is a VALID empty render, not degenerate.
         degenerate = bool(payload.generation_attempts) and payload.n_surfaced == 0
         result = trace.result
         return 200, {
-            "payload": to_wire(dataclasses.asdict(payload)),
+            "payload": wire_payload,
             "shown": shown,
             "flags": _flags(
                 not_enough_items=result.not_enough_items,

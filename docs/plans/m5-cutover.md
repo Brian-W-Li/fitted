@@ -1326,9 +1326,10 @@ legacy deletion)** per CLAUDE.md.
 > ask ceiling (§A.6 point 3), the full §A.6 generator surface (strict `json_schema` default,
 > `reasoning_effort="none"`, `store:false`, `max_completion_tokens`, finish/refusal surfaced via
 > `FinishStatus` → `GenerationAttemptTrace.finish_status`), and the empirical mutant checks on both daily
-> call sites. **✅ C3 COMPLETE (2026-07-07, incl. the post-review integration fixes: blank-imageUrl
-> acceptance + the fly.toml deploy-context pin).** Suite floor: **910 pytest** (`pytest tests
-> service/tests`). Next checkpoint: **C4**.
+> call sites. **✅ C3 COMPLETE (2026-07-07, incl. two post-review fix rounds: blank-imageUrl
+> acceptance + the fly.toml deploy-context pin; the §D assembly-failure degenerate arm + the
+> token-cap hard ceiling + the digest-pinned base image).** Suite floor: **917 pytest** (`pytest
+> tests service/tests`). Next checkpoint: **C4**.
 
 **Ladder sequencing invariant (trap-guard — the second-eval High finding, recalibrated for no legacy
 users):** at every checkpoint boundary the app must render **and** bind feedback end-to-end in at least
@@ -1400,6 +1401,16 @@ candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all insi
   user-facing `409 forced_item_unavailable` state-conflict arm stays Next-side at C5/C6 (§C.3/G16).
 - **Degenerate response flag:** `degenerate = engineFailure present OR (attempts non-empty AND
   nSurfaced==0)`; a pre-GPT `not_enough_items` exit is a valid empty render, never degenerate.
+- **§D "every internal failure point" covers post-render assembly too (post-review-2 fix):** a
+  `build_snapshot_payload`/shown-zip/serde crash AFTER generation degrades to a `stage="assemble"`
+  degenerate payload — `build_degenerate_payload(trace=…)` salvages the real paid attempts (raw
+  text + finish status) + honest parse/spend diagnostics behind its own guard, never a bare 500
+  that drops the row. Fault-injection tests cover each assembly stage individually, incl. the
+  salvage-itself-fails nesting.
+- **Spend-envelope bounds come in pairs (post-review-2 fix):** `M5_MAX_COMPLETION_TOKENS` is
+  rejected above `MAX_COMPLETION_TOKENS_CEILING=10_000` (config + `/readyz` 503, boundary-tested)
+  — a fat-fingered Fly secret must not silently uncap per-request output. The Docker base is
+  pinned to a patch tag + index digest (`python:3.12.12-slim@sha256:…`), not a mutable minor tag.
 - **⚠ C5 schema ripple (trap-guard):** the TS `GenerationAttemptSchema` has NO `finishStatus` path —
   strict mode would silently strip the §A.6 per-attempt finish/refusal provenance the payload now
   carries. C5 must add an optional `finishStatus {finishReason, refusal}` subdoc (`_id:false`) to the
@@ -1421,9 +1432,11 @@ the ask, §A.6 point 3 — never a flat 900; both validated on real `gpt-5.4-min
 input-clamp constants §A/G7**, text/body clamps, rate ceiling **+ the `fly.toml` single-machine pin so the
 per-instance token bucket IS the global bound — `min_machines_running=1`, no autoscale, §A**);
 **the `GET /readyz` readiness endpoint (§A/G9 — no OpenAI spend, wired as the Fly health check)**;
-**pinned runtime/deps (G3): the `Dockerfile` pins a specific Python (e.g. `python:3.12-slim`), and the
-service ships a `requirements.txt`/lockfile pinning `openai`, `fastapi`, `uvicorn`, and the transitive set to
-exact versions (`==`, not `>=`) — a floating `openai` SDK could silently change the §A.6 params
+**pinned runtime/deps (G3): the `Dockerfile` pins a specific Python (landed: a patch tag + index
+digest, `python:3.12.12-slim@sha256:…` — a bare minor tag is mutable), and the
+service ships a `requirements.txt`/lockfile pinning `openai`, `uvicorn`, and the transitive set to
+exact versions (`==`, not `>=`; no `fastapi` — the landed service is minimal ASGI) — a floating `openai`
+SDK could silently change the §A.6 params
 (`max_completion_tokens`/`reasoning_effort`/refusal shape) under the plan; reproducible builds are
 load-bearing for a corpus-producing service. `fitted_core`'s own deps stay unchanged**;
 **OpenAI storage/state mode pinned (§A.6/G14): the Chat Completions call sets `store: false`

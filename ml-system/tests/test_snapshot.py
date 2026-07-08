@@ -537,3 +537,31 @@ def test_build_degenerate_payload_is_schema_valid_and_carries_identity():
     assert wire["parentSnapshotId"] is None
     assert wire["generator"]["maxCompletionTokens"] == 2200
     assert wire["generator"]["responseFormat"] == "json_schema_strict"
+
+
+def test_build_degenerate_payload_salvages_attempts_from_a_trace():
+    from fitted_core.snapshot import EngineFailure, build_degenerate_payload
+
+    request = _rich_request()
+    trace = rescue_with_trace(request, StubGenerator(["{ bad", "{ still bad"]))
+    payload = build_degenerate_payload(
+        request,
+        EngineFailure(stage="assemble", code="internal_exception"),
+        trace=trace,
+        candidate_cache_key="ck-assemble",
+        request_id="31111111-1111-4111-8111-111111111116",
+        generator_provider="openai",
+        generator_model="gpt-5.4-mini",
+        generator_temperature=0.5,
+        generator_max_completion_tokens=2200,
+    )
+    # The paid attempts (raw text + repair flag) survive onto the failure row...
+    assert len(payload.generation_attempts) == 2
+    assert payload.generation_attempts[0].raw_text == "{ bad"
+    assert payload.generation_attempts[1].is_repair is True
+    # ...with honest parse/spend diagnostics (not the no-trace defaults).
+    assert payload.diagnostics.parse == {
+        "parse_success": False, "repair_used": True, "generator_calls": 2,
+    }
+    assert payload.diagnostics.engine_failure["stage"] == "assemble"
+    assert payload.candidates == () and payload.n_surfaced == 0

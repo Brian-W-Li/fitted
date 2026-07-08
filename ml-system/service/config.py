@@ -37,8 +37,13 @@ GENERATOR_STORE_MODE = "none"  # G14 — no OpenAI-side retention; Mongo is the 
 # hold the DAILY_MAX_CANDIDATES=12 ask at ~130–170 output tokens/outfit + headroom. The
 # (cap, ask-ceiling) pair MUST be validated together on real gpt-5.4-mini before C5 (the
 # pre-C5 empirical gate) — H40's mechanical read ran uncapped, so its numbers do not extend
-# to any cap value. Env-overridable so the gate can raise it without a deploy.
+# to any cap value. Env-overridable so the gate can raise it without a deploy — but only up
+# to the hard ceiling below: a fat-fingered Fly secret must not silently remove the
+# per-request spend envelope while /readyz stays green.
 DEFAULT_MAX_COMPLETION_TOKENS = 2200
+# Hard upper bound on the env override — well above any sane ask (even the engine-wide
+# MAX_CANDIDATES=40 at ~170 tok/outfit ≈ 6,800 + headroom), far below "effectively uncapped".
+MAX_COMPLETION_TOKENS_CEILING = 10_000
 
 # --- §A/G7 input clamps (pre-spend; each gets an at-limit + limit+1 boundary test) ------
 MAX_OCCASION_CHARS = 200
@@ -115,6 +120,11 @@ def load_service_config(env: Mapping[str, str]) -> tuple[Optional[ServiceConfig]
             return None, f"{ENV_MAX_COMPLETION_TOKENS} is not an int"
         if max_completion_tokens <= 0:
             return None, f"{ENV_MAX_COMPLETION_TOKENS} must be a positive int"
+        if max_completion_tokens > MAX_COMPLETION_TOKENS_CEILING:
+            return None, (
+                f"{ENV_MAX_COMPLETION_TOKENS} exceeds the hard ceiling "
+                f"{MAX_COMPLETION_TOKENS_CEILING}"
+            )
     return (
         ServiceConfig(
             openai_api_key=openai_api_key,

@@ -3,7 +3,10 @@
 # ml-system/fly.toml pins this (`dockerfile = "service/Dockerfile"`, deploy = `cd ml-system
 # && fly deploy`) and ml-system/.dockerignore keeps experiments//test assets out. Manually:
 #   cd ml-system && docker build -f service/Dockerfile -t fitted-render-service .
-FROM python:3.12-slim
+# Patch tag + index digest (resolved 2026-07-07 via `docker buildx imagetools inspect`) — a
+# bare `3.12-slim` is mutable, and reproducible builds are load-bearing for a
+# corpus-producing service (G3). Bump deliberately: re-resolve the digest with the tag.
+FROM python:3.12.12-slim@sha256:f3fa41d74a768c2fce8016b98c191ae8c1bacd8f1152870a3f9f87d350920b7c
 
 WORKDIR /app
 

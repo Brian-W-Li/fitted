@@ -122,3 +122,15 @@ def test_rate_ceiling_token_bucket_and_refill():
     clock.advance(1.0 / cfg.RATE_LIMIT_REFILL_PER_SECOND)
     status, _ = http(app, "POST", "/render", headers=AUTH)
     assert status == 400  # through the throttle again
+
+
+def test_token_cap_hard_ceiling_boundary():
+    # Bounds come in pairs: a fat-fingered Fly secret must not silently remove the
+    # per-request spend envelope while /readyz stays green.
+    ceiling = cfg.MAX_COMPLETION_TOKENS_CEILING
+    config, reason = load_service_config({**ENV, "M5_MAX_COMPLETION_TOKENS": str(ceiling)})
+    assert reason is None and config.max_completion_tokens == ceiling
+    app, _ = make_app(env={**ENV, "M5_MAX_COMPLETION_TOKENS": str(ceiling + 1)})
+    status, body = http(app, "GET", "/readyz")
+    assert status == 503
+    assert "ceiling" in body["reason"]

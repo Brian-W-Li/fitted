@@ -399,3 +399,98 @@ def test_tagless_wardrobe_items_render_fine():
     assert status == 200
     assert body["degenerate"] is False
     assert body["shown"]
+
+
+# --- §D assembly-failure arm (post-review-2: "constructable at EVERY internal failure
+# point" — fault-injection over EACH post-render stage, not just the named ones) ---------
+
+
+def _assert_assembly_degenerate(body, *, expect_attempts: int):
+    assert body["degenerate"] is True
+    assert body["shown"] == []
+    payload = body["payload"]
+    failure = payload["diagnostics"]["engineFailure"]
+    assert failure["stage"] == "assemble"
+    assert failure["code"] == "internal_exception"
+    attempts = payload["generationAttempts"]
+    assert len(attempts) == expect_attempts
+    parse = payload["diagnostics"]["parse"]
+    assert parse["generatorCalls"] == 1  # the spend count survives (never a false zero)
+    assert parse["parseSuccess"] is True  # honest: the parse SUCCEEDED; assembly failed
+    # The §G.1 identity set still rides the failure row (the §C.4 index needs requestId).
+    assert payload["requestId"] == render_body()["requestId"]
+
+
+def test_build_snapshot_payload_failure_degrades_with_salvaged_attempts(monkeypatch):
+    import service.app as app_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("payload builder blew up")
+
+    monkeypatch.setattr(app_module, "build_snapshot_payload", explode)
+    status, body, stub = _render(render_body())
+    assert status == 200  # a 500 here would drop the paid row the failure corpus exists for
+    _assert_assembly_degenerate(body, expect_attempts=1)
+    assert body["payload"]["generationAttempts"][0]["rawText"]  # the raw negative corpus
+    assert stub.call_count == 1
+
+
+def test_shown_zip_failure_degrades_too(monkeypatch):
+    import service.app as app_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("zip blew up")
+
+    monkeypatch.setattr(app_module, "_shown_entries", explode)
+    status, body, _ = _render(render_body())
+    assert status == 200
+    _assert_assembly_degenerate(body, expect_attempts=1)
+
+
+def test_variant_serializer_failure_degrades_too(monkeypatch):
+    import service.app as app_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("variant serializer blew up")
+
+    monkeypatch.setattr(app_module, "variant_to_wire", explode)
+    status, body, _ = _render(render_body())
+    assert status == 200
+    _assert_assembly_degenerate(body, expect_attempts=1)
+
+
+def test_wire_serialization_failure_of_the_full_payload_degrades_too(monkeypatch):
+    # to_wire is shared by the happy path AND the fallback — inject a failure only for the
+    # full payload (non-empty candidates); the degenerate payload must still serialize.
+    import service.app as app_module
+
+    real = app_module.to_wire
+
+    def selective(payload):
+        if payload.get("candidates"):
+            raise ValueError("full payload refused to serialize")
+        return real(payload)
+
+    monkeypatch.setattr(app_module, "to_wire", selective)
+    status, body, _ = _render(render_body())
+    assert status == 200
+    _assert_assembly_degenerate(body, expect_attempts=1)
+
+
+def test_attempt_salvage_failure_still_ships_the_failure_record(monkeypatch):
+    # If mapping the attempts is ITSELF what crashed (here: _build_attempts raises, which
+    # breaks build_snapshot_payload AND the salvage), the degenerate row still ships —
+    # empty attempts, failure recorded, spend count honest.
+    import fitted_core.snapshot as snapshot_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("attempt mapper blew up")
+
+    monkeypatch.setattr(snapshot_module, "_build_attempts", explode)
+    status, body, _ = _render(render_body())
+    assert status == 200
+    assert body["degenerate"] is True
+    payload = body["payload"]
+    assert payload["generationAttempts"] == []  # salvage failed — never fabricate
+    assert payload["diagnostics"]["engineFailure"]["stage"] == "assemble"
+    assert payload["diagnostics"]["parse"]["generatorCalls"] == 1
