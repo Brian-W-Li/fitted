@@ -147,7 +147,6 @@ const CandidateSnapshotSchema = new Schema(
     // documented list in app code, never the schema.
     dropStage: { type: String },
     dropReason: { type: String },
-    admittedViaFallbackStage: { type: String },
     rejectionCodes: { type: [String], default: [] },
     warningCodes: { type: [String], default: [] },
     // Content preservation (§8.2-F, app-validated by the C6 builder): a generated &&

@@ -140,23 +140,16 @@ describe("D-1 diagnostics.engineFailure round-trip", () => {
     expect(readBack!.diagnostics?.engineFailure?.detail?.count).toBe(3);
   });
 
-  it("closed vocab mirrors the Python EngineFailure sets", () => {
-    // A rename on either side silently empties the degenerate corpus mapping — pin the mirror.
-    expect(ENGINE_FAILURE_STAGES).toEqual(
-      new Set(["sample", "generate", "parse", "validate", "rank", "assemble", "pre_generation", "unknown"]),
-    );
-    expect(ENGINE_FAILURE_CODES).toEqual(
-      new Set([
-        "parse_fail",
-        "empty_valid_set",
-        "refusal",
-        "truncated",
-        "internal_exception",
-        "sampler_error",
-        "ranker_error",
-        "unknown",
-      ]),
-    );
+  it("closed vocab equals the cross-runtime mirror (contract_fields.json ← snapshot.py)", () => {
+    // Load the SHARED mirror, not a private literal. The Python mirror test pins
+    // contract_fields.json to snapshot.py, so a stage/code added there but not mirrored to this TS
+    // schema reddens HERE — instead of the TS write boundary silently rejecting the §D failure row
+    // (the D-1 data-loss class this whole brick exists to prevent).
+    const contract = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "../../ml-system/service/contract_fields.json"), "utf8"),
+    ) as { engineFailureVocab: { stages: string[]; codes: string[] } };
+    expect(ENGINE_FAILURE_STAGES).toEqual(new Set(contract.engineFailureVocab.stages));
+    expect(ENGINE_FAILURE_CODES).toEqual(new Set(contract.engineFailureVocab.codes));
   });
 
   it("rejects an out-of-set engineFailure stage/code on write", async () => {

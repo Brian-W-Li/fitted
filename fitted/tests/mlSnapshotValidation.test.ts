@@ -55,6 +55,13 @@ describe("scoreTrace algebra + coverage (G12)", () => {
   it("rejects compatibility out of [0,1] on a scored candidate", () => {
     expectReject((p) => (p.candidates[0].scoreTrace.compatibility = 1.4));
   });
+  it("rejects visibility out of [0,1] on a scored candidate", () => {
+    expectReject((p) => (p.candidates[0].scoreTrace.visibility = 1.4));
+  });
+  it("rejects a non-finite rankerScore", () => {
+    // Infinity fails the isFiniteNum(rankerScore) guard before the term-sum check is reached.
+    expectReject((p) => (p.candidates[0].scoreTrace.rankerScore = Infinity));
+  });
   it("rejects a broken term-sum (rankerScore != sum)", () => {
     expectReject((p) => (p.candidates[0].scoreTrace.rankerScore = 999));
   });
@@ -122,10 +129,24 @@ describe("styleMove + template (G11)", () => {
   it("rejects a blank moveType", () => {
     expectReject((p) => (p.candidates[0].styleMove.moveType = "  "));
   });
-  it("rejects a templateType inconsistent with slotMap (dress slot but two_piece)", () => {
+  it("rejects a blank oneSentence", () => {
+    expectReject((p) => (p.candidates[0].styleMove.oneSentence = "  "));
+  });
+  it("rejects non-unique changedItemIds", () => {
     expectReject((p) => {
-      p.candidates[0].slotMap = { dress: "t1" }; // t1 exists; but template says two_piece
+      const c = p.candidates[0];
+      c.styleMove.changedItemIds = [c.items[0].itemId, c.items[0].itemId];
     });
+  });
+  it("rejects a template inconsistent with the slotMap (top+bottom slots but one_piece)", () => {
+    // Mutate the TEMPLATE, not the slotMap: setting slotMap={dress:...} trips the EARLIER items↔
+    // slotMap consistency check and never reaches validateTemplate (the trap the old test fell into,
+    // so the template branch had no real coverage). c0 is a real top+bottom candidate, so declaring
+    // it one_piece is inconsistent. Assert the message so this proves it fails on the template
+    // branch, not incidentally on some earlier check.
+    const p = clone();
+    p.candidates[0].template = "one_piece";
+    expect(() => validateSnapshotPayload(p)).toThrow(/template/);
   });
 });
 

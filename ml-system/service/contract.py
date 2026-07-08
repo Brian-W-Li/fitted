@@ -35,6 +35,8 @@ See ``docs/plans/m5-cutover.md`` §"Wire contract".
 
 from __future__ import annotations
 
+from fitted_core.snapshot import ENGINE_FAILURE_CODES, ENGINE_FAILURE_STAGES
+
 # --- POST /render top-level body (§A) -------------------------------------------------
 RENDER_BODY_REQUIRED = frozenset({
     "snapshotId",
@@ -138,4 +140,15 @@ REDUCER_ROW_READS: dict[str, frozenset[str]] = {
     "interactionRow": INTERACTION_ROW_READS,
     "perItemFeedback": PER_ITEM_FEEDBACK_READS,
     "snapshotRow": SNAPSHOT_ROW_READS,
+}
+
+# --- Engine-failure vocabulary (§G item 4) — a THIRD cross-runtime mirror kind ---------------------
+# The diagnostics.engineFailure closed sets the TS schema enum + validation helper re-enforce.
+# Sourced from fitted_core.snapshot (the Python authority) so a stage/code added there flows into the
+# JSON mirror; the C5 TS round-trip test loads the mirror and asserts GenerationSnapshot.ts's literal
+# equals it. That closes the drift loop: a Python-side stage/code NOT mirrored to TS reddens a test,
+# instead of the TS write boundary silently rejecting the §D failure row (the D-1 data-loss class).
+ENGINE_FAILURE_VOCAB: dict[str, frozenset[str]] = {
+    "stages": ENGINE_FAILURE_STAGES,
+    "codes": ENGINE_FAILURE_CODES,
 }

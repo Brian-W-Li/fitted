@@ -1,4 +1,26 @@
 {
+  "engineFailureVocab": {
+    "codes": [
+      "empty_valid_set",
+      "internal_exception",
+      "parse_fail",
+      "ranker_error",
+      "refusal",
+      "sampler_error",
+      "truncated",
+      "unknown"
+    ],
+    "stages": [
+      "assemble",
+      "generate",
+      "parse",
+      "pre_generation",
+      "rank",
+      "sample",
+      "unknown",
+      "validate"
+    ]
+  },
   "reducerRowReads": {
     "interactionRow": [
       "action",

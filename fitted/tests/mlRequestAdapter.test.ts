@@ -16,6 +16,7 @@ import {
   projectWardrobe,
   RequestContractError,
   GENERATOR_EXPECTATION,
+  MAX_IMAGE_URL_CHARS,
   type WardrobeItemSource,
 } from "@/lib/mlRequestAdapter";
 
@@ -183,6 +184,16 @@ describe("item map (§15.2) + control caps", () => {
     // neither → "" (a no-image item is legitimate; the service accepts a blank imageUrl).
     const [none] = projectWardrobe([{ ...sampleItem, imageUrl: undefined, imagePath: undefined }]);
     expect(none.imageUrl).toBe("");
+  });
+
+  it('drops an over-cap imageUrl to "" so one bad-URL item cannot make the closet unrenderable', () => {
+    // The service rejects an over-MAX_IMAGE_URL_CHARS imageUrl for the WHOLE render (⚠ mirror obligation).
+    const [over] = projectWardrobe([{ ...sampleItem, imageUrl: "u".repeat(MAX_IMAGE_URL_CHARS + 1) }]);
+    expect(over.imageUrl).toBe(""); // over cap → blank (legitimate §15.2), never emitted over-cap
+    // exactly-at-cap passes through unchanged (pins the boundary is `>`, not `>=`)
+    const atCap = "h".repeat(MAX_IMAGE_URL_CHARS);
+    const [ok] = projectWardrobe([{ ...sampleItem, imageUrl: atCap }]);
+    expect(ok.imageUrl).toBe(atCap);
   });
 
   it("sanitizes tags so one bad tag never makes a closet unrenderable (⚠ mirror obligation)", () => {

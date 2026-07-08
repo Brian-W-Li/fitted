@@ -71,6 +71,11 @@ export const MAX_CONTROL_IDS = 50;
 export const MAX_ITEM_NAME_CHARS = 200;
 export const MAX_ITEM_TAG_CHARS = 60;
 export const MAX_ITEM_TAGS = 25;
+// imageUrl is stored engineVisible but never reaches the prompt (H33). The service REJECTS an
+// over-cap imageUrl for the WHOLE render, so a stored data-URI / very long signed URL would make a
+// closet permanently unrenderable — the adapter drops an over-cap URL to "" (⚠ mirror obligation,
+// config.MAX_IMAGE_URL_CHARS; a blank imageUrl is legitimate, §15.2).
+export const MAX_IMAGE_URL_CHARS = 2048;
 
 /** The R5 weather buckets — mirror of config.WEATHER_BUCKETS + the GenerationSnapshot.weather enum. */
 export const WEATHER_BUCKETS = ["hot", "mild", "cold", "indoor", "outdoor"] as const;
@@ -109,8 +114,15 @@ export interface WardrobeItemSource {
 }
 
 /** §15.2 image resolution: `imageUrl → else resolve imagePath → else ""`. Pure — the deployed
- *  `mongo:<id>` path maps to the `/api/images/<id>` route (imageStorage.ts / dashboard), no DB read. */
+ *  `mongo:<id>` path maps to the `/api/images/<id>` route (imageStorage.ts / dashboard), no DB read.
+ *  An over-cap result (a data-URI or a very long signed URL) is dropped to "" rather than emitted:
+ *  the service rejects an over-`MAX_IMAGE_URL_CHARS` imageUrl for the whole render, and no-image is a
+ *  legitimate projection (§15.2), so this keeps one bad-URL item from making a closet unrenderable. */
 function resolveImageUrl(item: WardrobeItemSource): string {
+  const resolved = resolveRawImageUrl(item);
+  return resolved.length > MAX_IMAGE_URL_CHARS ? "" : resolved;
+}
+function resolveRawImageUrl(item: WardrobeItemSource): string {
   if (item.imageUrl) return item.imageUrl;
   const p = item.imagePath;
   if (p && p.startsWith("mongo:")) return `/api/images/${p.slice("mongo:".length)}`;

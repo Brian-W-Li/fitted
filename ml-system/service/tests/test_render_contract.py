@@ -620,6 +620,9 @@ def test_contract_json_mirror_matches_the_module():
         "reducerRowReads": {
             name: sorted(fields) for name, fields in contract.REDUCER_ROW_READS.items()
         },
+        "engineFailureVocab": {
+            name: sorted(fields) for name, fields in contract.ENGINE_FAILURE_VOCAB.items()
+        },
     }
     assert mirror == expected, (
         "contract_fields.json drifted from service.contract — regenerate it (json.dump of "
