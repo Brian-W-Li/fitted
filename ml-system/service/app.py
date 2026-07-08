@@ -16,7 +16,10 @@ Request lifecycle for ``POST /render`` (each stage ordered before any OpenAI spe
      rescue forced-item pre-spend check, duplicate-id rejection, ``RenderRequest`` guards.
      Any failure → ``contract_invalid``, **no payload, no snapshot** (§D corpus purity).
   6. **reducers** — the §H reducers run HERE (they are Python), over the raw
-     ``behavioralRows`` Next fetched; their output feeds both sampler + ranker seams.
+     ``behavioralRows`` Next fetched; their output feeds both sampler + ranker seams. The
+     reducers, scorer, and generator construction sit INSIDE the §D degenerate guard: an
+     exception in any of them on a valid request is an internal engine failure recorded as
+     a no-attempt ``stage="pre_generation"`` degenerate payload, never a bare 500.
   7. **render** — ``render_with_trace`` with the injected ``Generator``. An exception on this
      valid request is an INTERNAL engine failure → the §D degenerate payload
      (``build_degenerate_payload``, empty attempts + ``diagnostics.engineFailure``), never a
@@ -577,11 +580,12 @@ class FittedService:
         except ContractInvalid as exc:
             return 400, _envelope("contract_invalid", str(exc))
 
-        signals = reduce_behavioral_signals(parsed.interaction_rows, parsed.snapshot_rows)
-        scorer = AffinitySignalScorer(signals.item_affinity)
-        generator = _CountingGenerator(self._generator_factory(self._config))
         request = parsed.render_request
 
+        # cache key + provenance are pure functions of the validated request + the service's
+        # own config — they compute FIRST so the §D degenerate arm below always has the full
+        # §G.1 identity set (a failure row without request_id/cache_key escapes the §C.4
+        # index / loses lineage). Everything after this point that can throw is guarded.
         cache_key = candidate_cache_key(
             session_id=request.session_id,
             wardrobe_version=request.wardrobe_version,
@@ -608,7 +612,15 @@ class FittedService:
             generator_store_mode=cfg.GENERATOR_STORE_MODE,
         )
 
+        generator: Optional[_CountingGenerator] = None
         try:
+            # The reducers, scorer, and generator construction are INSIDE the guard (§D
+            # "constructable at every internal failure point"): a bug in any of them on a
+            # valid request is an internal engine failure the corpus must record, never a
+            # bare 500 with no Next-writable row.
+            signals = reduce_behavioral_signals(parsed.interaction_rows, parsed.snapshot_rows)
+            scorer = AffinitySignalScorer(signals.item_affinity)
+            generator = _CountingGenerator(self._generator_factory(self._config))
             trace = render_with_trace(
                 request, generator, signal_scorer=scorer, behavioral_signals=signals
             )
@@ -618,12 +630,13 @@ class FittedService:
             # drops the failure corpus, never a fabricated attempt. The stage split rides
             # the call counter (a mid-trace generator exception loses the in-flight attempt's
             # raw text — the known §D micro-gap — but is still recorded via engineFailure).
+            calls = generator.calls if generator is not None else 0
             failure = EngineFailure(
-                stage="pre_generation" if generator.calls == 0 else "unknown",
+                stage="pre_generation" if calls == 0 else "unknown",
                 code="internal_exception",
             )
             payload = build_degenerate_payload(
-                request, failure, generator_calls=generator.calls, **provenance
+                request, failure, generator_calls=calls, **provenance
             )
             return 200, {
                 "payload": to_wire(dataclasses.asdict(payload)),
@@ -646,17 +659,25 @@ class FittedService:
             # exists for. Degrade with stage="assemble", salvaging the trace's real attempts
             # (raw text + finish status) and honest parse/spend diagnostics.
             failure = EngineFailure(stage="assemble", code="internal_exception")
-            degenerate_payload = build_degenerate_payload(
-                request, failure, trace=trace, **provenance
-            )
+            try:
+                degenerate_payload = build_degenerate_payload(
+                    request, failure, trace=trace, **provenance
+                )
+            except Exception:
+                # The salvage builder itself died on this trace — fall back to the
+                # trace-free record (honest spend count) rather than losing the row.
+                degenerate_payload = build_degenerate_payload(
+                    request, failure, generator_calls=generator.calls, **provenance
+                )
             try:
                 wire_payload = to_wire(dataclasses.asdict(degenerate_payload))
             except Exception:
-                # The salvaged attempts themselves refuse to serialize — ship the failure
-                # record without them rather than dying on the salvage (last resort before
-                # the ASGI 500).
-                stripped = dataclasses.replace(
-                    degenerate_payload, generation_attempts=()
+                # A salvaged piece (attempts / itemSnapshots / trace diagnostics) itself
+                # refuses to serialize — rebuild the trace-free degenerate payload (honest
+                # spend count, no salvage) rather than dying on the salvage (last resort
+                # before the ASGI 500).
+                stripped = build_degenerate_payload(
+                    request, failure, generator_calls=generator.calls, **provenance
                 )
                 wire_payload = to_wire(dataclasses.asdict(stripped))
             return 200, {

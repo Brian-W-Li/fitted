@@ -44,6 +44,12 @@ DEFAULT_MAX_COMPLETION_TOKENS = 2200
 # Hard upper bound on the env override — well above any sane ask (even the engine-wide
 # MAX_CANDIDATES=40 at ~170 tok/outfit ≈ 6,800 + headroom), far below "effectively uncapped".
 MAX_COMPLETION_TOKENS_CEILING = 10_000
+# Readiness floor — the other half of the bounds pair: a tiny-but-positive cap (1, 100)
+# would keep /readyz green while every real render truncates to a degenerate row
+# (ready-but-unusable). Pinned to the ask-sized default until the pre-C5 empirical gate
+# re-tunes both together; the gate may lower it only with measured evidence a smaller cap
+# holds the worst-case daily/rescue ask. Invariant: FLOOR <= DEFAULT <= CEILING (tested).
+MIN_COMPLETION_TOKENS_FLOOR = 2200
 
 # --- §A/G7 input clamps (pre-spend; each gets an at-limit + limit+1 boundary test) ------
 MAX_OCCASION_CHARS = 200
@@ -120,6 +126,11 @@ def load_service_config(env: Mapping[str, str]) -> tuple[Optional[ServiceConfig]
             return None, f"{ENV_MAX_COMPLETION_TOKENS} is not an int"
         if max_completion_tokens <= 0:
             return None, f"{ENV_MAX_COMPLETION_TOKENS} must be a positive int"
+        if max_completion_tokens < MIN_COMPLETION_TOKENS_FLOOR:
+            return None, (
+                f"{ENV_MAX_COMPLETION_TOKENS} is below the readiness floor "
+                f"{MIN_COMPLETION_TOKENS_FLOOR} — every render would truncate"
+            )
         if max_completion_tokens > MAX_COMPLETION_TOKENS_CEILING:
             return None, (
                 f"{ENV_MAX_COMPLETION_TOKENS} exceeds the hard ceiling "

@@ -773,18 +773,26 @@ internal failure point — including before generation runs.
   for internal failures **before** any GPT call (a sampler/ranker bug on a validated request). *Trap-guard:*
   never reason "generation didn't run ⇒ provenance unknown ⇒ no snapshot" — that routes recordable
   internal failures to the no-snapshot arm and loses the failure corpus §15.1 wants.
-- **Recording locus split (never fabricate an attempt):**
-  - failure **with** generation attempts (parse-fail-after-repair, empty valid set, **a model refusal, or a
+- **Recording loci (three, never fabricate an attempt):**
+  - **attempt-only** failure (parse-fail-after-repair, empty valid set, **a model refusal, or a
     cap-truncated/incomplete response — §A.6: money was spent, so it IS a real attempt**) → recorded in
     `generationAttempts[]` as today; arrays present, possibly empty candidates; the refusal/`finish_reason`/
-    `status` is captured in the attempt's finish-status provenance (§A.6/§G).
-  - failure **without** an attempt (pre-GPT raise, caught internal exception) → **empty**
+    `status` is captured in the attempt's finish-status provenance (§A.6/§G); `engineFailure` absent.
+  - **no-attempt** internal failure (pre-GPT raise, caught internal exception) → **empty**
     `generationAttempts[]` (required-may-be-empty, `GenerationSnapshot.ts:323-327`) + the failure record
     in a named `diagnostics.engineFailure` field — **the full shape is §G item 4** (closed-set
     `stage`/`code`, the bounded fixed-catalogue sanitized `message`, structured `detail{itemId, count}`,
     `messageTruncated`), never just an ad-hoc `{stage, code, message}`. §8.2-E's "never forced into
     fake candidates/attempts" applies to attempts too.
-  - **`diagnostics.engineFailure` needs an explicit home in all three layers (trap-guard — Mongoose
+  - **trace-salvaged assembly** failure (post-render `build_snapshot_payload`/zip/serde crash) →
+    `diagnostics.engineFailure` with `stage="assemble"` **and normally non-empty** `generationAttempts[]`
+    — the real paid attempts plus best-effort trace-salvaged `itemSnapshots`/diagnostics
+    (`candidateRequested`/`promptItemCount`/sampler/ranker/rescue/scorer). Both-present is a VALID
+    shape; C5's validation must accept it, and no cleanup may "normalize" it to either other locus.
+    Last-resort salvage failures may still have `stage="assemble"` with **empty** attempts (for example
+    when attempt mapping or fallback serialization is the crashing substep); that shape is also valid as
+    long as `diagnostics.parse.generatorCalls` carries the observed spend count.
+- **`diagnostics.engineFailure` needs an explicit home in all three layers (trap-guard — Mongoose
     strict mode silently strips unknown subdoc paths, so a missing schema field loses the failure
     corpus with every test green):** (1) `DiagnosticsPayload` gains `engine_failure: Optional[dict] =
     None` (`snapshot.py` — lands at C3 with the degenerate builder); (2) `snapshot_serde` maps
@@ -827,11 +835,15 @@ internal failure point — including before generation runs.
   state, discards the pre-alloc `snapshotId` — proving the abort is handled by Next, not the platform.
 
 **Acceptance:** an injected **post-generation** engine failure yields a degenerate payload recording the
-failure in `generationAttempts[]`; an injected **pre-generation internal** failure yields a degenerate
-payload with empty attempts + `diagnostics.engineFailure` set — both validate + write; an **invalid
-request** yields `contract_invalid` + no payload + no snapshot; an injected transport failure
-yields no snapshot + a non-bindable degraded response + a counter tick; an anti-rot smoke test exercises
-all four arms.
+failure in `generationAttempts[]`; an injected **pre-generation internal** failure (including a
+reducer/scorer/generator-construction raise — the guard starts at the first post-validation statement)
+yields a degenerate payload with empty attempts + `diagnostics.engineFailure` set; an injected
+**assembly** failure yields `stage="assemble"` + salvaged attempts/itemSnapshots, and the explicit
+attempt-salvage-fails case still yields `stage="assemble"` with empty attempts + an honest
+`generatorCalls` count — all
+validate + write; an **invalid request** yields `contract_invalid` + no payload + no snapshot; an
+injected transport failure yields no snapshot + a non-bindable degraded response + a counter tick; an
+anti-rot smoke test exercises all the arms.
 
 ## E. The H28 scorer seam (D7) — calls decided; basis noted
 
@@ -1401,15 +1413,24 @@ candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all insi
   user-facing `409 forced_item_unavailable` state-conflict arm stays Next-side at C5/C6 (§C.3/G16).
 - **Degenerate response flag:** `degenerate = engineFailure present OR (attempts non-empty AND
   nSurfaced==0)`; a pre-GPT `not_enough_items` exit is a valid empty render, never degenerate.
-- **§D "every internal failure point" covers post-render assembly too (post-review-2 fix):** a
-  `build_snapshot_payload`/shown-zip/serde crash AFTER generation degrades to a `stage="assemble"`
-  degenerate payload — `build_degenerate_payload(trace=…)` salvages the real paid attempts (raw
-  text + finish status) + honest parse/spend diagnostics behind its own guard, never a bare 500
-  that drops the row. Fault-injection tests cover each assembly stage individually, incl. the
+- **§D "every internal failure point" covers the FULL post-validation span (post-review-2 + -3 fixes):**
+  the degenerate guard opens at the first statement after validation — a reducer/scorer/
+  generator-construction raise on a valid request is a no-attempt `stage="pre_generation"` degenerate
+  payload, never a bare 500 with no Next-writable row (cache key + provenance compute first, as pure
+  functions of the validated request + service config, so the §G.1 identity set always rides the
+  failure row). A `build_snapshot_payload`/shown-zip/serde crash AFTER generation degrades to a
+  `stage="assemble"` degenerate payload — `build_degenerate_payload(trace=…)` salvages the real paid
+  attempts (raw text + finish status), the `itemSnapshots` engine-visible pool, and the full
+  trace-derived diagnostics (`candidateRequested`/`promptItemCount`/sampler/ranker/rescue/scorer),
+  each substep behind its own guard; if a salvage substep itself fails, the row still ships with the
+  recoverable subset (including the observed `generatorCalls`). Fault-injection tests cover each stage individually, incl. the
   salvage-itself-fails nesting.
-- **Spend-envelope bounds come in pairs (post-review-2 fix):** `M5_MAX_COMPLETION_TOKENS` is
-  rejected above `MAX_COMPLETION_TOKENS_CEILING=10_000` (config + `/readyz` 503, boundary-tested)
-  — a fat-fingered Fly secret must not silently uncap per-request output. The Docker base is
+- **Spend-envelope bounds come in pairs (post-review-2 + -3 fixes):** `M5_MAX_COMPLETION_TOKENS` is
+  rejected above `MAX_COMPLETION_TOKENS_CEILING=10_000` **and below
+  `MIN_COMPLETION_TOKENS_FLOOR=2200`** (config + `/readyz` 503, boundary-tested both ends) — a
+  fat-fingered Fly secret must neither silently uncap per-request output nor leave the service
+  ready-but-unusable with a cap every real render truncates under; the pre-C5 empirical gate re-tunes
+  default + floor together. The Docker base is
   pinned to a patch tag + index digest (`python:3.12.12-slim@sha256:…`), not a mutable minor tag.
 - **⚠ C5 schema ripple (trap-guard):** the TS `GenerationAttemptSchema` has NO `finishStatus` path —
   strict mode would silently strip the §A.6 per-attempt finish/refusal provenance the payload now
@@ -1481,6 +1502,10 @@ with the real key, run a worst-case **daily** ask (`DAILY_MAX_CANDIDATES` outfit
 worst-case **rescue** ask on `gpt-5.4-mini` and confirm both complete within `M5_MAX_COMPLETION_TOKENS`
 (`finish_reason != "length"`, non-empty parseable JSON); if either truncates, lower the ask ceiling or raise
 the cap until it fits — this MUST hold before the C5 first live write, else every real render degenerates.
+The gate's output re-tunes the **whole spend-envelope trio together** (`DEFAULT_MAX_COMPLETION_TOKENS`,
+`MIN_COMPLETION_TOKENS_FLOOR`, and the ask ceiling — one edit in `service/config.py`): the floor is what
+`/readyz` enforces against a fat-fingered under-cap, so a gate that raises the default without raising the
+floor re-opens the ready-but-unusable hole.
 
 #### C4 — Regenerate vertical + the H28 seam (fitted_core + service)
 **Touches:** new scorer module (`OutfitScorer` protocol + cold-start occupant), `snapshot.py`
@@ -1661,7 +1686,8 @@ code paths.
 | Service unreachable / timeout / 5xx / auth-fail / rate-limit (no payload) | §A degraded empty state (`shown:[]`, `bindable:false`); **no snapshot**; counter/log; discard pre-alloc `snapshotId` | D3 — no payload reached the writer |
 | Engine ran, produced invalid/empty (parse-fail-after-repair, empty valid set) | **Service** returns a degenerate payload (failure in `generationAttempts[]`); Next writes it | D3 — the negative corpus §15.1 wants |
 | Request fails service input validation (dup ids, malformed shape, guard raise) | `contract_invalid` envelope; **no payload, no snapshot** — Next logs + counts the caller bug | §D corpus-purity boundary |
-| **Internal** engine failure before any generation attempt (sampler/ranker bug on a valid request) | Degenerate payload, **empty** attempts + `diagnostics.engineFailure`; Next writes it | §D recording-locus split — never fabricate an attempt |
+| **Internal** engine failure before any generation attempt (reducer/scorer/generator-construction/sampler/ranker bug on a valid request) | Degenerate payload, **empty** attempts + `diagnostics.engineFailure` (`stage="pre_generation"`); Next writes it | §D recording loci — never fabricate an attempt; the guard opens at the first post-validation statement |
+| **Internal** assembly failure AFTER a successful render (`build_snapshot_payload`/zip/serde crash) | Degenerate payload with `stage="assemble"` `engineFailure` **and normally** the salvaged real attempts + `itemSnapshots` + trace diagnostics; if a salvage substep itself fails, the row keeps the recoverable subset + observed `generatorCalls`; Next writes it | §D recording loci — both-present is a valid shape, but not the only valid `assemble` shape; money spent, pool + shaping context preserved whenever recoverable |
 | Generation ran, response lost in transit | Unrecorded (money spent, no row); degraded response | D3 named residual gap |
 | Re-roll (regenerate) | One constrained fresh generation; child snapshot with own attempts, `generationIndex+1`, `parentSnapshotId` | D2 |
 | Re-roll with `locked ∩ disliked ≠ ∅` | Stable 400/409 pre-generation, never empty-success | §C.3 / H59 |
@@ -1705,6 +1731,17 @@ code paths.
 - Remove the `locked ∩ disliked` preflight → the contradictory-controls 400 test must fail.
 - Route a pre-attempt engine failure to the no-snapshot arm (or fabricate an attempt for it) → the failure-corpus test must fail.
 - Skip the degenerate-payload arm (write nothing on engine-internal failure) → the failure-corpus test fails.
+- Move the reducer/scorer/generator construction back outside the §D degenerate guard → the reducer-raise
+  fault-injection test must fail (a bare 500 with no payload, zero generator calls).
+- Strip the assembly-arm trace salvage (empty `itemSnapshots`/default diagnostics on a `stage="assemble"`
+  row with a live trace) → the salvage read-back test must fail (`candidateRequested`/`promptItemCount`/
+  `scorerAvailable` must carry trace truth).
+- Have C5's snapshot validation reject (or "normalize") a `stage="assemble"` `engineFailure` that coexists
+  with **non-empty** `generationAttempts[]`, or reject a last-resort `stage="assemble"` row solely because
+  attempt salvage failed and attempts are empty while `generatorCalls>0` → the assembly-shape acceptance
+  tests must fail (`assemble` is a valid §D locus, not a contradiction).
+- Set `M5_MAX_COMPLETION_TOKENS` to a tiny positive value (floor−1) and have `/readyz` stay green → the
+  floor boundary test must fail (ready-but-unusable: every render truncates).
 - Remove the `INTERACTION_ROWS_SCAN_LIMIT` bound → the bounded-fetch test must fail.
 - Make `AffinitySignalScorer.is_available()` return `True` on an empty map (or call `.score()` when unavailable) → the guard tests must fail.
 - Count a `rejected` outfit's unmarked items as disliked → the mapping-table golden test must fail.
@@ -1902,9 +1939,11 @@ None blocking. Deferred with a home:
   (`FEEDBACK_DEDUP_WINDOW=300`, `INTERACTION_ROWS_SCAN_LIMIT=500`, `REPETITION_WINDOW_SNAPSHOTS=50`) and
   the daily ask ceiling is landed (`DAILY_MAX_CANDIDATES=12`, `config.py`). Still open:
   `M5_MAX_COMPLETION_TOKENS` **landed as C3 service config** (`service/config.py`
-  `DEFAULT_MAX_COMPLETION_TOKENS=2200`, env-overridable) but the **pre-C5 empirical validation is still
-  owed**: the (cap, ask-ceiling) pair proven on real `gpt-5.4-mini` **before C5** (the cap must hold the
-  ask, or every daily render truncates; lower the ceiling or raise the cap until it fits).
+  `DEFAULT_MAX_COMPLETION_TOKENS=2200`, env-overridable within `MIN_COMPLETION_TOKENS_FLOOR=2200` ..
+  `MAX_COMPLETION_TOKENS_CEILING=10_000` — `/readyz` 503s outside the band) but the **pre-C5 empirical
+  validation is still owed**: the (cap, ask-ceiling) pair proven on real `gpt-5.4-mini` **before C5**
+  (the cap must hold the ask, or every daily render truncates; lower the ceiling or raise the cap until
+  it fits — and re-tune default + floor together, §A.6 point 3).
 - ~~The §A rate-ceiling value~~ **named at C3**: `RATE_LIMIT_BURST=5` /
   `RATE_LIMIT_REFILL_PER_SECOND=0.2` per instance (`service/config.py`), global only under the fly.toml
   single-machine pin; the monthly OpenAI project cap is the hard backstop.

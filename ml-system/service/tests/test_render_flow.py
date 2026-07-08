@@ -223,6 +223,61 @@ def test_pre_generation_internal_failure_yields_engine_failure_with_empty_attemp
     assert payload["generator"]["maxCompletionTokens"] == 2200
 
 
+def test_reducer_failure_is_a_pre_generation_degenerate_not_a_500(monkeypatch):
+    # §D "constructable at EVERY internal failure point": the reducers run after validation
+    # but before the render — a raise there must still produce a Next-writable failure row,
+    # never a bare 500 that loses corpus truth.
+    import service.app as app_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("reducer blew up")
+
+    monkeypatch.setattr(app_module, "reduce_behavioral_signals", explode)
+    status, body, stub = _render(render_body())
+    assert status == 200
+    assert body["degenerate"] is True
+    assert stub.call_count == 0  # zero spend — the failure preceded generator construction
+    payload = body["payload"]
+    assert payload["generationAttempts"] == []
+    failure = payload["diagnostics"]["engineFailure"]
+    assert failure["stage"] == "pre_generation"
+    assert failure["code"] == "internal_exception"
+    assert payload["diagnostics"]["parse"]["generatorCalls"] == 0
+    # The §G.1 identity set still rides the failure row (the §C.4 index needs requestId).
+    assert payload["requestId"] == render_body()["requestId"]
+    assert payload["candidateCacheKey"]
+
+
+def test_scorer_construction_failure_is_a_pre_generation_degenerate(monkeypatch):
+    import service.app as app_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("scorer blew up")
+
+    monkeypatch.setattr(app_module, "AffinitySignalScorer", explode)
+    status, body, stub = _render(render_body())
+    assert status == 200
+    assert body["degenerate"] is True
+    assert stub.call_count == 0
+    assert body["payload"]["diagnostics"]["engineFailure"]["stage"] == "pre_generation"
+
+
+def test_generator_factory_failure_is_a_pre_generation_degenerate():
+    from service.app import create_app
+    from service.tests.helpers import FakeClock
+
+    def factory(config):
+        raise RuntimeError("factory blew up")
+
+    app = create_app(dict(ENV), generator_factory=factory, clock=FakeClock())
+    status, body = http(app, "POST", "/render", headers=AUTH, json_body=render_body())
+    assert status == 200
+    assert body["degenerate"] is True
+    failure = body["payload"]["diagnostics"]["engineFailure"]
+    assert failure["stage"] == "pre_generation"
+    assert failure["code"] == "internal_exception"
+
+
 def test_mid_generation_exception_is_recorded_without_a_fabricated_attempt():
     generator = RaisingGenerator()
     status, body, _ = _render(render_body(), generator=generator)
@@ -414,9 +469,19 @@ def _assert_assembly_degenerate(body, *, expect_attempts: int):
     assert failure["code"] == "internal_exception"
     attempts = payload["generationAttempts"]
     assert len(attempts) == expect_attempts
-    parse = payload["diagnostics"]["parse"]
+    diagnostics = payload["diagnostics"]
+    parse = diagnostics["parse"]
     assert parse["generatorCalls"] == 1  # the spend count survives (never a false zero)
     assert parse["parseSuccess"] is True  # honest: the parse SUCCEEDED; assembly failed
+    # Trace salvage (§D): the engine-visible pool + shaping context ride the failure row —
+    # without them the salvaged attempts' raw GPT ids are uninterpretable and M6 cannot
+    # stratify the row.
+    assert payload["itemSnapshots"], "itemSnapshots must salvage from trace.prompt_pool"
+    assert diagnostics["candidateRequested"] is not None
+    assert diagnostics["promptItemCount"] == len(payload["itemSnapshots"])
+    assert diagnostics["samplerPerType"]
+    # The shown block stays degenerate — nothing was delivered.
+    assert payload["candidates"] == [] and payload["nSurfaced"] == 0
     # The §G.1 identity set still rides the failure row (the §C.4 index needs requestId).
     assert payload["requestId"] == render_body()["requestId"]
 
@@ -475,6 +540,38 @@ def test_wire_serialization_failure_of_the_full_payload_degrades_too(monkeypatch
     status, body, _ = _render(render_body())
     assert status == 200
     _assert_assembly_degenerate(body, expect_attempts=1)
+
+
+def test_assembly_failure_salvages_trace_diagnostics_and_scorer_truth(monkeypatch):
+    # Finding-2 read-back: an assembly failure on a render that ran with behavioral signals
+    # must keep the trace-derived diagnostics truthful — scorerAvailable=True, the real
+    # sampler shaping — not reset them to cold-start defaults.
+    import service.app as app_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("zip blew up")
+
+    monkeypatch.setattr(app_module, "_shown_entries", explode)
+    interaction_rows = [
+        {
+            "snapshotId": "65a1f0000000000000000009",
+            "candidateId": "c1",
+            "action": "accepted",
+            "items": ["t1", "b1"],
+            "fullSignature": "t1:b1|outer=|shoes=",
+            "createdAt": "2026-07-01T00:00:00Z",
+        }
+    ]
+    status, body, _ = _render(
+        render_body(behavioralRows={"interactionRows": interaction_rows})
+    )
+    assert status == 200
+    _assert_assembly_degenerate(body, expect_attempts=1)
+    payload = body["payload"]
+    ids = {s["itemId"] for s in payload["itemSnapshots"]}
+    assert {"t1", "t2", "b1", "b2", "s1"} == ids  # the full engine-visible daily pool
+    assert payload["diagnostics"]["scorerAvailable"] is True  # affinity made it available
+    assert payload["diagnostics"]["rescue"]["notEnoughItems"] is False
 
 
 def test_attempt_salvage_failure_still_ships_the_failure_record(monkeypatch):

@@ -21,7 +21,7 @@ Three C6 obligations live here:
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
 from fitted_core import PROMPT_VERSION, RANKER_CONFIG_VERSION, __version__
@@ -124,10 +124,15 @@ class DiagnosticsPayload:
     parse: dict  # {parse_success, repair_used, generator_calls} → wire diagnostics.parse.{...}
     ranker: dict
     rescue: dict
-    # §D recording-locus split (C3): a failure WITHOUT a generation attempt (pre-GPT raise,
-    # caught internal exception) is recorded here — the §G item-4 shape authored by
-    # ``EngineFailure.to_payload_dict()`` — never as a fabricated attempt. None on healthy
-    # renders and on failures that DO have attempts (those live in generation_attempts[]).
+    # §D recording loci (C3) — the §G item-4 shape authored by
+    # ``EngineFailure.to_payload_dict()``, never a fabricated attempt. Three failure loci:
+    # attempt-only failures (parse-fail/refusal/truncation/empty-valid) live in
+    # generation_attempts[] with engine_failure=None; no-attempt internal failures
+    # (pre-GPT raise, caught internal exception) set engine_failure with EMPTY attempts;
+    # trace-salvaged assembly failures (stage="assemble") normally carry BOTH — real paid
+    # attempts AND engine_failure. Last-resort salvage failures may have empty attempts while
+    # retaining the assemble engine_failure + generator_calls; C5 must not reject that shape.
+    # None on healthy renders.
     engine_failure: Optional[dict] = None
 
 
@@ -226,12 +231,16 @@ _ENGINE_FAILURE_MESSAGES: dict[str, str] = {
 
 @dataclass(frozen=True)
 class EngineFailure:
-    """An internal engine failure on a VALID request (§D) — the no-attempt recording locus.
+    """An internal engine failure on a VALID request (§D) — the ``engine_failure`` record.
 
-    Reserved for failures the degenerate corpus must record without a generation attempt
-    (a pre-GPT raise, a caught internal exception). Never constructed for input-validation
-    failures — those are caller bugs → the ``contract_invalid`` envelope, no payload (§D
-    corpus-purity boundary).
+    Constructed for failures the degenerate corpus must record outside the attempt array:
+    a no-attempt failure (pre-GPT raise, caught internal exception — EMPTY attempts), or a
+    trace-salvaged assembly failure (``stage="assemble"`` — normally coexists with the real
+    paid attempts the salvage recovered; if attempt salvage itself failed, attempts may be
+    empty but the spend count remains in diagnostics). Never constructed for input-validation failures —
+    those are caller bugs → the ``contract_invalid`` envelope, no payload (§D corpus-purity
+    boundary) — and never for attempt-only engine outcomes (refusal/truncation/parse-fail),
+    which ride ``generation_attempts[]`` alone.
     """
 
     stage: str
@@ -740,6 +749,16 @@ def _generator_block(
     return block
 
 
+def _salvaged_finish_status(trace: Optional[RenderTrace]) -> Optional[dict]:
+    """Guarded :func:`abnormal_finish_status` for the salvage path — never raises."""
+    if trace is None:
+        return None
+    try:
+        return abnormal_finish_status(trace)
+    except Exception:
+        return None
+
+
 def build_degenerate_payload(
     request: RenderRequest,
     failure: EngineFailure,
@@ -775,10 +794,16 @@ def build_degenerate_payload(
 
     ``trace``, when supplied (the assembly-failure arm — §D "constructable at EVERY internal
     failure point"), salvages what is safely recoverable: the generation attempts (raw text +
-    finish status — real paid attempts, so dropping them would lose the negative corpus) and
-    honest parse diagnostics. Salvage is best-effort behind its own guard: if mapping the
-    attempts is itself what crashed, the failure record still ships with empty attempts —
-    the degenerate write must never die on its own salvage.
+    finish status — real paid attempts, so dropping them would lose the negative corpus),
+    the ``itemSnapshots`` engine-visible pool (``trace.prompt_pool`` — without it the raw GPT
+    item ids in the salvaged attempts are uninterpretable, and M6 cannot stratify the failure
+    row), and the full trace-derived diagnostics (sampler/ranker/rescue/scorer/
+    ``candidate_requested``/``prompt_item_count`` — the same :func:`_build_diagnostics` path a
+    healthy payload uses, with ``engine_failure`` inserted). Each salvage substep is
+    best-effort behind its own guard: if mapping any piece is itself what crashed, the failure
+    record still ships without that piece — the degenerate write must never die on its own
+    salvage. The top-level shown block stays degenerate (``candidates``/``shown_*`` empty,
+    ``n_surfaced=0``) — nothing was delivered; the diagnostics carry the engine-run truth.
 
     ``build_snapshot_payload`` requires a trace, which a pre-trace exception doesn't have —
     but every provenance-required field is derivable from the request + module constants +
@@ -827,6 +852,24 @@ def build_degenerate_payload(
         },
         engine_failure=failure.to_payload_dict(),
     )
+    item_snapshots: tuple[ItemSnapshotPayload, ...] = ()
+    if trace is not None:
+        try:
+            # The engine-visible pool — the same projection a healthy payload captures.
+            item_snapshots = tuple(
+                ItemSnapshotPayload(item_id=item.id, engine_visible=_engine_visible(item))
+                for item in trace.prompt_pool
+            )
+        except Exception:
+            item_snapshots = ()
+        try:
+            # Trace-derived diagnostics via the healthy-payload path, failure inserted.
+            # Its parse dict equals the manual one above whenever both are computable.
+            diagnostics = replace(
+                _build_diagnostics(trace), engine_failure=failure.to_payload_dict()
+            )
+        except Exception:
+            pass  # keep the empty-default diagnostics — the row still ships
     return GenerationSnapshotPayload(
         session_id=request.session_id,
         candidate_cache_key=candidate_cache_key,
@@ -854,12 +897,14 @@ def build_degenerate_payload(
             reasoning_effort=generator_reasoning_effort,
             store_mode=generator_store_mode,
             # No attempt ⇒ no finish status; with a salvaged trace the abnormal status (a
-            # refusal/truncation that preceded the assembly failure) is knowable — record it.
-            finish_status=abnormal_finish_status(trace) if trace is not None else None,
+            # refusal/truncation that preceded the assembly failure) is knowable — record
+            # it, guarded like every other salvage substep (the trace is the object whose
+            # folding just crashed).
+            finish_status=_salvaged_finish_status(trace),
         ),
         ranker_config_version=ranker_config_version,
         scorer={"kind": "cold_start", "model_id": None, "available": False},
-        item_snapshots=(),
+        item_snapshots=item_snapshots,
         generation_attempts=generation_attempts,
         candidates=(),
         diagnostics=diagnostics,

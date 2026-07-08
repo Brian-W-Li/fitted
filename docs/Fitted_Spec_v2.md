@@ -1311,7 +1311,12 @@ affinity projection — accidental retry counts once, repeat-events outside it e
 provenance, never `RANKER_CONFIG_VERSION`). Do **not** move them into `config.py`: `RANKER_CONFIG_VERSION`
 auto-hashes every `UPPER_SNAKE` global there and would fold reducer constants into ranker provenance — the
 exact accident this split prevents.)* ·
-`REPETITION_PENALTY=1.0` (flat magnitude on a re-shown FullSignature, subtracted — S4). *(The v1.2
+`REPETITION_PENALTY=1.0` (flat magnitude on a re-shown FullSignature, subtracted — S4) ·
+**M5 service spend-envelope constants — home = `ml-system/service/config.py` (landed M5 C3), a pointer
+not a second home:** `DEFAULT_MAX_COMPLETION_TOKENS` bounded by a `/readyz`-enforced
+`MIN_COMPLETION_TOKENS_FLOOR`..`MAX_COMPLETION_TOKENS_CEILING` band (an env cap outside the band → 503:
+below-floor is ready-but-unusable truncation, above-ceiling is an uncapped spend envelope); default +
+floor + the daily ask ceiling are re-tuned together by the `m5-cutover.md` §A.6 pre-C5 empirical gate. *(The v1.2
 candidate-cache TTL is retired — M5 D2 removes the candidate cache entirely, `docs/plans/m5-cutover.md` §C;
 there is no cache constant.)* The 70/30 split
 is **not** a constant — it is the sampler-owned `random_count` helper (§10/R6). *(Note: deployed K default is

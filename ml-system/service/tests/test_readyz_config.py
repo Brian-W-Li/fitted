@@ -134,3 +134,26 @@ def test_token_cap_hard_ceiling_boundary():
     status, body = http(app, "GET", "/readyz")
     assert status == 503
     assert "ceiling" in body["reason"]
+
+
+def test_token_cap_readiness_floor_boundary():
+    # The other half of the pair: a tiny positive cap (1, 100) would keep /readyz green
+    # while every real render truncates to a degenerate row — ready-but-unusable.
+    floor = cfg.MIN_COMPLETION_TOKENS_FLOOR
+    config, reason = load_service_config({**ENV, "M5_MAX_COMPLETION_TOKENS": str(floor)})
+    assert reason is None and config.max_completion_tokens == floor
+    app, _ = make_app(env={**ENV, "M5_MAX_COMPLETION_TOKENS": str(floor - 1)})
+    status, body = http(app, "GET", "/readyz")
+    assert status == 503
+    assert "floor" in body["reason"]
+
+
+def test_spend_envelope_band_invariant():
+    # FLOOR <= DEFAULT <= CEILING. The default path skips env validation entirely, so a
+    # mis-tuned default (the pre-C5 gate edits default + floor together) would otherwise
+    # ship a no-override deploy that violates its own band.
+    assert (
+        cfg.MIN_COMPLETION_TOKENS_FLOOR
+        <= cfg.DEFAULT_MAX_COMPLETION_TOKENS
+        <= cfg.MAX_COMPLETION_TOKENS_CEILING
+    )
