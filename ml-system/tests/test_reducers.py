@@ -174,6 +174,18 @@ def test_exported_reducer_version_matches_current_digest():
     assert REDUCER_CONFIG_VERSION == _compute_reducer_config_version()
 
 
+def test_action_signal_mapping_is_the_decided_M5_scope():
+    """The §H action→signal mapping, pinned by literal value (not just digest-moves-on-change).
+
+    Only the two explicit verdicts count today: `accepted` → +affinity, `rejected` → −signal.
+    The other OutfitInteraction enum actions (generated/saved/worn/rated/planned/packed/corrected)
+    deliberately contribute NOTHING at M5 — promoting `saved`/`worn` to counted is an anticipated
+    later change that MUST move REDUCER_CONFIG_VERSION (see test below). A dev who believes an
+    action should count trips this test and reads the decision before forking corpus semantics."""
+    assert COUNTED_ACTIONS == frozenset({"accepted"})
+    assert REJECTED_ACTION == "rejected"
+
+
 def test_action_mapping_constants_move_reducer_digest(monkeypatch):
     before = _compute_reducer_config_version()
     monkeypatch.setattr(reducers, "COUNTED_ACTIONS", COUNTED_ACTIONS | {"saved"})

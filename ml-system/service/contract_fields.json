@@ -1,0 +1,101 @@
+{
+  "reducerRowReads": {
+    "interactionRow": [
+      "action",
+      "baseKey",
+      "candidateId",
+      "createdAt",
+      "fullSignature",
+      "items",
+      "perItemFeedback",
+      "snapshotId"
+    ],
+    "perItemFeedback": [
+      "disliked",
+      "itemId"
+    ],
+    "snapshotRow": [
+      "nSurfaced",
+      "shownFullSignatures"
+    ]
+  },
+  "wireBoundaries": {
+    "behavioralRows": {
+      "optional": [
+        "interactionRows",
+        "recentSnapshots"
+      ],
+      "required": []
+    },
+    "controls": {
+      "optional": [],
+      "required": [
+        "dislikedItemIds",
+        "lockedItemIds"
+      ]
+    },
+    "generator": {
+      "optional": [],
+      "required": [
+        "apiSurface",
+        "maxCompletionTokens",
+        "maxRetries",
+        "model",
+        "promptCacheRetention",
+        "provider",
+        "reasoningEffort",
+        "responseFormat",
+        "storeMode",
+        "temperature",
+        "timeoutSeconds"
+      ]
+    },
+    "lens": {
+      "optional": [
+        "forcedItemId",
+        "location",
+        "weatherRaw"
+      ],
+      "required": [
+        "constraints",
+        "occasion",
+        "seedDate",
+        "weather"
+      ]
+    },
+    "request": {
+      "optional": [],
+      "required": [
+        "behavioralRows",
+        "controls",
+        "generationIndex",
+        "generator",
+        "intent",
+        "interactionCountAtRequest",
+        "lens",
+        "parentSnapshotId",
+        "requestId",
+        "sessionId",
+        "snapshotId",
+        "wardrobe",
+        "wardrobeVersion"
+      ]
+    },
+    "wardrobeItem": {
+      "optional": [
+        "formality",
+        "material"
+      ],
+      "required": [
+        "clothingType",
+        "colorTags",
+        "id",
+        "imageUrl",
+        "name",
+        "occasionTags",
+        "styleTags",
+        "warmth"
+      ]
+    }
+  }
+}

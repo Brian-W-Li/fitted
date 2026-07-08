@@ -339,6 +339,30 @@ runs. These are additive to the existing `generator{provider, model, temperature
 
 ### Wire contract
 
+**Field sets are code-enforced — single source of truth (do not restate them elsewhere).** The
+required/optional key set at every request boundary lives in **`ml-system/service/contract.py`** as
+named frozensets (`RENDER_BODY_REQUIRED`, `CONTROLS_REQUIRED`, `LENS_REQUIRED`/`LENS_OPTIONAL`,
+`WARDROBE_ITEM_REQUIRED`/`_OPTIONAL`, `BEHAVIORAL_ROWS_OPTIONAL`, `GENERATOR_REQUIRED`). The parser
+(`service/app.py`) references them; `test_render_contract.py` pins them three ways — the canonical
+`render_body()` fixture must equal them exactly, every required field is proven enforced pre-spend,
+and the language-neutral mirror **`service/contract_fields.json`** must match the module. This is the
+guard the M5 build lacked: the field-drift class (`sessionId` absent from the wire) now reddens the
+suite instead of hiding in green. The **row grain** (`itemIds` vs `items`, inside `behavioralRows`
+rows the parser treats as opaque) is owned by `contract.py`'s `REDUCER_ROW_READS` — the Python test
+proves the reducer *consumes* those names; the C5 jest projection test proves Next *emits* them (gate
+below). **The JSON block below is illustrative of types + semantics only** — membership is owned by
+`contract.py`, so edit the field set there and the mirror, never here.
+
+> **C5 acceptance gate (cross-runtime).** The Next adapter that builds this body ships a jest test that
+> loads `service/contract_fields.json` and asserts, from `wireBoundaries`, its emitted keys equal
+> `request`'s required set (and each nested object equals its boundary). **Separately, the C5 Mongo
+> `behavioralRows` projection must emit exactly the `reducerRowReads` names** (`interactionRow` /
+> `perItemFeedback` / `snapshotRow`) — this is where the `itemIds`/`items` drift lives (the row grain the
+> wire parser treats as opaque); the Python side proves the reducer *consumes* those names
+> (`test_reducer_consumes_exactly_the_declared_row_reads`), the jest projection test proves Next *emits*
+> them. A name added/renamed on either runtime without the other trips a test. This is the executable
+> "chain of command" — one contract file, both runtimes obey it.
+
 `POST /render` request (camelCase, mirrors the snapshot Lens + engine inputs):
 ```jsonc
 {

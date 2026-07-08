@@ -65,6 +65,7 @@ from fitted_core.snapshot import (
 )
 from fitted_core.snapshot_serde import to_wire, variant_to_wire
 from service import config as cfg
+from service import contract
 from service.config import ServiceConfig, load_service_config
 
 AUTH_HEADER = "x-fitted-service-key"
@@ -186,7 +187,9 @@ class _ParsedRender:
     snapshot_rows: list
 
 
-def _require_keys(obj: Mapping[str, Any], required: set[str], optional: set[str], where: str) -> None:
+def _require_keys(
+    obj: Mapping[str, Any], required: frozenset[str], optional: frozenset[str], where: str
+) -> None:
     missing = required - set(obj)
     if missing:
         raise ContractInvalid(f"{where} is missing required field(s): {sorted(missing)}")
@@ -268,9 +271,8 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
         raise ContractInvalid(f"{where} must be an object")
     _require_keys(
         raw,
-        required={"id", "name", "clothingType", "warmth", "styleTags", "colorTags",
-                  "occasionTags", "imageUrl"},
-        optional={"material", "formality"},
+        required=contract.WARDROBE_ITEM_REQUIRED,
+        optional=contract.WARDROBE_ITEM_OPTIONAL,
         where=where,
     )
     item_id = _string(raw["id"], f"{where}.id", max_chars=cfg.MAX_ID_CHARS)
@@ -325,7 +327,7 @@ def _normalize_controls(raw: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
     where = "controls"
     if not isinstance(raw, dict):
         raise ContractInvalid(f"{where} must be an object")
-    _require_keys(raw, required={"lockedItemIds", "dislikedItemIds"}, optional=set(), where=where)
+    _require_keys(raw, required=contract.CONTROLS_REQUIRED, optional=contract.CONTROLS_OPTIONAL, where=where)
     normalized: dict[str, tuple[str, ...]] = {}
     for key in ("lockedItemIds", "dislikedItemIds"):
         ids = _string_list(
@@ -429,12 +431,8 @@ def _validate_generator_expectation(raw: Any, config: ServiceConfig) -> None:
         raise ContractInvalid(f"{where} must be an object")
     _require_keys(
         raw,
-        required={
-            "provider", "model", "temperature", "maxCompletionTokens",
-            "apiSurface", "responseFormat", "reasoningEffort", "storeMode",
-            "promptCacheRetention", "timeoutSeconds", "maxRetries",
-        },
-        optional=set(),
+        required=contract.GENERATOR_REQUIRED,
+        optional=contract.GENERATOR_OPTIONAL,
         where=where,
     )
     if raw["provider"] != cfg.GENERATOR_PROVIDER:
@@ -489,7 +487,12 @@ def _validate_behavioral_rows(raw: Any) -> tuple[list, list]:
     where = "behavioralRows"
     if not isinstance(raw, dict):
         raise ContractInvalid(f"{where} must be an object")
-    _require_keys(raw, required=set(), optional={"recentSnapshots", "interactionRows"}, where=where)
+    _require_keys(
+        raw,
+        required=contract.BEHAVIORAL_ROWS_REQUIRED,
+        optional=contract.BEHAVIORAL_ROWS_OPTIONAL,
+        where=where,
+    )
     snapshot_rows = raw.get("recentSnapshots", [])
     interaction_rows = raw.get("interactionRows", [])
     for name, rows, bound in (
@@ -510,12 +513,8 @@ def _validate_behavioral_rows(raw: Any) -> tuple[list, list]:
 def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     _require_keys(
         body,
-        required={
-            "snapshotId", "requestId", "sessionId", "intent", "generationIndex",
-            "parentSnapshotId", "controls", "lens", "wardrobe", "wardrobeVersion",
-            "interactionCountAtRequest", "behavioralRows", "generator",
-        },
-        optional=set(),
+        required=contract.RENDER_BODY_REQUIRED,
+        optional=contract.RENDER_BODY_OPTIONAL,
         where="request",
     )
 
@@ -565,8 +564,8 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
         raise ContractInvalid("lens must be an object")
     _require_keys(
         lens,
-        required={"occasion", "weather", "constraints", "seedDate"},
-        optional={"weatherRaw", "location", "forcedItemId"},
+        required=contract.LENS_REQUIRED,
+        optional=contract.LENS_OPTIONAL,
         where="lens",
     )
     occasion = _string(lens["occasion"], "lens.occasion", max_chars=cfg.MAX_OCCASION_CHARS)

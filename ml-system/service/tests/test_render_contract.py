@@ -4,10 +4,12 @@ Every rejection here must be pre-spend: the assertion `stub.call_count == 0` IS 
 no-spend guarantee (a fake Generator standing where OpenAI would be)."""
 
 import json
+from pathlib import Path
 
 import pytest
 
 from service import config as cfg
+from service import contract
 from service.tests.helpers import (
     AUTH,
     ENV,
@@ -596,3 +598,128 @@ def test_json_depth_exactly_at_the_limit_passes():
 
 def test_non_calendar_seed_date_rejected():
     _reject({"lens": {"seedDate": "2026-13-99"}})
+
+
+# --- wire-contract conformance (the single-source-of-truth drift guard) ----------------
+# These tests exist to kill the M5 "green suite over a drifted contract" disease: a field
+# renamed/dropped at one layer while the others (and the tests) stayed green. They pin the
+# field sets in service.contract as THE contract — the parser references them, the canonical
+# render_body() fixture is pinned equal to them, and each required field is proven enforced.
+
+
+def test_contract_json_mirror_matches_the_module():
+    """contract_fields.json is the language-neutral mirror C5's TS adapter/projection tests load. It
+    is generated FROM service.contract; if they diverge, the TS side targets a stale contract. Covers
+    BOTH the wire boundaries (presence) AND the reducer row reads (the itemIds/items projection grain)."""
+    mirror = json.loads((Path(contract.__file__).parent / "contract_fields.json").read_text())
+    expected = {
+        "wireBoundaries": {
+            name: {"required": sorted(req), "optional": sorted(opt)}
+            for name, (req, opt) in contract.BOUNDARIES.items()
+        },
+        "reducerRowReads": {
+            name: sorted(fields) for name, fields in contract.REDUCER_ROW_READS.items()
+        },
+    }
+    assert mirror == expected, (
+        "contract_fields.json drifted from service.contract — regenerate it (json.dump of "
+        "BOUNDARIES + REDUCER_ROW_READS) so the cross-runtime mirror stays truthful"
+    )
+
+
+def test_canonical_render_body_fixture_matches_the_contract():
+    """The shared render_body() fixture — used by nearly every service test — must carry EXACTLY
+    the contract's fields at every boundary. This is the guard that would have caught C-B1
+    (sessionId dropped from the wire) and A1 (a field the fixture carries that the contract does
+    not, or vice-versa): a drift here reddens the whole suite instead of hiding in green."""
+    body = render_body()
+    checks = {
+        "request": set(body),
+        "controls": set(body["controls"]),
+        "lens": set(body["lens"]),
+        "wardrobeItem": set(body["wardrobe"][0]),
+        "behavioralRows": set(body["behavioralRows"]),
+        "generator": set(body["generator"]),
+    }
+    for name, keys in checks.items():
+        required, optional = contract.BOUNDARIES[name]
+        # The base fixture populates every optional field, so keys == required ∪ optional exactly.
+        assert keys == required | optional, (
+            f"{name}: fixture carries {sorted(keys)} but the contract is "
+            f"{sorted(required | optional)}"
+        )
+        # And required must be a real subset of what the fixture provides (no phantom requirement).
+        assert required <= keys
+
+
+def _drop_nested(body: dict, boundary: str, field: str) -> dict:
+    """Return a copy of ``body`` with ``field`` removed from ``boundary``'s object."""
+    if boundary == "request":
+        body.pop(field)
+    elif boundary == "wardrobeItem":
+        body["wardrobe"][0].pop(field)
+    else:
+        body[boundary].pop(field)
+    return body
+
+
+# behavioralRows has no required fields; every other boundary's required set is enforced.
+_REQUIRED_DROP_CASES = [
+    (boundary, field)
+    for boundary in ("request", "controls", "lens", "wardrobeItem", "generator")
+    for field in sorted(contract.BOUNDARIES[boundary][0])
+]
+
+
+@pytest.mark.parametrize("boundary,field", _REQUIRED_DROP_CASES)
+def test_every_required_field_is_enforced_pre_spend(boundary, field):
+    """For EVERY required field at EVERY boundary: dropping it from an otherwise-valid request is
+    contract_invalid before any generator spend. Proves the contract set isn't just declared but
+    actually enforced — a field silently downgraded to optional (or never checked) fails here."""
+    _reject(body=_drop_nested(render_body(), boundary, field))
+
+
+def test_unknown_top_level_field_is_rejected_pre_spend():
+    """The contract is closed: an unlisted wire field is a caller/adapter bug, not ignored."""
+    _reject({"unexpectedField": "x"})
+
+
+# --- reducer row-read contract (the itemIds/items drift grain) -------------------------
+# The wire parser treats behavioralRows rows as opaque dicts, so the drift the wire tests can't
+# catch is the row grain: the C5 Mongo projection emitting a name the reducer doesn't read. These
+# tests pin service.contract.REDUCER_ROW_READS as the names the reducer actually consumes — a read
+# renamed off a contract name (items→itemIds) empties the signal it feeds and reddens the suite.
+
+
+def test_reducer_consumes_exactly_the_declared_row_reads():
+    """Every signal a bound feedback / snapshot row can produce is driven by a field NAME in
+    REDUCER_ROW_READS. Fixtures use only contract-declared names (asserted ⊆), so a reducer read
+    renamed away from its declared name yields an empty signal here — the itemIds/items cure."""
+    from fitted_core.reducers import reduce_interaction_rows, reduce_snapshot_rows
+
+    accepted = {
+        "snapshotId": "s1", "candidateId": "c1", "action": "accepted",
+        "fullSignature": "sig-1", "createdAt": "2026-07-07T00:00:00Z", "items": ["it1", "it2"],
+    }
+    rejected = {
+        "snapshotId": "s2", "candidateId": "c2", "action": "rejected", "baseKey": "bk-1",
+        "createdAt": "2026-07-06T00:00:00Z",
+        "perItemFeedback": [{"itemId": "it3", "disliked": True}],
+    }
+    snapshot_row = {"nSurfaced": 3, "shownFullSignatures": ["shown-1"]}
+
+    # The fixtures may not use any name outside the declared contract (keeps them honest to it).
+    assert set(accepted) <= contract.INTERACTION_ROW_READS
+    assert set(rejected) <= contract.INTERACTION_ROW_READS
+    assert set(rejected["perItemFeedback"][0]) <= contract.PER_ITEM_FEEDBACK_READS
+    assert set(snapshot_row) <= contract.SNAPSHOT_ROW_READS
+
+    signals = reduce_interaction_rows([accepted, rejected])
+    shown = reduce_snapshot_rows([snapshot_row])
+
+    # Each declared read drives a live signal; a renamed read empties its target.
+    assert signals.item_affinity == {"it1": 1, "it2": 1}          # items + action + snapshot/candidate
+    assert signals.liked_full_signatures == frozenset({"sig-1"})  # fullSignature
+    assert signals.recent_disliked_base_keys == ("bk-1",)         # baseKey + action
+    assert signals.recent_disliked_item_ids == ("it3",)           # perItemFeedback → itemId/disliked
+    assert shown == ("shown-1",)                                   # nSurfaced gate + shownFullSignatures
