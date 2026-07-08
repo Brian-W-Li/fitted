@@ -174,6 +174,17 @@ def rescue_body(**overrides) -> dict:
     return body
 
 
+# A valid child (re-roll) parent ref — 24-hex ObjectId, mirrors test_render_contract's re-roll id.
+CHILD_PARENT_ID = "65a1f0000000000000000002"
+
+
+def regen_body(**overrides) -> dict:
+    """A child/re-roll render (generationIndex=1 + a real parent). Controls are regenerate-
+    lineage ONLY (§C.3 root-controls invariant), so any request carrying non-empty controls
+    must be child-shaped. Compose with intent=/lens= overrides for a rescue re-roll."""
+    return render_body(generationIndex=1, parentSnapshotId=CHILD_PARENT_ID, **overrides)
+
+
 # --- §12 envelope builders (mirror tests/test_snapshot.py's shape) -----------
 
 

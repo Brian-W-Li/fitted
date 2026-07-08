@@ -507,6 +507,18 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
         )
 
     locked_item_ids, disliked_item_ids = _normalize_controls(body["controls"])
+    # §C.3 root-controls invariant: controls are regenerate-LINEAGE only. A root render
+    # (null parent / index 0) must carry empty controls — non-empty locked/disliked on a
+    # parentless render is a caller bug, rejected pre-spend before any preflight or generator
+    # call. Defense-in-depth: C5 derives controls server-side from the regenerate UI, only ever
+    # on a re-roll (generationIndex > 0 with a parent); the service must never accept a root
+    # controlled render even if that derivation drifts. (The lineage check above already
+    # guarantees parent-None ⟺ index-0, so this equivalently reads "index 0 → empty controls".)
+    if parent_snapshot_id is None and (locked_item_ids or disliked_item_ids):
+        raise ContractInvalid(
+            "controls must be empty on a root render — locked/disliked controls are carried "
+            "only by a re-roll (generationIndex > 0 with a parentSnapshotId)"
+        )
 
     lens = body["lens"]
     if not isinstance(lens, dict):

@@ -663,7 +663,13 @@ Five contract pins:
    (or vice-versa) would make the corpus mis-explain the render — forbidden. **`controls` is present on every
    M5 write:** a first/non-regen render carries `{lockedItemIds:[], dislikedItemIds:[]}` (empty, not absent —
    §G `required`+default), so "no controls" is an explicit corpus statement, never inferred from a missing
-   subdoc. **The dividing line is REQUEST-DECIDABILITY (Fable 2026-07-07): a control set that can never
+   subdoc. **Root-controls invariant (service-enforced, pre-spend): controls are regenerate-LINEAGE only —
+   a root render (null parent / `generationIndex=0`) must carry EMPTY controls; non-empty `lockedItemIds`/
+   `dislikedItemIds` on a parentless render is `contract_invalid` before any wardrobe preflight or GPT spend.**
+   Non-empty controls belong to a re-roll (`generationIndex > 0` with a `parentSnapshotId`). This is
+   defense-in-depth: C5 derives controls server-side from the regenerate UI and only ever onto a child, but
+   the service must not accept a root controlled render even if that derivation drifts. **The dividing line
+   is REQUEST-DECIDABILITY (Fable 2026-07-07): a control set that can never
    yield a valid outfit *regardless of the closet* is a caller bug the client can and must prevent →
    `contract_invalid`; a well-formed set the *actual wardrobe can't complete* is a valid EMPTY render,
    not a caller bug.** **Preflight — the request-decidable contradictions run over `normalizedControls`

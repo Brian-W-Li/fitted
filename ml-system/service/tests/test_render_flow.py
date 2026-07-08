@@ -15,6 +15,7 @@ from service.tests.helpers import (
     http,
     make_app,
     outfit,
+    regen_body,
     render_body,
     rescue_body,
     wire_item,
@@ -88,6 +89,7 @@ def test_regen_lock_pins_the_item_and_records_controls_and_scorer():
     # A locked shoe (s1): every generated outfit including it surfaces; the payload's controls
     # mirror the request (F6), scorer.available flips True (§E), and diagnostics.ranker carries
     # reducer provenance (§H). A base-only outfit is lock-dropped (never a silent lock).
+    # Controls are regenerate-lineage only (§C.3) — this is a child re-roll, not a root render.
     lock_env = envelope(
         outfit([("t1", Role.base_top), ("b1", Role.base_bottom), ("s1", Role.shoes)], ["s1"]),
         outfit([("t2", Role.base_top), ("b2", Role.base_bottom), ("s1", Role.shoes)], ["s1"]),
@@ -95,7 +97,7 @@ def test_regen_lock_pins_the_item_and_records_controls_and_scorer():
         outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),  # omits the lock → dropped
     )
     status, body, stub = _render(
-        render_body(controls={"lockedItemIds": ["s1"], "dislikedItemIds": []}),
+        regen_body(controls={"lockedItemIds": ["s1"], "dislikedItemIds": []}),
         responses=lock_env,
     )
     assert status == 200 and body["degenerate"] is False
@@ -116,13 +118,14 @@ def test_regen_lock_pins_the_item_and_records_controls_and_scorer():
 
 def test_regen_dislike_removes_the_item_from_the_surfaced_set():
     # A disliked shoe (s1): the Step-4 hard filter guarantees it never surfaces; controls persist it.
+    # Controls are regenerate-lineage only (§C.3) — child re-roll, not a root render.
     dislike_env = envelope(
         outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),
         outfit([("t2", Role.base_top), ("b2", Role.base_bottom), ("s1", Role.shoes)], ["s1"]),
         outfit([("t1", Role.base_top), ("b2", Role.base_bottom)], ["t1"]),
     )
     status, body, _ = _render(
-        render_body(controls={"lockedItemIds": [], "dislikedItemIds": ["s1"]}),
+        regen_body(controls={"lockedItemIds": [], "dislikedItemIds": ["s1"]}),
         responses=dislike_env,
     )
     assert status == 200
@@ -196,8 +199,9 @@ def test_daily_not_enough_items_is_a_valid_empty_render_with_zero_spend():
 
 
 def test_daily_not_enough_items_stays_valid_when_live_dislike_is_present():
+    # A dislike is a re-roll control (§C.3 root-controls invariant) → child-shaped request.
     status, body, stub = _render(
-        render_body(
+        regen_body(
             wardrobe=[wire_item("t1", "top")],
             controls={"lockedItemIds": [], "dislikedItemIds": ["t1"]},
         )
@@ -229,7 +233,7 @@ def test_daily_lock_with_no_complement_is_a_valid_empty_render_not_400():
     # so not understocked) but no bottom → the lock rules everything out. Valid empty, no spend, no 400.
     controls = {"lockedItemIds": ["t1"], "dislikedItemIds": []}
     status, body, stub = _render(
-        render_body(wardrobe=[wire_item("t1", "top"), wire_item("d1", "dress")], controls=controls)
+        regen_body(wardrobe=[wire_item("t1", "top"), wire_item("d1", "dress")], controls=controls)
     )
     assert status == 200
     _assert_over_constrained_valid_empty(body, stub, controls=controls)
@@ -242,7 +246,7 @@ def test_daily_dislike_removing_every_base_is_a_valid_empty_render_not_400():
     # empty state (identical outcome to an understocked closet), not a caller bug.
     controls = {"lockedItemIds": [], "dislikedItemIds": ["b1"]}
     status, body, stub = _render(
-        render_body(wardrobe=[wire_item("t1", "top"), wire_item("b1", "bottom")], controls=controls)
+        regen_body(wardrobe=[wire_item("t1", "top"), wire_item("b1", "bottom")], controls=controls)
     )
     assert status == 200
     _assert_over_constrained_valid_empty(body, stub, controls=controls)
@@ -254,7 +258,9 @@ def test_rescue_lock_with_no_complement_is_a_valid_empty_render_not_400():
     # own not_enough path wins (never the service preflight's contract_invalid — the regression Codex
     # nearly shipped and this converged decision fixes).
     controls = {"lockedItemIds": ["t1"], "dislikedItemIds": []}
-    body_in = rescue_body(
+    # A rescue re-roll (§C.3): controls ride a child render, so this is intent=rescue_item + lineage.
+    body_in = regen_body(
+        intent="rescue_item",
         wardrobe=[wire_item("s1", "shoes"), wire_item("t1", "top"), wire_item("d1", "dress")],
         lens={"forcedItemId": "s1"},
         controls=controls,
@@ -270,7 +276,7 @@ def test_understocked_and_over_constrained_carry_distinct_reason_hints():
     # "your controls rule everything out". Two nSurfaced=0 renders, two different reasonHints.
     _, understocked, _ = _render(render_body(wardrobe=[wire_item("t1", "top")]))
     _, over_constrained, _ = _render(
-        render_body(
+        regen_body(  # controls → child re-roll (§C.3 root-controls invariant)
             wardrobe=[wire_item("t1", "top"), wire_item("d1", "dress")],
             controls={"lockedItemIds": ["t1"], "dislikedItemIds": []},
         )

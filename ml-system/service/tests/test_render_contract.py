@@ -14,6 +14,7 @@ from service.tests.helpers import (
     daily_envelope,
     http,
     make_app,
+    regen_body,
     render_body,
     rescue_body,
     wire_item,
@@ -199,10 +200,15 @@ def test_controls_over_bound_and_bad_element_rejected():
     _reject({"controls": {"lockedItemIds": ["  "], "dislikedItemIds": []}})  # blank id
 
 
+# NOTE: controls are regenerate-lineage only (§C.3 root-controls invariant) — these preflight
+# checks fire only on a CHILD render, so each drives a child-shaped body (regen_body). The root
+# rejection of non-empty controls is covered separately below.
+
+
 def test_controls_preflight_locked_not_in_wardrobe_rejected():
     # §C.3 check 2 — a locked id that is not a live wardrobe item is a caller bug, pre-spend.
     status, response = _reject(
-        {"controls": {"lockedItemIds": ["ghost-id"], "dislikedItemIds": []}}
+        body=regen_body(controls={"lockedItemIds": ["ghost-id"], "dislikedItemIds": []})
     )
     assert "not in the wardrobe" in response["error"]["message"]
 
@@ -210,7 +216,7 @@ def test_controls_preflight_locked_not_in_wardrobe_rejected():
 def test_controls_preflight_disliked_not_in_wardrobe_rejected():
     # F6 corpus truth: a stale dislike cannot be persisted as if it shaped the render.
     status, response = _reject(
-        {"controls": {"lockedItemIds": [], "dislikedItemIds": ["ghost-id"]}}
+        body=regen_body(controls={"lockedItemIds": [], "dislikedItemIds": ["ghost-id"]})
     )
     assert "not in the wardrobe" in response["error"]["message"]
 
@@ -218,7 +224,7 @@ def test_controls_preflight_disliked_not_in_wardrobe_rejected():
 def test_controls_preflight_locked_intersect_disliked_rejected():
     # §C.3 check 1 — a contradictory locked ∩ disliked request never empty-succeeds (pre-spend).
     status, response = _reject(
-        {"controls": {"lockedItemIds": ["t1"], "dislikedItemIds": ["t1"]}}
+        body=regen_body(controls={"lockedItemIds": ["t1"], "dislikedItemIds": ["t1"]})
     )
     assert "both locked and disliked" in response["error"]["message"]
 
@@ -226,7 +232,12 @@ def test_controls_preflight_locked_intersect_disliked_rejected():
 def test_rescue_forced_item_disliked_rejected_pre_spend():
     # The forced item is an implicit lock; disliking it would contextual-drop every candidate →
     # empty after a wasted spend. Rejected pre-spend like the explicit locked ∩ disliked check.
-    body = rescue_body(controls={"lockedItemIds": [], "dislikedItemIds": ["t1"]})
+    # Controls ride a child render (§C.3), so this is a rescue re-roll.
+    body = regen_body(
+        intent="rescue_item",
+        lens={"forcedItemId": "t1"},
+        controls={"lockedItemIds": [], "dislikedItemIds": ["t1"]},
+    )
     app, stub = make_app(daily_envelope())
     status, response = http(app, "POST", "/render", headers=AUTH, json_body=body)
     assert response["error"]["code"] == "contract_invalid"
@@ -261,10 +272,11 @@ def test_controls_preflight_structurally_infeasible_lock_set_rejected(
 ):
     # §C.3 check 3 — locks that cannot co-occupy a valid slot map are rejected pre-spend,
     # never converted into a GPT call whose post-validate lock drop kills every candidate.
+    # Controls ride a child render (§C.3), so this drives a child-shaped body.
     overrides = {"controls": {"lockedItemIds": locked_ids, "dislikedItemIds": []}}
     if wardrobe is not None:
         overrides["wardrobe"] = wardrobe
-    status, response = _reject(overrides)
+    status, response = _reject(body=regen_body(**overrides))
     assert message in response["error"]["message"]
 
 
@@ -273,6 +285,35 @@ def test_controls_preflight_structurally_infeasible_lock_set_rejected(
 # the engine short-circuits to a valid `notEnoughItems` render pre-GPT (§C.3 request-decidability,
 # Fable 2026-07-07). Those cases are covered as valid-empty flow tests in test_render_flow.py; only the
 # closet-INDEPENDENT contradictions (co-occupancy, locked∩disliked, forced∈disliked, stale ids) 400 here.
+
+
+@pytest.mark.parametrize(
+    "controls",
+    [
+        {"lockedItemIds": ["t1"], "dislikedItemIds": []},
+        {"lockedItemIds": [], "dislikedItemIds": ["t1"]},
+        {"lockedItemIds": ["t1"], "dislikedItemIds": ["t2"]},
+    ],
+)
+def test_root_render_with_non_empty_controls_rejected_pre_spend(controls):
+    # §C.3 root-controls invariant: controls are regenerate-LINEAGE only. A root render
+    # (generationIndex=0 + null parent — the render_body default) carrying non-empty locked/
+    # disliked controls is a caller bug, rejected pre-spend BEFORE any wardrobe preflight or
+    # generator call. Defense-in-depth: C5 only ever derives controls onto a child re-roll.
+    status, response = _reject({"controls": controls})
+    assert "root render" in response["error"]["message"]
+
+
+def test_root_render_with_empty_controls_is_accepted():
+    # The invariant is scoped to NON-empty controls: an explicit empty-controls root render is
+    # the normal first/daily shape (§C.3 "{lockedItemIds:[], dislikedItemIds:[]}", never absent).
+    app, _ = make_app(daily_envelope())
+    status, body = http(
+        app, "POST", "/render", headers=AUTH,
+        json_body=render_body(controls={"lockedItemIds": [], "dislikedItemIds": []}),
+    )
+    assert status == 200
+    assert body["payload"]["controls"] == {"lockedItemIds": [], "dislikedItemIds": []}
 
 
 # --- Lens validation (§A/§F/§D) --------------------------------------------------------
