@@ -373,14 +373,25 @@ false, "insufficientAfterGeneration": false, "spreadCollapsed": false, "reasonHi
 the client path).
 
 **`reasonHint` convention (C4 docket (a), pinned).** `flags.reasonHint` speaks TWO registers by render
-outcome, and the client keys on `degenerate`/the degraded envelope to know which: **healthy renders**
-(`notEnoughItems`/`insufficientAfterGeneration`) carry a **content-specific English hint** (e.g. "add a
-bottom to build an outfit around this top") — it is genuinely-variable user advice. **Failure paths carry a
-stable machine code** the client maps to localized copy: a `degenerate:true` engine-failure arm (§D) emits
-`reasonHint="engine_failure"` (both `app.py` degenerate arms use the one constant — never `str(exception)`,
-never an English sentence), joining the degraded browser-response machine-code family
-(`service_unavailable`/`contract_invalid`/`rate_limited`/`auth_failed`, below). Rationale: all *failure*
-reasonHints share one code vocabulary the client localizes uniformly, while healthy hints stay prose.
+outcome. **The register is decidable from the browser allowlist alone** (`degenerate`/`engineFailure` are
+NOT in it — G15): **prose register iff any healthy flag is true** (`notEnoughItems` OR
+`insufficientAfterGeneration`) → a **content-specific English hint** (e.g. "add a bottom to build an outfit
+around this top"), genuinely-variable user advice; **machine-code register iff all three healthy flags are
+false and `reasonHint` is non-null** → a **stable code** the client maps to localized copy. An *unrecognized*
+code maps to generic error copy (client-side default — needed regardless of this milestone). The **exception
+arms** (`app.py` :822/:864, an actual crash — `EngineFailure` recorded) emit `reasonHint="engine_failure"`
+(the one constant — never `str(exception)`, never an English sentence), joining the degraded browser-response
+machine-code family (`service_unavailable`/`contract_invalid`/`rate_limited`/`auth_failed`, below).
+
+**A `degenerate:true` render is NOT automatically the machine-code register (trap-guard, anti-F1).** The
+third path — generation completed with no exception but surfaced zero outfits (parse-fail-after-repair,
+refusal-as-empty, cap-truncation, empty-valid-set) — is `degenerate:true` yet correctly carries
+`insufficientAfterGeneration=true` + the **prose** "try regenerating" hint (`rescue.py` §H). It threw nothing,
+`engineFailure` is None, `generationAttempts` ARE recorded; it is model-produced-nothing, not engine-crashed,
+and its remedy is the regenerate CTA — so flattening it into `engine_failure` would falsify a flag, break the
+honest-partial continuity (1-of-3 vs 0-of-3 survivors share cause + remedy), and misroute the user. The
+crash-vs-garbage distinction the corpus needs lives in `diagnostics` (`engineFailure` vs
+`generationAttempts`/`finishStatus`), never in `flags`.
 
 **Degraded browser response (C5/C6 — Next-only, no payload).** When the service is unreachable, times out,
 returns `5xx`, rejects auth/rate-limit, or returns `contract_invalid` after a service call, Next discards the
@@ -2075,7 +2086,9 @@ reconciled to "green before the flip", Verification)**, H55/H60 (§A/D6/§F), H5
 (§G), H10 (serde opacity §G + no-post-Python-refetch §A/C5), H29 (§G), H11 (append-only §I + dedup reducer
 §H), H19 (§H), H48 (**both instances decided**: sibling stored via the §E producer exercise; headline
 stored via option (a) — basis: converged dual-pass 2026-07-06). **C4 docket dispositions (2026-07-07):**
-(a) the §D degenerate `reasonHint` is the stable machine code `"engine_failure"` (§A); (b) any non-`stop`
+(a) the §D **engine-failure arms'** `reasonHint` (the two `app.py` exception arms — NOT the zero-survivor
+third path, which keeps `insufficientAfterGeneration` + its prose hint) is the stable machine code
+`"engine_failure"` (§A); (b) any non-`stop`
 `finish_reason` routes to the degenerate corpus (§A.6 point 6, ratifying the shipped code); (c)
 `admittedViaFallbackStage` is DROPPED (§G.1 — no writer/home; `.ts` removal deferred to C5). Reworded: H4/H16 (§C.5 determinism — no
 cache; snapshots immutable, generations fresh). **Landed at C4 (2026-07-07):** H28 (the producer-side

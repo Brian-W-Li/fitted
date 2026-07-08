@@ -198,6 +198,14 @@ def test_controls_over_bound_and_bad_element_rejected():
     assert f"exceeds {cfg.MAX_CONTROL_IDS}" in response["error"]["message"]
     _reject({"controls": {"lockedItemIds": [], "dislikedItemIds": [123]}})  # non-string id
     _reject({"controls": {"lockedItemIds": ["  "], "dislikedItemIds": []}})  # blank id
+    # F3: exactly-at-limit must PASS the bound (pins `>`, not `>=`) — it then falls through to
+    # the membership check, so the reject is "not in the wardrobe", never "exceeds N entries".
+    at_limit = [f"i{n}" for n in range(cfg.MAX_CONTROL_IDS)]
+    _, at_limit_resp = _reject(
+        body=regen_body(controls={"lockedItemIds": [], "dislikedItemIds": at_limit})
+    )
+    assert "exceeds" not in at_limit_resp["error"]["message"]
+    assert "not in the wardrobe" in at_limit_resp["error"]["message"]
 
 
 # NOTE: controls are regenerate-lineage only (§C.3 root-controls invariant) — these preflight
@@ -430,6 +438,11 @@ def test_item_text_clamps_guard_the_prompt():
     _reject({"wardrobe": body["wardrobe"]})
     too_many_tags = wire_item("t1", "top", colorTags=["c"] * (cfg.MAX_ITEM_TAGS + 1))
     _reject({"wardrobe": [too_many_tags]})
+    # F3: exactly-at-limit must PASS — pins the `>` (not `>=`) so a bound off-by-one regression trips.
+    at_limit_tags = render_body()
+    at_limit_tags["wardrobe"][0] = wire_item("t1", "top", colorTags=["c"] * cfg.MAX_ITEM_TAGS)
+    status, _ = http(app, "POST", "/render", headers=AUTH, json_body=at_limit_tags)
+    assert status == 200
 
 
 # --- numeric fields + behavioral rows (§H bounds) --------------------------------------

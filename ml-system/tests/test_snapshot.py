@@ -464,6 +464,17 @@ def test_abnormal_finish_status_reads_the_producing_attempt():
                                   FinishStatus("stop", "I can't help with that.")])
     )
     assert abnormal_finish_status(trace) == {"finish_reason": "stop", "refused": True}
+    # F2: an UNRECOGNIZED non-stop finish_reason (not length/refusal) is still abnormal —
+    # abnormal_finish_status is general (finish_reason not in (None,"stop")), pinning it here
+    # so a regression narrowing to a {length,refusal} allowlist can't slip the §A.6-6 guard.
+    filtered_trace = rescue_with_trace(
+        request,
+        _StatusStub("{ blocked", [FinishStatus("content_filter", None),
+                                  FinishStatus("content_filter", None)]),
+    )
+    assert abnormal_finish_status(filtered_trace) == {
+        "finish_reason": "content_filter", "refused": False
+    }
     # Attempt-level provenance also lands on the payload (§A.6 routing half).
     payload = build_snapshot_payload(
         trace, request,

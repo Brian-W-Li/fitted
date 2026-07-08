@@ -327,6 +327,10 @@ def test_parse_fail_after_repair_is_a_degenerate_payload_with_attempts():
     }
     # Recording-locus split: money spent WITH attempts → no engineFailure record.
     assert body["payload"]["diagnostics"]["engineFailure"] is None
+    # Parse-fail is model-produced-nothing, not an engine crash: keeps the prose insufficient
+    # register, NOT the engine_failure code (§A trap-guard; degenerate:true ⇏ code register).
+    assert body["flags"]["insufficientAfterGeneration"] is True
+    assert body["flags"]["reasonHint"] != "engine_failure"
     assert stub.call_count == 2
 
 
@@ -351,6 +355,18 @@ def test_cap_truncated_response_routes_to_the_degenerate_corpus():
     assert body["degenerate"] is True
     assert body["payload"]["generator"]["finishStatus"] == {
         "finishReason": "length",
+        "refused": False,
+    }
+
+
+def test_unrecognized_finish_reason_routes_to_the_degenerate_corpus():
+    # F2: content_filter is neither length nor refusal — it must still degrade (not slip
+    # through as a healthy-empty render), guarding against a {length,refusal} allowlist.
+    generator = FinishStatusGenerator("{ blocked", FinishStatus("content_filter", None))
+    status, body, _ = _render(render_body(), generator=generator)
+    assert status == 200 and body["degenerate"] is True
+    assert body["payload"]["generator"]["finishStatus"] == {
+        "finishReason": "content_filter",
         "refused": False,
     }
 
@@ -568,7 +584,13 @@ def test_empty_valid_set_is_degenerate():
     assert status == 200
     assert body["degenerate"] is True
     assert body["shown"] == []
+    # A zero-survivor render is model-produced-nothing (no exception, engineFailure is None),
+    # NOT an engine crash: it keeps the honest insufficientAfterGeneration + prose "regenerate"
+    # register, NOT the engine_failure machine code. degenerate:true does NOT imply the code
+    # register (§A trap-guard). Named guard so a future "flatten all degenerate arms" regression trips here.
     assert body["flags"]["insufficientAfterGeneration"] is True
+    assert body["flags"]["reasonHint"] != "engine_failure"
+    assert body["payload"]["diagnostics"]["engineFailure"] is None
 
 
 def test_mid_generation_exception_records_the_true_generator_call_count():

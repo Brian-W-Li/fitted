@@ -258,8 +258,13 @@ def test_rank_with_audit_preserves_variant_cap_loser_breakdown_only():
     assert capped, "the variant cap must strand a candidate at k=2"
     for f in capped:
         assert isinstance(f.score_breakdown, ScoreBreakdown)  # H48 headline: Step-5 breakdown kept
-    # determinism/no-order-change guard: the public result + scored funnel are unchanged.
-    assert audit.result == rank(variants, ctx)
+    # determinism/no-order-change guard (F4): a FROZEN expected order, not rank()==rank(). The
+    # k=2 cap keeps the s1 variant over the shoeless one and strands s2; if rank_with_audit ever
+    # perturbed the public funnel's order/membership, this literal — not a self-comparison — trips.
+    assert [(o.source_index, o.full_signature) for o in audit.result.outfits] == [
+        (1, "t1:b1|outer=none|shoes=s1"),
+        (0, "t1:b1|outer=none|shoes=none"),
+    ]
     assert audit.scored[: len(audit.result.outfits)] == audit.result.outfits
 
 
