@@ -520,6 +520,9 @@ def _default_generator_factory(config: ServiceConfig) -> Generator:
         max_completion_tokens=config.max_completion_tokens,
         reasoning_effort=cfg.GENERATOR_REASONING_EFFORT,
         response_format=cfg.GENERATOR_RESPONSE_FORMAT,
+        prompt_cache_retention=cfg.GENERATOR_PROMPT_CACHE_RETENTION,
+        timeout_seconds=cfg.OPENAI_TIMEOUT_SECONDS,
+        max_retries=cfg.OPENAI_MAX_RETRIES,
     )
 
 
@@ -639,6 +642,9 @@ class FittedService:
             generator_response_format=cfg.GENERATOR_RESPONSE_FORMAT,
             generator_reasoning_effort=cfg.GENERATOR_REASONING_EFFORT,
             generator_store_mode=cfg.GENERATOR_STORE_MODE,
+            generator_prompt_cache_retention=cfg.GENERATOR_PROMPT_CACHE_RETENTION,
+            generator_timeout_seconds=cfg.OPENAI_TIMEOUT_SECONDS,
+            generator_max_retries=cfg.OPENAI_MAX_RETRIES,
         )
 
         generator: Optional[_CountingGenerator] = None

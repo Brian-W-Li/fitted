@@ -31,6 +31,11 @@ def test_readyz_is_ready_with_full_env_and_reports_versions():
         ("GENERATOR_RESPONSE_FORMAT", "not-a-response-format"),
         ("GENERATOR_REASONING_EFFORT", "xhigh"),
         ("GENERATOR_STORE_MODE", "store_true"),
+        ("GENERATOR_PROMPT_CACHE_RETENTION", "24h"),
+        ("OPENAI_TIMEOUT_SECONDS", 0),
+        ("OPENAI_TIMEOUT_SECONDS", float("nan")),
+        ("OPENAI_TIMEOUT_SECONDS", float("inf")),
+        ("OPENAI_MAX_RETRIES", -1),
     ],
 )
 def test_readyz_503_on_unsanctioned_generator_surface(monkeypatch, constant, bad_value):
@@ -98,8 +103,8 @@ def test_default_generator_factory_builds_from_service_config():
     # The §A.6 surface: the real OpenAIGenerator is constructed from the SERVICE config —
     # cap under max_completion_tokens (never max_tokens: the constructor has no such
     # param), lowest reasoning effort, strict json_schema, the allowlisted model. The
-    # fake-OpenAI-client call-surface tests (store:false, max_completion_tokens on the
-    # wire) live in tests/test_generation.py (landed C1).
+    # fake-OpenAI-client call-surface tests (store:false, prompt_cache_retention,
+    # timeout/max_retries, max_completion_tokens on the wire) live in tests/test_generation.py.
     config, _ = load_service_config({**ENV, "M5_MAX_COMPLETION_TOKENS": "2500"})
     generator = _default_generator_factory(config)
     assert generator._model == "gpt-5.4-mini"
@@ -107,6 +112,9 @@ def test_default_generator_factory_builds_from_service_config():
     assert generator._max_completion_tokens == 2500
     assert generator._reasoning_effort == "none"
     assert generator._response_format == "json_schema_strict"
+    assert generator._prompt_cache_retention == "in_memory"
+    assert generator._timeout_seconds == 30.0
+    assert generator._max_retries == 0
     assert generator._api_key == ENV["OPENAI_API_KEY"]
 
 

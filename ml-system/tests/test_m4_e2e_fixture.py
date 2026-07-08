@@ -87,10 +87,12 @@ def _build_e2e_wire() -> dict:
     """Deterministically build the camelCase GenerationSnapshot wire doc (the Python half)."""
     request = _e2e_request()
     trace = rescue_with_trace(request, StubGenerator(_e2e_envelope()))
+    # This fixture is the current Python→TS/Mongo contract artifact, not historical H40
+    # evidence; use the M5 generator provenance shape that the live writer must persist.
     payload = build_snapshot_payload(
         trace, request, candidate_cache_key="ck-e2e",
         request_id="e1111111-1111-4111-8111-111111111111",
-        generator_provider="openai", generator_model="gpt-4o", generator_temperature=0.8,
+        generator_provider="openai", generator_model="gpt-5.4-mini", generator_temperature=0.5,
         generator_max_completion_tokens=2200,
     )
     return snapshot_serde.to_wire(dataclasses.asdict(payload))
@@ -109,7 +111,15 @@ def test_wire_doc_is_a_complete_python_authored_snapshot():
         "shownCandidateIds", "shownFullSignatures",
     ):
         assert key in wire, f"missing {key}"
-    assert {"provider", "model", "temperature", "promptVersion"} <= set(wire["generator"])
+    assert {
+        "provider",
+        "model",
+        "temperature",
+        "promptVersion",
+        "promptCacheRetention",
+        "timeoutSeconds",
+        "maxRetries",
+    } <= set(wire["generator"])
     assert {"kind", "available"} <= set(wire["scorer"])
     # the engineVisible partition key crossed as clothingType (serde rename).
     assert wire["itemSnapshots"][0]["engineVisible"]["clothingType"] in {"top", "bottom", "shoes"}

@@ -11,7 +11,7 @@ using it as the seam for a trained style-graph scorer. The goal here is **techni
 > - The **deployed app** at [fitted-outfits.vercel.app](https://fitted-outfits.vercel.app/) runs the
 >   *team's* repo (the original CS 148 product).
 > - **This fork** is the engine rewrite. Its `ml-system/` work is heavily built and tested but does not
->   yet serve the live app — the cutover that wires it in is the next milestone (M5). What you can read
+>   yet serve the live app — the cutover that wires it in is the active milestone (M5). What you can read
 >   today is a working substrate plus a completed offline ML experiment; what you cannot yet *watch* is
 >   this engine producing a live recommendation.
 
@@ -72,11 +72,11 @@ canonical, build-tagged design lives in [`docs/Fitted_Spec_v2.md`](docs/Fitted_S
 | Spearhead rescue vertical | ✅ built, tested | Orphan-item rescue end-to-end: forced-item pin → sufficiency check → generate → parse → validate → rank → cold-start `compatibility`/`visibility` → `optionPath`/`risk` bucketing. |
 | M4 data + snapshot layer | ✅ built (snapshot substrate ships dormant) | 5-value `clothingType`, keyword-derived `warmth`, the immutable `GenerationSnapshot` training-truth record + a three-way TS↔Python↔Mongo contract. |
 | H26 compatibility spike | ✅ done (NO-GO by the frozen letter) | The offline go/no-go above. |
-| M5 live cutover | ⏳ next | Deploy `fitted_core` as a service, wire the Next app behind `USE_ML_SHORTLISTER`, live snapshot write. Makes the engine run end-to-end. |
+| M5 live cutover | 🚧 in progress (C1-C3 built) | Daily/rescue orchestrator, reducer seam, and stateless service are built/tested; C4-C8 wire regenerate, Mongo writes, UI, and final cutover. |
 
-**Test rigor** (floors that grow, never shrink): **791** `fitted_core` pytest · **305 (+1 skip)** H26 pytest ·
-**387** Next/jest. Determinism is verified (same request → byte-identical output); gate boundaries are
-mutation-tested.
+**Test rigor** (floors that grow, never shrink): **952** `ml-system` pytest · **305 (+1 skip)** H26 pytest ·
+**388** Next/jest. Pure-engine determinism is verified under controlled generator inputs; live GPT renders
+remain stochastic by design. Gate boundaries are mutation-tested.
 
 **Repo layout:**
 

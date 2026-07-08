@@ -17,11 +17,16 @@ tested at the boundary, not adjectives.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-from fitted_core.generation import RESPONSE_FORMAT_JSON_OBJECT, RESPONSE_FORMAT_JSON_SCHEMA_STRICT
+from fitted_core.generation import (
+    PROMPT_CACHE_RETENTION_IN_MEMORY,
+    RESPONSE_FORMAT_JSON_OBJECT,
+    RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
+)
 
 # --- Generator config (§A.6 / D6 — service-owned, never wire-controlled) ---------------
 GENERATOR_PROVIDER = "openai"
@@ -31,12 +36,19 @@ GENERATOR_TEMPERATURE = 0.5
 GENERATOR_API_SURFACE = "chat_completions"
 GENERATOR_RESPONSE_FORMAT = RESPONSE_FORMAT_JSON_SCHEMA_STRICT
 GENERATOR_REASONING_EFFORT = "none"  # gpt-5.4-mini's accepted lowest (§A.6 point 2)
-GENERATOR_STORE_MODE = "none"  # G14 — no OpenAI-side retention; Mongo is the sole corpus
+GENERATOR_STORE_MODE = "none"  # G14 — distillation/evals storage disabled; Mongo is the corpus
+GENERATOR_PROMPT_CACHE_RETENTION = PROMPT_CACHE_RETENTION_IN_MEMORY
+OPENAI_TIMEOUT_SECONDS = 30.0
+OPENAI_MAX_RETRIES = 0
 
 GENERATOR_API_SURFACES = frozenset({"chat_completions"})
 GENERATOR_RESPONSE_FORMATS = frozenset({RESPONSE_FORMAT_JSON_SCHEMA_STRICT, RESPONSE_FORMAT_JSON_OBJECT})
 GENERATOR_REASONING_EFFORTS = frozenset({"none"})
 GENERATOR_STORE_MODES = frozenset({"none"})
+# M5's privacy posture is explicit in-memory prompt caching only. Extended 24h cache
+# retention would be a future, versioned corpus/provenance decision, not a deploy-time
+# config option.
+GENERATOR_PROMPT_CACHE_RETENTIONS = frozenset({PROMPT_CACHE_RETENTION_IN_MEMORY})
 
 # Ask-sized output cap (§A.6 point 3 — NEVER a flat 900 against a 40-outfit ask): sized to
 # hold the DAILY_MAX_CANDIDATES=12 ask at ~130–170 output tokens/outfit + headroom. The
@@ -120,6 +132,21 @@ def validate_static_config() -> Optional[str]:
         return "GENERATOR_REASONING_EFFORT is not sanctioned"
     if GENERATOR_STORE_MODE not in GENERATOR_STORE_MODES:
         return "GENERATOR_STORE_MODE is not sanctioned"
+    if GENERATOR_PROMPT_CACHE_RETENTION not in GENERATOR_PROMPT_CACHE_RETENTIONS:
+        return "GENERATOR_PROMPT_CACHE_RETENTION is not sanctioned"
+    if (
+        isinstance(OPENAI_TIMEOUT_SECONDS, bool)
+        or not isinstance(OPENAI_TIMEOUT_SECONDS, (int, float))
+        or not math.isfinite(float(OPENAI_TIMEOUT_SECONDS))
+        or float(OPENAI_TIMEOUT_SECONDS) <= 0
+    ):
+        return "OPENAI_TIMEOUT_SECONDS must be a finite positive number"
+    if (
+        isinstance(OPENAI_MAX_RETRIES, bool)
+        or not isinstance(OPENAI_MAX_RETRIES, int)
+        or OPENAI_MAX_RETRIES < 0
+    ):
+        return "OPENAI_MAX_RETRIES must be a non-negative int"
     if not (
         MIN_COMPLETION_TOKENS_FLOOR
         <= DEFAULT_MAX_COMPLETION_TOKENS

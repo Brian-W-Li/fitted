@@ -918,7 +918,7 @@ class GenerationAttemptTrace:
     is_repair: bool
     parse_issue: Optional[IssueCode]
     payload_parsed: bool
-    # §A.6 point 4: the generator's finish/refusal metadata for THIS attempt (None for
+    # §A.6 point 5: the generator's finish/refusal metadata for THIS attempt (None for
     # generators that don't expose it — stubs/replays). The C3 service reads it to route a
     # refused/cap-truncated run to the §D degenerate corpus with the status recorded in
     # `generationAttempts[]`, never a silent empty.
@@ -967,7 +967,7 @@ def _generate_and_parse_with_trace(
     Mirrors the closed ``_generate_and_parse`` exactly (one §12 invalidJson repair) but records the
     raw generation string of every attempt instead of discarding it. The closed function is untouched.
 
-    Each attempt also captures the generator's ``last_finish_status`` (§A.6 point 4) — the
+    Each attempt also captures the generator's ``last_finish_status`` (§A.6 point 5) — the
     ``OpenAIGenerator`` sets it per call; generators without the attribute (stubs/replays)
     yield ``None``. Read immediately after each ``generate()`` so a repair retry's status
     never overwrites the first attempt's.

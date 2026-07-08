@@ -258,7 +258,7 @@ def test_rescue_ask_keeps_its_own_override_above_the_daily_ceiling():
 
 
 def test_traced_attempts_capture_generator_finish_status_when_exposed():
-    # §A.6 point 4 plumbing: a generator exposing `last_finish_status` (the real
+    # §A.6 point 5 plumbing: a generator exposing `last_finish_status` (the real
     # OpenAIGenerator) has it captured per attempt; plain stubs yield None.
     wardrobe = [_item("t1", ItemType.top), _item("b1", ItemType.bottom)]
     request = _daily_request(wardrobe)

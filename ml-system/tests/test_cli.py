@@ -95,6 +95,20 @@ def test_factory_real_path_builds_openai_generator_without_calling_it():
     assert generator._model == "gpt-4o-mini"  # model is configurable (C6 A/B lever)
     assert generator._temperature == 0.3  # temperature is configurable
     assert generator._max_completion_tokens == 512
+    assert generator._reasoning_effort is None  # non-GPT-5 manual reruns omit GPT-5-only params
+    assert generator._response_format == "json_object"
+    assert generator._prompt_cache_retention is None
+
+
+def test_factory_real_path_keeps_m5_surface_for_gpt5_default():
+    case = cli.load_corpus_case(GREEN)
+    args = cli._build_parser().parse_args(["--closet", GREEN])
+    generator = cli._make_generator_factory(args, case)()
+    assert isinstance(generator, OpenAIGenerator)
+    assert generator._model == "gpt-5.4-mini"
+    assert generator._reasoning_effort == "none"
+    assert generator._response_format == "json_schema_strict"
+    assert generator._prompt_cache_retention == "in_memory"
 
 
 def test_factory_dry_run_path_builds_replay_generator():

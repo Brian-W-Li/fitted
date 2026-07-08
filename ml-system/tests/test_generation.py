@@ -12,7 +12,10 @@ import types
 import pytest
 
 from fitted_core.generation import (
+    DEFAULT_OPENAI_MAX_RETRIES,
+    DEFAULT_OPENAI_TIMEOUT_SECONDS,
     OUTFITS_ENVELOPE_SCHEMA,
+    PROMPT_CACHE_RETENTION_IN_MEMORY,
     RESPONSE_FORMAT_JSON_OBJECT,
     RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
     FinishStatus,
@@ -113,8 +116,9 @@ def _install_fake_openai(
         completions = _Completions()
 
     class _OpenAI:
-        def __init__(self, api_key=None):
-            captured["api_key"] = api_key
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = dict(kwargs)
+            captured["api_key"] = kwargs.get("api_key")
             self.chat = _Chat()
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
@@ -128,6 +132,8 @@ def test_openai_generator_sends_m5_defaults_and_max_completion_tokens(monkeypatc
     assert generator.generate(_prompt()) == '{"outfits":[]}'
 
     assert captured["api_key"] == "k"
+    assert captured["client_kwargs"]["timeout"] == DEFAULT_OPENAI_TIMEOUT_SECONDS
+    assert captured["client_kwargs"]["max_retries"] == DEFAULT_OPENAI_MAX_RETRIES
     assert captured["model"] == "gpt-5.4-mini"
     assert captured["temperature"] == 0.5
     assert captured["max_completion_tokens"] == 512
@@ -142,10 +148,11 @@ def test_openai_generator_sends_m5_defaults_and_max_completion_tokens(monkeypatc
 # --- §A.6 generator API contract (m5-cutover.md §A.6 / D6) ---
 
 
-def test_openai_generator_sends_a6_surface_reasoning_store_and_strict_schema(monkeypatch):
+def test_openai_generator_sends_a6_surface_reasoning_store_cache_and_strict_schema(monkeypatch):
     # The §A.6 mandatory surface: explicit lowest reasoning_effort ("none" — verified
-    # accepted on gpt-5.4-mini by the H26 judge), store:false (G14 — no OpenAI-side
-    # retention), and strict json_schema Structured Outputs as the default response format.
+    # accepted on gpt-5.4-mini by the H26 judge), store:false (no distillation/evals
+    # storage), explicit prompt_cache_retention (the separate prompt-cache policy), and
+    # strict json_schema Structured Outputs as the default response format.
     captured: dict = {}
     _install_fake_openai(monkeypatch, captured)
 
@@ -154,6 +161,7 @@ def test_openai_generator_sends_a6_surface_reasoning_store_and_strict_schema(mon
 
     assert captured["reasoning_effort"] == "none"
     assert captured["store"] is False
+    assert captured["prompt_cache_retention"] == PROMPT_CACHE_RETENTION_IN_MEMORY
     assert captured["response_format"] == {
         "type": "json_schema",
         "json_schema": {
@@ -193,6 +201,52 @@ def test_openai_generator_none_reasoning_effort_param_can_be_omitted(monkeypatch
     assert "reasoning_effort" not in captured
 
 
+def test_openai_generator_none_prompt_cache_retention_param_can_be_omitted(monkeypatch):
+    # Historical/model-specific reruns can omit the prompt-cache param explicitly; M5 default
+    # sends it so provider-side cache retention never depends on org policy defaults.
+    captured: dict = {}
+    _install_fake_openai(monkeypatch, captured)
+
+    generator = OpenAIGenerator(api_key="k", prompt_cache_retention=None)
+    generator.generate(_prompt())
+
+    assert "prompt_cache_retention" not in captured
+
+
+def test_openai_generator_rejects_unknown_prompt_cache_retention():
+    with pytest.raises(ValueError, match="prompt_cache_retention"):
+        OpenAIGenerator(prompt_cache_retention="forever")
+
+
+def test_openai_generator_can_omit_timeout_and_retry_overrides(monkeypatch):
+    # The M5 service default is bounded, but historical/manual runs may opt back into SDK
+    # defaults explicitly. The service config never does this.
+    captured: dict = {}
+    _install_fake_openai(monkeypatch, captured)
+
+    generator = OpenAIGenerator(api_key="k", timeout_seconds=None, max_retries=None)
+    generator.generate(_prompt())
+
+    assert "timeout" not in captured["client_kwargs"]
+    assert "max_retries" not in captured["client_kwargs"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"timeout_seconds": 0}, "timeout_seconds"),
+        ({"timeout_seconds": float("nan")}, "timeout_seconds"),
+        ({"timeout_seconds": float("inf")}, "timeout_seconds"),
+        ({"timeout_seconds": True}, "timeout_seconds"),
+        ({"max_retries": -1}, "max_retries"),
+        ({"max_retries": 0.5}, "max_retries"),
+    ],
+)
+def test_openai_generator_rejects_bad_timeout_retry_options(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        OpenAIGenerator(**kwargs)
+
+
 def test_openai_generator_surfaces_finish_status_on_success(monkeypatch):
     captured: dict = {}
     _install_fake_openai(monkeypatch, captured, finish_reason="stop", refusal=None)
@@ -206,7 +260,7 @@ def test_openai_generator_surfaces_finish_status_on_success(monkeypatch):
 
 def test_openai_generator_surfaces_refusal_instead_of_discarding_it(monkeypatch):
     # A refusal leaves message.content None: generate() returns "" (parse-fails downstream)
-    # but the refusal text is surfaced — the §A.6 point-4 trigger the C3 service routes to
+    # but the refusal text is surfaced — the §A.6 point-5 trigger the C3 service routes to
     # the §D degenerate corpus. Discarding it (the pre-hardening behavior) is the mutant.
     captured: dict = {}
     _install_fake_openai(
@@ -221,7 +275,7 @@ def test_openai_generator_surfaces_refusal_instead_of_discarding_it(monkeypatch)
 
 
 def test_openai_generator_surfaces_cap_truncation_finish_reason(monkeypatch):
-    # finish_reason=="length" is the cap-truncation marker (§A.6 point 4): the partial text
+    # finish_reason=="length" is the cap-truncation marker (§A.6 point 5): the partial text
     # still returns (the repair path may run), but the status must be visible to the service.
     captured: dict = {}
     _install_fake_openai(
@@ -246,7 +300,7 @@ def test_openai_generator_handles_empty_choices_without_crashing(monkeypatch):
         completions = _Completions()
 
     class _OpenAI:
-        def __init__(self, api_key=None):
+        def __init__(self, **kwargs):
             self.chat = _Chat()
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
@@ -272,7 +326,7 @@ def test_openai_generator_usage_telemetry_is_not_on_the_generation_critical_path
         completions = _Completions()
 
     class _OpenAI:
-        def __init__(self, api_key=None):
+        def __init__(self, **kwargs):
             self.chat = _Chat()
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
@@ -304,7 +358,7 @@ def test_openai_generator_clears_stale_status_when_sdk_call_raises(monkeypatch):
         completions = _Completions()
 
     class _OpenAI:
-        def __init__(self, api_key=None):
+        def __init__(self, **kwargs):
             self.chat = _Chat()
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))

@@ -56,7 +56,7 @@ migrated.
 | **D3** | Engine-failure fallback | **Snapshot iff a valid engine payload reached the Next writer.** Engine-internal failures → the **service** degrades to a degenerate payload (§D — provenance is derivable from request + module constants, so it is satisfiable even pre-generation). No payload → **no snapshot** + graceful non-bindable response + availability counter. No nullable / unavailable-provenance widening; the only additive schema changes are the explicit §G/§I fields. | H12 |
 | **D4** | Trust-boundary gates | **Close all §19 gates** (backend + client-side). | §19, H11 |
 | **D5** | Service architecture | **Stateless pure-function service.** Next fetches all inputs from Mongo, passes them in; the service runs the pure pipeline + reducers, returns the payload; **Next allocates `snapshotId`, validates, owns all writes.** The **service holds `OPENAI_API_KEY`**; Next stops needing it **once the legacy vertical is deleted at C8** (until then the flag-off legacy arm still calls OpenAI in Next). Because the key lives service-side, the **independent spend bounds live service-side too** (§A). | H58 |
-| **D6** | Generator params + **API contract** | `gpt-5.4-mini`; the full API surface is pinned in **§A.6** and **landed at C1**: Chat Completions + strict `json_schema` Structured Outputs (default), `reasoning_effort="none"`, `store:false`, `max_completion_tokens` (never `max_tokens`), refusal/truncation surfaced → the §D degenerate corpus; temperature is **not** hard-depended-on (§A.6 point 5). **Service-owned config** (§A): the service authors provenance from its own config; the wire `generator` object is an exact-match-validated **expectation**, never control — mismatch → `contract_invalid`, never clamped. The cap + full API-surface provenance are recorded in the `generator` block (§G/§A.6). | H55, H60 |
+| **D6** | Generator params + **API contract** | `gpt-5.4-mini`; the full API surface is pinned in **§A.6** and **landed at C1/C3**: Chat Completions + strict `json_schema` Structured Outputs (default), `reasoning_effort="none"`, `store:false`, `prompt_cache_retention="in_memory"`, `timeout=30s`, `max_retries=0`, `max_completion_tokens` (never `max_tokens`), refusal/truncation surfaced → the §D degenerate corpus; temperature is **not** hard-depended-on (§A.6 point 7). **Service-owned config** (§A): the service authors provenance from its own config; the wire `generator` object is an exact-match-validated **expectation**, never control — mismatch → `contract_invalid`, never clamped. The cap + full API-surface provenance are recorded in the `generator` block (§G/§A.6). | H55, H60 |
 | **D7** | Scorer-seam hook | **Land it at M5** (ambition-forward), in two honest moves: declare the `OutfitScorer` type, and **exercise it in the snapshot producer** (`build_snapshot_payload`, which has items via `trace.prompt_pool`) to populate `scoreTrace.compatibility/visibility` for **every scored candidate** (unifies **H48**); first occupant = the existing cold-start `compatibility`/`visibility`. **The ranker is untouched → M3 byte-identical.** The rank-**order** hook (a precomputed per-candidate signal on `RankerContext`, preserving item-blindness) is **reserved for M6** (§E) — cold-start compat must not reorder the shipped ranker. The H48-headline store-vs-recover call is **decided: store (option (a))** — see §E for the corrected recoverability rationale. | H28, H48 |
 
 ## Success criteria (verifiable)
@@ -109,7 +109,7 @@ migrated.
   end-to-end in at least one mode (legacy flag-off through C5; new-contract flag-on from C6); the flag
   flips only after the UI speaks the new contract.
 - Legacy vertical removed; no dead paths behind the flag. Cross-runtime CI (H13) green.
-- Suite floors grow (current after the C1+C2 reconciliation: **core 833 / h26 305+1skip / jest 387** —
+- Suite floors grow (current after the C1-C3 hardening: **ml-system 952 / h26 305+1skip / jest 388** —
   floors, not pins).
 
 ## A. Service architecture + wire contract (D5 / H58)
@@ -207,17 +207,19 @@ the cache-kill rewrite (Verification). The added Mongo write latency is negligib
   well-formed — `OPENAI_API_KEY` **exists** (never logged/returned), both service keys
   (`SERVICE_KEY_CURRENT`, and `SERVICE_KEY_NEXT` if set), the generator allowlist (`{"gpt-5.4-mini"}`), the
   token cap `M5_MAX_COMPLETION_TOKENS` (a positive int) + `DAILY_MAX_CANDIDATES`, the §A.6
-  API surface / `reasoningEffort` / `responseFormat` / `storeMode`; (3) the version constants resolve (`fitted_core_version`,
+  API surface / `reasoningEffort` / `responseFormat` / `storeMode` / `promptCacheRetention` /
+  `timeoutSeconds` / `maxRetries`; (3) the version constants resolve (`fitted_core_version`,
   `prompt_version`, `ranker_config_version`, `reducer_config_version`). Returns `200 {"ready":true,
   "versions":{…}}` or `503 {"ready":false,"reason":"<which check>"}` — **the body never contains secret
   values**, only presence booleans. Wire it as the **Fly `[[http_service.checks]]` health check** so a
   mis-configured machine never takes traffic, and assert it green in the **C8 pre-flip** checklist. A
   `GET /healthz` liveness (process-up, no config assertions) is optional; `/readyz` is the load-bearing one.
 
-### A.6 Generator API contract (D6 — **LANDED in `generation.py` at the C1 reconciliation, 2026-07-07**)
+### A.6 Generator API contract (D6 — **LANDED across `generation.py` + C3 service config, 2026-07-07**)
 
 The full OpenAI call surface is pinned — API surface, structured-output mode, reasoning effort,
-storage mode, and refusal/truncation handling all change spend, parse-fail rate, and corpus shape.
+storage/cache modes, timeout/retry policy, and refusal/truncation handling all change spend, parse-fail rate,
+and corpus shape.
 Grounded in the official OpenAI docs (Responses/Structured-Outputs/Reasoning guides, read 2026-07-07).
 
 **Decision (recorded in provenance):**
@@ -268,7 +270,26 @@ Grounded in the official OpenAI docs (Responses/Structured-Outputs/Reasoning gui
    **before C5** (the pre-C5 gate below — lower the ceiling or raise the cap until it fits). *Trap-guard:*
    H40's mechanical read ran **uncapped** (`--max-completion-tokens` unset → `None`), so "the H40 numbers
    stay valid" does **not** extend to any cap value — the pair must be validated together.
-4. **Refusal + truncation are engine failures on a *valid* request → the §D degenerate corpus, never a silent
+4. **OpenAI storage/cache surfaces are pinned separately — LANDED.** `store:false` disables storage of the
+   completion output for OpenAI distillation/evals products; it is **not** the whole retention contract.
+   Chat Completions also exposes `prompt_cache_retention`, whose default depends on the org's data-retention
+   policy (official docs, re-read 2026-07-07). M5 therefore sends
+   `prompt_cache_retention:"in_memory"` explicitly and records `promptCacheRetention:"in_memory"` in the
+   generator block. Trap-guard: never restate `store:false` as "no OpenAI-side retention" by itself; the
+   correct claim is **no distillation/evals storage plus no extended 24h prompt-cache retention**. If the
+   model/API ever rejects `in_memory`, the pre-C5 live surface gate must either block the flip or make a
+   versioned spec/schema/provenance change; the M5 service allowlist rejects `24h`.
+5. **OpenAI SDK timeout/retry policy is bounded — LANDED.** The official Python SDK defaults are not safe for
+   the M5 service envelope: requests time out after **10 minutes** by default and connection/408/409/429/5xx
+   errors are retried **twice** by default. M5 sets `timeout=30.0` and `max_retries=0` on the OpenAI client so
+   one live render cannot outlive the C5 Next timeout by minutes or perform hidden SDK retries after Next has
+   already degraded. The values are service-owned constants (`OPENAI_TIMEOUT_SECONDS`,
+   `OPENAI_MAX_RETRIES`), `/readyz` rejects malformed constants, and every snapshot records
+   `timeoutSeconds` + `maxRetries` in `generator{}`. The service readiness gate rejects non-finite/<=0
+   timeouts. The pre-C5 live surface gate may raise/lower the timeout
+   with measured evidence, but must keep it below the eventual `SERVICE_TIMEOUT_MS` envelope and update
+   provenance/tests in the same change.
+6. **Refusal + truncation are engine failures on a *valid* request → the §D degenerate corpus, never a silent
    empty and never a crash, and never the `contract_invalid` envelope** (the request was valid; a paid-but-no-JSON
    outcome is exactly §D's "internal engine failure on a valid request"). Detection, per surface:
    Chat Completions → `choices[0].finish_reason == "length"` (truncated) and non-null `message.refusal`;
@@ -286,16 +307,18 @@ Grounded in the official OpenAI docs (Responses/Structured-Outputs/Reasoning gui
    dispatch. **Usage telemetry is observational only:** `OpenAIGenerator.last_usage` feeds eval/cost
    reports, never render success; missing/partial SDK usage data leaves `last_usage=None` and must not raise
    after a paid response has valid content/finish status.
-5. **Temperature is not load-bearing.** The general GPT-5 reasoning-model rule restricts `temperature` to the
+7. **Temperature is not load-bearing.** The general GPT-5 reasoning-model rule restricts `temperature` to the
    default (1); the repo's own 2026-06-28 smoke test showed `gpt-5.4-mini` accepted `temperature=0.5`. Official
-   docs are silent, so **do not build a hard dependency**: if the model rejects a non-default temperature the
-   service uses the model default and D6's exact-match target becomes "the configured value the model accepts"
-   (re-verified at wire time) — the build never fails on a rejected temperature. Re-roll novelty rides the
+   docs are silent, so **do not build a hard dependency**: the pre-C5 live surface gate must prove the
+   configured `temperature=0.5` is still accepted by `gpt-5.4-mini`; if it is rejected, update the service
+   config/tests/provenance to the model default before any live write. Re-roll novelty rides the
    sampler/repetition/cooldown layer + whatever sampling the model allows (§C), not a specific temperature.
 
 **Provenance (extends the §G `generator` subschema):** every write records `apiSurface`
 (`"chat_completions" | "responses"`), `responseFormat` (`"json_schema_strict" | "json_object"`),
-`reasoningEffort` (string), `storeMode` (`"none"` — G14, OpenAI-side retention off), the output-cap
+`reasoningEffort` (string), `storeMode` (`"none"` — no distillation/evals storage),
+`promptCacheRetention` (`"in_memory"` today — no extended 24h prompt-cache retention),
+`timeoutSeconds` + `maxRetries`, the output-cap
 **name + value** (`maxCompletionTokens` today; `maxOutputTokens`
 if Responses), and the run's **finish status** (`finishReason`/`status` + any `incompleteReason`/`refusal`
 flag) — so M6 can stratify by generation surface and the boundary has a durable record of paid-but-degenerate
@@ -950,7 +973,8 @@ shape, one predictable error channel; **validate-or-log-and-skip, never let Mong
 
 Six concrete schema changes — **four new fields/field-groups** (`parentSnapshotId`, `engineFailure`,
 `controls`, and the **generator-provenance additions** — item #6: `maxCompletionTokens` +
-`apiSurface`/`responseFormat`/`reasoningEffort`/`finishStatus`, §A.6), **one existing-field tightening**
+`apiSurface`/`responseFormat`/`reasoningEffort`/`storeMode`/`promptCacheRetention`/
+`timeoutSeconds`/`maxRetries`/`finishStatus`, §A.6), **one existing-field tightening**
 (item #2, `requestId`, which exists today as optional/unvalidated **and becomes `required`** — §C.4/F7),
 and **one delete guard** (item #3, middleware, not a field); the model is otherwise
 M4b-complete:
@@ -1056,7 +1080,10 @@ maxCompletionTokens: { type: Number, required: true }, // cap VALUE; `maxOutputT
 apiSurface: { type: String, enum: ["chat_completions", "responses"], required: true },
 responseFormat: { type: String, enum: ["json_schema_strict", "json_object"], required: true },
 reasoningEffort: { type: String, required: true }, // e.g. "none"/"minimal" (§A.6)
-storeMode: { type: String, enum: ["none"], default: "none", required: true }, // G14 — OpenAI-side retention off; Mongo is the sole corpus
+storeMode: { type: String, enum: ["none"], default: "none", required: true }, // G14 — no OpenAI distillation/evals storage
+promptCacheRetention: { type: String, enum: ["in_memory"], required: true }, // §A.6 — M5 rejects extended 24h prompt-cache retention
+timeoutSeconds: { type: Number, required: true }, // §A.6 — OpenAI SDK timeout; bounds service spend/latency
+maxRetries: { type: Number, required: true }, // §A.6 — OpenAI SDK retries; 0 for M5 live render
 // finish status of the run (truncation/refusal detection, §A.6/§D) — optional (a clean run leaves it unset):
 finishStatus: {
   type: new Schema(
@@ -1109,7 +1136,7 @@ of gap fails silently.
 |---|---|
 | **Python payload — existing** (verified `snapshot.py:135-165`) | `sessionId`, `candidateCacheKey`, `generationIndex`, `intent`, `occasion`, `weather`, `forcedItemId`, `wardrobeVersion`, `seedDate`, `fittedCoreVersion`, `generator{}`, `rankerConfigVersion`, `scorer{}`, `itemSnapshots[]`, `generationAttempts[]`, `candidates[]`, `diagnostics{}`, `shownCandidateIds`, `shownFullSignatures`, `nSurfaced`, `spreadCollapsed` |
 | **Python payload — GAINS at C3** (echo-through of the wire request, so the payload stays the single validated artifact; lands with the serde mappings because `build_degenerate_payload` needs them) | `requestId`, `parentSnapshotId`, `weatherRaw`, `location`, `constraints` — plus `diagnostics.engineFailure` (§D). **M5 invariant:** `constraints` is always `{}`; non-empty constraints are rejected rather than stored as inert provenance. **Mechanism:** caller-supplied kwargs on `build_snapshot_payload`/`build_degenerate_payload` (the existing `candidate_cache_key` pattern — "supplied by the caller, M5 knows them", verified `snapshot.py:495+`); `RenderRequest` stays the pure engine request, no HTTP-layer fields |
-| **Python payload — GAINS at C4** (authored from `RenderRequest` — engine input, not HTTP echo: locks/dislikes shape the pool, prompt, and Step-4 filter) | `controls{lockedItemIds, dislikedItemIds}` (empty arrays on non-regen renders). (the **generator provenance block** — `generator.maxCompletionTokens` + `apiSurface`/`responseFormat`/`reasoningEffort`/`finishStatus`, §A.6 — lands at **C3**; the service authors the whole generator block from its own config + the run's finish status, from its first payload) |
+| **Python payload — GAINS at C4** (authored from `RenderRequest` — engine input, not HTTP echo: locks/dislikes shape the pool, prompt, and Step-4 filter) | `controls{lockedItemIds, dislikedItemIds}` (empty arrays on non-regen renders). (the **generator provenance block** — `generator.maxCompletionTokens` + `apiSurface`/`responseFormat`/`reasoningEffort`/`storeMode`/`promptCacheRetention`/`timeoutSeconds`/`maxRetries`/`finishStatus`, §A.6 — lands at **C3**; the service authors the whole generator block from its own config + the run's finish status, from its first payload) |
 | **TS merge adds — exactly four** | `_id` (= pre-allocated `snapshotId`), `user` (ObjectId), `interactionCountAtRequest`, per-item `evidence{}` |
 | **Absent on M5 writes** (nullable B-track fields, no writer yet) | `baseOutfitItemIds`, `routineId`, `lens{}` (styleProfile block) |
 
@@ -1138,7 +1165,7 @@ of gap fails silently.
     equals the **`normalizedControls`** Next/service used to shape generation (§C.3 F6 — not a raw echo).
   - **`generator{}` provenance block** equals Next's known service expectation field-for-field — `model` ∈
     allowlist, `temperature`, `maxCompletionTokens`, `apiSurface`, `responseFormat`, `reasoningEffort`,
-    `storeMode` — so a service that authored a *different* generator block than it validated on the wire is
+    `storeMode`, `promptCacheRetention`, `timeoutSeconds`, `maxRetries` — so a service that authored a *different* generator block than it validated on the wire is
     caught (the §A exact-match validates the wire expectation; this validates the *persisted provenance*).
   - **`candidateCacheKey`** cannot be recomputed in TS (it is a Python `seed.py` sha256 over the canonical
     Lens fields, §C.1) — so the helper validates it **structurally** (64-char lowercase hex, non-empty) AND,
@@ -1171,7 +1198,8 @@ concurrent same-`{user,requestId}` `.create()`s yield one document + a caught `E
 back carries every §G.1 echo-through field** (`requestId`, `parentSnapshotId` on re-rolls, `weatherRaw`/
 `location`, and `constraints:{}`), **`controls` present on every write (empty arrays on a first render,
 populated + matching the `normalizedControls` that shaped generation on a regen child),
-`generator.maxCompletionTokens` + `apiSurface`/`responseFormat`/`reasoningEffort` (§A.6)
+`generator.maxCompletionTokens` + `apiSurface`/`responseFormat`/`reasoningEffort`/`storeMode`/
+`promptCacheRetention`/`timeoutSeconds`/`maxRetries` (§A.6; `finishStatus` when abnormal)
 on every write, and `diagnostics.engineFailure` on a degenerate write**.
 
 ## H. Reducers (H19 repetition-window; H11 feedback-dedup; the behavioral projections)
@@ -1339,12 +1367,14 @@ legacy deletion)** per CLAUDE.md.
 
 > **✅ C1+C2 COMPLETE, including the 2026-07-07 reopening against this hardened spec.** The original build
 > (commits `b2877b85`+`2ef165c6`) plus the reconciliation pass landed: the `DAILY_MAX_CANDIDATES=12` daily
-> ask ceiling (§A.6 point 3), the full §A.6 generator surface (strict `json_schema` default,
-> `reasoning_effort="none"`, `store:false`, `max_completion_tokens`, finish/refusal surfaced via
-> `FinishStatus` → `GenerationAttemptTrace.finish_status`), and the empirical mutant checks on both daily
-> call sites. **✅ C3 COMPLETE (2026-07-07, incl. two post-review fix rounds: blank-imageUrl
-> acceptance + the fly.toml deploy-context pin; the §D assembly-failure degenerate arm + the
-> token-cap hard ceiling + the digest-pinned base image).** Suite floor: **917 pytest** (`pytest
+> ask ceiling (§A.6 point 3), the C1 generator core (`strict json_schema` default,
+> `reasoning_effort="none"`, `store:false`, `prompt_cache_retention="in_memory"`,
+> `max_completion_tokens`, finish/refusal surfaced via `FinishStatus` →
+> `GenerationAttemptTrace.finish_status`), and the empirical mutant checks on both daily
+> call sites. **✅ C3 COMPLETE (2026-07-07, incl. post-review hardening rounds: service-owned
+> `timeout=30s`/`max_retries=0` provenance, blank-imageUrl acceptance + the fly.toml deploy-context pin;
+> the §D assembly-failure degenerate arm + the token-cap hard ceiling/floor + the digest-pinned base image +
+> explicit service prompt-cache/readiness gates).** Suite floor: **952 pytest** (`pytest
 > tests service/tests`). Next checkpoint: **C4**.
 
 **Ladder sequencing invariant (trap-guard — the second-eval High finding, recalibrated for no legacy
@@ -1360,9 +1390,11 @@ contract only; legacy code is rollback/reference scaffolding until C8 deletion, 
 (`rescue.py`; injection params `signal_scorer=`/`behavioral_signals=` default cold — goldens
 byte-identical); the daily prompt builders + the pre-GPT `not_enough_items` short-circuit (§B); the
 intent-generic StyleMove drop split (§B taxonomy: daily `dropStage="render"`/`dropReason="stylemove_invalid"`,
-rescue codes unchanged); `build_snapshot_payload` intent parameterization (`snapshot.py`); the full §A.6
-generator surface in `generation.py` (strict-schema default, `reasoning_effort="none"`, `store:false`,
-`max_completion_tokens`, `FinishStatus` surfacing); and **`DAILY_MAX_CANDIDATES=12`** (`config.py`) applied
+rescue codes unchanged); `build_snapshot_payload` intent parameterization (`snapshot.py`); the C1 §A.6
+generator core in `generation.py` (strict-schema default, `reasoning_effort="none"`, `store:false`,
+`prompt_cache_retention="in_memory"`, `max_completion_tokens`, `FinishStatus` surfacing; C3 service config
+constructs the live generator with bounded SDK `timeout`/`max_retries` and records them in provenance);
+and **`DAILY_MAX_CANDIDATES=12`** (`config.py`) applied
 via `_daily_candidate_requested` in **both** daily paths — hermetic tests inspect
 `GenerationPrompt.candidate_requested` (no API call) and both single-call-site revert mutants were run
 empirically and fail the suite. *(The **empirical** token-budget validation on real `gpt-5.4-mini` — a
@@ -1440,7 +1472,8 @@ candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all insi
   ready-but-unusable with a cap every real render truncates under; the pre-C5 empirical gate re-tunes
   default + floor together. `/readyz` also gates the code-owned §A.6 surface constants
   (`GENERATOR_API_SURFACE`/`GENERATOR_RESPONSE_FORMAT`/`GENERATOR_REASONING_EFFORT`/
-  `GENERATOR_STORE_MODE`), so a deploy cannot pass health while writing false generator provenance. The Docker base is
+  `GENERATOR_STORE_MODE`/`GENERATOR_PROMPT_CACHE_RETENTION` **=`"in_memory"` only**/`OPENAI_TIMEOUT_SECONDS`/
+  `OPENAI_MAX_RETRIES`), so a deploy cannot pass health while writing false generator provenance. The Docker base is
   pinned to a patch tag + index digest (`python:3.12.12-slim@sha256:…`), not a mutable minor tag.
 - **⚠ C5 schema ripple (trap-guard):** the TS `GenerationAttemptSchema` has NO `finishStatus` path —
   strict mode would silently strip the §A.6 per-attempt finish/refusal provenance the payload now
@@ -1451,7 +1484,8 @@ candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all insi
 `snapshot.py` + `snapshot_serde.py` (**the §G.1 payload gains: `DiagnosticsPayload.engine_failure` +
 the five echo-through kwargs (`request_id`, `parent_snapshot_id`, `weather_raw`, `location`,
 `constraints`, plus the §A.6 generator provenance from the service's own config —
-`generator.max_completion_tokens` + `api_surface`/`response_format`/`reasoning_effort`/`finish_status`, §G)
+`generator.max_completion_tokens` + `api_surface`/`response_format`/`reasoning_effort`/
+`store_mode`/`prompt_cache_retention`/`timeout_seconds`/`max_retries`/`finish_status`, §G)
 + their serde mappings incl. `_ID_KEYS += parent_snapshot_id` (the DATA-keyed
 `constraints` opaque-key is **already** in `snapshot_serde._OPAQUE_VALUE_KEYS` — C3 adds the payload field
 only, not the serde key) — the degenerate builder needs the full identity set, §D**); `seed.py`
@@ -1470,12 +1504,15 @@ exact versions (`==`, not `>=`; no `fastapi` — the landed service is minimal A
 SDK could silently change the §A.6 params
 (`max_completion_tokens`/`reasoning_effort`/refusal shape) under the plan; reproducible builds are
 load-bearing for a corpus-producing service. `fitted_core`'s own deps stay unchanged**;
-**OpenAI storage/state mode pinned (§A.6/G14): the Chat Completions call sets `store: false`
-(no OpenAI-side retention of prompt/completion — Mongo is the sole corpus; the call-side param **landed at
-C1**, `generation.py`); no `previous_response_id`, no
-conversation state, no OpenAI retrieval dependence (and if the Responses API is ever adopted, the same:
-stateless, `store:false`). The chosen storage mode is recorded in the `generator` provenance
-(`storeMode:"none"`)**; `OPENAI_API_KEY` server-side; `/render` calling `render_with_trace` +
+**OpenAI storage/cache/state mode pinned (§A.6/G14): the Chat Completions call sets `store: false`
+(no distillation/evals storage; **landed at C1**, `generation.py`) **and** sends
+`prompt_cache_retention:"in_memory"` (no extended 24h prompt-cache retention; landed in the C1/C3
+foundation hardening after the official-doc re-read); **the OpenAI SDK client sets `timeout=30.0` and
+`max_retries=0`** (bounded service latency/spend; official SDK defaults are 10 minutes + two retries).
+No `previous_response_id`, no conversation state,
+no OpenAI retrieval dependence (and if the Responses API is ever adopted, the same stateless posture must be
+pinned on that surface). The chosen modes are recorded in `generator`
+(`storeMode:"none"`, `promptCacheRetention:"in_memory"`, `timeoutSeconds:30.0`, `maxRetries:0`)**; `OPENAI_API_KEY` server-side; `/render` calling `render_with_trace` +
 `to_wire` + **the §A shown-identity zip (by `full_signature`, candidateId on every shown entry) + the
 §A `variant_to_wire()` outfit serializer**; **the §A.6 refusal/truncation-incomplete detection routing a
 paid-but-no-JSON run to the §D degenerate payload (recorded in `generationAttempts[]` with the finish
@@ -1498,7 +1535,7 @@ tests**); non-empty `lens.constraints` →
 `contract_invalid` before spend; **`GET /readyz` returns `200 {"ready":true}` with all config/keys/§A.6 surface constants/versions present and
 zero OpenAI spend, and `503` when a required env/config/static generator-surface constant is missing or unsanctioned, without ever returning a secret value
 (G9)**; a fake OpenAI client sees `max_completion_tokens`, **not** `max_tokens`, **the configured lowest-available
-`reasoning_effort`, `store:false`, and the structured-output mode (§A.6/G14)**; **a fake client returning a refusal or a
+`reasoning_effort`, `store:false`, `prompt_cache_retention`, bounded `timeout`/`max_retries`, and the structured-output mode (§A.6/G14)**; **a fake client returning a refusal or a
 cap-truncated/`incomplete` response → a degenerate payload + snapshot with the finish status recorded (§A.6/§D),
 never a silent empty and never `contract_invalid`**; **a duplicate-id wardrobe, a §7/R10 key-invalid wardrobe id,
 or another input-validation failure → `contract_invalid` with NO payload** (§D corpus purity — never a degenerate
@@ -1805,7 +1842,10 @@ code paths.
 - Leak `payload`/`candidates`/`rawEmitted`/`generationAttempts`/`diagnostics`/`generator`/`itemSnapshots` into the browser response or client state → the G15 negative-allowlist test must fail.
 - Skip the G16 forced-item availability preflight (spend a GPT call on a rescue re-roll whose forced item was deleted) → the `forced_item_unavailable` 409 / zero-generator-call test must fail.
 - Send an over-bound `occasion`/`wardrobe[]`/body/`controls` array (limit+1) and have it pass → the G7 boundary/over-bound clamp tests must fail.
-- Send `store:true` (or omit `store`) on the OpenAI call, or drop `storeMode` from provenance → the G14 storage-mode test must fail.
+- Send `store:true` (or omit `store`), omit/mis-set `prompt_cache_retention`, or drop
+  `storeMode`/`promptCacheRetention` from provenance → the G14 storage/cache-mode tests must fail.
+- Let the OpenAI SDK inherit its 10-minute default timeout or automatic retries, or drop
+  `timeoutSeconds`/`maxRetries` from provenance → the §A.6 timeout/retry tests must fail.
 - Take `generationIndex` (or the Lens) from the client on a re-roll, or skip the parent `{_id, user}` ownership re-read → the lineage-gate tests must fail (forged parent 404; ignored client index).
 - Drop `controls` from a regen child's payload/document, **omit `controls` on a first/non-regen render
   (must be `{lockedItemIds:[], dislikedItemIds:[]}`, not absent)**, **persist the raw client control arrays
@@ -1893,8 +1933,9 @@ code paths.
   tightenings** (`requestId` is UUIDv4/ULID live-write idempotency **and becomes schema-`required` — F7**;
   the §15.1 "once H7 closes" attribution
   corrected to **H50**; `generator.maxCompletionTokens` is
-  required provenance **plus the §A.6 API-surface provenance `apiSurface`/`responseFormat`/`reasoningEffort`/
-  `finishStatus` — F9**, scored candidates have non-null finite compat/vis when `scorer.available=true`);
+  required provenance **plus the §A.6 API-surface/storage-cache/timeout provenance
+  `apiSurface`/`responseFormat`/`reasoningEffort`/`storeMode`/`promptCacheRetention`/
+  `timeoutSeconds`/`maxRetries`/`finishStatus` — F9**, scored candidates have non-null finite compat/vis when `scorer.available=true`);
   **§12's generation contract + §9's Step-2 gain the §A.6 pin (F9): the real OpenAI surface is Chat
   Completions + strict `json_schema` structured output (fallback `json_object`), explicit lowest-available
   `reasoning_effort`, `max_completion_tokens` never `max_tokens`, refusal/cap-truncation → the §D degenerate

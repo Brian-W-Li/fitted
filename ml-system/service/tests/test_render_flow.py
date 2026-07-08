@@ -307,6 +307,9 @@ def test_payload_generator_block_is_authored_from_service_config_not_the_wire():
     assert generator["responseFormat"] == "json_schema_strict"
     assert generator["reasoningEffort"] == "none"
     assert generator["storeMode"] == "none"
+    assert generator["promptCacheRetention"] == "in_memory"
+    assert generator["timeoutSeconds"] == 30.0
+    assert generator["maxRetries"] == 0
     assert generator["promptVersion"]
     # And the exact-match half: a wire expectation that trails the config is rejected.
     status, response, stub = _render(render_body(), env=env)  # wire still says 2200

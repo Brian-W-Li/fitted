@@ -16,14 +16,17 @@
   "fittedCoreVersion": "0.5.0",
   "generator": {
     "provider": "openai",
-    "model": "gpt-4o",
-    "temperature": 0.8,
+    "model": "gpt-5.4-mini",
+    "temperature": 0.5,
     "promptVersion": "m5-c1.v1",
     "maxCompletionTokens": 2200,
     "apiSurface": "chat_completions",
     "responseFormat": "json_schema_strict",
     "reasoningEffort": "none",
-    "storeMode": "none"
+    "storeMode": "none",
+    "promptCacheRetention": "in_memory",
+    "timeoutSeconds": 30.0,
+    "maxRetries": 0
   },
   "rankerConfigVersion": "a2c36017516c092921b9247a1d06d4c96488343bdc07d8c334cadb05b1b40981",
   "scorer": {

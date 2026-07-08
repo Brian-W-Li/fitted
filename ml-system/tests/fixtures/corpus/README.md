@@ -4,9 +4,11 @@ Forced-item rescue cases that pressure-test the v2 pipeline end-to-end (spearhea
 Each `*.json` case is loaded by `fitted_core.evaluation.load_corpus_case` into a
 `RescueRequest` plus an optional canned generator response. They serve three roles:
 
-1. **Real-eval input** — `python -m fitted_core.cli --closet tests/fixtures/corpus/<case>.json`
-   runs the case through a real `OpenAIGenerator` (needs `OPENAI_API_KEY`) and prints the
-   mechanical metrics + a believability rubric template (H40).
+1. **Real-eval input** —
+   `python -m fitted_core.cli --closet tests/fixtures/corpus/<case>.json --model gpt-4o --temperature 0.8`
+   reproduces the historical H40 surface through a real `OpenAIGenerator` (needs `OPENAI_API_KEY`) and
+   prints the mechanical metrics + a believability rubric template. Omitting the model/temperature uses the
+   current M5 default instead.
 2. **Hermetic `--dry-run` / regression input** — cases with a `canned_response` replay it
    through a `ReplayGenerator` (no key, no network), so the harness + CLI are testable and
    the corpus doubles as the `StubGenerator` regression fixtures (§E "live findings flow

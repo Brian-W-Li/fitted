@@ -20,6 +20,7 @@ validation, or repair — those are the validator's (§13) and ``rescue()``'s jo
 Sources: docs/Fitted_Spec_v2.md §9/§12, docs/plans/spearhead.md §B/§D/§G.
 """
 
+import math
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol, Sequence, Union, runtime_checkable
 
@@ -108,10 +109,25 @@ _RESPONSE_FORMATS = frozenset(
     {RESPONSE_FORMAT_JSON_SCHEMA_STRICT, RESPONSE_FORMAT_JSON_OBJECT}
 )
 
+# `store:false` only disables storage for OpenAI's distillation/evals products; prompt-cache
+# retention is a separate Chat Completions surface. Pin it explicitly so the provider-side
+# cache mode never depends on org defaults, and record it in snapshot provenance.
+PROMPT_CACHE_RETENTION_IN_MEMORY = "in_memory"
+PROMPT_CACHE_RETENTION_24H = "24h"
+_PROMPT_CACHE_RETENTIONS = frozenset(
+    {PROMPT_CACHE_RETENTION_IN_MEMORY, PROMPT_CACHE_RETENTION_24H}
+)
+
+# The OpenAI Python SDK defaults are too broad for the M5 service boundary (10-minute
+# timeout and automatic retries). Keep the live render call bounded; C3 service config
+# owns the production values and records them in snapshot provenance.
+DEFAULT_OPENAI_TIMEOUT_SECONDS = 30.0
+DEFAULT_OPENAI_MAX_RETRIES = 0
+
 
 @dataclass(frozen=True)
 class FinishStatus:
-    """One call's finish/refusal metadata — never discarded (m5-cutover.md §A.6 point 4).
+    """One call's finish/refusal metadata — never discarded (m5-cutover.md §A.6 point 5).
 
     ``finish_reason`` is Chat Completions' ``choices[0].finish_reason`` (``"length"`` marks a
     cap-truncated run); ``refusal`` is the non-null ``message.refusal`` text on a model
@@ -158,8 +174,11 @@ class OpenAIGenerator:
       gpt-4o eval rerun, reject it).
     - The output cap is sent as **``max_completion_tokens``, never ``max_tokens``** (GPT-5.x
       hard-400s on the legacy name).
-    - **``store: False``** always (§A.6/G14 — no OpenAI-side retention; Mongo is the sole
-      corpus).
+    - **``store: False``** always (§A.6/G14 — disables storage for distillation/evals products).
+      **``prompt_cache_retention="in_memory"``** is also sent explicitly: prompt cache retention
+      is a separate API surface, and the default depends on the org's data-retention policy.
+    - **SDK timeout/retry policy is explicit**: the library defaults are too wide for a live
+      render service, so M5 pins a bounded timeout and disables SDK retries.
     - The run's **finish/refusal status is surfaced** on ``last_finish_status`` (a
       ``FinishStatus``), never discarded: refusal and cap-truncation are §D degenerate-corpus
       triggers the C3 service must see.
@@ -174,23 +193,48 @@ class OpenAIGenerator:
         max_completion_tokens: Optional[int] = None,
         reasoning_effort: Optional[str] = "none",
         response_format: str = RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
+        prompt_cache_retention: Optional[str] = PROMPT_CACHE_RETENTION_IN_MEMORY,
+        timeout_seconds: Optional[float] = DEFAULT_OPENAI_TIMEOUT_SECONDS,
+        max_retries: Optional[int] = DEFAULT_OPENAI_MAX_RETRIES,
     ) -> None:
         if response_format not in _RESPONSE_FORMATS:
             raise ValueError(
                 f"response_format must be one of {sorted(_RESPONSE_FORMATS)}, "
                 f"got {response_format!r}"
             )
+        if (
+            prompt_cache_retention is not None
+            and prompt_cache_retention not in _PROMPT_CACHE_RETENTIONS
+        ):
+            raise ValueError(
+                "prompt_cache_retention must be None or one of "
+                f"{sorted(_PROMPT_CACHE_RETENTIONS)}, got {prompt_cache_retention!r}"
+            )
+        if timeout_seconds is not None and (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(float(timeout_seconds))
+            or float(timeout_seconds) <= 0
+        ):
+            raise ValueError(f"timeout_seconds must be a finite positive number, got {timeout_seconds!r}")
+        if max_retries is not None and (
+            isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0
+        ):
+            raise ValueError(f"max_retries must be a non-negative int, got {max_retries!r}")
         self._model = model
         self._temperature = temperature
         self._api_key = api_key
         self._max_completion_tokens = max_completion_tokens
         self._reasoning_effort = reasoning_effort
         self._response_format = response_format
+        self._prompt_cache_retention = prompt_cache_retention
+        self._timeout_seconds = float(timeout_seconds) if timeout_seconds is not None else None
+        self._max_retries = max_retries
         # C6-eval telemetry only (observational): the token usage of the most recent call,
         # or None before any call / when the API omits it. Product code (`rescue()`) never
         # reads this; the eval harness's RecordingGenerator does, to report tokens/$ (§E).
         self.last_usage: Optional[dict] = None
-        # §A.6 point 4: the most recent call's finish/refusal metadata, or None before any
+        # §A.6 point 5: the most recent call's finish/refusal metadata, or None before any
         # call. The traced orchestrator (`_generate_and_parse_with_trace`) reads this after
         # each generate() so every GenerationAttemptTrace carries its finish status.
         self.last_finish_status: Optional[FinishStatus] = None
@@ -231,7 +275,14 @@ class OpenAIGenerator:
         # `openai` absent; only a real generation call needs the dependency + a key.
         from openai import OpenAI
 
-        client = OpenAI(api_key=self._api_key) if self._api_key else OpenAI()
+        client_kwargs: dict[str, object] = {}
+        if self._api_key:
+            client_kwargs["api_key"] = self._api_key
+        if self._timeout_seconds is not None:
+            client_kwargs["timeout"] = self._timeout_seconds
+        if self._max_retries is not None:
+            client_kwargs["max_retries"] = self._max_retries
+        client = OpenAI(**client_kwargs)
         kwargs: dict[str, object] = {
             "model": self._model,
             "temperature": self._temperature,
@@ -244,12 +295,14 @@ class OpenAIGenerator:
         }
         if self._reasoning_effort is not None:
             kwargs["reasoning_effort"] = self._reasoning_effort
+        if self._prompt_cache_retention is not None:
+            kwargs["prompt_cache_retention"] = self._prompt_cache_retention
         if self._max_completion_tokens is not None:
             kwargs["max_completion_tokens"] = self._max_completion_tokens
         response = client.chat.completions.create(**kwargs)
         # Capture usage for the C6 cost report (observational; does not alter the return).
         self.last_usage = self._usage_dict(getattr(response, "usage", None))
-        # §A.6 point 4: surface finish/refusal instead of discarding it. A refusal leaves
+        # §A.6 point 5: surface finish/refusal instead of discarding it. A refusal leaves
         # content None → "" is returned (parse-fails downstream), but the status is what
         # lets the C3 service route the run to the §D degenerate corpus with provenance.
         choices = getattr(response, "choices", None) or []

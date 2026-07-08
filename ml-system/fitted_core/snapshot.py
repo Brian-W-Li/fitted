@@ -25,7 +25,12 @@ from dataclasses import dataclass, field, replace
 from typing import Optional
 
 from fitted_core import PROMPT_VERSION, RANKER_CONFIG_VERSION, __version__
-from fitted_core.generation import RESPONSE_FORMAT_JSON_SCHEMA_STRICT
+from fitted_core.generation import (
+    DEFAULT_OPENAI_MAX_RETRIES,
+    DEFAULT_OPENAI_TIMEOUT_SECONDS,
+    PROMPT_CACHE_RETENTION_IN_MEMORY,
+    RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
+)
 from fitted_core.models import Role, SlotMap, WardrobeItem
 from fitted_core.rescue import RenderRequest, RenderTrace
 
@@ -103,7 +108,7 @@ class GenerationAttemptPayload:
     aggregate_warning_codes: tuple[str, ...] = ()
     candidate_count_emitted: int = 0
     raw_text: Optional[str] = None  # the snapshot writer applies the byte cap + hash + flag
-    # §A.6 point 4 (C3 routing half): the attempt's finish/refusal metadata as a plain wire
+    # §A.6 point 5 (C3 routing half): the attempt's finish/refusal metadata as a plain wire
     # dict {finish_reason, refusal} — a refused/cap-truncated attempt is money spent, so it is
     # recorded here, never a silent empty. None for generators that don't expose it (stubs).
     finish_status: Optional[dict] = None
@@ -540,7 +545,7 @@ def _finish_status_dict(finish_status) -> Optional[dict]:
 
 
 def abnormal_finish_status(trace: RenderTrace) -> Optional[dict]:
-    """The producing attempt's finish status IFF it marks a refusal/truncation (§A.6 point 4).
+    """The producing attempt's finish status IFF it marks a refusal/truncation (§A.6 point 5).
 
     The §G ``generator.finishStatus`` provenance is optional — a clean run leaves it unset —
     so this returns the last attempt's status only when it is abnormal: a non-null refusal, or
@@ -640,6 +645,9 @@ def build_snapshot_payload(
     generator_response_format: str = RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
     generator_reasoning_effort: str = "none",
     generator_store_mode: str = "none",
+    generator_prompt_cache_retention: str = PROMPT_CACHE_RETENTION_IN_MEMORY,
+    generator_timeout_seconds: Optional[float] = DEFAULT_OPENAI_TIMEOUT_SECONDS,
+    generator_max_retries: Optional[int] = DEFAULT_OPENAI_MAX_RETRIES,
     generator_finish_status: Optional[dict] = None,
     parent_snapshot_id: Optional[str] = None,
     weather_raw: Optional[str] = None,
@@ -662,8 +670,9 @@ def build_snapshot_payload(
     §A.6/§G generator provenance: the ``generator`` block records the full API surface the run
     used — ``max_completion_tokens`` (the cap changes truncation/parse-fail/candidate
     distributions, so M6 stratifies by it), ``api_surface``/``response_format``/
-    ``reasoning_effort``/``store_mode``, and the run's abnormal ``finish_status`` (a clean run
-    leaves it unset — pass :func:`abnormal_finish_status`).
+    ``reasoning_effort``/``store_mode``/``prompt_cache_retention``/timeout/retry policy, and
+    the run's abnormal ``finish_status`` (a clean run leaves it unset — pass
+    :func:`abnormal_finish_status`).
     """
     candidates = _build_candidates(trace, source_attempt_id=f"a{max(len(trace.attempts) - 1, 0)}")
     item_snapshots = tuple(
@@ -700,6 +709,9 @@ def build_snapshot_payload(
             response_format=generator_response_format,
             reasoning_effort=generator_reasoning_effort,
             store_mode=generator_store_mode,
+            prompt_cache_retention=generator_prompt_cache_retention,
+            timeout_seconds=generator_timeout_seconds,
+            max_retries=generator_max_retries,
             finish_status=generator_finish_status,
         ),
         ranker_config_version=ranker_config_version,
@@ -727,6 +739,9 @@ def _generator_block(
     response_format: str,
     reasoning_effort: str,
     store_mode: str,
+    prompt_cache_retention: str,
+    timeout_seconds: Optional[float],
+    max_retries: Optional[int],
     finish_status: Optional[dict],
 ) -> dict:
     """The §A.6/§G generator provenance block — authored from the service's OWN config.
@@ -743,7 +758,12 @@ def _generator_block(
         "response_format": response_format,
         "reasoning_effort": reasoning_effort,
         "store_mode": store_mode,
+        "prompt_cache_retention": prompt_cache_retention,
     }
+    if timeout_seconds is not None:
+        block["timeout_seconds"] = timeout_seconds
+    if max_retries is not None:
+        block["max_retries"] = max_retries
     if finish_status is not None:
         block["finish_status"] = dict(finish_status)
     return block
@@ -773,6 +793,9 @@ def build_degenerate_payload(
     generator_response_format: str = RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
     generator_reasoning_effort: str = "none",
     generator_store_mode: str = "none",
+    generator_prompt_cache_retention: str = PROMPT_CACHE_RETENTION_IN_MEMORY,
+    generator_timeout_seconds: Optional[float] = DEFAULT_OPENAI_TIMEOUT_SECONDS,
+    generator_max_retries: Optional[int] = DEFAULT_OPENAI_MAX_RETRIES,
     parent_snapshot_id: Optional[str] = None,
     weather_raw: Optional[str] = None,
     location: Optional[str] = None,
@@ -896,6 +919,9 @@ def build_degenerate_payload(
             response_format=generator_response_format,
             reasoning_effort=generator_reasoning_effort,
             store_mode=generator_store_mode,
+            prompt_cache_retention=generator_prompt_cache_retention,
+            timeout_seconds=generator_timeout_seconds,
+            max_retries=generator_max_retries,
             # No attempt ⇒ no finish status; with a salvaged trace the abnormal status (a
             # refusal/truncation that preceded the assembly failure) is knowable — record
             # it, guarded like every other salvage substep (the trace is the object whose

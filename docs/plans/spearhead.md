@@ -261,8 +261,10 @@ can't attribute a failure. (Without this, a parse-fail-after-repair, an all-vali
 an all-rescue-dropped run all collapse to `ranked.outfits==()` + `insufficient_after_generation` —
 the harness reconstructs the cause; the runtime result intentionally does not carry it.)
 
-**C6 / H40 measurement run (recorded — the milestone acceptance evidence).** Reproduce with
-`python -m fitted_core.cli --corpus-dir tests/fixtures/corpus --runs 5` (needs `OPENAI_API_KEY`;
+**C6 / H40 measurement run (recorded — the milestone acceptance evidence).** Reproduce the historical
+surface with
+`python -m fitted_core.cli --corpus-dir tests/fixtures/corpus --runs 5 --model gpt-4o --temperature 0.8`
+(needs `OPENAI_API_KEY`;
 the hermetic suite never calls OpenAI). Run on **gpt-4o, `--runs 5`** over the 11 generating corpus
 cases (`tiny_insufficient` is the 1 pre-GPT case → 0 calls): **55 real generations**.
 
@@ -517,7 +519,8 @@ Any change to M0–M3 modules.
   the second call would advance past the invalid output.
 - **Dependency:** `OpenAIGenerator` + `cli.py` add `openai` to `ml-system/requirements.txt`; the import
   is lazy/local (§B) so the core package + the stub suite import with `openai` absent.
-- Manual / H40: `python -m fitted_core.cli --closet tests/fixtures/corpus/green_shirt.json` (needs
+- Manual / H40:
+  `python -m fitted_core.cli --closet tests/fixtures/corpus/green_shirt.json --model gpt-4o --temperature 0.8` (needs
   `OPENAI_API_KEY`) → record believability as descriptive evidence; the §E mechanical metrics quantify
   prompt conformance.
 

@@ -4,9 +4,10 @@ The non-test entry point (spearhead.md §B/§J): drive the golden corpus through
 pipeline and print the mechanical metrics, the surfaced ways-to-wear, and a believability
 rubric template for a human to fill in.
 
-    # Real OpenAI run (needs OPENAI_API_KEY) — the H40 believability measurement:
-    python -m fitted_core.cli --closet tests/fixtures/corpus/green_shirt.json
-    python -m fitted_core.cli --corpus-dir tests/fixtures/corpus --runs 5
+    # Real OpenAI run (needs OPENAI_API_KEY) — reproduce the historical H40
+    # believability measurement, not the current M5 default:
+    python -m fitted_core.cli --closet tests/fixtures/corpus/green_shirt.json --model gpt-4o --temperature 0.8
+    python -m fitted_core.cli --corpus-dir tests/fixtures/corpus --runs 5 --model gpt-4o --temperature 0.8
 
     # Hermetic demo (no key, no network) — replays each case's canned_response:
     python -m fitted_core.cli --closet tests/fixtures/corpus/green_shirt.json --dry-run
@@ -38,12 +39,30 @@ from fitted_core.evaluation import (
     load_corpus_dir,
     replay_generator_for,
 )
-from fitted_core.generation import Generator, OpenAIGenerator, ReplayGenerator
+from fitted_core.generation import (
+    RESPONSE_FORMAT_JSON_OBJECT,
+    Generator,
+    OpenAIGenerator,
+    ReplayGenerator,
+)
 
 # An empty-envelope replay for a --dry-run case that carries no canned_response (a pre-GPT
 # exit never calls the generator; if it somehow does, an empty envelope yields a graceful
 # insufficient — never a crash). Real generation is the only way to exercise such a case.
 _EMPTY_ENVELOPE = '{"outfits": []}'
+
+
+def _generator_surface_kwargs(model: str) -> dict:
+    """Keep the M5 live defaults on GPT-5.x, but do not leak GPT-5-only params into
+    historical/manual gpt-4o reruns (H40 provenance).
+    """
+    if model.startswith("gpt-5"):
+        return {}
+    return {
+        "reasoning_effort": None,
+        "response_format": RESPONSE_FORMAT_JSON_OBJECT,
+        "prompt_cache_retention": None,
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -107,6 +126,7 @@ def _make_generator_factory(
         model=args.model,
         temperature=args.temperature,
         max_completion_tokens=args.max_completion_tokens,
+        **_generator_surface_kwargs(args.model),
     )
 
 

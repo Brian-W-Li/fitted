@@ -394,6 +394,9 @@ def test_generator_block_carries_the_a6_provenance():
         "response_format": "json_schema_strict",
         "reasoning_effort": "none",
         "store_mode": "none",
+        "prompt_cache_retention": "in_memory",
+        "timeout_seconds": 30.0,
+        "max_retries": 0,
     }
     assert "finish_status" not in payload.generator  # a clean run leaves it unset (§G)
 
@@ -537,6 +540,9 @@ def test_build_degenerate_payload_is_schema_valid_and_carries_identity():
     assert wire["parentSnapshotId"] is None
     assert wire["generator"]["maxCompletionTokens"] == 2200
     assert wire["generator"]["responseFormat"] == "json_schema_strict"
+    assert wire["generator"]["promptCacheRetention"] == "in_memory"
+    assert wire["generator"]["timeoutSeconds"] == 30.0
+    assert wire["generator"]["maxRetries"] == 0
 
 
 def test_build_degenerate_payload_salvages_attempts_from_a_trace():
