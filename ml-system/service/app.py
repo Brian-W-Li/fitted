@@ -78,6 +78,8 @@ _OBJECT_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
 _SEED_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 _ITEM_TYPE_VALUES = frozenset(t.value for t in ItemType)
+_KEY_RESERVED_CHARS = (":", "|", "=")
+_KEY_NONE_SENTINEL = "none"
 
 # User-facing hint on the §D degenerate arm (fixed catalogue — never str(exception)).
 _ENGINE_FAILURE_HINT = "something went wrong generating outfits — try again"
@@ -188,6 +190,15 @@ def _string(value: Any, name: str, *, max_chars: int, allow_blank: bool = False)
     return value
 
 
+def _validate_key_safe_item_id(item_id: str, name: str) -> None:
+    """Pre-spend mirror of v2 §7/R10: pool ids must be usable in BaseKey/FullSignature."""
+    if item_id == _KEY_NONE_SENTINEL:
+        raise ContractInvalid(f"{name} must not equal the reserved sentinel {_KEY_NONE_SENTINEL!r}")
+    for ch in _KEY_RESERVED_CHARS:
+        if ch in item_id:
+            raise ContractInvalid(f"{name} contains reserved key character {ch!r}")
+
+
 def _optional_string(value: Any, name: str, *, max_chars: int) -> Optional[str]:
     if value is None:
         return None
@@ -247,6 +258,7 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
         where=where,
     )
     item_id = _string(raw["id"], f"{where}.id", max_chars=cfg.MAX_ID_CHARS)
+    _validate_key_safe_item_id(item_id, f"{where}.id")
     name = _string(raw["name"], f"{where}.name", max_chars=cfg.MAX_ITEM_NAME_CHARS)
     clothing_type = raw["clothingType"]
     if clothing_type not in _ITEM_TYPE_VALUES:

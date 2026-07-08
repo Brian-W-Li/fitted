@@ -358,6 +358,14 @@ def test_added_clamp_constants_have_boundaries_too():
     _reject({"lens": {"forcedItemId": "f" * (cfg.MAX_ID_CHARS + 1)}})
 
 
+@pytest.mark.parametrize("bad_id", ["none", "t:1", "t|1", "t=1"])
+def test_key_invalid_wardrobe_item_ids_reject_pre_spend(bad_id):
+    # v2 §7/R10 says participating item ids cannot corrupt BaseKey/FullSignature. Real
+    # ObjectId-hex ids never hit this, but a service-boundary bug must die before GPT, not
+    # spend and later record `keyPreconditionFailed` against the model output.
+    _reject({"wardrobe": [wire_item(bad_id, "top"), wire_item("b1", "bottom")]})
+
+
 def test_json_depth_exactly_at_the_limit_passes():
     # The at-limit half of the depth boundary: a row nesting to EXACTLY the cap renders.
     # Body depth so far: body(1) → behavioralRows(2) → interactionRows(3) → row(4) → value…

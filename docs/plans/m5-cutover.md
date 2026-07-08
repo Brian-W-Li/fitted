@@ -207,7 +207,7 @@ the cache-kill rewrite (Verification). The added Mongo write latency is negligib
   well-formed — `OPENAI_API_KEY` **exists** (never logged/returned), both service keys
   (`SERVICE_KEY_CURRENT`, and `SERVICE_KEY_NEXT` if set), the generator allowlist (`{"gpt-5.4-mini"}`), the
   token cap `M5_MAX_COMPLETION_TOKENS` (a positive int) + `DAILY_MAX_CANDIDATES`, the §A.6
-  `reasoningEffort`/`responseFormat`; (3) the version constants resolve (`fitted_core_version`,
+  API surface / `reasoningEffort` / `responseFormat` / `storeMode`; (3) the version constants resolve (`fitted_core_version`,
   `prompt_version`, `ranker_config_version`, `reducer_config_version`). Returns `200 {"ready":true,
   "versions":{…}}` or `503 {"ready":false,"reason":"<which check>"}` — **the body never contains secret
   values**, only presence booleans. Wire it as the **Fly `[[http_service.checks]]` health check** so a
@@ -1392,7 +1392,8 @@ candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all insi
 - **Service-side clamp additions in the G7 spirit** (prompt-reaching item text is spend surface the §A
   table didn't cover): `MAX_SESSION_ID_CHARS=128`, `MAX_ID_CHARS=64`, `MAX_ITEM_NAME_CHARS=200`,
   `MAX_ITEM_TAG_CHARS=60`, `MAX_ITEM_TAGS=25`, `MAX_ITEM_ATTR_CHARS=60`, `MAX_IMAGE_URL_CHARS=2048`;
-  behavioralRows lengths are bounded to the §H scan constants. Rate ceiling named:
+  behavioralRows lengths are bounded to the §H scan constants; wardrobe item ids are rejected
+  pre-spend if they violate the §7/R10 key precondition (`none` sentinel or `:|=` reserved chars). Rate ceiling named:
   `RATE_LIMIT_BURST=5`, `RATE_LIMIT_REFILL_PER_SECOND=0.2` (12/min/instance).
   **⚠ C5 mirror obligation:** the deployed model caps NONE of these (`name` has no maxlength;
   `colors` elements are untrimmed) — C5's adapter/route must enforce the same clamps Next-side
@@ -1430,7 +1431,9 @@ candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all insi
   `MIN_COMPLETION_TOKENS_FLOOR=2200`** (config + `/readyz` 503, boundary-tested both ends) — a
   fat-fingered Fly secret must neither silently uncap per-request output nor leave the service
   ready-but-unusable with a cap every real render truncates under; the pre-C5 empirical gate re-tunes
-  default + floor together. The Docker base is
+  default + floor together. `/readyz` also gates the code-owned §A.6 surface constants
+  (`GENERATOR_API_SURFACE`/`GENERATOR_RESPONSE_FORMAT`/`GENERATOR_REASONING_EFFORT`/
+  `GENERATOR_STORE_MODE`), so a deploy cannot pass health while writing false generator provenance. The Docker base is
   pinned to a patch tag + index digest (`python:3.12.12-slim@sha256:…`), not a mutable minor tag.
 - **⚠ C5 schema ripple (trap-guard):** the TS `GenerationAttemptSchema` has NO `finishStatus` path —
   strict mode would silently strip the §A.6 per-attempt finish/refusal provenance the payload now
@@ -1484,13 +1487,13 @@ disallowed `generator.model`, a `generator.temperature` ≠ the service's config
 not echoed from the wire; an overlong `occasion` (`MAX_OCCASION_CHARS+1`) / over-bound `wardrobe` / over-size
 body / over-long `controls` array → `contract_invalid` and the exactly-at-limit case passes (**G7 boundary
 tests**); non-empty `lens.constraints` →
-`contract_invalid`; **`GET /readyz` returns `200 {"ready":true}` with all config/keys/versions present and
-zero OpenAI spend, and `503` when a required env/config is missing, without ever returning a secret value
+`contract_invalid`; **`GET /readyz` returns `200 {"ready":true}` with all config/keys/§A.6 surface constants/versions present and
+zero OpenAI spend, and `503` when a required env/config/static generator-surface constant is missing or unsanctioned, without ever returning a secret value
 (G9)**; a fake OpenAI client sees `max_completion_tokens`, **not** `max_tokens`, **the configured lowest-available
 `reasoning_effort`, `store:false`, and the structured-output mode (§A.6/G14)**; **a fake client returning a refusal or a
 cap-truncated/`incomplete` response → a degenerate payload + snapshot with the finish status recorded (§A.6/§D),
-never a silent empty and never `contract_invalid`**; **a duplicate-id wardrobe (or other
-input-validation failure) → `contract_invalid` with NO payload** (§D corpus purity — never a degenerate
+never a silent empty and never `contract_invalid`**; **a duplicate-id wardrobe, a §7/R10 key-invalid wardrobe id,
+or another input-validation failure → `contract_invalid` with NO payload** (§D corpus purity — never a degenerate
 snapshot); injected
 post-generation failure → degenerate payload with attempts; injected pre-generation failure → degenerate
 payload with empty attempts + `diagnostics.engineFailure`; the `candidate_cache_key()` golden vectors
@@ -1728,6 +1731,8 @@ code paths.
 - Remove the `{user, requestId}` partial unique index, change its filter back to `$exists`-only, allow
   missing/null/blank/malformed/overlong live `requestId`, or remove the `E11000` winner-re-read → the concurrent double-write /
   sentinel-rejection tests must fail.
+- Accept a wardrobe item id containing a §7/R10 reserved key char (`:|=`) or the `none` sentinel at the
+  C3 service boundary → the pre-spend contract-invalid test must fail (never spend and later blame GPT).
 - Remove the `locked ∩ disliked` preflight → the contradictory-controls 400 test must fail.
 - Route a pre-attempt engine failure to the no-snapshot arm (or fabricate an attempt for it) → the failure-corpus test must fail.
 - Skip the degenerate-payload arm (write nothing on engine-internal failure) → the failure-corpus test fails.

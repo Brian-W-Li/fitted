@@ -21,7 +21,7 @@ import os
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-from fitted_core.generation import RESPONSE_FORMAT_JSON_SCHEMA_STRICT
+from fitted_core.generation import RESPONSE_FORMAT_JSON_OBJECT, RESPONSE_FORMAT_JSON_SCHEMA_STRICT
 
 # --- Generator config (§A.6 / D6 — service-owned, never wire-controlled) ---------------
 GENERATOR_PROVIDER = "openai"
@@ -32,6 +32,11 @@ GENERATOR_API_SURFACE = "chat_completions"
 GENERATOR_RESPONSE_FORMAT = RESPONSE_FORMAT_JSON_SCHEMA_STRICT
 GENERATOR_REASONING_EFFORT = "none"  # gpt-5.4-mini's accepted lowest (§A.6 point 2)
 GENERATOR_STORE_MODE = "none"  # G14 — no OpenAI-side retention; Mongo is the sole corpus
+
+GENERATOR_API_SURFACES = frozenset({"chat_completions"})
+GENERATOR_RESPONSE_FORMATS = frozenset({RESPONSE_FORMAT_JSON_SCHEMA_STRICT, RESPONSE_FORMAT_JSON_OBJECT})
+GENERATOR_REASONING_EFFORTS = frozenset({"none"})
+GENERATOR_STORE_MODES = frozenset({"none"})
 
 # Ask-sized output cap (§A.6 point 3 — NEVER a flat 900 against a 40-outfit ask): sized to
 # hold the DAILY_MAX_CANDIDATES=12 ask at ~130–170 output tokens/outfit + headroom. The
@@ -99,6 +104,31 @@ class ServiceConfig:
     max_completion_tokens: int
 
 
+def validate_static_config() -> Optional[str]:
+    """Validate code-owned generator constants that env parsing cannot protect.
+
+    `/readyz` is the runtime gate for the full §A.6 surface. A bad constant here is a deploy
+    misconfiguration, not a caller contract error; fail the service closed before render.
+    """
+    if GENERATOR_MODEL not in GENERATOR_MODEL_ALLOWLIST:
+        return "generator model is not in its allowlist"
+    if GENERATOR_API_SURFACE not in GENERATOR_API_SURFACES:
+        return "GENERATOR_API_SURFACE is not sanctioned"
+    if GENERATOR_RESPONSE_FORMAT not in GENERATOR_RESPONSE_FORMATS:
+        return "GENERATOR_RESPONSE_FORMAT is not sanctioned"
+    if GENERATOR_REASONING_EFFORT not in GENERATOR_REASONING_EFFORTS:
+        return "GENERATOR_REASONING_EFFORT is not sanctioned"
+    if GENERATOR_STORE_MODE not in GENERATOR_STORE_MODES:
+        return "GENERATOR_STORE_MODE is not sanctioned"
+    if not (
+        MIN_COMPLETION_TOKENS_FLOOR
+        <= DEFAULT_MAX_COMPLETION_TOKENS
+        <= MAX_COMPLETION_TOKENS_CEILING
+    ):
+        return "completion-token default is outside the readiness band"
+    return None
+
+
 def load_service_config(env: Mapping[str, str]) -> tuple[Optional[ServiceConfig], Optional[str]]:
     """Resolve + validate config from ``env`` → ``(config, None)`` or ``(None, reason)``.
 
@@ -136,6 +166,9 @@ def load_service_config(env: Mapping[str, str]) -> tuple[Optional[ServiceConfig]
                 f"{ENV_MAX_COMPLETION_TOKENS} exceeds the hard ceiling "
                 f"{MAX_COMPLETION_TOKENS_CEILING}"
             )
+    static_reason = validate_static_config()
+    if static_reason is not None:
+        return None, static_reason
     return (
         ServiceConfig(
             openai_api_key=openai_api_key,

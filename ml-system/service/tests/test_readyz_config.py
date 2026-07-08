@@ -25,6 +25,25 @@ def test_readyz_is_ready_with_full_env_and_reports_versions():
 
 
 @pytest.mark.parametrize(
+    ("constant", "bad_value"),
+    [
+        ("GENERATOR_API_SURFACE", "responses"),
+        ("GENERATOR_RESPONSE_FORMAT", "not-a-response-format"),
+        ("GENERATOR_REASONING_EFFORT", "xhigh"),
+        ("GENERATOR_STORE_MODE", "store_true"),
+    ],
+)
+def test_readyz_503_on_unsanctioned_generator_surface(monkeypatch, constant, bad_value):
+    # The §A.6 call surface is part of readiness, not just provenance decoration: a bad
+    # code-owned constant must fail the health check before the service takes traffic.
+    monkeypatch.setattr(cfg, constant, bad_value)
+    app, _ = make_app()
+    status, body = http(app, "GET", "/readyz")
+    assert status == 503
+    assert constant in body["reason"]
+
+
+@pytest.mark.parametrize(
     "missing", ["OPENAI_API_KEY", "SERVICE_KEY_CURRENT"]
 )
 def test_readyz_503_when_a_required_env_is_missing(missing):
