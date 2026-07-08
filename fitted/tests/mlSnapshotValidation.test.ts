@@ -81,6 +81,15 @@ describe("identity + coverage", () => {
   it("rejects a slotMap value absent from itemSnapshots", () => {
     expectReject((p) => (p.candidates[0].slotMap.top = "ghosttop"));
   });
+  it("rejects items[]↔slotMap divergence (same item set, wrong slot assignment)", () => {
+    // c0 items say b1 fills bottom; point slotMap.bottom at a different real wardrobe item.
+    expectReject((p) => (p.candidates[0].slotMap.bottom = "b2"));
+  });
+  it("rejects a scoreTrace with garbage compatibility even when it carries no breakdown", () => {
+    expectReject((p) => {
+      p.candidates[4].scoreTrace = { compatibility: 1.7 }; // c4 = validated, normally no trace
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -19,8 +19,15 @@
  *   - engineFailure sanitize (G13): closed stage/code sets; a bounded, stack-trace/secret-free
  *     message; a 24-hex detail.itemId
  *
- * Deferred to the route (seam #6, they need inputs beyond the payload): the §G.1 G4 authorship
- * cross-check (payload vs the normalized request) and the §A shown[].outfit-body cross-check.
+ * Deferred to the route (seam #6, they need inputs beyond the payload or belong to the writer):
+ *   - the §G.1 G4 authorship cross-check (payload vs the normalized request)
+ *   - the §A shown[].outfit-body cross-check (needs the wire `shown[]`, handled route-side)
+ *   - RAW-FIELD caps (§G "raw-field caps"): the M5 WRITER truncates each raw field to its
+ *     RAW_*_CAP_BYTES + records bytes/hash/truncation-flag (GenerationSnapshot.ts:23-26), so the
+ *     bytes/hash/flag do not exist to validate until the writer has run. Conscious owner
+ *     assignment: seam #6 truncates-then-validates the raw-field consistency (declared *Bytes ==
+ *     actual, *Truncated flag consistent with the cap). It is NOT silently dropped — it moves to
+ *     where the values are produced.
  *
  * Reference: docs/plans/m5-cutover.md §G validation helper + §G.1; ranker.py term set + sum invariant.
  */
@@ -64,11 +71,49 @@ function slotValues(slotMap: Any): string[] {
     .filter((v): v is string => typeof v === "string" && v.length > 0);
 }
 
+// role → slotMap slot (mirrors snapshot._SLOT_ROLE inverse). Used to reconstruct the slotMap
+// implied by items[] and cross-check it against the declared slotMap (G — items↔slotMap consistency).
+const ROLE_TO_SLOT: Record<string, string> = {
+  base_top: "top",
+  base_bottom: "bottom",
+  one_piece: "dress",
+  outer_layer: "outer",
+  shoes: "shoes",
+};
+
+function validateItemsSlotMapConsistency(cand: Any, id: string): void {
+  const items: Any[] = Array.isArray(cand.items) ? cand.items : [];
+  if (items.length === 0) return; // a pre-validation drop (c5-style) carries neither
+  const declared = cand.slotMap ?? {};
+  // Reconstruct {slot: itemId} from items[]+roles; it must equal the declared filled-slot map.
+  const expected: Record<string, string> = {};
+  for (const it of items) {
+    const slot = ROLE_TO_SLOT[it.role];
+    if (!slot) fail(`candidate ${id}: item ${it.itemId} has unmapped role ${it.role}`);
+    if (expected[slot] !== undefined) fail(`candidate ${id}: two items share role→slot ${slot}`);
+    expected[slot] = it.itemId;
+  }
+  const declaredFilled = slotValues(cand.slotMap).length;
+  if (declaredFilled !== Object.keys(expected).length) {
+    fail(`candidate ${id}: items[] fills ${Object.keys(expected).length} slots but slotMap fills ${declaredFilled}`);
+  }
+  for (const [slot, itemId] of Object.entries(expected)) {
+    if (declared[slot] !== itemId) {
+      fail(`candidate ${id}: items[] puts ${itemId} in ${slot} but slotMap says ${declared[slot]}`);
+    }
+  }
+}
+
 function validateScoreTrace(cand: Any, id: string): void {
   const trace = cand.scoreTrace;
-  // Coverage key (G12): a candidate carries a scoreTrace IFF it has a scoreBreakdown. A Step-4
+  if (!trace) return;
+  // Even a trace WITHOUT a breakdown must not carry a garbage compat/vis (the schema has no [0,1]
+  // validator — the reason this helper exists). Not serde-producible, but a TS/service bug could.
+  if (trace.compatibility != null && !inUnit(trace.compatibility)) fail(`candidate ${id}: compatibility out of [0,1]`);
+  if (trace.visibility != null && !inUnit(trace.visibility)) fail(`candidate ${id}: visibility out of [0,1]`);
+  // Coverage key (G12): a candidate carries a scoreBreakdown IFF it was scored. A Step-4
   // hard-dropped candidate legitimately has none — do NOT require one.
-  if (!trace || !trace.scoreBreakdown) return;
+  if (!trace.scoreBreakdown) return;
   const bd = trace.scoreBreakdown;
   for (const term of SCORE_TERMS) {
     if (!isFiniteNum(bd[term])) fail(`candidate ${id}: scoreBreakdown.${term} is missing/non-finite`);
@@ -122,8 +167,9 @@ function validateEngineFailure(ef: Any): void {
     if (msg.length > ENGINE_FAILURE_MESSAGE_MAX_CHARS) fail("engineFailure.message over the cap");
     if (msg.includes("Traceback") || msg.includes('  File "')) fail("engineFailure.message contains a stack trace");
     if (/sk-[A-Za-z0-9]/.test(msg)) fail("engineFailure.message contains a key-shaped substring");
-    // a base64/hex run longer than a 24-hex ObjectId reads as a possible secret (detail.itemId
-    // lives in `detail`, never interpolated into the message — so a 24-hex here is disallowed too).
+    // A base64/hex run LONGER than a 24-hex ObjectId reads as a possible secret. The bound is >24
+    // (i.e. 25+) precisely so a legitimate 24-hex id is never flagged; structured ids live in
+    // `detail`, never interpolated into the message, so a 24-hex here would be anomalous anyway.
     if (/[A-Za-z0-9+/]{25,}/.test(msg)) fail("engineFailure.message contains a key-shaped run");
   }
   if (ef.detail && ef.detail.itemId !== undefined && !OBJECT_ID_RE.test(String(ef.detail.itemId))) {
@@ -174,6 +220,7 @@ export function validateSnapshotPayload(payload: unknown): void {
       if (!knownItemIds.has(sv)) fail(`candidate ${id}: slotMap item ${sv} absent from itemSnapshots`);
     }
 
+    validateItemsSlotMapConsistency(cand, id);
     validateScoreTrace(cand, id);
     validateStyleMove(cand, id, itemIdSet);
     validateTemplate(cand, id);
