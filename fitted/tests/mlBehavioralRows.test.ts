@@ -34,6 +34,10 @@ afterAll(async () => await harness.stop());
 afterEach(async () => await harness.clear());
 
 const oid = () => new Types.ObjectId();
+// A fresh valid UUIDv4 per call — snapshots for the same user need distinct requestIds now that
+// {user, requestId} is uniquely indexed (§G item 2).
+let ridCounter = 0;
+const freshRequestId = () => `0192f1a0-1c1a-4c3e-9b2a-${(ridCounter++).toString(16).padStart(12, "0")}`;
 
 /** Drive the projected rows through the real Python reducers and return the reduced signal. */
 function reduceViaPython(rows: BehavioralRowsWire) {
@@ -72,7 +76,7 @@ function snapshotDoc(user: Types.ObjectId, nSurfaced: number, shownFullSignature
     sessionId: "u",
     candidateCacheKey: "ck",
     generationIndex: 0,
-    requestId: "0192f1a0-1c1a-7c3e-9b2a-1a2b3c4d5e6f",
+    requestId: freshRequestId(),
     intent: "daily",
     occasion: "casual",
     weather: "mild",

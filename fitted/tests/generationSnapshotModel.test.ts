@@ -33,6 +33,7 @@ const validBase = () => ({
   sessionId: "user-1",
   candidateCacheKey: "ck-1",
   generationIndex: 0,
+  requestId: "0192f1a0-1c1a-4c3e-9b2a-1a2b3c4d5e6f", // §G item 2 — now required (UUIDv4)
   intent: "daily",
   occasion: "casual",
   weather: "mild",

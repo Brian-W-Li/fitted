@@ -299,7 +299,25 @@ const GenerationSnapshotSchema = new Schema(
     sessionId: { type: String, required: true }, // = user id (R8)
     candidateCacheKey: { type: String, required: true }, // groups re-roll siblings
     generationIndex: { type: Number, required: true },
-    requestId: { type: String }, // the future render-idempotency key once H7 closes (M5)
+    // Lineage pointer (§G item 1 / §C.1) — null on root renders; the child of a re-roll points at
+    // its parent. String opacity (H10) is enforced serde-side; here it is a real ObjectId ref for
+    // the ownership re-read. Serde maps parent_snapshot_id ↔ parentSnapshotId (already in _ID_KEYS).
+    parentSnapshotId: { type: Schema.Types.ObjectId, ref: "GenerationSnapshot" },
+    // Render idempotency (§G item 2 / §C.4 / H50) — was optional/unvalidated; M5 makes it REQUIRED
+    // + validated (UUIDv4 or ULID, ≤64 chars). `required:true` closes the "document written without
+    // the field ⇒ invisible to the partial index" hole below the app-level validation (defense in
+    // depth). Safe: every M5 write carries it, and the M4a wipe left no legacy rows.
+    requestId: {
+      type: String,
+      required: true,
+      validate: {
+        validator: (v: string) =>
+          v.length <= 64 &&
+          (/^[0-9A-HJKMNP-TV-Z]{26}$/.test(v) ||
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)),
+        message: "requestId must be a UUIDv4 or ULID",
+      },
+    },
 
     // --- B: request context (the Lens) ---
     intent: {
@@ -588,6 +606,18 @@ GenerationSnapshotSchema.pre(["updateOne", "updateMany", "findOneAndUpdate"], im
 GenerationSnapshotSchema.pre(["replaceOne", "findOneAndReplace"], immutableReplaceGuard);
 GenerationSnapshotSchema.pre("save", immutableSaveGuard);
 
+// Delete guard (§G item 3 / H54) — the immutability contract had update/replace/save guards but NO
+// delete guard. A GenerationSnapshot is immutable training truth; redaction (redacted:true) is the
+// only sanctioned removal. Mongoose fires DIFFERENT hooks per delete path: pre('deleteOne') alone
+// is QUERY middleware only — Document#deleteOne() needs {document:true}, and findOneAndDelete/
+// findByIdAndDelete fire their own 'findOneAndDelete' hook. All three registrations or the guard
+// has bypasses (verified against mongoose schema.js pre() jsdoc).
+export function immutableDeleteGuard(next: (err?: Error) => void): void {
+  next(new Error("GenerationSnapshot is immutable training truth; use redaction, never delete"));
+}
+GenerationSnapshotSchema.pre(["deleteOne", "deleteMany", "findOneAndDelete"], immutableDeleteGuard); // query paths
+GenerationSnapshotSchema.pre("deleteOne", { document: true, query: false }, immutableDeleteGuard); // doc.deleteOne()
+
 // ---------------------------------------------------------------------------
 // Indexes (§8.8) — built automatically on first boot via autoIndex against the empty DB
 // (mongodb.ts autoIndex:true + db.ts Model.init()). No migration script.
@@ -599,6 +629,14 @@ GenerationSnapshotSchema.index({ user: 1, createdAt: -1, _id: -1 });
 // Re-roll sibling grouping — NON-unique (Fable/Codex demotion: real idempotency rides
 // requestId once H7 closes; a unique index here would wrongly reject a legit repeat render).
 GenerationSnapshotSchema.index({ user: 1, candidateCacheKey: 1, generationIndex: 1 });
+// Render idempotency (§G item 2 / §C.4 / H50) — PARTIAL unique on {user, requestId}. $type (not
+// $exists) so a null/missing requestId is invisible to the index (no shared retry sentinel); the
+// schema `required` + app validation reject blank/malformed before they reach it. First-write-wins
+// enforced: a duplicate requestId → E11000, and the route re-reads + replays the winner (§C.4).
+GenerationSnapshotSchema.index(
+  { user: 1, requestId: 1 },
+  { unique: true, partialFilterExpression: { requestId: { $type: "string" } } },
+);
 // "Has this user been shown this outfit" — multikey over the denormalized shown array.
 GenerationSnapshotSchema.index({ user: 1, shownFullSignatures: 1, createdAt: -1 });
 // M6 training batch read — scan non-redacted by time.
