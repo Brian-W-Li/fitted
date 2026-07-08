@@ -1219,9 +1219,9 @@ change the dedup window).
 
   | Interaction row | Signal contribution |
   |---|---|
-  | `action="accepted"` | `item_affinity` **+1 per outfit item** (after dedup, below); `fullSignature` → `liked_full_signatures` |
+  | `action="accepted"` | `item_affinity` **+1 per outfit item** (after dedup, below); `fullSignature` → `liked_full_signatures`. **Proxy boundary:** accepted = explicit approval/like, NOT proof the outfit was worn. |
   | `action="rejected"` | `baseKey` → cooldown buffer (most-recent distinct `COOLDOWN_BUFFER_SIZE` base keys); **disliked item ids = `perItemFeedback[].itemId` where `disliked=true` ONLY** — an outfit-level dislike never marks every item (a wrong-vibe outfit ≠ five bad garments) |
-  | `saved`/`worn`/`rated`/`planned`/`packed`/`corrected`/`generated` | **excluded from v1 reducers** — §16 calls them weaker secondary evidence with `[NEXT]` weights; registered here so the exclusion is a decision, not a silent drop |
+  | `saved`/`worn`/`rated`/`planned`/`packed`/`corrected`/`generated` | **excluded from v1 reducers** — §16 keeps them distinct outcome/event labels with `[NEXT]` weights; registered here so the exclusion is a decision, not a silent drop or an invitation to reinterpret `accepted` as `worn` |
 
 - **Bounded scan (no unbounded read anywhere).** `interactionRows` are fetched last-`INTERACTION_ROWS_SCAN_LIMIT`
   by `{user, createdAt: -1, _id: -1}` (deterministic same-millisecond tie-break; index exists,
@@ -1281,7 +1281,9 @@ is enforced by reducer slicing (rows beyond `INTERACTION_ROWS_SCAN_LIMIT` /
   - **Action allowlist — M5 accepts only `accepted|rejected` (G8).** The `OutfitInteraction.action` enum has
     9 values (`generated|accepted|rejected|saved|worn|rated|planned|packed|corrected`, verified
     `OutfitInteraction.ts:30-41`), but only `accepted`/`rejected` are consumed by the §H v1 reducers and only
-    those two have a real M5 UI surface (like/dislike). The C6 POST **explicitly allows only
+    those two have a real M5 UI surface (like/dislike). `accepted` is the M5 approval proxy, **not**
+    a worn-outcome label; when `worn`/`saved`/`rated` get real surfaces later they remain distinct events in
+    the corpus. The C6 POST **explicitly allows only
     `{accepted, rejected}`**; any other value → stable `400 invalid_action`, **no row** — the other seven stay
     schema-reserved until a real surface exists (planned/packed = the routine/packing B-track; saved/worn/
     rated = later). Without this, a forged POST could write `worn`/`corrected` rows the reducers silently
@@ -1986,9 +1988,10 @@ reconciled to "green before the flip", Verification)**, H55/H60 (§A/D6/§F), H5
 §H), H19 (§H), H48 (**both instances decided**: sibling stored via the §E producer exercise; headline
 stored via option (a) — basis: converged dual-pass 2026-07-06). Reworded: H4/H16 (§C.5 determinism — no
 cache; snapshots immutable, generations fresh). Landed-not-resolved: H28 (§E hook lands; trained scorer =
-M6). Deferred: H6 (W-track), H43 (Privacy), H45 (route + StyleMove card **+ the item-select/launch rescue UI
+M6). Resolved-design / pending C6 delivery: H45 (route + StyleMove card **+ the item-select/launch rescue UI
 delivered at C6** — moved from C8 by the ladder sequencing invariant, so rescue is user-reachable not
-API-only, F2; only the shareable before/after growth card deferred post-M5).
+API-only, F2; only the shareable before/after growth card is deferred post-M5). Deferred: H6 (W-track), H43
+(Privacy).
 
 ## Open questions
 
