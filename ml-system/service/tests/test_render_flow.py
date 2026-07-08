@@ -220,6 +220,8 @@ def _assert_over_constrained_valid_empty(body, stub, *, controls):
     assert body["payload"]["itemSnapshots"], "the engine-visible pool is still captured for the corpus"
     assert body["payload"]["controls"] == controls
     assert body["payload"]["diagnostics"]["engineFailure"] is None
+    # No prompt was built → the corpus must not overstate a GPT ask/spend.
+    assert body["payload"]["diagnostics"]["parse"]["generatorCalls"] == 0
 
 
 def test_daily_lock_with_no_complement_is_a_valid_empty_render_not_400():
@@ -231,6 +233,8 @@ def test_daily_lock_with_no_complement_is_a_valid_empty_render_not_400():
     )
     assert status == 200
     _assert_over_constrained_valid_empty(body, stub, controls=controls)
+    # daily short-circuited before any prompt → the ask is 0, NOT the (non-zero) sampler count.
+    assert body["payload"]["diagnostics"]["candidateRequested"] == 0
 
 
 def test_daily_dislike_removing_every_base_is_a_valid_empty_render_not_400():
@@ -242,6 +246,7 @@ def test_daily_dislike_removing_every_base_is_a_valid_empty_render_not_400():
     )
     assert status == 200
     _assert_over_constrained_valid_empty(body, stub, controls=controls)
+    assert body["payload"]["diagnostics"]["candidateRequested"] == 0  # no prompt built
 
 
 def test_rescue_lock_with_no_complement_is_a_valid_empty_render_not_400():

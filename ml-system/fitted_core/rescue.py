@@ -1492,7 +1492,11 @@ def _render_daily_with_trace(
             result=_not_enough_daily_result(_CONTROLS_UNBUILDABLE_HINT),
             sampler_result=sampler_result,
             prompt_pool=prompt_pool,  # the lock-scoped pool the engine considered (no gen ran)
-            candidate_requested=sampler_result.candidate_requested,
+            # No daily prompt was built (short-circuit before _build_daily_prompt), so the GPT ask is
+            # 0 — NOT sampler_result.candidate_requested (non-zero here: the sampler found a base
+            # pre-controls). Recording that would overstate the ask in the corpus; 0 matches the
+            # daily understocked branch's convention and is the honest "no prompt was built" value.
+            candidate_requested=0,
             attempts=(),
             validation=None,
             parsed_outfits=(),
