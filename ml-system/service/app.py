@@ -98,6 +98,19 @@ def _envelope(code: str, message: str) -> dict:
     return {"error": {"code": code, "message": message}}
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate object member name {key!r} is not valid JSON at the service boundary")
+        out[key] = value
+    return out
+
+
+def _reject_non_finite_json_constant(raw: str) -> None:
+    raise ValueError(f"{raw} is not valid JSON at the service boundary")
+
+
 def _flags(
     *,
     not_enough_items: bool = False,
@@ -582,7 +595,11 @@ class FittedService:
             )
         try:
             try:
-                parsed_json = json.loads(body)
+                parsed_json = json.loads(
+                    body,
+                    object_pairs_hook=_reject_duplicate_json_keys,
+                    parse_constant=_reject_non_finite_json_constant,
+                )
             except (ValueError, RecursionError) as exc:
                 raise ContractInvalid("request body is not valid JSON") from exc
             _json_depth_guard(parsed_json, cfg.MAX_JSON_NESTING_DEPTH)

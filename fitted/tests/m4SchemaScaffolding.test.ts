@@ -160,6 +160,13 @@ describe("OutfitInteraction — binding co-presence guard", () => {
 });
 
 describe("OutfitInteraction — binding index", () => {
+  it("declares the deterministic user+createdAt+_id reducer-window index", () => {
+    const hasIndex = OutfitInteraction.schema
+      .indexes()
+      .some(([keys]) => keys.user === 1 && keys.createdAt === -1 && keys._id === -1);
+    expect(hasIndex).toBe(true);
+  });
+
   it("declares the {snapshotId, candidateId} join index", () => {
     const hasIndex = OutfitInteraction.schema
       .indexes()

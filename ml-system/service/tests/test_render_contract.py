@@ -72,6 +72,36 @@ def test_malformed_json_body_is_contract_invalid():
     assert stub.call_count == 0
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_json_tokens_are_contract_invalid_pre_spend(constant):
+    # Python's json.loads accepts these by default. The service boundary must not:
+    # they are not valid JSON and a body carrying one used to render/spend when the
+    # token was hidden in arbitrary behavioralRows.
+    raw = json.dumps(render_body()).replace(
+        '"interactionRows": []',
+        f'"interactionRows": [{{"createdAt": {constant}}}]',
+    )
+    app, stub = make_app(daily_envelope())
+    status, body = http(app, "POST", "/render", headers=AUTH, body=raw.encode())
+    assert status == 400 and body["error"]["code"] == "contract_invalid"
+    assert stub.call_count == 0
+
+
+def test_duplicate_json_keys_are_contract_invalid_pre_spend():
+    # json.loads is last-wins on duplicate object keys. A duplicated generator key could
+    # mask a bad first value and reach the model; reject before validation/spend.
+    raw = json.dumps(render_body()).replace(
+        '"generator": {',
+        '"generator": {"provider":"azure","model":"gpt-4o","temperature":0.7,'
+        '"maxCompletionTokens":900}, "generator": {',
+        1,
+    )
+    app, stub = make_app(daily_envelope())
+    status, body = http(app, "POST", "/render", headers=AUTH, body=raw.encode())
+    assert status == 400 and body["error"]["code"] == "contract_invalid"
+    assert stub.call_count == 0
+
+
 def test_non_object_json_body_is_contract_invalid():
     _reject(body=["not", "an", "object"])
 

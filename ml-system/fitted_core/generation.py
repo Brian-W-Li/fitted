@@ -21,7 +21,7 @@ Sources: docs/Fitted_Spec_v2.md §9/§12, docs/plans/spearhead.md §B/§D/§G.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Protocol, Sequence, Union, runtime_checkable
+from typing import Any, Optional, Protocol, Sequence, Union, runtime_checkable
 
 from fitted_core.models import Role
 
@@ -207,6 +207,19 @@ class OpenAIGenerator:
             },
         }
 
+    @staticmethod
+    def _usage_dict(usage: Any) -> Optional[dict]:
+        """Best-effort usage telemetry; never let reporting fields break generation."""
+        if usage is None:
+            return None
+        values = {
+            key: usage.get(key) if isinstance(usage, dict) else getattr(usage, key, None)
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        }
+        if any(value is None for value in values.values()):
+            return None
+        return values
+
     def generate(self, prompt: GenerationPrompt) -> str:
         # Cleared before anything can raise: on a reused generator, an SDK/import error
         # must never leave the *previous* call's usage/finish status observable — C3 reads
@@ -235,16 +248,7 @@ class OpenAIGenerator:
             kwargs["max_completion_tokens"] = self._max_completion_tokens
         response = client.chat.completions.create(**kwargs)
         # Capture usage for the C6 cost report (observational; does not alter the return).
-        usage = getattr(response, "usage", None)
-        self.last_usage = (
-            {
-                "prompt_tokens": usage.prompt_tokens,
-                "completion_tokens": usage.completion_tokens,
-                "total_tokens": usage.total_tokens,
-            }
-            if usage is not None
-            else None
-        )
+        self.last_usage = self._usage_dict(getattr(response, "usage", None))
         # §A.6 point 4: surface finish/refusal instead of discarding it. A refusal leaves
         # content None → "" is returned (parse-fails downstream), but the status is what
         # lets the C3 service route the run to the §D degenerate corpus with provenance.

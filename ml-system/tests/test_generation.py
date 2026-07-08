@@ -257,6 +257,32 @@ def test_openai_generator_handles_empty_choices_without_crashing(monkeypatch):
     assert generator.last_usage is None
 
 
+def test_openai_generator_usage_telemetry_is_not_on_the_generation_critical_path(monkeypatch):
+    # Usage is C6/eval telemetry only. If the SDK/API omits or renames a usage member,
+    # a successful paid response must still return content and finish status instead of
+    # raising after spend and forcing C3 into the lossy mid-generation failure arm.
+    class _Completions:
+        def create(self, **kwargs):
+            message = types.SimpleNamespace(content='{"outfits":[]}', refusal=None)
+            choice = types.SimpleNamespace(message=message, finish_reason="stop")
+            usage = types.SimpleNamespace(prompt_tokens=1)  # partial telemetry
+            return types.SimpleNamespace(choices=[choice], usage=usage)
+
+    class _Chat:
+        completions = _Completions()
+
+    class _OpenAI:
+        def __init__(self, api_key=None):
+            self.chat = _Chat()
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
+
+    generator = OpenAIGenerator(api_key="k")
+    assert generator.generate(_prompt()) == '{"outfits":[]}'
+    assert generator.last_finish_status == FinishStatus(finish_reason="stop", refusal=None)
+    assert generator.last_usage is None
+
+
 def test_openai_generator_clears_stale_status_when_sdk_call_raises(monkeypatch):
     # A reused generator must never expose the *previous* call's finish/usage after a failed
     # call: C3 reads `last_finish_status` per attempt for §D degenerate-corpus routing, so a

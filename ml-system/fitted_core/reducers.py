@@ -103,10 +103,10 @@ def _is_duplicate_counted_event(
     key: tuple[str, str, str],
     created_at: Optional[float],
 ) -> bool:
+    if created_at is None:
+        return True
     previous = seen.setdefault(key, [])
     for prior in previous:
-        if prior is None or created_at is None:
-            return True
         if abs(prior - created_at) <= FEEDBACK_DEDUP_WINDOW:
             return True
     previous.append(created_at)

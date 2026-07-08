@@ -101,7 +101,9 @@ OutfitInteractionSchema.pre("validate", function (next) {
   next();
 });
 
-OutfitInteractionSchema.index({ user: 1, createdAt: -1 });
+// M5 §H reducer window: deterministic most-recent-first scan. The _id tie-break
+// matters for same-millisecond feedback writes at the scan/cooldown boundary.
+OutfitInteractionSchema.index({ user: 1, createdAt: -1, _id: -1 });
 OutfitInteractionSchema.index({ user: 1, items: 1 });
 // Snapshot -> feedback join (M6 training reads); additive, builds via autoIndex.
 OutfitInteractionSchema.index({ snapshotId: 1, candidateId: 1 });

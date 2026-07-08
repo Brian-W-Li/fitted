@@ -283,7 +283,9 @@ Grounded in the official OpenAI docs (Responses/Structured-Outputs/Reasoning gui
    `GenerationAttemptTrace.finish_status` (read immediately after each `generate()`, so a repair retry
    never overwrites attempt 1's status; `None` for stubs/replays). **C3 owns the routing half** — mapping
    the captured status into `generationAttempts[]`/`generator.finishStatus` provenance and the degenerate
-   dispatch.
+   dispatch. **Usage telemetry is observational only:** `OpenAIGenerator.last_usage` feeds eval/cost
+   reports, never render success; missing/partial SDK usage data leaves `last_usage=None` and must not raise
+   after a paid response has valid content/finish status.
 5. **Temperature is not load-bearing.** The general GPT-5 reasoning-model rule restricts `temperature` to the
    default (1); the repo's own 2026-06-28 smoke test showed `gpt-5.4-mini` accepted `temperature=0.5`. Official
    docs are silent, so **do not build a hard dependency**: if the model rejects a non-default temperature the
@@ -615,7 +617,7 @@ Five contract pins:
 3. **Regen controls (R9 / H59).** `controls.lockedItemIds` / `controls.dislikedItemIds` are per-request
    fields. **One `normalizedControls`, computed once, drives generation AND persistence (F6 — no divergence
    between what shaped the render and what the corpus records).** The service normalizes the request controls
-   exactly once — **strip blank/whitespace elements, reject non-string ids (serde `_ID_SEQUENCE_KEYS`),
+   exactly once — **reject blank/whitespace elements, reject non-string ids (serde `_ID_SEQUENCE_KEYS`),
    dedup, and order-normalize** (a stable sort so the persisted arrays are canonical, not client-order-
    dependent) — and that **same** `normalizedControls` object is what (a) scopes the sampled pool + builds
    the "every outfit must include…" prompt + drives the Step-4 dislike filter, **and** (b) is authored onto
@@ -1194,7 +1196,8 @@ change the dedup window).
   | `saved`/`worn`/`rated`/`planned`/`packed`/`corrected`/`generated` | **excluded from v1 reducers** — §16 calls them weaker secondary evidence with `[NEXT]` weights; registered here so the exclusion is a decision, not a silent drop |
 
 - **Bounded scan (no unbounded read anywhere).** `interactionRows` are fetched last-`INTERACTION_ROWS_SCAN_LIMIT`
-  by `{user, createdAt: -1}` (index exists, verified `OutfitInteraction.ts:104`; default **500**, tuned at
+  by `{user, createdAt: -1, _id: -1}` (deterministic same-millisecond tie-break; index exists,
+  verified `OutfitInteraction.ts:106`; default **500**, tuned at
   C2), projected to `{action, createdAt, snapshotId, candidateId, baseKey, fullSignature, items,
   perItemFeedback.itemId, perItemFeedback.disliked}` — nothing else crosses the wire. **Deliberate
   semantic:** affinity/liked-sigs become recency-scoped rather than lifetime (clamped at `MAX_AFFINITY=20`
@@ -1225,11 +1228,12 @@ change the dedup window).
   persisted signal collections, so every stored signal carries its reducer provenance.
 
 **Acceptance:** pytest — the repetition reducer is recency-faithful + dedup-correct + window-bounded; the
-dedup reducer collapses in-window retries but counts genuine repeats; the affinity/cooldown projections
+dedup reducer collapses in-window retries but counts genuine repeats; missing/unparsable `createdAt`
+rows never count `item_affinity` but still contribute idempotent `liked_full_signatures`; the affinity/cooldown projections
 match hand-computed golden rows **per mapping-table line** (an `accepted` row boosts, a `rejected` row
 cools the baseKey and dislikes only per-item-marked ids, a `worn` row contributes nothing); the scan bound
 is enforced by reducer slicing (rows beyond `INTERACTION_ROWS_SCAN_LIMIT` /
-`REPETITION_WINDOW_SNAPSHOTS` contribute nothing; C5 owns DB fetch-limit tests); an unbound row is skipped.
+`REPETITION_WINDOW_SNAPSHOTS` contribute nothing; C5 owns DB fetch-limit + sort/tie-break tests); an unbound row is skipped.
 
 ## I. Trust-boundary gates (D4 — close all §19)
 
@@ -1410,6 +1414,9 @@ candidate_cache_key()` with golden vectors. Checkpoint-local decisions (all insi
   `ml-system/` (the directory containing BOTH `fitted_core/` and `service/`); `ml-system/.dockerignore`
   keeps `experiments/`/venvs/test assets out of the context. Deploy = `cd ml-system && fly deploy`.
   A CI dry `docker build` joins the C8 Commit-2 workflow.
+- **Strict service JSON (post-review fix):** request-body parsing rejects duplicate object keys and
+  non-finite constants (`NaN`/`Infinity`/`-Infinity`) before validation/spend. Python's default
+  `json.loads` accepts both classes; M5 treats them as malformed JSON, not shape-valid caller data.
 - **Service-side `forcedItemId`-absent → `contract_invalid`** (the §D input-validation locus); the
   user-facing `409 forced_item_unavailable` state-conflict arm stays Next-side at C5/C6 (§C.3/G16).
 - **Degenerate response flag:** `degenerate = engineFailure present OR (attempts non-empty AND
@@ -1487,7 +1494,8 @@ disallowed `generator.model`, a `generator.temperature` ≠ the service's config
 not echoed from the wire; an overlong `occasion` (`MAX_OCCASION_CHARS+1`) / over-bound `wardrobe` / over-size
 body / over-long `controls` array → `contract_invalid` and the exactly-at-limit case passes (**G7 boundary
 tests**); non-empty `lens.constraints` →
-`contract_invalid`; **`GET /readyz` returns `200 {"ready":true}` with all config/keys/§A.6 surface constants/versions present and
+`contract_invalid`; malformed JSON including duplicate object keys or `NaN`/`Infinity` tokens →
+`contract_invalid` before spend; **`GET /readyz` returns `200 {"ready":true}` with all config/keys/§A.6 surface constants/versions present and
 zero OpenAI spend, and `503` when a required env/config/static generator-surface constant is missing or unsanctioned, without ever returning a secret value
 (G9)**; a fake OpenAI client sees `max_completion_tokens`, **not** `max_tokens`, **the configured lowest-available
 `reasoning_effort`, `store:false`, and the structured-output mode (§A.6/G14)**; **a fake client returning a refusal or a
@@ -1733,6 +1741,8 @@ code paths.
   sentinel-rejection tests must fail.
 - Accept a wardrobe item id containing a §7/R10 reserved key char (`:|=`) or the `none` sentinel at the
   C3 service boundary → the pre-spend contract-invalid test must fail (never spend and later blame GPT).
+- Parse request JSON with Python defaults (accept duplicate object keys or non-finite constants) → the
+  malformed-body tests must fail; a hidden `NaN`/duplicate key must never reach generation.
 - Remove the `locked ∩ disliked` preflight → the contradictory-controls 400 test must fail.
 - Route a pre-attempt engine failure to the no-snapshot arm (or fabricate an attempt for it) → the failure-corpus test must fail.
 - Skip the degenerate-payload arm (write nothing on engine-internal failure) → the failure-corpus test fails.
@@ -1778,6 +1788,8 @@ code paths.
 - Make the service clamp-or-obey a mismatched wire `generator.temperature` or `generator.maxCompletionTokens`
   instead of rejecting → the exact-match `contract_invalid` test must fail.
 - Send `max_tokens` to OpenAI instead of `max_completion_tokens` → the fake-client generation test must fail.
+- Let missing/partial OpenAI `usage` telemetry raise after a successful response → the generator telemetry
+  critical-path test must fail (`last_usage` becomes `None`; content + finish status still return).
 - Route a model refusal or a cap-truncated/`incomplete` response to a silent empty (or to `contract_invalid`) instead of the §D degenerate payload, or drop the `apiSurface`/`responseFormat`/`reasoningEffort`/`finishStatus` provenance from the generator block → the §A.6 refusal/truncation-degenerate and generator-provenance read-back tests must fail.
 - Omit `reasoning_effort` (or set it high) / send bare `json_object` when the §12 envelope fits strict `json_schema` → the §A.6 generator-contract tests must fail.
 - Let the daily GPT ask use the raw `min(40, total_base×3)` instead of capping at `DAILY_MAX_CANDIDATES`, or set `M5_MAX_COMPLETION_TOKENS` below `ask × per-outfit-tokens` → the daily-ask-ceiling test / pre-C5 token-budget validation must fail (the cutover would truncate every normal-closet daily render — audit-2026-07-07 blocker).
@@ -1797,7 +1809,7 @@ code paths.
 - Take `generationIndex` (or the Lens) from the client on a re-roll, or skip the parent `{_id, user}` ownership re-read → the lineage-gate tests must fail (forged parent 404; ignored client index).
 - Drop `controls` from a regen child's payload/document, **omit `controls` on a first/non-regen render
   (must be `{lockedItemIds:[], dislikedItemIds:[]}`, not absent)**, **persist the raw client control arrays
-  instead of the single `normalizedControls` that shaped generation (dedup/blank-strip/order-normalize)**,
+  instead of the single `normalizedControls` that shaped generation (dedup/blank-reject/order-normalize)**,
   accept numeric elements through serde, or accept blank elements through controls validation → the
   controls-present-on-every-write / normalized-controls / regen-corpus read-back / controls-id tests must fail.
 - Emit a snake_case field, tuple-shaped `items`, `template` instead of `templateType`, or any renamed/dropped field from `variant_to_wire()` → the §6.5 wire-conformance golden must fail.

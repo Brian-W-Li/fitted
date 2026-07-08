@@ -254,7 +254,7 @@ def test_dedup_counts_middle_event_when_only_adjacent_to_older_duplicate():
     assert reduce_interaction_rows(rows).item_affinity == {"t1": 2}
 
 
-def test_missing_created_at_duplicate_semantics_are_fail_closed():
+def test_missing_created_at_never_counts_affinity_but_keeps_liked_signatures():
     rows = [
         {
             "snapshotId": "s1",
@@ -273,11 +273,28 @@ def test_missing_created_at_duplicate_semantics_are_fail_closed():
     ]
 
     signals = reduce_interaction_rows(rows)
-    assert signals.item_affinity == {"t1": 1}
+    assert signals.item_affinity == {}
     assert signals.liked_full_signatures == frozenset({"one", "two"})
 
 
-def test_numeric_created_at_is_not_accepted_for_dedup_timing():
+def test_unparsable_created_at_never_counts_affinity():
+    rows = [
+        {
+            "snapshotId": "s1",
+            "candidateId": "c1",
+            "action": "accepted",
+            "createdAt": "not-a-date",
+            "items": ["t1"],
+            "fullSignature": "one",
+        },
+    ]
+
+    signals = reduce_interaction_rows(rows)
+    assert signals.item_affinity == {}
+    assert signals.liked_full_signatures == frozenset({"one"})
+
+
+def test_numeric_created_at_is_not_accepted_for_affinity_counting():
     rows = [
         {
             "snapshotId": "s1",
@@ -297,7 +314,7 @@ def test_numeric_created_at_is_not_accepted_for_dedup_timing():
         },
     ]
 
-    assert reduce_interaction_rows(rows).item_affinity == {"t1": 1}
+    assert reduce_interaction_rows(rows).item_affinity == {}
 
 
 def test_excluded_worn_action_contributes_nothing():
