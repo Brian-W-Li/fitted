@@ -477,6 +477,57 @@ def test_generator_expectation_exact_match():
     _reject(body=body)  # unknown key
 
 
+def test_generator_expectation_exact_matches_the_full_api_surface():
+    # The §A.6/§G static API surface is part of the wire expectation — a wire value ≠ the
+    # service's configured value is caught PRE-SPEND (stub.call_count==0), never after a paid
+    # call authored a provenance row that lies about what produced it.
+    _reject({"generator": {"apiSurface": "responses"}})  # ≠ chat_completions
+    _reject({"generator": {"responseFormat": "json_object"}})  # ≠ json_schema_strict
+    _reject({"generator": {"reasoningEffort": "minimal"}})  # ≠ none
+    _reject({"generator": {"storeMode": "distillation"}})  # ≠ none
+    _reject({"generator": {"promptCacheRetention": "24h"}})  # ≠ in_memory
+    _reject({"generator": {"timeoutSeconds": 60.0}})  # ≠ 30.0
+    _reject({"generator": {"maxRetries": 2}})  # ≠ 0
+    _reject({"generator": {"timeoutSeconds": True}})  # bool is never a valid number
+    _reject({"generator": {"maxRetries": True}})  # bool is never a valid int
+    for field in (
+        "apiSurface", "responseFormat", "reasoningEffort", "storeMode",
+        "promptCacheRetention", "timeoutSeconds", "maxRetries",
+    ):
+        body = render_body()
+        del body["generator"][field]
+        _reject(body=body)  # every surface field is required, not optional
+
+
+@pytest.mark.parametrize(
+    ("attr", "drifted"),
+    [
+        # Only fields with ≥2 sanctioned values (or a numeric band) can drift while config stays
+        # VALID — the dangerous "green /readyz + silent spend" case. Single-valued fields
+        # (reasoningEffort/promptCacheRetention) can't reach here: any drift makes config invalid,
+        # so /readyz fails closed (test_readyz_503_on_unsanctioned_generator_surface); their wire
+        # expectation is still validated pre-spend by the full-surface wire-mismatch test above.
+        ("GENERATOR_RESPONSE_FORMAT", "json_object"),
+        ("OPENAI_TIMEOUT_SECONDS", 60.0),
+        ("OPENAI_MAX_RETRIES", 2),
+    ],
+)
+def test_service_config_drift_is_caught_pre_spend_while_readyz_stays_green(monkeypatch, attr, drifted):
+    # The bug this closes: the wire expectation once validated only 4 fields, so a service whose
+    # API-surface config had drifted from Next's expectation stayed /readyz-green, still SPENT, and
+    # then authored a provenance row asserting the drifted surface. Now the wire↔config mismatch
+    # rejects before the generator is built. Here the wire body carries the ORIGINAL expectation
+    # (render_body's defaults) while the service's config has drifted to another VALID value —
+    # exactly the repro — so /readyz stays green yet /render must reject with no spend.
+    monkeypatch.setattr(cfg, attr, drifted)
+    app, stub = make_app(daily_envelope())
+    ready_status, ready_body = http(app, "GET", "/readyz")
+    assert ready_status == 200 and ready_body["ready"] is True  # config is still valid — green
+    status, body = http(app, "POST", "/render", headers=AUTH, json_body=render_body())
+    assert status == 400 and body["error"]["code"] == "contract_invalid"
+    assert stub.call_count == 0  # rejected before any paid generator call — the load-bearing half
+
+
 def test_unknown_top_level_key_rejected():
     body = render_body()
     body["surprise"] = 1

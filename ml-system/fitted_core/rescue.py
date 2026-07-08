@@ -1245,8 +1245,16 @@ def rescue_with_trace(
         return RescueTrace(
             result=result,
             sampler_result=None,
-            prompt_pool=(),
-            candidate_requested=None,
+            # No sampler/prompt ran (pre-GPT structural sufficiency exit), but a valid no-spend
+            # empty render must still be self-explaining: capture the engine-visible wardrobe
+            # (forced item included) in deterministic request order so itemSnapshots can show WHY
+            # the closet was structurally insufficient around the forced item. Mirrors the daily
+            # understocked branch, which preserves its (sampler) pool rather than dropping to ().
+            prompt_pool=tuple(request.wardrobe),
+            # 0 — no GPT ask was made (no prompt built). Matches the daily understocked/
+            # controls-unbuildable convention; never None, which would read as "unknown ask"
+            # rather than the honest "no ask".
+            candidate_requested=0,
             attempts=(),
             validation=None,
             parsed_outfits=(),
@@ -1278,7 +1286,11 @@ def rescue_with_trace(
             ),
             sampler_result=sampler_result,
             prompt_pool=prompt_pool,
-            candidate_requested=None,
+            # No rescue prompt was built (short-circuit before _build_prompt), so the GPT ask is
+            # 0 — NOT sampler_result.candidate_requested (non-zero here: the sampler found a base
+            # pre-controls). Recording that would overstate the ask in the corpus; 0 matches the
+            # daily controls-unbuildable branch's convention and is the honest "no prompt" value.
+            candidate_requested=0,
             attempts=(),
             validation=None,
             parsed_outfits=(),

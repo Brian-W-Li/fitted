@@ -156,10 +156,18 @@ best-effort, but the GenerationSnapshot row is not. The added Mongo write latenc
     control.** The service runs generation with **its own** configured params — model from its allowlist
     (`{"gpt-5.4-mini"}`), `temperature=0.5` (D6), `max_completion_tokens` from its own config (H55/H60) —
     and the payload's `generator` provenance block is authored **from that config**, never from the wire.
-    The wire object is validated by **exact match** against the service config (`model` in allowlist,
-    `temperature ==` the configured value, `maxCompletionTokens ==` the configured cap); a mismatch →
-    `contract_invalid` — it means Next's expectation and the service's reality have drifted, which must fail
-    loudly, not be clamped into silence. (No
+    The wire object is validated by **exact match** against the service config across the **full static
+    API surface** — `provider`, `model` in allowlist, `temperature ==` the configured value,
+    `maxCompletionTokens ==` the configured cap, AND `apiSurface`/`responseFormat`/`reasoningEffort`/
+    `storeMode`/`promptCacheRetention`/`timeoutSeconds`/`maxRetries` each `==` the configured value (the
+    same constants the service builds the client from and authors into the `generator` provenance block);
+    a mismatch → `contract_invalid` **pre-spend**, before the generator is built — it means Next's
+    expectation and the service's reality have drifted, which must fail loudly (never after a paid call has
+    already authored a provenance row that lies about what produced it), not be clamped into silence.
+    Single-valued surface fields that can only drift into an *unsanctioned* value (e.g. `reasoningEffort`,
+    `promptCacheRetention`) additionally fail `/readyz` closed at config load; the multi-valued ones
+    (`responseFormat`, `timeoutSeconds`, `maxRetries`) can drift while `/readyz` stays green, so the wire
+    exact-match is the load-bearing pre-spend guard for those. (No
     `[0,2]` clamp: clamping *is* client control, contradicting D6's service-side enforcement.) **The cap
     is provenance too:** `max_completion_tokens` changes truncation/parse-fail/candidate distributions,
     so it is recorded in the payload's `generator` block (§G item 6) for M6 stratification.
@@ -503,10 +511,13 @@ def rescue(request: RescueRequest, generator: Generator, *, signal_scorer=None,
   `request.intent`. **Rescue path** = today's `rescue`/`rescue_with_trace` behavior (forced-item scoping +
   sufficiency). **Daily path** = full-pool sample (§10, no forced-item scoping) → **pre-GPT
   `not_enough_items` short-circuit** (the sampler reports `not_enough_items` when `requested == 0`,
-  verified `sampler.py:483`; daily mirrors rescue's no-spend intent but **does not copy rescue's empty
-  trace shape**: `sampler_result` is present, `candidate_requested=0`, `trace.prompt_pool` / itemSnapshots
-  preserve the canonical engine-visible wardrobe the engine considered, and
-  `generationAttempts[]`/`candidates[]`/shown arrays are empty) — **no generator call, no spend**,
+  verified `sampler.py:483`; daily mirrors rescue's no-spend intent — and both no-spend exits now
+  preserve the same evidence: `candidate_requested=0` (the honest "no ask", never `None`) and a
+  `trace.prompt_pool` / itemSnapshots carrying the engine-visible wardrobe the engine considered, with
+  `generationAttempts[]`/`candidates[]`/shown arrays empty. The one structural difference: daily's
+  understocked exit runs the sampler first so `sampler_result` is present and its pool is the preserved
+  prompt_pool, whereas rescue's pre-GPT *structural* sufficiency exit short-circuits **before** sampling
+  (`sampler_result=None`) and preserves the wardrobe itself in request order) — **no generator call, no spend**,
   `flags.notEnoughItems=true`, a **valid non-degenerate payload** with `nSurfaced=0`, snapshot written) →
   §12 generation (daily
   prompt) → validator → **intent-generic StyleMove drop (below)** → `rank_with_audit` → response. Keep

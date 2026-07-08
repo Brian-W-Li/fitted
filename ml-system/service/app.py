@@ -415,13 +415,25 @@ def _preflight_controls(
 
 def _validate_generator_expectation(raw: Any, config: ServiceConfig) -> None:
     """§A exact-match: the wire ``generator`` is Next's EXPECTATION, never control. A
-    mismatch means Next's expectation and the service's reality drifted — fail loud."""
+    mismatch means Next's expectation and the service's reality drifted — fail loud.
+
+    The expectation covers the **full static API surface** the service authors into the
+    §A.6/§G provenance block AND constructs the ``OpenAIGenerator`` from — ``apiSurface`` /
+    ``responseFormat`` / ``reasoningEffort`` / ``storeMode`` / ``promptCacheRetention`` /
+    ``timeoutSeconds`` / ``maxRetries`` alongside the original four — so any drift between what
+    Next expects and what the service is configured to do is caught **pre-spend**, before the
+    generator is built, never after a paid call has already been made (a corpus row that lies
+    about what produced it). This validates the wire expectation only; it never mutates config."""
     where = "generator"
     if not isinstance(raw, dict):
         raise ContractInvalid(f"{where} must be an object")
     _require_keys(
         raw,
-        required={"provider", "model", "temperature", "maxCompletionTokens"},
+        required={
+            "provider", "model", "temperature", "maxCompletionTokens",
+            "apiSurface", "responseFormat", "reasoningEffort", "storeMode",
+            "promptCacheRetention", "timeoutSeconds", "maxRetries",
+        },
         optional=set(),
         where=where,
     )
@@ -442,6 +454,34 @@ def _validate_generator_expectation(raw: Any, config: ServiceConfig) -> None:
     if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens != config.max_completion_tokens:
         raise ContractInvalid(
             f"{where}.maxCompletionTokens must exactly equal the service's configured cap"
+        )
+    # The static API surface — exact-match each field against the service's own configured value
+    # (the same constants _default_generator_factory builds the client from and the provenance
+    # block records), so an expectation authored against a drifted service is rejected pre-spend.
+    for field, expected in (
+        ("apiSurface", cfg.GENERATOR_API_SURFACE),
+        ("responseFormat", cfg.GENERATOR_RESPONSE_FORMAT),
+        ("reasoningEffort", cfg.GENERATOR_REASONING_EFFORT),
+        ("storeMode", cfg.GENERATOR_STORE_MODE),
+        ("promptCacheRetention", cfg.GENERATOR_PROMPT_CACHE_RETENTION),
+    ):
+        if raw[field] != expected:
+            raise ContractInvalid(
+                f"{where}.{field} must exactly equal the service's configured value"
+            )
+    timeout = raw["timeoutSeconds"]
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or float(timeout) != float(cfg.OPENAI_TIMEOUT_SECONDS)
+    ):
+        raise ContractInvalid(
+            f"{where}.timeoutSeconds must exactly equal the service's configured timeout"
+        )
+    retries = raw["maxRetries"]
+    if isinstance(retries, bool) or not isinstance(retries, int) or retries != cfg.OPENAI_MAX_RETRIES:
+        raise ContractInvalid(
+            f"{where}.maxRetries must exactly equal the service's configured retry count"
         )
 
 

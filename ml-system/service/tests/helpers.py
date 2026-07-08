@@ -153,6 +153,14 @@ def render_body(**overrides) -> dict:
             "model": "gpt-5.4-mini",
             "temperature": 0.5,
             "maxCompletionTokens": 2200,
+            # The full static API surface the §A wire expectation now exact-matches (§A.6/§G).
+            "apiSurface": "chat_completions",
+            "responseFormat": "json_schema_strict",
+            "reasoningEffort": "none",
+            "storeMode": "none",
+            "promptCacheRetention": "in_memory",
+            "timeoutSeconds": 30.0,
+            "maxRetries": 0,
         },
     }
     body = copy.deepcopy(body)

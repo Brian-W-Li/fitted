@@ -329,6 +329,10 @@ def test_controls_unbuildable_short_circuits_pre_gpt_with_distinct_hint():
     assert trace.result.reason_hint != _DAILY_NOT_ENOUGH_HINT  # distinct from understocked
     assert trace.attempts == ()  # no generation attempt was made
     assert trace.prompt_pool, "the lock-scoped engine-visible pool is still captured for the corpus"
+    # No prompt was built (short-circuit before the ask) → the honest "no ask" 0, never None and
+    # never the sampler's non-zero pre-controls count. The rescue controls-unbuildable branch
+    # shares this convention.
+    assert trace.candidate_requested == 0
 
 
 def test_dislike_removing_every_base_short_circuits_pre_gpt():

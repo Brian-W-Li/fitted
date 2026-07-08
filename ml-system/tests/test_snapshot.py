@@ -339,7 +339,12 @@ def test_not_enough_items_exit_builds_a_degenerate_payload():
     payload = _payload(request=request, envelope=_envelope())
     assert payload.diagnostics.not_enough_items is True
     assert payload.candidates == ()
-    assert payload.item_snapshots == ()  # no prompt built → no engine-visible items
+    # No prompt was built, but the valid no-spend empty render still preserves the engine-visible
+    # wardrobe (forced item included) so the failure is self-explaining. candidateRequested is the
+    # honest "no ask" 0 — never None.
+    assert [i.item_id for i in payload.item_snapshots] == ["t1"]
+    assert payload.diagnostics.candidate_requested == 0
+    assert payload.diagnostics.prompt_item_count == 1
     assert payload.generation_attempts == ()
 
 

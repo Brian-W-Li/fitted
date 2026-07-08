@@ -812,6 +812,25 @@ def test_rescue_insufficient_without_dup_still_returns_not_enough_items():
     assert result.not_enough_items is True
 
 
+def test_rescue_sufficiency_exit_preserves_engine_visible_prompt_pool():
+    # The pre-GPT structural sufficiency exit is a valid no-spend empty render, not a lost row:
+    # it must preserve the engine-visible wardrobe (forced item included) so the failure is
+    # self-explaining, and record the honest "no ask" candidate_requested=0 (never None) — the
+    # same convention the daily understocked branch uses.
+    request = _forced_top_request(n_bottoms=0)  # forced top, no bottom → insufficient, + shoes
+    stub = StubGenerator(_three_distinct_outfits())
+
+    trace = rescue_with_trace(request, stub)
+
+    assert stub.call_count == 0  # no generator call, no spend
+    assert trace.result.not_enough_items is True
+    assert [item.id for item in trace.prompt_pool] == ["t1", "s1"]  # engine-visible closet
+    assert "t1" in [item.id for item in trace.prompt_pool]  # the forced item is present
+    assert trace.candidate_requested == 0  # honest no-ask, never None
+    assert trace.attempts == ()
+    assert trace.validation is None
+
+
 def test_rescue_calls_generator_with_a_generation_prompt():
     stub = StubGenerator(_three_distinct_outfits())
     rescue(_forced_top_request(), stub)

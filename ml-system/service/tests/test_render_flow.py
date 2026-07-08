@@ -198,6 +198,27 @@ def test_daily_not_enough_items_is_a_valid_empty_render_with_zero_spend():
     assert payload["diagnostics"]["engineFailure"] is None
 
 
+def test_rescue_not_enough_items_preserves_forced_item_snapshots_with_zero_spend():
+    # A rescue whose closet is structurally insufficient around the forced item (forced top, no
+    # bottom) short-circuits pre-GPT — but the valid no-spend empty render must still be self-
+    # explaining: the engine-visible wardrobe (forced item INCLUDED) is captured, and the corpus
+    # records the honest "no ask" candidateRequested=0 (never None), matching the daily branch.
+    status, body, stub = _render(rescue_body(wardrobe=[wire_item("t1", "top")]))
+    assert status == 200
+    assert stub.call_count == 0  # pre-GPT structural short-circuit — no generator call, no spend
+    assert body["degenerate"] is False  # a VALID empty render, not an engine failure
+    assert body["shown"] == []
+    assert body["flags"]["notEnoughItems"] is True
+    payload = body["payload"]
+    assert payload["intent"] == "rescue_item"
+    assert payload["forcedItemId"] == "t1"
+    assert [i["itemId"] for i in payload["itemSnapshots"]] == ["t1"]  # forced item preserved
+    assert payload["diagnostics"]["candidateRequested"] == 0  # honest no-ask, never None
+    assert payload["diagnostics"]["promptItemCount"] == 1
+    assert payload["diagnostics"]["parse"]["generatorCalls"] == 0
+    assert payload["diagnostics"]["engineFailure"] is None
+
+
 def test_daily_not_enough_items_stays_valid_when_live_dislike_is_present():
     # A dislike is a re-roll control (§C.3 root-controls invariant) → child-shaped request.
     status, body, stub = _render(
@@ -269,6 +290,9 @@ def test_rescue_lock_with_no_complement_is_a_valid_empty_render_not_400():
     status, body = http(app, "POST", "/render", headers=AUTH, json_body=body_in)
     assert status == 200
     _assert_over_constrained_valid_empty(body, stub, controls=controls)
+    # Rescue short-circuited before any prompt → the ask is 0, NOT the sampler count (aligned to
+    # the daily controls-unbuildable branch's convention; never None).
+    assert body["payload"]["diagnostics"]["candidateRequested"] == 0
 
 
 def test_understocked_and_over_constrained_carry_distinct_reason_hints():
