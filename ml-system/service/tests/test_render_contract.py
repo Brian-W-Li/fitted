@@ -691,10 +691,18 @@ def test_unknown_top_level_field_is_rejected_pre_spend():
 # renamed off a contract name (items→itemIds) empties the signal it feeds and reddens the suite.
 
 
-def test_reducer_consumes_exactly_the_declared_row_reads():
+def test_declared_row_reads_drive_live_signals():
     """Every signal a bound feedback / snapshot row can produce is driven by a field NAME in
     REDUCER_ROW_READS. Fixtures use only contract-declared names (asserted ⊆), so a reducer read
-    renamed away from its declared name yields an empty signal here — the itemIds/items cure."""
+    *renamed away* from its declared name yields an empty signal here.
+
+    HONEST SCOPE (do not overstate): this catches a RENAME of a declared read, not a NEW undeclared
+    read — adding `row.get("moodTag")` to the reducer without declaring it stays green here, because
+    the fixture can't know to send `moodTag`. This is a *localizer* (which declared field drove which
+    signal), NOT the cure for row-grain drift. The real guard is the C5 behavioral round-trip: feed a
+    real Mongo projection through the service and assert the observable personalization behavior — a
+    projection/reducer name mismatch then produces the wrong OUTPUT regardless of which side drifted.
+    See docs/plans/post-m5-reset.md (test pyramid)."""
     from fitted_core.reducers import reduce_interaction_rows, reduce_snapshot_rows
 
     accepted = {

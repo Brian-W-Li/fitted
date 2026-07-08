@@ -358,10 +358,12 @@ below). **The JSON block below is illustrative of types + semantics only** — m
 > `request`'s required set (and each nested object equals its boundary). **Separately, the C5 Mongo
 > `behavioralRows` projection must emit exactly the `reducerRowReads` names** (`interactionRow` /
 > `perItemFeedback` / `snapshotRow`) — this is where the `itemIds`/`items` drift lives (the row grain the
-> wire parser treats as opaque); the Python side proves the reducer *consumes* those names
-> (`test_reducer_consumes_exactly_the_declared_row_reads`), the jest projection test proves Next *emits*
-> them. A name added/renamed on either runtime without the other trips a test. This is the executable
-> "chain of command" — one contract file, both runtimes obey it.
+> wire parser treats as opaque). The Python side is only a *localizer* here: `test_declared_row_reads_drive_live_signals`
+> catches a *rename* of a declared read but NOT a new undeclared one (see its docstring). The real row-grain
+> guard is the **C5 behavioral round-trip** — a real Mongo projection driven through the service asserting the
+> observable personalization behavior — which fails on a projection/reducer name mismatch regardless of which
+> side drifted (post-M5 test-pyramid work, `docs/plans/post-m5-reset.md`). One contract file both runtimes
+> target is the plumbing; the behavioral test is the cure.
 
 `POST /render` request (camelCase, mirrors the snapshot Lens + engine inputs):
 ```jsonc
@@ -2133,6 +2135,27 @@ on a vanished item can't be honored); a stale **dislike** → **drop it from `no
 shaped nothing, so neither `400` nor persist-as-lie). Kept as `400` for now (a strong desync signal during
 M5 bring-up, and it guards the buildability logic's "control ids resolve" assumption); revisit when C5's
 client control-lifecycle is real. Whichever way it lands, the buildability decision above is unaffected.
+
+**CONFIRMED DEFECTS (cross-layer drift-inventory sweep 2026-07-08) — pre-registered for C5, source-verified.
+Fix with BEHAVIORAL ROUND-TRIP tests (write→read a real Mongo doc), never shape-only — a `validateSync`
+over a healthy golden cannot catch a silent field-strip.** The live GenerationSnapshot write is C5, so
+these are latent today, but the committed `GenerationSnapshot.ts` schema already disagrees with the committed
+Python payload it is the write target for:
+- **D-1 `diagnostics.engineFailure` silent-drop (HIGH — data loss).** Python emits `diagnostics.engineFailure`
+  (`snapshot.py:145`, on every §D failure/degenerate write); the Mongoose `diagnostics` sub-schema
+  (`GenerationSnapshot.ts:332-356`) has no `engineFailure` field and the model runs default `strict:true`, so
+  it is stripped on insert. The entire §D failure corpus — the reason the degenerate arm exists — would be
+  lost. C5 must add the field (mirroring `ENGINE_FAILURE_STAGES`/`ENGINE_FAILURE_CODES`) + a round-trip test
+  that writes a degenerate snapshot and reads `engineFailure` back non-null.
+- **D-2 top-level `controls` silent-drop (HIGH — corpus loss).** Python emits top-level `controls`
+  (`snapshot.py:188`, "present on EVERY write", §G.1 F6); the root schema has no `controls` field → stripped.
+  The R9 regen-controls learning signal is lost from every snapshot. C5 adds the field + a round-trip test.
+- Related unguarded cross-runtime surfaces feeding the same C5 work (full inventory + the ~35-surface catalogue
+  in `docs/plans/post-m5-reset.md`): the §A response envelope + `flags` keys (hand-built `app.py:_flags`, no
+  single source), the clothingType 5-value set coercing unknown→"top" (`fitted/lib/clothingType.ts`), the
+  `action`-value map (rename in `OutfitInteraction.ts` silently empties affinity), the service `MAX_*` clamps
+  vs absent Mongoose `maxlength` (the existing "⚠ C5 mirror obligation" above), and the `keys.py`↔`app.py`
+  hand-duplicated key-safe id rule. These are guarded by the **behavioral round-trip suite**, not per-field pins.
 
 ## Open questions
 
