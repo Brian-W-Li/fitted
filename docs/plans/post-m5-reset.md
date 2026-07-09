@@ -6,9 +6,15 @@
 > so §4's top-2 silent-break risks are already CLOSED, and the inventory below needs a refresh against
 > the now-live post-C8 code as the campaign's first act).
 >
-> **Mission (Brian's framing):** *restore trust in docs, tests, AND code, and kill documentation bloat* —
-> over a few goaled sessions. The R1–R4 arc below is the spine; the mission reframes its purpose as trust,
-> not just tidiness.
+> **Mission (Brian's framing).** The repo should read top-down — **ambition → the v2 spec → the smaller
+> docs → code → tests**, each current, consistent, and right-sized. Today it isn't: docs are stale / out of
+> order / oversized, and — the ROOT cause — **decisions have no order or process**, so implementations keep
+> shipping latent issues (behavioral bugs, omissions; the commit history is a trail of "found another one"),
+> eroding trust even in the core specs and their relationship to everything else. Failure modes to hunt and
+> kill: **stale tests asserting decided-against behavior; green-washing** (a session under-reads context and
+> flips a test to match broken code — asserting the *opposite* of the intended behavior just to go green);
+> **silent omissions**. Restore the hierarchy of trust AND fix the decision process so it stops recurring.
+> **Constraint: NO NEW DOCS.** Consolidate into existing homes, delete, right-size — adding files IS the disease.
 >
 > **Audit method: combined Codex + Claude, cross-model ([[feedback_cross_model_review]]).** Every
 > diagnostic/verification pass runs BOTH a Claude heavy multi-lane audit (parallel subagents on distinct
@@ -63,11 +69,12 @@ style harness). M5 must be finished behavior-first before the whole-codebase res
 Precondition **MET** (M5 done; harness + D-1/D-2 guards landed at C5 — see banner). As separate goaled
 sessions (each a combined Codex+Claude audit per the banner method):
 
-- **R0 — Diagnostic refresh + campaign ledger (do first).** Re-run the drift/trust audit against the
-  now-live post-C8 code (the §4 inventory predates C5–C8; legacy is retired, D-1/D-2 guarded, one
-  integration smoke exists). Combined Codex+Claude. Output: a prioritized, deduplicated
-  trust-restoration ledger (docs/tests/code findings, each severity-graded + verified against source)
-  that R1–R4 execute against. Don't fix in R0 — map, dedup, prioritize.
+- **R0 — Diagnostic refresh (do first; DIAGNOSE, don't fix; NO new doc).** Re-verify the state against
+  now-live post-C8 code (the §4 inventory predates C5–C8: legacy retired, D-1/D-2 guarded, one integration
+  smoke exists) across three tracks — code drift, test trust (stale / green-washed / fake-mirror suites),
+  doc bloat + conflict. Combined Codex+Claude; every finding source-verified. Output: **update §4 of THIS
+  doc in place** with the current, deduplicated, severity-graded findings + a proposed session-by-session
+  order. No separate ledger file.
 
 - **R1 — Legibility / architecture map.** A concise "how the whole system fits together" doc + reading order;
   identify the sprawl and the legacy/v2 dual-arm to retire post-cutover. Goal: the codebase is digestible in
