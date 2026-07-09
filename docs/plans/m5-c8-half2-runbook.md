@@ -81,15 +81,30 @@ Or rely on the `.github/workflows/conformance.yml` gate being green on the branc
 
 ### Mechanical read — daily AND rescue on real `gpt-5.4-mini` (F3)
 ```sh
-cd ml-system && python -m fitted_core.cli --corpus-dir tests/fixtures/corpus --runs 5
+cd ml-system
+# daily (in-process, reads render_with_trace's trace):
+python -m fitted_core.cli --intent daily  --corpus-dir tests/fixtures/daily_corpus --runs 5
+# rescue:
+python -m fitted_core.cli --intent rescue --corpus-dir tests/fixtures/corpus       --runs 5
 # gates: parse rate, hallucinated ids, schema-rejection rate;
 #        rescue additionally → forced-item inclusion (forced item in EVERY surfaced outfit) + StyleMove presence.
-# Capture the legacy baseline numbers as the writeup "before".
+# The CLI reads OPENAI_API_KEY from os.environ (NOT fitted/.env.local) — export it first.
 ```
-> **OWED (see §Owed):** `fitted_core.cli` today is **rescue-only + in-process** — there is no `daily`
-> intent flag and it doesn't call the deployed `/render`. The daily half of this gate needs the small
-> CLI extension below. The in-process read still exercises the real model + prompt (the load-bearing
-> parse/hallucination/schema gates); the HTTP wire is additionally covered by the live smoke (step 6).
+
+**✅ DAILY read RECORDED (2026-07-08, `gpt-5.4-mini`, 2 cases × 5 runs = 10 renders):**
+- parse_success_rate **1.00**; repair_rate 0.00; rejections **(none) — 0 hallucinated/schema across 10 runs**.
+- style_move_rate **1.00** (a StyleMove on every validated candidate); mean_candidates 6.0 / 7.2;
+  mean_variants **3.0** (full surfaced set every run); insufficient_rate 0.00.
+- spread: daily_office achieved distinct path/risk cells 4/5 runs; daily_hot_weekend collapsed to one
+  cell every run (a lighter closet — descriptive, not a gate).
+- cost: **$0.0356 total / ~$0.0036 per render**, mean latency 4.4s (p95 5.7s). Well under the $10 cap.
+- **Verdict: the daily prompt (C1, first live exercise) passes the F3 daily gate cleanly.**
+- Cosmetic: the shared cost-summary line labels renders "rescue(s)" for both intents (numbers correct).
+
+> **STILL OWED:** the **rescue** live read on `gpt-5.4-mini` (the rescue path is unchanged; its last
+> live numbers were the H40 `gpt-4o` baseline). Cheap (~$0.20) and non-blocking for the daily result;
+> run it for the "both intents" F3 completeness + the writeup before/after. Optionally also route either
+> read through the deployed `/render` HTTP path (else the live smoke, step 6, covers the wire).
 
 ## 5. Wire Next + flip the flag
 `fitted/.env.local` (local smoke) **or** the deploy-host env:
@@ -126,9 +141,11 @@ cd fitted && npm run build && npm run start     # or: npm run dev
   service (it's the only recommender now) rather than revert.
 - Service-side: `fly apps` scale down / redeploy a prior image; Next flag-off → degraded meanwhile.
 
-## Owed pre-flip build items (key-independent — safe to do ahead of the flip)
-1. **Daily-intent path in `fitted_core/cli.py`** (currently rescue-only) so the F3 mechanical read
-   covers the daily prompt on real `gpt-5.4-mini`. Small: add an intent selector + a daily corpus
-   source; reuse the evaluation harness. Needs a key only to *run*, not to build.
-2. *(optional)* Route the mechanical read through the deployed `/render` HTTP path instead of
+## Owed pre-flip build items
+1. **✅ DONE — Daily-intent path in `fitted_core/cli.py`** (`--intent daily`; reads
+   `render_with_trace`'s trace; daily corpus at `tests/fixtures/daily_corpus/`; 11 hermetic tests).
+   The daily F3 read has now been run live — see the recorded numbers in §4 above.
+2. **Rescue live read on `gpt-5.4-mini`** — the daily half is done; run the rescue half for the
+   "both intents" F3 completeness + the writeup before/after (the rescue path is unchanged; ~$0.20).
+3. *(optional)* Route the mechanical read through the deployed `/render` HTTP path instead of
    in-process, if you want the wire covered by the eval too (else the live smoke covers it).

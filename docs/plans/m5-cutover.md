@@ -1838,7 +1838,9 @@ state gates (requestId minting/debounce already landed with the C6 UI contract).
 >   **Executable checklist:** `docs/plans/m5-c8-half2-runbook.md` (turnkey copy-paste commands, expected outputs,
 >   rollback). **Staged ahead (key-independent):** the H13 CI gate (`.github/workflows/conformance.yml`), the
 >   `.env.sample` half-2 block, and G2 (OpenAI $10 cap + alert, project `cssEnjbkDMOuCfMqzDuGdtLP`, done 2026-07-08).
->   **Owed key-independent build:** a `daily`-intent path in `fitted_core/cli.py` (rescue-only today) for the F3 read.
+>   **F3 daily read DONE (2026-07-08):** `fitted_core.cli --intent daily` built + run live on `gpt-5.4-mini`
+>   (10 renders: parse 1.00, 0 hallucinated/schema, StyleMove 1.00, $0.036) — daily gate passes; numbers in the
+>   runbook §4. **Still owed:** the rescue half of F3 on `gpt-5.4-mini` (rescue path unchanged; ~$0.20).
 
 **Commit 1 — flip + smoke:** Fly.io deploy; **index disposition (disambiguates m4 §14.5's "autoIndex off
 on the M5 service" note — the Python service has no Mongo; Next is the only Mongo client):** keep
