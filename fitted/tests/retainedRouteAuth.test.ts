@@ -112,6 +112,16 @@ describe("auth/sync route — token-derived identity + email (§I)", () => {
     expect(await User.countDocuments({})).toBe(0);
   });
 
+  it("token WITHOUT email + spoofed body email → 400, no row (no body-email squatting)", async () => {
+    setToken("uidNoEmail"); // token carries no email
+    const { POST } = await import("@/app/api/auth/sync/route");
+    const res = await POST(req({ email: "victim@x.com" })); // attacker-chosen body email
+    expect(res.status).toBe(400);
+    // The unique-email squat must not happen: no row created with the body email.
+    expect(await User.countDocuments({})).toBe(0);
+    expect(await User.findOne({ email: "victim@x.com" }).lean()).toBeNull();
+  });
+
   it("is idempotent — a second sync returns the same user, no duplicate", async () => {
     setToken("uidNew", "new@x.com");
     const { POST } = await import("@/app/api/auth/sync/route");

@@ -1439,16 +1439,20 @@ is enforced by reducer slicing (rows beyond `INTERACTION_ROWS_SCAN_LIMIT` /
   - **C7 STATUS (2026-07-08):** `account` + `auth/sync` now derive identity ONLY from the verified token
     (body `firebaseUid` ignored; token-derived uid/email; behavioral tests in `retainedRouteAuth.test.ts`);
     `cv/infer` requires auth + a 10 MiB size cap + a per-user in-process rate ceiling (`lib/rateLimit.ts`).
-  - **⚠ RESIDUAL (images-route ownership — registered, not closed at C7; a pre-C8 gate).** The image
-    bytes are rendered by `<img src="/api/images/<id>">` tags, which **cannot carry an
-    `Authorization: Bearer` header**, so per-request Firebase-token ownership is infeasible on that route
-    without a mechanism the browser attaches automatically: a Firebase **session cookie**
-    (`createSessionCookie`/`verifySessionCookie`) OR **signed image URLs** (an HMAC over `{imageId, user}`
-    appended by every URL producer — incl. the Python-authored `engineVisible.imageUrl`, so the signing
-    must live in the Next projection layer). Both are separable infra beyond the C6/C7 UI+interactions
-    pass. What C7 DID close on that route: a malformed id → stable `400` (never a cast-crash 500). At solo
-    scale the exposure — guessing a 24-hex ObjectId to read a clothing photo — is low. **Close before the
-    C8 flip** (recommend session cookies: smaller blast radius than re-plumbing every image-URL producer).
+  - **✅ CLOSED (images-route ownership — Firebase session cookie, 2026-07-08).** The image bytes are
+    rendered by `<img src="/api/images/<id>">` tags, which cannot carry an `Authorization: Bearer`
+    header — so ownership is enforced via a Firebase **session cookie** (the browser attaches it
+    automatically on same-origin requests). Chosen over signed URLs: smaller blast radius (no change to
+    any image-URL producer / the frozen C5 projection / the Python-authored `engineVisible.imageUrl`).
+    Mechanism: `POST /api/auth/session` mints an httpOnly session cookie from a fresh ID token
+    (`adminAuth.createSessionCookie`); `lib/session.ts` `verifySessionCookieUser` verifies it LOCALLY
+    (`verifySessionCookie(cookie, checkRevoked=false)` — no per-image Firebase round-trip) → the Mongo
+    user; the images route then serves iff `WardrobeImage.user === user` (a non-owner → `404`, existence
+    not revealed; missing/invalid cookie → `401`; malformed id → `400`). Cookie minted at sign-in/sign-up
+    + in `AuthGate` (freshness-gated, awaited before owner-only images render) and cleared on logout
+    (`lib/sessionCookie.ts`). Behavioral test: `tests/imagesRouteOwnership.test.ts`. Registered follow-up
+    (not built): `checkRevoked=true` for immediate logout-revocation, at the cost of a backend call per
+    image.
 - **Route rewrite guards.** `locked ∩ disliked ≠ ∅` preflight (H59 — §C.3; stable 400/409, no
   empty-success); **the §C.1 lineage gate** (parent ownership re-read; server-derived Lens +
   `generationIndex` — client lineage claims are never trusted); clamp all body-controlled text/array

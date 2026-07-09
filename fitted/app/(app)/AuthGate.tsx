@@ -4,6 +4,7 @@ import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ensureSessionCookie } from "@/lib/sessionCookie";
 
 export default function AuthGate({
   children,
@@ -15,8 +16,11 @@ export default function AuthGate({
   const [isSignedIn, setIsSignedIn] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        // Ensure the session cookie exists BEFORE rendering owner-only images (§I). Best-effort +
+        // freshness-gated, so only the first app load per session pays a mint round-trip.
+        await ensureSessionCookie(user);
         setIsSignedIn(true);
       } else {
         router.push("/signin");

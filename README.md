@@ -72,10 +72,10 @@ canonical, build-tagged design lives in [`docs/Fitted_Spec_v2.md`](docs/Fitted_S
 | Spearhead rescue vertical | ✅ built, tested | Orphan-item rescue end-to-end: forced-item pin → sufficiency check → generate → parse → validate → rank → cold-start `compatibility`/`visibility` → `optionPath`/`risk` bucketing. |
 | M4 data + snapshot layer | ✅ built (snapshot substrate ships dormant) | 5-value `clothingType`, keyword-derived `warmth`, the immutable `GenerationSnapshot` training-truth record + a three-way TS↔Python↔Mongo contract. |
 | H26 compatibility spike | ✅ done (NO-GO by the frozen letter) | The offline go/no-go above. |
-| M5 live cutover | 🚧 in progress (C1-C3 built) | Daily/rescue orchestrator, reducer seam, and stateless service are built/tested; C4-C8 wire regenerate, Mongo writes, UI, and final cutover. |
+| M5 live cutover | 🚧 in progress (C1-C7 built) | Orchestrator, reducer seam, stateless service, regenerate vertical, Mongo snapshot/feedback writes, §6.5 UI, and trust-boundary auth are built/tested; C8 (legacy-path retirement + live-key cutover) remains. |
 
-**Test rigor** (floors that grow, never shrink): **952** `ml-system` pytest · **305 (+1 skip)** H26 pytest ·
-**388** Next/jest. Pure-engine determinism is verified under controlled generator inputs; live GPT renders
+**Test rigor** (floors that grow, never shrink): **987** `ml-system` pytest · **305 (+1 skip)** H26 pytest ·
+**546** Next/jest. Pure-engine determinism is verified under controlled generator inputs; live GPT renders
 remain stochastic by design. Gate boundaries are mutation-tested.
 
 **Repo layout:**

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
 import RedirectIfAuthenticated from "@/app/(app)/RedirectIfAuthenticated";
+import { ensureSessionCookie } from "@/lib/sessionCookie";
 
 function normalizeAuthError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -61,7 +62,10 @@ export default function SigninPage() {
       }
 
       const data = await syncResponse.json();
-      
+
+      // Mint the session cookie so owner-only images (/api/images) load on the first app view (§I).
+      await ensureSessionCookie(user);
+
       // Store userId for convenience
       if (data.userId) {
         localStorage.setItem("userId", data.userId);

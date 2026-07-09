@@ -4,6 +4,7 @@ import Link from "next/link";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { useState, useEffect } from "react";
+import { resolveImageSrc } from "@/lib/imageUrl";
 
 // ============================================================================
 // M5 §I history — APPEND-ONLY. Corrections are new events, so there is no move/remove/edit
@@ -43,11 +44,9 @@ interface HistoryCard {
 
 type TabType = "liked" | "disliked";
 
-function imageUrlFromPath(imagePath?: string) {
-  if (!imagePath) return null;
-  if (imagePath.startsWith("mongo:")) return `/api/images/${imagePath.slice("mongo:".length)}`;
-  return null;
-}
+// §6.5 displayItems.imageUrl is already "/api/images/<id>" (or external) — resolve via the shared,
+// unit-tested helper (the mongo:-only version rendered no image for the resolved form).
+const imageUrlFromPath = resolveImageSrc;
 
 function relativeTime(dateString: string): string {
   const date = new Date(dateString);

@@ -1,21 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { initDatabase } from "@/lib/db";
+import { verifySessionCookieUser } from "@/lib/session";
 
 /**
- * GET /api/images/[imageId] — serve wardrobe image bytes.
+ * GET /api/images/[imageId] — serve wardrobe image bytes to the OWNER only (§I).
  *
- * §I note (ownership residual): these bytes are rendered by `<img src="/api/images/<id>">` tags, which
- * CANNOT carry an `Authorization: Bearer` header, so per-request Firebase-token auth is infeasible here
- * without a separate mechanism the browser attaches automatically — a Firebase **session cookie**
- * (`verifySessionCookie`) or **signed image URLs** (an HMAC over `{imageId, user}` appended by every
- * URL producer). Both are separable infra beyond this C6/C7 UI+interactions pass; the ownership closure
- * is a registered pre-C8 residual (m5-cutover.md §I). At solo scale the exposure — a caller guessing a
- * 24-hex ObjectId to read a clothing photo — is low. What IS closed here: a malformed id returns a
- * stable 400 (never a cast-crash 500), and existence is not confirmed for a bad id.
+ * These bytes are rendered by `<img src="/api/images/<id>">` tags, which cannot carry an
+ * `Authorization: Bearer` header — so ownership is enforced via the Firebase **session cookie** the
+ * browser attaches automatically (minted at sign-in, see /api/auth/session + lib/session.ts). A
+ * missing/invalid cookie → 401; a valid cookie whose user does not own the image → 404 (existence is
+ * not revealed to a non-owner). A malformed id → stable 400 (never a cast-crash 500).
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ imageId: string }> },
 ) {
   const { imageId } = await params;
@@ -23,10 +21,16 @@ export async function GET(
     return NextResponse.json({ error: "Invalid image id" }, { status: 400 });
   }
 
+  const auth = await verifySessionCookieUser(request);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   const { WardrobeImage } = await initDatabase();
   const doc = await WardrobeImage.findById(imageId).exec();
 
-  if (!doc) {
+  // 404 for both "no such image" and "not yours" — a non-owner cannot distinguish the two.
+  if (!doc || doc.user.toString() !== auth.userId) {
     return NextResponse.json({ error: "Image not found" }, { status: 404 });
   }
 

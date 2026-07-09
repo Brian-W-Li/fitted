@@ -4,6 +4,8 @@ import { auth } from "@/lib/firebaseClient";
 import { signOut, onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback, Suspense } from "react";
+import { resolveImageSrc } from "@/lib/imageUrl";
+import { clearSessionCookie } from "@/lib/sessionCookie";
 
 // ============================================================================
 // M5 §6.5 browser contract (the G15 allowlist the /api/recommend route returns).
@@ -145,11 +147,9 @@ function getEventTimeISO(bucket: EventTimeBucket, customVal: string): string | u
   return undefined;
 }
 
-function imageUrlFromPath(imagePath?: string) {
-  if (!imagePath) return null;
-  if (imagePath.startsWith("mongo:")) return `/api/images/${imagePath.slice("mongo:".length)}`;
-  return null;
-}
+// Resolve §6.5 displayItems.imageUrl (already "/api/images/<id>" or an external url) — plus mongo:
+// for defensiveness — to a browser <img src>. Shared, unit-tested (lib/imageUrl).
+const imageUrlFromPath = resolveImageSrc;
 
 const CLOTHING_TYPE_ORDER: Record<string, number> = {
   dress: 0,
@@ -614,6 +614,7 @@ function DashboardInner() {
         removeKey(DASHBOARD_KEY(uid));
         removeKey(PENDING_KEY(uid));
       }
+      await clearSessionCookie(); // revoke the image-serving session cookie on logout (§I)
       await signOut(auth);
       localStorage.removeItem("userId");
       router.push("/");

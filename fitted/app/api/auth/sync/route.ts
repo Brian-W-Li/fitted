@@ -28,15 +28,15 @@ export async function POST(request: NextRequest) {
 
     const firebaseUid = decoded.uid;
     const body = (await request.json().catch(() => ({}))) as {
-      email?: string;
       displayName?: string;
       photoURL?: string;
     };
-    // Email from the verified token when present (Google sign-in always has it); fall back to the
-    // body only as a descriptive field — identity is `authId`, which is always token-derived.
-    const email = decoded.email ?? body.email;
+    // Email comes ONLY from the verified token — NEVER the body. `User.email` is a unique index, so a
+    // body-supplied email would let a caller with a valid (email-less) token squat/collide on another
+    // user's email. Google sign-in always carries `email`; a token without it is rejected (400).
+    const email = decoded.email;
     if (!email) {
-      return NextResponse.json({ error: "email is required" }, { status: 400 });
+      return NextResponse.json({ error: "A verified email is required" }, { status: 400 });
     }
 
     const { User } = await initDatabase();

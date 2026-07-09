@@ -55,11 +55,27 @@ Branch `m5-c5-next-integration`. Started from `c1c6cdcc` (the frozen C5 baseline
 - **Floors: 535 jest / 30 suites green; tsc clean; eslint clean on all touched (the wardrobe file's 2
   pre-existing `any` errors at ~L1490 are not in touched code).**
 
+## C8-prep fix pass (2026-07-08, after a Codex re-audit) — 3 findings patched
+
+- **§6.5 `displayItems.imageUrl` didn't render (Medium, FIXED).** The adapter resolves `mongo:<id>` →
+  `/api/images/<id>` into the immutable snapshot, but the dashboard/history `imageUrlFromPath` handled
+  only `mongo:` → null for the resolved form. New shared `lib/imageUrl.ts` `resolveImageSrc`
+  (mongo:/`/api/images/`/`http(s)`; null for unsafe schemes) + unit test; dashboard + history wired.
+- **auth/sync trusted body email (Medium, FIXED).** `decoded.email ?? body.email` let an email-less
+  token squat a unique `User.email`. Now token-email only; token-without-email → 400, no row. Test added.
+- **Images-route ownership (High, CLOSED — was the pre-C8 residual).** Firebase **session cookie**
+  (chosen over signed URLs — no image-URL-producer / frozen-C5 changes): `POST/DELETE /api/auth/session`
+  mints/clears an httpOnly cookie; `lib/session.ts` verifies it locally; the images route serves iff
+  `WardrobeImage.user === the cookie user` (non-owner→404, missing/invalid→401, malformed→400). Minted at
+  sign-in/up + `AuthGate` (awaited before owner-only images render), cleared on logout
+  (`lib/sessionCookie.ts`). 5 behavioral tests (`imagesRouteOwnership.test.ts`). Registered follow-up:
+  `checkRevoked=true` for immediate logout-revocation (a backend call per image). Fresh-review: sound.
+- Floors after this pass: **jest 546 / 32 suites (`--runInBand`); tsc + eslint clean; `npm run build` ✓.**
+  (Note: the fully-parallel `jest` run can flake on mongod resource contention — the harness spins a real
+  mongod per suite; `--runInBand` is the canonical green command.)
+
 ## Residuals / not done (C8-only or registered)
 
-- **Images-route ownership (registered pre-C8 gate, plan §I).** `<img>` tags can't carry a Bearer header,
-  so per-request ownership needs a Firebase **session cookie** or **signed image URLs**. Separable infra;
-  documented in `m5-cutover.md` §I with the recommended fix (session cookies). Low exposure at solo scale.
 - **Weather-freeze residual (dashboard `buildRootBody` comment).** The F10 envelope freezes the request
   INPUTS (occasion + geo); with geo present the route re-resolves weather live, so a long-delayed reload
   crossing a weather-bucket boundary could false-409 the replay → degrades to "generate again", not a lost
