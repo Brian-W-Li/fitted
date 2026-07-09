@@ -9,6 +9,35 @@ const PerItemFeedbackSchema = new Schema(
   { _id: false, timestamps: false },
 );
 
+// --- M5 §16 structured feedback "why" (C6). The closed reason vocabulary + a bounded free-text
+// escape hatch. This is the sanctioned home for the "why" (never `metadata`, never the deleted
+// Gemini `inferredWhy` write-back). M5 reducers ignore `feedbackReason` in v1; future training reads
+// the structured `codes`, while `rawText` stays provenance until reviewed/compiled (§23-H34). ---
+export const FEEDBACK_REASON_CODES = [
+  "good",
+  "neutral",
+  "bad",
+  "too_boring",
+  "too_much",
+  "not_practical",
+  "not_me",
+  "wrong_context",
+  "weather_forced",
+  "necessity",
+  "too_repetitive",
+] as const;
+export type FeedbackReasonCode = (typeof FEEDBACK_REASON_CODES)[number];
+export const FEEDBACK_REASON_RAW_TEXT_MAX_CHARS = 500; // same route cap as perItemFeedback.notes
+
+const FeedbackReasonSchema = new Schema(
+  {
+    codes: [{ type: String, enum: [...FEEDBACK_REASON_CODES] }],
+    rawText: { type: String, maxlength: FEEDBACK_REASON_RAW_TEXT_MAX_CHARS },
+    source: { type: String, enum: ["user"], default: "user" },
+  },
+  { _id: false, timestamps: false },
+);
+
 const ContextSchema = new Schema(
   {
     weather: { type: String },
@@ -46,6 +75,9 @@ const OutfitInteractionSchema = new Schema(
     inferredWhy: { type: String },
     /** Per-item feedback from the dislike modal: which pieces the user marked as disliked and any notes. */
     perItemFeedback: { type: [PerItemFeedbackSchema], default: undefined },
+    /** Structured "why" (§16): closed reason codes + bounded free text. The C6 route validates codes
+     *  against FEEDBACK_REASON_CODES and caps rawText; written only when at least one exists. */
+    feedbackReason: { type: FeedbackReasonSchema, default: undefined },
     context: { type: ContextSchema, default: () => ({}) },
 
     // --- M4 snapshot binding (all nullable; present iff snapshot-bound). ---

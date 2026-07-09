@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
 import { AddItemUploadStepActions } from "@/lib/addItemUploadStepActions";
@@ -239,6 +240,17 @@ function WardrobeCard({
             <span className="font-semibold text-slate-600">Pattern:</span> {item.pattern}
           </p>
         )}
+
+        {/* Rescue launch (§B/F2): build a full outfit around THIS item. Sends `forcedItemId` to the
+            one recommend route (intent=rescue_item), so every suggestion includes this piece. */}
+        {isAvailable && (
+          <Link
+            href={`/dashboard?rescue=${encodeURIComponent(item.id)}&name=${encodeURIComponent(item.name)}`}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+          >
+            <span aria-hidden>✨</span> Build an outfit around this
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -248,7 +260,9 @@ type WardrobeFormValues = Omit<WardrobeItem, "id">;
 
 type AddItemModalProps = {
   onClose: () => void;
-  onSave: (item: WardrobeFormValues, imageFile: File | null) => Promise<void> | void;
+  /** Returns `false` when the save FAILED — the modal then stays open so the user's input is not
+   *  lost (§I client-state gate). Any other result (success) closes the modal. */
+  onSave: (item: WardrobeFormValues, imageFile: File | null) => Promise<boolean | void> | boolean | void;
   initialItem?: WardrobeFormValues;
   title?: string;
   /** Add flow: step 1 is upload-only, step 2 is form. When null, single form (edit or add without CV). */
@@ -402,7 +416,7 @@ function AddItemModal({
 
     setSaving(true);
     try {
-      await onSave(
+      const result = await onSave(
         {
           name: name.trim(),
           category,
@@ -419,7 +433,8 @@ function AddItemModal({
         },
         fileToUpload
       );
-      onClose();
+      // Close ONLY on success — a failed save keeps the modal open so the input is not lost.
+      if (result !== false) onClose();
     } finally {
       setSaving(false);
     }
@@ -1325,7 +1340,7 @@ export default function WardrobePage() {
             if (editingItem) {
               if (!firebaseUser) {
                 setError("You are not signed in. Please sign in again.");
-                return;
+                return false;
               }
               try {
                 setError(null);
@@ -1341,7 +1356,7 @@ export default function WardrobePage() {
                 const respData = await res.json().catch(() => ({}));
                 if (!res.ok) {
                   setError(respData.error ?? "Failed to update item.");
-                  return;
+                  return false;
                 }
                 const raw = respData.item;
                 let updated: WardrobeItem = {
@@ -1352,7 +1367,7 @@ export default function WardrobePage() {
                 };
                 if (!updated.id) {
                   setError("Update succeeded but server did not return an id.");
-                  return;
+                  return false;
                 }
                 // Preserve existing image if user did not upload a new one
                 if (!imageFile) {
@@ -1373,15 +1388,17 @@ export default function WardrobePage() {
                 setItems((prev) =>
                   prev.map((it) => (it.id === updated.id ? updated : it))
                 );
+                // Success — the modal's onClose (below) clears editingItem. On any failure above we
+                // returned `false` so the modal stays open and the edited values are preserved.
               } catch (e) {
                 console.error("Error updating wardrobe item:", e);
                 setError("Failed to update item.");
-              } finally {
-                setEditingItem(null);
+                return false;
               }
             } else {
               const saved = await handleAddItem(data);
-              if (saved && firebaseUser) {
+              if (!saved) return false; // save failed — keep the modal open, preserve the form
+              if (firebaseUser) {
                 try {
                   if (addInferredCroppedImage) {
                     // Use CV-cropped, background-removed image returned by the CV service
@@ -1457,9 +1474,11 @@ export default function WardrobePage() {
             try {
               const fd = new FormData();
               fd.append("file", file);
+              const token = await firebaseUser?.getIdToken();
               const res = await fetch("/api/cv/infer", {
                 method: "POST",
                 body: fd,
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined,
                 signal: controller.signal,
               });
               if (controller.signal.aborted) return;

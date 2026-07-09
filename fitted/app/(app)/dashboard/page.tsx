@@ -2,74 +2,119 @@
 
 import { auth } from "@/lib/firebaseClient";
 import { signOut, onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
-import { useRouter } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, Suspense } from "react";
 
 // ============================================================================
-// Types
+// M5 §6.5 browser contract (the G15 allowlist the /api/recommend route returns).
+// The dashboard renders ONLY this projection — never a legacy `outfits[]` shape, never a
+// `shown[].outfit` echo. The StyleMove card body comes from `candidates[candidateId]` (already
+// resolved server-side into `styleMove`/`optionPath`/`risk`/`templateType`); item display fields
+// come from `itemSnapshots` (hydrated server-side into `displayItems`).
 // ============================================================================
 
-interface OutfitItem {
-  id: string;
-  name: string;
-  category: string;
-  subCategory?: string;
-  layerRole?: string;
-  colors: string[];
-  imagePath?: string;
-  isLocked?: boolean;
+interface DisplayItem {
+  itemId: string;
+  role?: string;
+  name?: string;
+  clothingType?: string;
+  colorTags?: string[];
+  imageUrl?: string;
 }
 
-interface Outfit {
-  itemIds: string[];
-  items: OutfitItem[];
-  confidence: number;
-  reason: string;
+interface StyleMove {
+  moveType?: string;
+  oneSentence?: string;
+  changedItemIds?: string[];
+}
+
+interface ShownOutfit {
+  snapshotId: string;
+  candidateId: string;
+  displayItems: DisplayItem[];
+  styleMove: StyleMove | null;
+  optionPath?: string;
+  risk?: string;
+  templateType?: string;
+  /** client-only UI state — which way this variant was rated this session */
   feedback?: "liked" | "disliked";
 }
 
-interface EnvironmentContext {
-  temperatureHint: "hot" | "mild" | "cold" | "indoor" | "outdoor";
-  weatherSummary?: string;
+interface RenderFlags {
+  notEnoughItems: boolean;
+  insufficientAfterGeneration: boolean;
+  spreadCollapsed: boolean;
+  reasonHint: string | null;
 }
 
-interface PerItemFeedback {
-  itemId: string;
-  disliked: boolean;
-  notes?: string;
+interface RenderResult {
+  shown: ShownOutfit[];
+  flags: RenderFlags;
+  bindable: boolean;
+  generationIndex?: number;
+  parentSnapshotId?: string | null;
 }
 
-/** Persisted dashboard state so recommendations + likes/dislikes survive navigation. */
-interface DashboardPersistedState {
-  eventDescription: string;
-  eventTimeBucket: EventTimeBucket;
-  customEventDateTime: string;
-  outfits: Outfit[];
-  environment?: EnvironmentContext;
-  recMessage: string;
+/** The Lens inputs frozen once per Generate action (F10 — the retry re-sends these verbatim). */
+interface LensSummary {
+  occasion: string;
+  forcedItemId?: string | null;
+  location?: string | null;
+  lat?: number;
+  lon?: number;
+  eventTimeISO?: string;
+  eventTimeLabel?: string;
 }
 
-const DASHBOARD_STORAGE_KEY = "fitted_dashboard_state";
+interface NormalizedControls {
+  lockedItemIds: string[];
+  dislikedItemIds: string[];
+}
 
-function loadDashboardState(): DashboardPersistedState | null {
+/** The durable pending-render envelope (§C.4 F10) — persisted BEFORE the fetch so `requestId`
+ *  survives a reload/lost response, cleared only on hydrated success or explicit discard. */
+interface PendingEnvelope {
+  requestId: string;
+  intent: "daily" | "rescue_item";
+  parentSnapshotId: string | null;
+  normalizedControls: NormalizedControls;
+  lensSummary: LensSummary;
+}
+
+// ============================================================================
+// Namespaced client storage (C7 client-state gate — keyed by uid, cleared on logout).
+// ============================================================================
+const DASHBOARD_KEY = (uid: string) => `fitted_dashboard_v2:${uid}`;
+const PENDING_KEY = (uid: string) => `fitted_pending_render:${uid}`;
+
+interface PersistedDashboard {
+  occasion: string;
+  result: RenderResult;
+}
+
+function readJSON<T>(key: string): T | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(DASHBOARD_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as DashboardPersistedState;
-    if (!parsed || !Array.isArray(parsed.outfits)) return null;
-    return parsed;
+    const raw = sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
     return null;
   }
 }
-
-function saveDashboardState(state: DashboardPersistedState): void {
+function writeJSON(key: string, value: unknown): void {
   if (typeof window === "undefined") return;
   try {
-    sessionStorage.setItem(DASHBOARD_STORAGE_KEY, JSON.stringify(state));
+    sessionStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // ignore quota or serialization errors
+    // ignore quota/serialization errors
+  }
+}
+function removeKey(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // ignore
   }
 }
 
@@ -79,33 +124,20 @@ function saveDashboardState(state: DashboardPersistedState): void {
 
 type EventTimeBucket = "now" | "later_today" | "tomorrow" | "custom";
 
-/**
- * Converts the user's "When?" selection to a UTC ISO string for the backend.
- * Returns undefined for "now" (backend uses current conditions).
- */
-/**
- * Returns the target event hour as a UTC ISO string.
- * - "later_today" → 18:00 in user's local timezone (rolls to tomorrow 18:00 if already past 18:00)
- * - "tomorrow"    → 12:00 local (noon)
- * - "custom"      → whatever the datetime-local picker holds
- * - "now"         → undefined (backend uses live current conditions)
- */
 function getEventTimeISO(bucket: EventTimeBucket, customVal: string): string | undefined {
   if (bucket === "now") return undefined;
   if (bucket === "later_today") {
     const d = new Date();
-    // Roll to tomorrow if it's already 18:00 or later
     if (d.getHours() >= 18) d.setDate(d.getDate() + 1);
-    d.setHours(18, 0, 0, 0); // 6 PM in user's local timezone
-    return d.toISOString();  // toISOString() converts local → UTC
+    d.setHours(18, 0, 0, 0);
+    return d.toISOString();
   }
   if (bucket === "tomorrow") {
     const d = new Date();
     d.setDate(d.getDate() + 1);
-    d.setHours(12, 0, 0, 0); // noon in user's local timezone
+    d.setHours(12, 0, 0, 0);
     return d.toISOString();
   }
-  // custom: datetime-local input → UTC ISO
   if (customVal) {
     const parsed = new Date(customVal);
     return isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
@@ -113,839 +145,777 @@ function getEventTimeISO(bucket: EventTimeBucket, customVal: string): string | u
   return undefined;
 }
 
-/** Human-readable label sent to the backend for inclusion in the LLM prompt. */
-function getEventTimeLabel(bucket: EventTimeBucket, customVal: string): string | undefined {
-  if (bucket === "now") return undefined;
-  if (bucket === "later_today") {
-    const isPast6PM = new Date().getHours() >= 18;
-    return isPast6PM ? "Tomorrow at 6 PM" : "Today at 6 PM";
-  }
-  if (bucket === "tomorrow") return "Tomorrow at noon";
-  if (bucket === "custom" && customVal) {
-    const parsed = new Date(customVal);
-    if (isNaN(parsed.getTime())) return undefined;
-    return parsed.toLocaleString([], {
-      weekday: "short", month: "short", day: "numeric",
-      hour: "numeric", minute: "2-digit",
-    });
-  }
-  return undefined;
-}
-
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
-  if (imagePath.startsWith("mongo:")) {
-    return `/api/images/${imagePath.slice("mongo:".length)}`;
-  }
+  if (imagePath.startsWith("mongo:")) return `/api/images/${imagePath.slice("mongo:".length)}`;
   return null;
 }
 
-function getScoreColor(score: number) {
-  if (score >= 80) return "text-green-600 bg-green-100";
-  if (score >= 60) return "text-yellow-600 bg-yellow-100";
-  return "text-orange-600 bg-orange-100";
+const CLOTHING_TYPE_ORDER: Record<string, number> = {
+  dress: 0,
+  top: 1,
+  bottom: 2,
+  outer_layer: 3,
+  shoes: 4,
+};
+function sortDisplayItems(items: DisplayItem[]): DisplayItem[] {
+  return [...items].sort(
+    (a, b) => (CLOTHING_TYPE_ORDER[a.clothingType ?? ""] ?? 5) - (CLOTHING_TYPE_ORDER[b.clothingType ?? ""] ?? 5),
+  );
 }
 
+/** Machine-code reason hints (all three healthy flags false) → friendly copy. An unrecognized code
+ *  falls to generic error copy — the client-side default the plan requires (G4/§A reasonHint). */
+const MACHINE_REASON_COPY: Record<string, string> = {
+  service_unavailable: "The stylist is temporarily unavailable. Please try again in a moment.",
+  contract_invalid: "We couldn't build a request from that input. Try rephrasing the occasion.",
+  rate_limited: "You're generating a bit fast — give it a few seconds and try again.",
+  auth_failed: "Your session expired. Please sign in again.",
+  engine_failure: "Something went wrong generating outfits. Please try again.",
+};
 
-function sortOutfitItems(items: OutfitItem[]): OutfitItem[] {
-  const getItemTypeOrder = (item: OutfitItem): number => {
-    const cat = item.category?.toLowerCase() || "";
-    const subCat = item.subCategory?.toLowerCase() || "";
-    const name = item.name?.toLowerCase() || "";
-    const layerRole = item.layerRole?.toLowerCase() || "";
-    
-    // One piece (dresses, jumpsuits) - should be first if present
-    if (cat === "one piece" || ["dress", "jumpsuit", "romper"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
-      return 0;
-    }
-    
-    // Base top (t-shirts, shirts, blouses)
-    if (cat === "top" || cat === "tops" || layerRole === "base" || 
-        ["shirt", "tee", "t-shirt", "blouse", "polo", "tank", "henley", "button-down", "oxford", "camisole"].some(w => name.includes(w) || subCat.includes(w))) {
-      return 1;
-    }
-    
-    // Bottom (pants, jeans, skirts)
-    if (cat === "bottom" || cat === "bottoms" || 
-        ["pants", "jeans", "shorts", "skirt", "trousers", "chinos", "leggings"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
-      return 2;
-    }
-    
-    // Mid layer (sweaters, cardigans, hoodies)
-    if (layerRole === "mid" || 
-        ["cardigan", "sweater", "hoodie", "fleece", "vest", "pullover"].some(w => name.includes(w) || subCat.includes(w))) {
-      return 3;
-    }
-    
-    // Outer layer (jackets, coats)
-    if (layerRole === "outer" || 
-        ["jacket", "coat", "blazer", "parka", "puffer", "windbreaker", "trench", "overcoat", "denim jacket"].some(w => name.includes(w) || subCat.includes(w))) {
-      return 4;
-    }
-    
-    // Footwear last
-    if (cat === "footwear" || 
-        ["shoes", "sneakers", "boots", "sandals", "loafers", "heels", "flats"].some(w => cat.includes(w) || name.includes(w) || subCat.includes(w))) {
-      return 5;
-    }
-    
-    // Unknown items at the end
-    return 6;
-  };
-  
-  return [...items].sort((a, b) => getItemTypeOrder(a) - getItemTypeOrder(b));
+/** Turn a render result into the user-facing empty-state message (prose hint or mapped code). */
+function emptyStateMessage(result: RenderResult): string {
+  const { flags } = result;
+  const healthy = flags.notEnoughItems || flags.insufficientAfterGeneration;
+  if (healthy && flags.reasonHint) return flags.reasonHint; // prose register — genuine advice
+  if (flags.reasonHint && MACHINE_REASON_COPY[flags.reasonHint]) return MACHINE_REASON_COPY[flags.reasonHint];
+  if (flags.notEnoughItems) return "Add a few more items to your closet so we can build an outfit.";
+  return "No outfits this time. Try adjusting the occasion, or add more to your closet.";
 }
+
+const RISK_BADGE: Record<string, string> = {
+  safe: "bg-green-100 text-green-700",
+  noticeable: "bg-yellow-100 text-yellow-700",
+  bold: "bg-orange-100 text-orange-700",
+};
 
 // ============================================================================
-// Feedback Modal Component
+// Dislike feedback modal — per-item dislikes + structured reason codes (§16).
 // ============================================================================
-
-interface FeedbackModalProps {
-  outfit: Outfit;
-  eventDescription: string;
-  environment?: EnvironmentContext;
-  onClose: () => void;
-  onSaveFeedback: (data: {
-    perItemFeedback: PerItemFeedback[];
-    overallNotes: string;
-  }) => void;
+interface PerItemFeedback {
+  itemId: string;
+  disliked: boolean;
+  notes?: string;
 }
+
+const DISLIKE_REASONS: { code: string; label: string }[] = [
+  { code: "too_boring", label: "Too boring" },
+  { code: "too_much", label: "Too much" },
+  { code: "not_practical", label: "Not practical" },
+  { code: "not_me", label: "Not my style" },
+  { code: "wrong_context", label: "Wrong for the occasion" },
+  { code: "weather_forced", label: "Wrong for the weather" },
+  { code: "too_repetitive", label: "Too repetitive" },
+];
 
 function FeedbackModal({
   outfit,
   onClose,
-  onSaveFeedback,
-}: FeedbackModalProps) {
-  const [perItemFeedback, setPerItemFeedback] = useState<Record<string, PerItemFeedback>>({});
-  const [overallNotes, setOverallNotes] = useState("");
-  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+  onSave,
+}: {
+  outfit: ShownOutfit;
+  onClose: () => void;
+  onSave: (data: { perItemFeedback: PerItemFeedback[]; codes: string[] }) => void;
+}) {
+  const [disliked, setDisliked] = useState<Set<string>>(new Set());
+  const [codes, setCodes] = useState<Set<string>>(new Set());
 
-  const toggleDisliked = (itemId: string) => {
-    setPerItemFeedback(prev => ({
-      ...prev,
-      [itemId]: {
-        itemId,
-        disliked: !prev[itemId]?.disliked,
-        notes: prev[itemId]?.notes,
-      }
-    }));
-  };
-
-  const setItemNotes = (itemId: string, notes: string) => {
-    setPerItemFeedback(prev => ({
-      ...prev,
-      [itemId]: {
-        itemId,
-        disliked: prev[itemId]?.disliked || false,
-        notes,
-      }
-    }));
-  };
-
-  const toggleNotesExpanded = (itemId: string) => {
-    setExpandedNotes(prev => {
-      const next = new Set(prev);
-      if (next.has(itemId)) {
-        next.delete(itemId);
-      } else {
-        next.add(itemId);
-      }
-      return next;
-    });
-  };
-
-  const handleSaveFeedback = () => {
-    const feedbackList = Object.values(perItemFeedback).filter(f => f.disliked || f.notes);
-    onSaveFeedback({ perItemFeedback: feedbackList, overallNotes });
+  const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setter(next);
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-slate-200">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Feedback on Outfit</h2>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <p className="text-sm text-slate-600 mt-1">
-            Tell us what you didn&apos;t like. You can mark individual pieces or add notes.
-          </p>
+        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+          <h2 className="text-xl font-semibold">What didn&apos;t work?</h2>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         <div className="p-6 space-y-4">
-          {sortOutfitItems(outfit.items).map((item) => {
-            const imgSrc = imageUrlFromPath(item.imagePath);
-            const isDisliked = perItemFeedback[item.id]?.disliked;
-            const notesExpanded = expandedNotes.has(item.id);
-
-            return (
-              <div
-                key={item.id}
-                className={`p-4 rounded-lg border transition-colors ${
-                  isDisliked ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"
-                }`}
-              >
-                <div className="flex gap-4">
-                  {imgSrc ? (
-                    <img
-                      src={imgSrc}
-                      alt={item.name}
-                      className="w-20 h-20 object-cover rounded-lg"
-                    />
-                  ) : (
-                    <div className="w-20 h-20 bg-slate-200 rounded-lg flex items-center justify-center text-xs text-slate-500">
-                      No photo
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-slate-900">{item.name}</p>
-                        <p className="text-sm text-slate-500">
-                          {item.category}
-                          {item.layerRole && ` • ${item.layerRole}`}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => toggleDisliked(item.id)}
-                          className={`px-3 py-1 text-sm font-medium rounded-lg transition-colors ${
-                            isDisliked
-                              ? "bg-red-200 text-red-800"
-                              : "bg-slate-200 text-slate-700 hover:bg-red-100"
-                          }`}
-                        >
-                          {isDisliked ? "Disliked" : "Dislike"}
-                        </button>
-                        {false && (
-                          <button
-                            onClick={() => toggleNotesExpanded(item.id)}
-                            className="px-2 py-1 text-sm bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
-                            title="Add notes for this item"
-                          >
-                            📝
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {false && notesExpanded && (
-                      <input
-                        type="text"
-                        placeholder="e.g. Color too bright, doesn't fit well..."
-                        value={perItemFeedback[item.id]?.notes || ""}
-                        onChange={(e) => setItemNotes(item.id, e.target.value)}
-                        className="mt-2 w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-	          {false && (
-	            <div className="pt-4 border-t border-slate-200">
-	              <label className="block text-sm font-medium text-slate-700 mb-2">
-	                Overall feedback (optional)
-	              </label>
-	              <textarea
-	                value={overallNotes}
-	                onChange={(e) => setOverallNotes(e.target.value)}
-	                placeholder="e.g. Too dressy for this occasion, colors don't match..."
-	                rows={2}
-	                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
-	              />
-	            </div>
-	          )}
-
-        </div>
-
-        <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSaveFeedback}
-            className="px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-800 transition-colors"
-          >
-            Save Feedback
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Regenerate Modal (lock pieces, get new outfits)
-// ============================================================================
-
-type ChangeTarget = "outer" | "top" | "bottom" | "footwear" | "any";
-
-interface RegenerateModalProps {
-  outfit: Outfit;
-  eventDescription: string;
-  environment?: EnvironmentContext;
-  regeneratedOutfits: Outfit[] | null;
-  onClose: () => void;
-  onRegenerate: (lockedItemIds: string[], changeTarget: ChangeTarget) => Promise<void>;
-  onDone: () => void;
-  isRegenerating: boolean;
-}
-
-function RegenerateModal({
-  outfit,
-  onClose,
-  onRegenerate,
-  onDone,
-  regeneratedOutfits,
-  isRegenerating,
-}: RegenerateModalProps) {
-  const [lockedItemIds, setLockedItemIds] = useState<Set<string>>(new Set());
-  const [changeTarget, setChangeTarget] = useState<ChangeTarget>("any");
-
-  const toggleLocked = (itemId: string) => {
-    setLockedItemIds(prev => {
-      const next = new Set(prev);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
-      return next;
-    });
-  };
-
-  const handleRegenerate = () => {
-    onRegenerate(Array.from(lockedItemIds), changeTarget);
-  };
-
-  const showResult = regeneratedOutfits && regeneratedOutfits.length > 0;
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-slate-200">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">
-              {showResult ? "Regenerated outfit" : "Regenerate from this outfit"}
-            </h2>
-            <button
-              onClick={onClose}
-              disabled={isRegenerating}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <p className="text-sm text-slate-600 mt-1">
-            {showResult
-              ? "Here’s your new outfit. Click Done to use it on the main list, or close to keep the previous recommendations."
-              : "Lock the pieces you want to keep. We'll suggest new outfits that use them."}
-          </p>
-        </div>
-
-        {showResult ? (
-          <div className="p-6 space-y-4">
-            {regeneratedOutfits.map((regOutfit, idx) => (
-              <div key={idx} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                    {regeneratedOutfits.length > 1 ? `Outfit ${idx + 1}` : "New outfit"}
-                  </span>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getScoreColor(regOutfit.confidence)}`}>
-                    {regOutfit.confidence}% confident
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {sortOutfitItems(regOutfit.items).map((item) => {
-                    const imgSrc = imageUrlFromPath(item.imagePath);
-                    return (
-                      <div key={item.id} className="bg-white rounded-lg border border-slate-100 overflow-hidden">
-                        {imgSrc ? (
-                          <div className="h-28 bg-slate-50 flex items-center justify-center p-2">
-                            <img src={imgSrc} alt={item.name} className="max-h-full max-w-full object-contain" />
-                          </div>
-                        ) : (
-                          <div className="h-28 flex items-center justify-center bg-slate-50 text-xs text-slate-400">No photo</div>
-                        )}
-                        <div className="p-2">
-                          <p className="font-medium text-slate-900 text-sm truncate">{item.name}</p>
-                          <p className="text-xs text-slate-500">{item.category}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-sm text-slate-600 italic">{regOutfit.reason}</p>
-              </div>
-            ))}
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
-              >
-                Close
-              </button>
-              <button
-                onClick={onDone}
-                className="px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-700"
-              >
-                Done — use on main list
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="p-6 space-y-4">
-              {sortOutfitItems(outfit.items).map((item) => {
-                const imgSrc = imageUrlFromPath(item.imagePath);
-                const isLocked = lockedItemIds.has(item.id);
+          <div>
+            <p className="text-sm font-medium text-slate-700 mb-2">Mark any pieces that felt off (optional)</p>
+            <div className="space-y-2">
+              {sortDisplayItems(outfit.displayItems).map((item) => {
+                const imgSrc = imageUrlFromPath(item.imageUrl);
+                const isDisliked = disliked.has(item.itemId);
                 return (
                   <div
-                    key={item.id}
-                    className={`p-4 rounded-lg border transition-colors flex items-center gap-4 ${
-                      isLocked ? "border-green-200 bg-green-50" : "border-slate-200 bg-slate-50"
+                    key={item.itemId}
+                    className={`p-3 rounded-lg border flex items-center gap-3 ${
+                      isDisliked ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"
                     }`}
                   >
                     {imgSrc ? (
-                      <img src={imgSrc} alt={item.name} className="w-16 h-16 object-cover rounded-lg" />
+                      <img src={imgSrc} alt={item.name} className="w-14 h-14 object-cover rounded-lg" />
                     ) : (
-                      <div className="w-16 h-16 bg-slate-200 rounded-lg flex items-center justify-center text-xs text-slate-500">No photo</div>
+                      <div className="w-14 h-14 bg-slate-200 rounded-lg flex items-center justify-center text-[10px] text-slate-500">
+                        No photo
+                      </div>
                     )}
-                    <div className="flex-1">
-                      <p className="font-medium text-slate-900">{item.name}</p>
-                      <p className="text-sm text-slate-500">{item.category}{item.layerRole ? ` • ${item.layerRole}` : ""}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-900 text-sm truncate">{item.name ?? "Item"}</p>
+                      <p className="text-xs text-slate-500">{item.clothingType}</p>
                     </div>
                     <button
-                      onClick={() => toggleLocked(item.id)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                        isLocked ? "bg-green-200 text-green-800" : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      onClick={() => toggle(disliked, item.itemId, setDisliked)}
+                      className={`px-3 py-1 text-sm font-medium rounded-lg ${
+                        isDisliked ? "bg-red-200 text-red-800" : "bg-slate-200 text-slate-700 hover:bg-red-100"
                       }`}
                     >
-                      {isLocked ? "🔒 Locked" : "🔓 Lock"}
+                      {isDisliked ? "Disliked" : "Dislike"}
                     </button>
                   </div>
                 );
               })}
+            </div>
+          </div>
 
-              <div className="pt-4 border-t border-slate-200">
-                <label className="block text-sm font-medium text-slate-700 mb-2">What should change?</label>
-                <select
-                  value={changeTarget}
-                  onChange={(e) => setChangeTarget(e.target.value as ChangeTarget)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+          <div>
+            <p className="text-sm font-medium text-slate-700 mb-2">Why? (optional)</p>
+            <div className="flex flex-wrap gap-2">
+              {DISLIKE_REASONS.map(({ code, label }) => (
+                <button
+                  key={code}
+                  onClick={() => toggle(codes, code, setCodes)}
+                  className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                    codes.has(code)
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                  }`}
                 >
-                  <option value="any">Change anything not locked</option>
-                  <option value="top">Primarily change the top</option>
-                  <option value="bottom">Primarily change the bottom</option>
-                  <option value="outer">Primarily change the outer layer</option>
-                  <option value="footwear">Primarily change the footwear</option>
-                </select>
-              </div>
+                  {label}
+                </button>
+              ))}
             </div>
+          </div>
+        </div>
 
-            <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
-              <button
-                onClick={onClose}
-                disabled={isRegenerating}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRegenerate}
-                disabled={isRegenerating}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-              >
-                {isRegenerating ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Regenerating...
-                  </>
-                ) : (
-                  "Regenerate"
-                )}
-              </button>
-            </div>
-          </>
-        )}
+        <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200">
+            Cancel
+          </button>
+          <button
+            onClick={() =>
+              onSave({
+                perItemFeedback: [...disliked].map((itemId) => ({ itemId, disliked: true })),
+                codes: [...codes],
+              })
+            }
+            className="px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-800"
+          >
+            Submit dislike
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 // ============================================================================
-// Main Component
+// Regenerate modal — R9 controls (lock pieces to keep, mark pieces to avoid). Drives one
+// server re-roll (POST /api/recommend with parentSnapshotId + controls); the child render replaces
+// the list. Works identically for daily and rescue parents (the server derives intent + forcedItemId
+// from the parent row, §C.1).
 // ============================================================================
+function RegenerateModal({
+  outfit,
+  onClose,
+  onRegenerate,
+  isRegenerating,
+  error,
+}: {
+  outfit: ShownOutfit;
+  onClose: () => void;
+  onRegenerate: (controls: NormalizedControls) => void;
+  isRegenerating: boolean;
+  error?: string;
+}) {
+  const [locked, setLocked] = useState<Set<string>>(new Set());
+  const [disliked, setDisliked] = useState<Set<string>>(new Set());
 
-export default function Home() {
+  // A piece can't be both locked and disliked (the server rejects it, so the UI forbids it too).
+  const setLock = (id: string) => {
+    setDisliked((d) => {
+      const nd = new Set(d);
+      nd.delete(id);
+      return nd;
+    });
+    setLocked((l) => {
+      const nl = new Set(l);
+      if (nl.has(id)) nl.delete(id);
+      else nl.add(id);
+      return nl;
+    });
+  };
+  const setDislike = (id: string) => {
+    setLocked((l) => {
+      const nl = new Set(l);
+      nl.delete(id);
+      return nl;
+    });
+    setDisliked((d) => {
+      const nd = new Set(d);
+      if (nd.has(id)) nd.delete(id);
+      else nd.add(id);
+      return nd;
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Regenerate</h2>
+          <button onClick={onClose} disabled={isRegenerating} className="p-2 hover:bg-slate-100 rounded-lg disabled:opacity-50">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="p-6 space-y-3">
+          <p className="text-sm text-slate-600">
+            Lock the pieces you want to keep, or mark the ones to avoid. We&apos;ll generate a fresh outfit
+            under the same occasion.
+          </p>
+          {sortDisplayItems(outfit.displayItems).map((item) => {
+            const imgSrc = imageUrlFromPath(item.imageUrl);
+            const isLocked = locked.has(item.itemId);
+            const isDisliked = disliked.has(item.itemId);
+            return (
+              <div
+                key={item.itemId}
+                className={`p-3 rounded-lg border flex items-center gap-3 ${
+                  isLocked ? "border-green-200 bg-green-50" : isDisliked ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"
+                }`}
+              >
+                {imgSrc ? (
+                  <img src={imgSrc} alt={item.name} className="w-14 h-14 object-cover rounded-lg" />
+                ) : (
+                  <div className="w-14 h-14 bg-slate-200 rounded-lg flex items-center justify-center text-[10px] text-slate-500">No photo</div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-slate-900 text-sm truncate">{item.name ?? "Item"}</p>
+                  <p className="text-xs text-slate-500">{item.clothingType}</p>
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setLock(item.itemId)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-lg ${isLocked ? "bg-green-200 text-green-800" : "bg-slate-200 text-slate-700 hover:bg-slate-300"}`}
+                  >
+                    {isLocked ? "🔒 Keep" : "Keep"}
+                  </button>
+                  <button
+                    onClick={() => setDislike(item.itemId)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-lg ${isDisliked ? "bg-red-200 text-red-800" : "bg-slate-200 text-slate-700 hover:bg-red-100"}`}
+                  >
+                    {isDisliked ? "🚫 Avoid" : "Avoid"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {error && <div className="mx-6 mb-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
+          <button onClick={onClose} disabled={isRegenerating} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            onClick={() => onRegenerate({ lockedItemIds: [...locked], dislikedItemIds: [...disliked] })}
+            disabled={isRegenerating}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {isRegenerating ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Regenerating…
+              </>
+            ) : (
+              "Regenerate"
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// One outfit card — StyleMove body from `candidates[candidateId]`, items from `displayItems`.
+// ============================================================================
+function OutfitCard({
+  outfit,
+  index,
+  bindable,
+  onLike,
+  onDislike,
+  onRegenerate,
+}: {
+  outfit: ShownOutfit;
+  index: number;
+  bindable: boolean;
+  onLike: () => void;
+  onDislike: () => void;
+  onRegenerate: () => void;
+}) {
+  return (
+    <div
+      className={`p-5 border rounded-xl shadow-sm transition-colors ${
+        outfit.feedback === "liked"
+          ? "bg-green-50 border-green-200"
+          : outfit.feedback === "disliked"
+            ? "bg-red-50 border-red-200 opacity-70"
+            : "bg-slate-50 border-slate-200"
+      }`}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full">Outfit {index + 1}</span>
+          {outfit.risk && (
+            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${RISK_BADGE[outfit.risk] ?? "bg-slate-100 text-slate-600"}`}>
+              {outfit.risk}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onRegenerate}
+            className="px-3 py-1 bg-blue-100 text-blue-700 text-sm font-medium rounded-lg hover:bg-blue-200 flex items-center gap-1"
+          >
+            <span>🔄</span> Regenerate
+          </button>
+          {bindable && !outfit.feedback && (
+            <>
+              <button onClick={onLike} className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-lg hover:bg-green-200 flex items-center gap-1">
+                <span>👍</span> Like
+              </button>
+              <button onClick={onDislike} className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 flex items-center gap-1">
+                <span>👎</span> Dislike
+              </button>
+            </>
+          )}
+          {outfit.feedback && (
+            <span className={`px-3 py-1 text-sm font-medium rounded-lg ${outfit.feedback === "liked" ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}>
+              {outfit.feedback === "liked" ? "👍 Liked" : "👎 Disliked"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        {sortDisplayItems(outfit.displayItems).map((item) => {
+          const imgSrc = imageUrlFromPath(item.imageUrl);
+          const isChanged = outfit.styleMove?.changedItemIds?.includes(item.itemId);
+          return (
+            <div key={item.itemId} className={`bg-white rounded-lg border overflow-hidden ${isChanged ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-100"}`}>
+              {imgSrc ? (
+                <div className="h-40 w-full bg-slate-50 flex items-center justify-center p-2">
+                  <img src={imgSrc} alt={item.name} className="max-h-full max-w-full object-contain" loading="lazy" />
+                </div>
+              ) : (
+                <div className="flex h-40 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">No photo</div>
+              )}
+              <div className="p-3">
+                <p className="font-medium text-slate-900 text-sm truncate">{item.name ?? "Item"}</p>
+                <p className="text-xs text-slate-500">{item.clothingType}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* StyleMove card body — "the one thing that made it work" (from candidates[candidateId]). */}
+      {outfit.styleMove?.oneSentence && (
+        <div className="rounded-lg bg-white border border-slate-200 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-500">
+            {outfit.styleMove.moveType ? outfit.styleMove.moveType.replace(/_/g, " ") : "Style move"}
+          </p>
+          <p className="mt-1 text-sm text-slate-700">{outfit.styleMove.oneSentence}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Main component
+// ============================================================================
+function DashboardInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [signingOut, setSigningOut] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  
-  // Recommendation state
-  const [eventDescription, setEventDescription] = useState("");
+  const uid = firebaseUser?.uid ?? null;
+
+  const [occasion, setOccasion] = useState("");
   const [eventTimeBucket, setEventTimeBucket] = useState<EventTimeBucket>("now");
   const [customEventDateTime, setCustomEventDateTime] = useState("");
-  const [outfits, setOutfits] = useState<Outfit[]>([]);
-  const [environment, setEnvironment] = useState<EnvironmentContext | undefined>();
-  const [recLoading, setRecLoading] = useState(false);
-  const [recError, setRecError] = useState("");
-  const [recMessage, setRecMessage] = useState("");
-  
-  // Per-outfit disliked item IDs — contextual, not persisted, cleared on new recommendations.
-  // Maps outfit index → item IDs the user explicitly flagged in the dislike modal.
-  // Used only for the single regenerate call on that specific outfit.
-  const [outfitDislikedItems, setOutfitDislikedItems] = useState<Record<number, string[]>>({});
+  const [result, setResult] = useState<RenderResult | null>(null);
+  const [inFlight, setInFlight] = useState(false);
+  const [error, setError] = useState("");
 
-  // Feedback modal state (dislike)
-  const [feedbackModalOutfit, setFeedbackModalOutfit] = useState<{ outfit: Outfit; index: number } | null>(null);
-  // Regenerate modal state
-  const [regenerateModalOutfit, setRegenerateModalOutfit] = useState<{ outfit: Outfit; index: number } | null>(null);
-  const [regeneratedOutfitsInModal, setRegeneratedOutfitsInModal] = useState<Outfit[] | null>(null);
-  const [isRegenerating, setIsRegenerating] = useState(false);
+  // Rescue: a forced item launched from the wardrobe (?rescue=<id>&name=<name>).
+  const [rescueItemId, setRescueItemId] = useState<string | null>(null);
+  const [rescueItemName, setRescueItemName] = useState<string>("");
 
-  // Geolocation (best-effort — used for weather in prompt when allowed; if denied, recommendations still work without weather)
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lon: number } | null>(null);
+
+  const [feedbackModal, setFeedbackModal] = useState<{ outfit: ShownOutfit; index: number } | null>(null);
+  const [regenModal, setRegenModal] = useState<{ outfit: ShownOutfit; index: number } | null>(null);
 
   useEffect(() => {
     if (!navigator?.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => setGeoCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => {}, // denied or unavailable — send prompt without weather
+      () => {},
     );
   }, []);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setFirebaseUser(user);
-    });
+    const unsub = onAuthStateChanged(auth, (user) => setFirebaseUser(user));
     return () => unsub();
   }, []);
 
-  // Restore last recommendations + form when returning to dashboard
+  // Read a rescue launch from the wardrobe (?rescue=<id>).
   useEffect(() => {
-    if (!firebaseUser) return;
-    const saved = loadDashboardState();
-    if (!saved) return;
-    setEventDescription(saved.eventDescription);
-    setEventTimeBucket(saved.eventTimeBucket);
-    setCustomEventDateTime(saved.customEventDateTime);
-    setOutfits(saved.outfits);
-    setEnvironment(saved.environment);
-    setRecMessage(saved.recMessage);
-  }, [firebaseUser]);
+    const r = searchParams.get("rescue");
+    if (r) {
+      setRescueItemId(r);
+      setRescueItemName(searchParams.get("name") ?? "");
+    }
+  }, [searchParams]);
 
-  // Persist recommendations + form whenever we have outfits (so like/dislike and navigation preserve state)
+  // Restore persisted render on return + resume any un-cleared pending envelope (F10).
   useEffect(() => {
-    if (!firebaseUser || outfits.length === 0) return;
-    saveDashboardState({
-      eventDescription,
-      eventTimeBucket,
-      customEventDateTime,
-      outfits,
-      environment,
-      recMessage,
-    });
-  }, [firebaseUser, eventDescription, eventTimeBucket, customEventDateTime, outfits, environment, recMessage]);
+    if (!uid) return;
+    const saved = readJSON<PersistedDashboard>(DASHBOARD_KEY(uid));
+    if (saved?.result) {
+      setResult(saved.result);
+      setOccasion(saved.occasion ?? "");
+    }
+    const pending = readJSON<PendingEnvelope>(PENDING_KEY(uid));
+    if (pending) resumePending(uid, pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid]);
 
   async function handleLogout() {
     try {
       setSigningOut(true);
+      if (uid) {
+        removeKey(DASHBOARD_KEY(uid));
+        removeKey(PENDING_KEY(uid));
+      }
       await signOut(auth);
       localStorage.removeItem("userId");
       router.push("/");
-    } catch (error) {
-      console.error("Error signing out:", error);
+    } catch (err) {
+      console.error("Error signing out:", err);
       setSigningOut(false);
     }
   }
 
-  const getRecommendations = useCallback(async () => {
-    if (!firebaseUser) {
-      setRecError("Please sign in to get recommendations");
+  const persistResult = useCallback(
+    (r: RenderResult) => {
+      if (!uid) return;
+      writeJSON(DASHBOARD_KEY(uid), { occasion, result: r } satisfies PersistedDashboard);
+    },
+    [uid, occasion],
+  );
+
+  /** Issue a render (daily/rescue root OR a re-roll) under an already-persisted envelope. */
+  const runRender = useCallback(
+    async (
+      user: FirebaseUser,
+      envelope: PendingEnvelope,
+      body: Record<string, unknown>,
+      onResult: (r: RenderResult) => void,
+    ) => {
+      const userUid = user.uid;
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          // A stable 4xx/409 (conflict, forced-item-unavailable, malformed) — terminal for this action.
+          removeKey(PENDING_KEY(userUid));
+          // The recommend route's error envelope is { error: { code, message } } — read the nested
+          // fields, NEVER the whole `error` OBJECT (setting it as `error` state would render an object
+          // as a React child and crash the page).
+          const env = (data as { error?: { code?: string; message?: string } } | null) ?? {};
+          const codeStr = env.error?.code ?? "";
+          if (codeStr === "forced_item_unavailable") {
+            setError("That item is no longer in your closet — pick another to rescue.");
+            setRescueItemId(null);
+          } else if (codeStr === "request_id_conflict") {
+            setError("That request was already used for a different outfit. Please generate again.");
+          } else {
+            setError(env.error?.message ?? "Couldn't generate outfits. Please try again.");
+          }
+          return;
+        }
+
+        const rendered = data as RenderResult;
+        onResult(rendered);
+        persistResult(rendered);
+        // Hydrated success (bindable render) or a completed degraded render — either way the render
+        // is done, so the envelope is cleared (a degraded render wrote no snapshot to replay).
+        removeKey(PENDING_KEY(userUid));
+        void envelope;
+      } catch {
+        // A dropped response — KEEP the envelope so a reload resumes with the SAME requestId.
+        setError("The connection dropped. Reload to resume — you won't lose your place.");
+      } finally {
+        setInFlight(false);
+      }
+    },
+    [persistResult],
+  );
+
+  /** Resume an un-cleared pending envelope after a reload/lost response (§C.4 F10). Re-sends the
+   *  SAME requestId + frozen Lens: a completed render replays the winner (no second spend); an
+   *  in-flight one re-calls (at most one extra generation, dropped by the index). */
+  const resumePending = useCallback(
+    (userUid: string, envelope: PendingEnvelope) => {
+      const user = auth.currentUser;
+      if (!user || user.uid !== userUid) return;
+      setInFlight(true);
+      setError("");
+      const body =
+        envelope.intent === "rescue_item" && envelope.parentSnapshotId == null
+          ? buildRootBody(envelope)
+          : envelope.parentSnapshotId != null
+            ? {
+                requestId: envelope.requestId,
+                parentSnapshotId: envelope.parentSnapshotId,
+                controls: envelope.normalizedControls,
+              }
+            : buildRootBody(envelope);
+      void runRender(user, envelope, body, (r) => setResult(r));
+    },
+    [runRender],
+  );
+
+  const startGenerate = useCallback(async () => {
+    if (!firebaseUser || !uid) {
+      setError("Please sign in to get recommendations.");
       return;
     }
-
-    if (!eventDescription.trim()) {
-      setRecError("Describe the event or context to get recommendations.");
+    if (!occasion.trim()) {
+      setError("Describe the event or context to get recommendations.");
       return;
     }
-    
-    setRecLoading(true);
-    setRecError("");
-    setRecMessage("");
-    setOutfits([]);
-    setOutfitDislikedItems({});
+    if (inFlight) return; // Generate is disabled while a render is in flight
 
-    try {
-      const token = await firebaseUser.getIdToken();
-      const res = await fetch("/api/recommend", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+    const requestId = crypto.randomUUID();
+    const lensSummary: LensSummary = {
+      occasion,
+      forcedItemId: rescueItemId ?? null,
+      ...(geoCoords ? { lat: geoCoords.lat, lon: geoCoords.lon } : {}),
+      ...(eventTimeBucket !== "now" ? { eventTimeISO: getEventTimeISO(eventTimeBucket, customEventDateTime) } : {}),
+    };
+    const envelope: PendingEnvelope = {
+      requestId,
+      intent: rescueItemId ? "rescue_item" : "daily",
+      parentSnapshotId: null,
+      normalizedControls: { lockedItemIds: [], dislikedItemIds: [] },
+      lensSummary,
+    };
+
+    setInFlight(true);
+    setError("");
+    setResult(null);
+    setFeedbackModal(null);
+    setRegenModal(null);
+    // Persist the envelope BEFORE the fetch (survives a reload/lost response).
+    writeJSON(PENDING_KEY(uid), envelope);
+    await runRender(firebaseUser, envelope, buildRootBody(envelope), (r) => setResult(r));
+  }, [firebaseUser, uid, occasion, inFlight, rescueItemId, geoCoords, eventTimeBucket, customEventDateTime, runRender]);
+
+  const submitRegenerate = useCallback(
+    async (controls: NormalizedControls) => {
+      if (!firebaseUser || !uid || !regenModal || inFlight) return;
+      const parentSnapshotId = regenModal.outfit.snapshotId;
+      const requestId = crypto.randomUUID(); // a re-roll is a new Generate action → new requestId
+      const envelope: PendingEnvelope = {
+        requestId,
+        intent: "daily", // real intent is derived server-side from the parent; unused on a re-roll
+        parentSnapshotId,
+        normalizedControls: controls,
+        lensSummary: { occasion },
+      };
+      setInFlight(true);
+      setError("");
+      writeJSON(PENDING_KEY(uid), envelope);
+      await runRender(
+        firebaseUser,
+        envelope,
+        { requestId, parentSnapshotId, controls },
+        (r) => {
+          setResult(r);
+          setRegenModal(null);
         },
-        body: JSON.stringify({
-          eventDescription,
-          eventTimeISO: getEventTimeISO(eventTimeBucket, customEventDateTime),
-          eventTimeLabel: getEventTimeLabel(eventTimeBucket, customEventDateTime),
-          ...(geoCoords ? { lat: geoCoords.lat, lon: geoCoords.lon } : {}),
-        }),
+      );
+    },
+    [firebaseUser, uid, regenModal, inFlight, occasion, runRender],
+  );
+
+  // --- Feedback binds {snapshotId, candidateId} (never itemIds). ---
+  const postFeedback = useCallback(
+    async (
+      outfit: ShownOutfit,
+      action: "accepted" | "rejected",
+      extra?: { perItemFeedback?: PerItemFeedback[]; codes?: string[] },
+    ): Promise<boolean> => {
+      if (!firebaseUser) return false;
+      try {
+        const token = await firebaseUser.getIdToken();
+        const res = await fetch("/api/interactions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            snapshotId: outfit.snapshotId,
+            candidateId: outfit.candidateId,
+            action,
+            ...(extra?.perItemFeedback?.length ? { perItemFeedback: extra.perItemFeedback } : {}),
+            ...(extra?.codes?.length ? { feedbackReason: { codes: extra.codes } } : {}),
+          }),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    },
+    [firebaseUser],
+  );
+
+  const markFeedback = useCallback(
+    (index: number, feedback: "liked" | "disliked") => {
+      setResult((prev) => {
+        if (!prev) return prev;
+        const shown = prev.shown.map((o, i) => (i === index ? { ...o, feedback } : o));
+        const next = { ...prev, shown };
+        persistResult(next);
+        return next;
       });
+    },
+    [persistResult],
+  );
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setRecError(data.error || "Failed to get recommendations");
-        return;
-      }
-
-      setOutfits(data.outfits || []);
-      setEnvironment(data.environment);
-      if (!data.outfits?.length && data.message) {
-        setRecMessage(data.message);
-      } else if (data.message) {
-        setRecMessage(data.message);
-      }
-    } catch {
-      setRecError("Something went wrong. Please try again.");
-    } finally {
-      setRecLoading(false);
-    }
-  }, [firebaseUser, eventDescription, eventTimeBucket, customEventDateTime]);
-
-  const handleLike = async (outfitIndex: number) => {
-    if (!firebaseUser) return;
-
-    const outfit = outfits[outfitIndex];
-    const prevFeedback = outfit.feedback;
-
-    // Optimistic update
-    setOutfits(prev => prev.map((o, i) =>
-      i === outfitIndex ? { ...o, feedback: "liked" as const } : o
-    ));
-
-    try {
-      const token = await firebaseUser.getIdToken();
-      const res = await fetch("/api/interactions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          itemIds: outfit.itemIds,
-          action: "accepted",
-          occasion: eventDescription || "casual",
-        }),
-      });
-
-      if (!res.ok) {
-        // Revert optimistic update
-        setOutfits(prev => prev.map((o, i) =>
-          i === outfitIndex ? { ...o, feedback: prevFeedback } : o
-        ));
-        const data = await res.json().catch(() => ({}));
-        setRecError((data as { error?: string }).error || "Failed to save like. Please try again.");
-      }
-    } catch (error) {
-      console.error("Error saving feedback:", error);
-      // Revert optimistic update
-      setOutfits(prev => prev.map((o, i) =>
-        i === outfitIndex ? { ...o, feedback: prevFeedback } : o
-      ));
-      setRecError("Failed to save like. Please try again.");
+  const handleLike = async (index: number) => {
+    const outfit = result?.shown[index];
+    if (!outfit) return;
+    markFeedback(index, "liked");
+    const ok = await postFeedback(outfit, "accepted");
+    if (!ok) {
+      markFeedbackClear(index);
+      setError("Couldn't save your like. Please try again.");
     }
   };
 
-  const handleDislikeClick = (outfitIndex: number) => {
-    setFeedbackModalOutfit({ outfit: outfits[outfitIndex], index: outfitIndex });
-  };
+  const markFeedbackClear = (index: number) =>
+    setResult((prev) => {
+      if (!prev) return prev;
+      const shown = prev.shown.map((o, i) => (i === index ? { ...o, feedback: undefined } : o));
+      const next = { ...prev, shown };
+      persistResult(next);
+      return next;
+    });
 
-  const handleSaveFeedback = async (data: {
-    perItemFeedback: PerItemFeedback[];
-    overallNotes: string;
-  }) => {
-    if (!firebaseUser || !feedbackModalOutfit) return;
-
-    const outfit = feedbackModalOutfit.outfit;
-    const outfitIndex = feedbackModalOutfit.index;
-    const prevFeedback = outfit.feedback;
-    const dislikedItemIds = data.perItemFeedback.filter(f => f.disliked).map(f => f.itemId);
-
-    // Optimistic update
-    setOutfits(prev => prev.map((o, i) =>
-      i === outfitIndex ? { ...o, feedback: "disliked" as const } : o
-    ));
-    setFeedbackModalOutfit(null);
-
-    try {
-      const token = await firebaseUser.getIdToken();
-      const res = await fetch("/api/interactions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          itemIds: outfit.itemIds,
-          action: "rejected",
-          occasion: eventDescription || "casual",
-          perItemFeedback: data.perItemFeedback,
-          dislikedItemIds: dislikedItemIds.length > 0 ? dislikedItemIds : undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        // Revert optimistic update
-        setOutfits(prev => prev.map((o, i) =>
-          i === outfitIndex ? { ...o, feedback: prevFeedback } : o
-        ));
-        const resData = await res.json().catch(() => ({}));
-        setRecError((resData as { error?: string }).error || "Failed to save feedback. Please try again.");
-        return;
-      }
-
-      // Store disliked item IDs for this specific outfit — used only if the user
-      // immediately regenerates this same outfit. Not persisted or shared globally.
-      if (dislikedItemIds.length > 0) {
-        setOutfitDislikedItems(prev => ({ ...prev, [outfitIndex]: dislikedItemIds }));
-      }
-    } catch (error) {
-      console.error("Error saving feedback:", error);
-      // Revert optimistic update
-      setOutfits(prev => prev.map((o, i) =>
-        i === outfitIndex ? { ...o, feedback: prevFeedback } : o
-      ));
-      setRecError("Failed to save feedback. Please try again.");
+  const handleSaveDislike = async (data: { perItemFeedback: PerItemFeedback[]; codes: string[] }) => {
+    if (!feedbackModal) return;
+    const { outfit, index } = feedbackModal;
+    setFeedbackModal(null);
+    markFeedback(index, "disliked");
+    const ok = await postFeedback(outfit, "rejected", data);
+    if (!ok) {
+      markFeedbackClear(index);
+      setError("Couldn't save your feedback. Please try again.");
     }
   };
 
-  const handleRegenerateClick = (outfitIndex: number) => {
-    setRegeneratedOutfitsInModal(null);
-    setRegenerateModalOutfit({ outfit: outfits[outfitIndex], index: outfitIndex });
-  };
-
-  const handleRegenerateSubmit = async (lockedItemIds: string[], changeTarget: "outer" | "top" | "bottom" | "footwear" | "any") => {
-    if (!firebaseUser || !regenerateModalOutfit) return;
-    setIsRegenerating(true);
-    setRecError("");
-    try {
-      const token = await firebaseUser.getIdToken();
-      const res = await fetch("/api/recommend/regenerate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          eventDescription,
-          temperatureHint: environment?.temperatureHint,
-          weatherSummary: environment?.weatherSummary,
-          lockedItemIds,
-          dislikedItemIds: outfitDislikedItems[regenerateModalOutfit.index] ?? [],
-          changeTarget,
-          maxOutfits: 5,
-        }),
-      });
-      const newData = await res.json();
-      if (!res.ok) {
-        setRecError(newData.error || "Failed to regenerate recommendations");
-        return;
-      }
-      setRegeneratedOutfitsInModal(newData.outfits || []);
-      if (newData.message) setRecMessage(newData.message);
-    } catch (error) {
-      console.error("Error regenerating:", error);
-      setRecError("Failed to regenerate. Please try again.");
-    } finally {
-      setIsRegenerating(false);
-    }
-  };
-
-  const handleRegenerateDone = () => {
-    if (regeneratedOutfitsInModal?.length) {
-      setOutfits(regeneratedOutfitsInModal);
-    }
-    setRegeneratedOutfitsInModal(null);
-    setRegenerateModalOutfit(null);
-  };
+  const bindable = Boolean(result?.bindable);
+  const shown = result?.shown ?? [];
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Home</h1>
-        </div>
+        <h1 className="text-3xl font-semibold tracking-tight">Home</h1>
         <button
           onClick={handleLogout}
           disabled={signingOut}
-          className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 disabled:opacity-50"
         >
           {signingOut ? "Signing out..." : "Log Out"}
         </button>
       </div>
 
-      {/* Recommendations Section */}
       <div className="rounded-xl border border-slate-200 bg-white p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Our AI stylist uses your wardrobe, event description, and the weather to suggest outfits.
-            </p>
+        <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Our AI stylist uses your wardrobe, the occasion, and the weather to suggest outfits.
+        </p>
+
+        {rescueItemId && (
+          <div className="mt-4 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+            <span>
+              ✨ Building an outfit around <strong>{rescueItemName || "your item"}</strong>. Every suggestion will include it.
+            </span>
+            <button
+              onClick={() => {
+                setRescueItemId(null);
+                setRescueItemName("");
+              }}
+              className="ml-3 rounded-md px-2 py-1 text-blue-700 hover:bg-blue-100"
+            >
+              Clear
+            </button>
           </div>
-        </div>
+        )}
 
         <div className="mt-4 flex flex-col gap-4">
-          <div className="w-full">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">
-              Event description
-            </label>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Event description</label>
             <textarea
-              value={eventDescription}
-              onChange={(e) => setEventDescription(e.target.value)}
+              value={occasion}
+              onChange={(e) => setOccasion(e.target.value)}
               rows={3}
               maxLength={280}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 placeholder:text-slate-400"
-              placeholder="e.g. Outdoor brunch with friends in early spring, want something smart casual but comfortable. Might get windy."
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 placeholder:text-slate-400"
+              placeholder="e.g. Outdoor brunch with friends in early spring, smart casual but comfortable. Might get windy."
             />
             <div className="mt-1 flex justify-between text-[11px] text-slate-500">
-              <span>Tell the AI what the event is, vibe, and any constraints.</span>
-              <span>{eventDescription.length}/280</span>
+              <span>Tell the AI what the event is, the vibe, and any constraints.</span>
+              <span>{occasion.length}/280</span>
             </div>
           </div>
 
-          <div className="w-full">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">
-              When is the event?
-            </label>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">When is the event?</label>
             <div className="flex gap-2 flex-wrap">
               {([
-                { value: "now",        label: "Now" },
+                { value: "now", label: "Now" },
                 { value: "later_today", label: "Later today" },
-                { value: "tomorrow",   label: "Tomorrow" },
-                { value: "custom",     label: "Pick date/time" },
+                { value: "tomorrow", label: "Tomorrow" },
+                { value: "custom", label: "Pick date/time" },
               ] as { value: EventTimeBucket; label: string }[]).map(({ value, label }) => (
                 <button
                   key={value}
                   onClick={() => setEventTimeBucket(value)}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                    eventTimeBucket === value
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg ${eventTimeBucket === value ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
                 >
                   {label}
                 </button>
@@ -958,231 +928,96 @@ export default function Home() {
                 onChange={(e) => setCustomEventDateTime(e.target.value)}
                 min={new Date().toISOString().slice(0, 16)}
                 max={new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)}
-                className="mt-2 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 bg-white"
+                className="mt-2 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
               />
             )}
-            <p className="mt-1 text-[11px] text-slate-500">
-              Optional. If you allow location, we use it for weather; otherwise we recommend without weather.
-            </p>
           </div>
 
           <button
-            onClick={getRecommendations}
-            disabled={recLoading}
-            className="self-start px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors"
+            onClick={startGenerate}
+            disabled={inFlight}
+            className="self-start px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed"
           >
-            {recLoading ? "Generating..." : "Get Recommendations"}
+            {inFlight ? "Generating…" : "Get Recommendations"}
           </button>
         </div>
 
-        {recError && (
-          <div className="mt-4 p-4 bg-red-50 text-red-700 rounded-lg text-sm">
-            {recError}
-          </div>
-        )}
+        {error && <div className="mt-4 p-4 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
-        {!recError && recMessage && (
-          <div className="mt-4 p-4 bg-slate-50 text-slate-700 rounded-lg text-sm border border-slate-200">
-            {recMessage}
-          </div>
-        )}
-
-        {environment && (
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-700 flex items-center gap-2">
-            <span>
-              {environment.temperatureHint === "hot" && "🌡️"}
-              {environment.temperatureHint === "mild" && "🌤️"}
-              {environment.temperatureHint === "cold" && "❄️"}
-              {environment.temperatureHint === "indoor" && "🏠"}
-              {environment.temperatureHint === "outdoor" && "🌿"}
-            </span>
-            <span>
-              Detected context: <strong>{environment.temperatureHint}</strong>
-              {environment.weatherSummary && ` — ${environment.weatherSummary}`}
-            </span>
-          </div>
-        )}
-
-        {outfits.length > 0 && (
+        {/* Results — §6.5 cards, or the degraded/empty state (no feedback controls when !bindable). */}
+        {result && shown.length > 0 && (
           <div className="mt-6 space-y-4">
-            {outfits.map((outfit, index) => (
-              <div
-                key={index}
-                className={`p-5 border rounded-xl shadow-sm transition-colors ${
-                  outfit.feedback === "liked" 
-                    ? "bg-green-50 border-green-200" 
-                    : outfit.feedback === "disliked"
-                    ? "bg-red-50 border-red-200 opacity-60"
-                    : "bg-slate-50 border-slate-200"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full">
-                      Outfit {index + 1}
-                    </span>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getScoreColor(outfit.confidence)}`}>
-                      {outfit.confidence}% confident
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleRegenerateClick(index)}
-                      className="px-3 py-1 bg-blue-100 text-blue-700 text-sm font-medium rounded-lg hover:bg-blue-200 transition-colors flex items-center gap-1"
-                    >
-                      <span>🔄</span> Regenerate
-                    </button>
-                    {!outfit.feedback && (
-                      <>
-                        <button
-                          onClick={() => handleLike(index)}
-                          className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-lg hover:bg-green-200 transition-colors flex items-center gap-1"
-                        >
-                          <span>👍</span> Like
-                        </button>
-                        <button
-                          onClick={() => handleDislikeClick(index)}
-                          className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
-                        >
-                          <span>👎</span> Dislike
-                        </button>
-                      </>
-                    )}
-                    {outfit.feedback && (
-                      <span className={`px-3 py-1 text-sm font-medium rounded-lg ${
-                        outfit.feedback === "liked" 
-                          ? "bg-green-200 text-green-800" 
-                          : "bg-red-200 text-red-800"
-                      }`}>
-                        {outfit.feedback === "liked" ? "👍 Liked" : "👎 Disliked"}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  {sortOutfitItems(outfit.items).map((item) => {
-                    const imgSrc = imageUrlFromPath(item.imagePath);
-                    return (
-                      <div
-                        key={item.id}
-                        className="bg-white rounded-lg border border-slate-100 overflow-hidden"
-                      >
-                        {imgSrc ? (
-                          <div className="h-40 w-full bg-slate-50 flex items-center justify-center p-2">
-                            <img
-                              src={imgSrc}
-                              alt={item.name}
-                              className="max-h-full max-w-full object-contain"
-                              loading="lazy"
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex h-40 w-full items-center justify-center bg-slate-50 text-xs text-slate-400">
-                            No photo
-                          </div>
-                        )}
-                        <div className="p-3">
-                          <p className="font-medium text-slate-900 text-sm truncate">{item.name}</p>
-                          <p className="text-xs text-slate-500">
-                            {item.category}
-                            {item.layerRole && (
-                              <span className="ml-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px]">
-                                {item.layerRole}
-                              </span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <p className="text-sm text-slate-600 italic">
-                  {outfit.reason}
-                </p>
-              </div>
+            {result.generationIndex != null && result.generationIndex > 0 && (
+              <p className="text-xs text-slate-500">Regenerated outfit (variation {result.generationIndex})</p>
+            )}
+            {shown.map((outfit, index) => (
+              <OutfitCard
+                key={`${outfit.snapshotId}:${outfit.candidateId}`}
+                outfit={outfit}
+                index={index}
+                bindable={bindable}
+                onLike={() => handleLike(index)}
+                onDislike={() => setFeedbackModal({ outfit, index })}
+                onRegenerate={() => {
+                  setError("");
+                  setRegenModal({ outfit, index });
+                }}
+              />
             ))}
           </div>
         )}
 
-        {!recLoading && outfits.length === 0 && !recError && (
+        {result && shown.length === 0 && !inFlight && (
+          <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center border border-slate-200">
+            <p className="text-slate-600">{emptyStateMessage(result)}</p>
+          </div>
+        )}
+
+        {!result && !inFlight && !error && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center">
-            <p className="text-slate-600">
-              Click &quot;Get Recommendations&quot; to see outfit suggestions.
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              The more you like/dislike, the smarter the recommendations become!
-            </p>
+            <p className="text-slate-600">Click &quot;Get Recommendations&quot; to see outfit suggestions.</p>
+            <p className="mt-2 text-sm text-slate-500">The more you like/dislike, the smarter the recommendations become.</p>
           </div>
         )}
       </div>
 
-      {/* How it works */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <h3 className="font-semibold text-slate-900">How the AI Stylist Works</h3>
-        <div className="mt-3 grid md:grid-cols-4 gap-3">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[11px] font-semibold tracking-wider text-slate-400">01</p>
-            <p className="mt-2 font-semibold text-slate-900">Smart Shortlisting</p>
-            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Filters your wardrobe by season, availability, and occasion relevance.
-            </p>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[11px] font-semibold tracking-wider text-slate-400">02</p>
-            <p className="mt-2 font-semibold text-slate-900">Intelligent Layering</p>
-            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Adds outer and mid layers when the temperature calls for it.
-            </p>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[11px] font-semibold tracking-wider text-slate-400">03</p>
-            <p className="mt-2 font-semibold text-slate-900">Responds to Feedback</p>
-            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Your likes and dislikes refine the outfits it suggests next.
-            </p>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[11px] font-semibold tracking-wider text-slate-400">04</p>
-            <p className="mt-2 font-semibold text-slate-900">Lock & Regenerate</p>
-            <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-              Keep items you like and regenerate the rest with targeted changes.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Dislike feedback modal */}
-      {feedbackModalOutfit && (
-        <FeedbackModal
-          outfit={feedbackModalOutfit.outfit}
-          eventDescription={eventDescription}
-          environment={environment}
-          onClose={() => setFeedbackModalOutfit(null)}
-          onSaveFeedback={handleSaveFeedback}
-        />
+      {feedbackModal && (
+        <FeedbackModal outfit={feedbackModal.outfit} onClose={() => setFeedbackModal(null)} onSave={handleSaveDislike} />
       )}
-
-      {/* Regenerate modal (lock pieces, get new outfits; result shown in same modal) */}
-      {regenerateModalOutfit && (
+      {regenModal && (
         <RegenerateModal
-          outfit={regenerateModalOutfit.outfit}
-          eventDescription={eventDescription}
-          environment={environment}
-          regeneratedOutfits={regeneratedOutfitsInModal}
-          onClose={() => {
-            if (!isRegenerating) {
-              setRegeneratedOutfitsInModal(null);
-              setRegenerateModalOutfit(null);
-            }
-          }}
-          onRegenerate={handleRegenerateSubmit}
-          onDone={handleRegenerateDone}
-          isRegenerating={isRegenerating}
+          outfit={regenModal.outfit}
+          onClose={() => !inFlight && setRegenModal(null)}
+          onRegenerate={submitRegenerate}
+          isRegenerating={inFlight}
+          error={error || undefined}
         />
       )}
     </div>
+  );
+}
+
+/** The root (first-render) request body from a pending envelope's frozen Lens (§C.4 F10). The frozen
+ *  INPUTS (occasion + geo + time) are re-sent verbatim on a resume, so a same-second reload replays
+ *  deterministically. Residual: when geo is present the route re-resolves weather live, so a reload
+ *  that straddles a weather-bucket boundary could false-409 the replay — it degrades to a graceful
+ *  "generate again", not a lost render (a fully-frozen resolved bucket is a post-M5 nicety). */
+function buildRootBody(envelope: PendingEnvelope): Record<string, unknown> {
+  const l = envelope.lensSummary;
+  return {
+    requestId: envelope.requestId,
+    occasion: l.occasion,
+    ...(l.forcedItemId ? { forcedItemId: l.forcedItemId } : {}),
+    ...(l.location ? { location: l.location } : {}),
+    ...(l.lat != null && l.lon != null ? { lat: l.lat, lon: l.lon } : {}),
+    ...(l.eventTimeISO ? { eventTimeISO: l.eventTimeISO } : {}),
+  };
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="p-8 text-slate-500">Loading…</div>}>
+      <DashboardInner />
+    </Suspense>
   );
 }
