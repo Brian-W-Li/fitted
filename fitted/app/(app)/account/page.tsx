@@ -51,10 +51,10 @@ export default function AccountPage() {
 
         setFirebaseUid(fbUser.uid);
 
+        const token = await fbUser.getIdToken();
         const res = await fetch("/api/account", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ firebaseUid: fbUser.uid }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         });
 
         const data = await res.json().catch(() => ({}));
@@ -86,11 +86,11 @@ export default function AccountPage() {
     setMessage(null);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetch("/api/account", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
-          firebaseUid,
           age: ageInput,
           gender: genderInput,
           photoDataUrl: photoDraft,
@@ -121,11 +121,11 @@ export default function AccountPage() {
     setFeedbackMessage(null);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetch("/api/account", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
-          firebaseUid,
           appRatingScore10: ratingScore10Input,
           appFeedbackComment: feedbackCommentInput,
         }),

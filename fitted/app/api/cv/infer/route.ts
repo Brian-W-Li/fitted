@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyFirebaseUser } from "@/lib/apiAuth";
+import { allowRequest } from "@/lib/rateLimit";
 
 const CV_SERVICE_URL = process.env.CV_SERVICE_URL;
+
+// §I CV gate: authenticate, cap the upload, rate-limit. The route forwards untrusted image bytes to
+// an external service, so it must not be an open, unauthenticated, unbounded proxy.
+const MAX_CV_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MiB — a photo, not a payload
+const CV_RATE_MAX = 20; // requests…
+const CV_RATE_WINDOW_MS = 60_000; // …per minute per user
 
 type CvInferLogBase = {
   ts: string;
@@ -42,6 +50,21 @@ export async function POST(request: NextRequest) {
     contentType: request.headers.get("content-type"),
   });
 
+  // §I gate — authenticate before doing any work; identity comes only from the verified token.
+  const auth = await verifyFirebaseUser(request);
+  if ("error" in auth) {
+    cvLog({ event: "cv_infer_total_inference_time", requestId, status: auth.status, totalMs: sinceStartMs() });
+    return NextResponse.json({ ok: false, error: "UNAUTHORIZED", message: auth.error }, { status: auth.status });
+  }
+  // §I gate — per-user rate ceiling (best-effort in-process guard against a runaway loop).
+  if (!allowRequest(`cv:${auth.userId}`, CV_RATE_MAX, CV_RATE_WINDOW_MS)) {
+    cvLog({ event: "cv_infer_total_inference_time", requestId, status: 429, totalMs: sinceStartMs() });
+    return NextResponse.json(
+      { ok: false, error: "RATE_LIMITED", message: "Too many image analyses. Please wait a moment." },
+      { status: 429 },
+    );
+  }
+
   try {
     const formDataStartMs = perfNowMs();
     const formData = await request.formData();
@@ -63,6 +86,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Missing file (expected form field named 'file')" },
         { status: 400 }
+      );
+    }
+    // §I gate — cap the upload size before forwarding untrusted bytes downstream.
+    if (file.size > MAX_CV_IMAGE_BYTES) {
+      cvLog({ event: "cv_infer_total_inference_time", requestId, status: 413, totalMs: sinceStartMs() });
+      return NextResponse.json(
+        { ok: false, error: "IMAGE_TOO_LARGE", message: `Image exceeds the ${MAX_CV_IMAGE_BYTES / (1024 * 1024)} MB limit.` },
+        { status: 413 },
       );
     }
     const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);

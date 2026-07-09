@@ -1436,6 +1436,19 @@ is enforced by reducer slicing (rows beyond `INTERACTION_ROWS_SCAN_LIMIT` /
   `auth/sync/route.ts` (body UID, no ID-token check) · `images/[imageId]/route.ts` (serves bytes, no
   ownership) · `cv/infer/route.ts` (no auth/rate-limit/size-cap). Gate: verify the Firebase token, derive
   identity only from it, enforce ownership, authenticate + rate-limit CV.
+  - **C7 STATUS (2026-07-08):** `account` + `auth/sync` now derive identity ONLY from the verified token
+    (body `firebaseUid` ignored; token-derived uid/email; behavioral tests in `retainedRouteAuth.test.ts`);
+    `cv/infer` requires auth + a 10 MiB size cap + a per-user in-process rate ceiling (`lib/rateLimit.ts`).
+  - **⚠ RESIDUAL (images-route ownership — registered, not closed at C7; a pre-C8 gate).** The image
+    bytes are rendered by `<img src="/api/images/<id>">` tags, which **cannot carry an
+    `Authorization: Bearer` header**, so per-request Firebase-token ownership is infeasible on that route
+    without a mechanism the browser attaches automatically: a Firebase **session cookie**
+    (`createSessionCookie`/`verifySessionCookie`) OR **signed image URLs** (an HMAC over `{imageId, user}`
+    appended by every URL producer — incl. the Python-authored `engineVisible.imageUrl`, so the signing
+    must live in the Next projection layer). Both are separable infra beyond the C6/C7 UI+interactions
+    pass. What C7 DID close on that route: a malformed id → stable `400` (never a cast-crash 500). At solo
+    scale the exposure — guessing a 24-hex ObjectId to read a clothing photo — is low. **Close before the
+    C8 flip** (recommend session cookies: smaller blast radius than re-plumbing every image-URL producer).
 - **Route rewrite guards.** `locked ∩ disliked ≠ ∅` preflight (H59 — §C.3; stable 400/409, no
   empty-success); **the §C.1 lineage gate** (parent ownership re-read; server-derived Lens +
   `generationIndex` — client lineage claims are never trusted); clamp all body-controlled text/array

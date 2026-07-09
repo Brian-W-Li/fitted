@@ -1,3 +1,10 @@
+// §I CV gate: the route now authenticates via verifyFirebaseUser. Mock it so the forwarding tests
+// run as an authenticated user; a dedicated test exercises the unauthenticated arm.
+jest.mock("@/lib/apiAuth", () => ({ verifyFirebaseUser: jest.fn() }));
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
+
 function makeFile({
   name = "test.png",
   type = "image/png",
@@ -33,6 +40,8 @@ describe("/api/cv/infer route", () => {
     process.env = { ...originalEnv, CV_SERVICE_URL: "http://cv.example" };
     globalThis.fetch = jest.fn();
     console.info = jest.fn();
+    const { verifyFirebaseUser } = jest.requireMock("@/lib/apiAuth") as { verifyFirebaseUser: jest.Mock };
+    verifyFirebaseUser.mockResolvedValue({ userId: "user-1" });
   });
 
   afterEach(() => {
@@ -56,7 +65,7 @@ describe("/api/cv/infer route", () => {
       )
     );
 
-    const req = (await makeRequestWithFile(file)) as any;
+    const req = (await makeRequestWithFile(file)) as Any;
     const res = await POST(req);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -77,7 +86,7 @@ describe("/api/cv/infer route", () => {
       })
     );
 
-    const req = (await makeRequestWithFile(file)) as any;
+    const req = (await makeRequestWithFile(file)) as Any;
     const res = await POST(req);
     expect(res.status).toBe(503);
     const body = await res.json();
@@ -95,7 +104,7 @@ describe("/api/cv/infer route", () => {
       new Response("not-json", { status: 200, headers: { "content-type": "text/plain" } })
     );
 
-    const req = (await makeRequestWithFile(file)) as any;
+    const req = (await makeRequestWithFile(file)) as Any;
     const res = await POST(req);
     expect(res.status).toBe(502);
     const body = await res.json();
@@ -109,15 +118,41 @@ describe("/api/cv/infer route", () => {
     const file = makeFile({});
 
     const abortErr = new Error("aborted");
-    (abortErr as any).name = "AbortError";
+    (abortErr as Any).name = "AbortError";
     (globalThis.fetch as jest.Mock).mockRejectedValueOnce(abortErr);
 
-    const req = (await makeRequestWithFile(file)) as any;
+    const req = (await makeRequestWithFile(file)) as Any;
     const res = await POST(req);
     expect(res.status).toBe(504);
     const body = await res.json();
     expect(body.ok).toBe(false);
     expect(body.error).toBe("CV_SERVICE_TIMEOUT");
     expect(typeof body.message).toBe("string");
+  });
+
+  it("§I gate: unauthenticated request → 401, no upstream call", async () => {
+    const { verifyFirebaseUser } = jest.requireMock("@/lib/apiAuth") as { verifyFirebaseUser: jest.Mock };
+    verifyFirebaseUser.mockResolvedValueOnce({ error: "Missing or invalid Authorization header", status: 401 });
+    const { POST } = await import("@/app/api/cv/infer/route");
+
+    const req = (await makeRequestWithFile(makeFile({}))) as Any;
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(globalThis.fetch).not.toHaveBeenCalled(); // never forwarded to the CV service
+  });
+
+  it("§I gate: oversize image → 413, no upstream call", async () => {
+    const { POST } = await import("@/app/api/cv/infer/route");
+    const huge = makeFile({ sizeBytes: 11 * 1024 * 1024 }); // > 10 MiB cap
+
+    const req = (await makeRequestWithFile(huge)) as Any;
+    const res = await POST(req);
+    expect(res.status).toBe(413);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("IMAGE_TOO_LARGE");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

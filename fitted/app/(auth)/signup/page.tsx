@@ -37,12 +37,12 @@ export default function SignupPage() {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
-      // Immediately sync new user to MongoDB
+      // Immediately sync new user to MongoDB (identity is derived server-side from the ID token).
+      const idToken = await user.getIdToken();
       const syncResponse = await fetch("/api/auth/sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
-          firebaseUid: user.uid,
           email: user.email || "",
           displayName: user.displayName || undefined,
           photoURL: user.photoURL || undefined,

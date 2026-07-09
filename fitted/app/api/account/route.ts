@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
+import { verifyFirebaseUser } from "@/lib/apiAuth";
 
 function parseAge(value: unknown): number | null {
   if (value === "" || value === null || value === undefined) return null;
@@ -42,10 +43,9 @@ function getMeta(metadata: unknown, key: string): unknown {
 
 export async function POST(request: NextRequest) {
   try {
-    const { firebaseUid } = await request.json();
-    if (!firebaseUid) {
-      return NextResponse.json({ error: "firebaseUid is required" }, { status: 400 });
-    }
+    // §I gate — identity comes ONLY from the verified Firebase token, never a body `firebaseUid`.
+    const auth = await verifyFirebaseUser(request);
+    if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
     const { User } = await initDatabase();
     type UserLean = {
@@ -57,10 +57,7 @@ export async function POST(request: NextRequest) {
       createdAt?: Date;
       updatedAt?: Date;
     };
-    const user = (await User.findOne({
-      authProvider: "firebase",
-      authId: firebaseUid,
-    }).lean()) as UserLean | null;
+    const user = (await User.findById(auth.userId).lean()) as UserLean | null;
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -96,11 +93,12 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { firebaseUid, age, gender, photoDataUrl, appRatingScore10, appFeedbackComment } =
+    // §I gate — identity comes ONLY from the verified Firebase token, never a body `firebaseUid`.
+    const auth = await verifyFirebaseUser(request);
+    if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+    const { age, gender, photoDataUrl, appRatingScore10, appFeedbackComment } =
       await request.json();
-    if (!firebaseUid) {
-      return NextResponse.json({ error: "firebaseUid is required" }, { status: 400 });
-    }
 
     const ageProvided = age !== undefined;
     const genderProvided = gender !== undefined;
@@ -153,10 +151,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const { User } = await initDatabase();
-    const user = await User.findOne({
-      authProvider: "firebase",
-      authId: firebaseUid,
-    });
+    const user = await User.findById(auth.userId);
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
