@@ -1,8 +1,27 @@
-# Post-M5 reset — roadmap + drift-surface findings
+# Post-M5 reset — the trust-restoration campaign
 
-> Status: **findings VERIFIED (source-checked 2026-07-08); roadmap is a PROPOSAL pending Brian's shaping.**
-> Not an execution plan yet. The reset runs AFTER M5 is live (C5–C8 done); the confirmed C5-entry defects
-> live in `m5-cutover.md` §J (D-1/D-2), not here.
+> Status: **SHAPED + ready to execute (Brian, 2026-07-08).** Precondition MET — M5 is complete
+> (C8 half-1 + half-2 validated locally; [[project_m5_c8_2026_07_08]]) and was built behavior-first
+> (the test-Mongo harness + D-1/D-2 round-trip guards landed at C5 — `generationSnapshotRoundTrip.test.ts`;
+> so §4's top-2 silent-break risks are already CLOSED, and the inventory below needs a refresh against
+> the now-live post-C8 code as the campaign's first act).
+>
+> **Mission (Brian's framing):** *restore trust in docs, tests, AND code, and kill documentation bloat* —
+> over a few goaled sessions. The R1–R4 arc below is the spine; the mission reframes its purpose as trust,
+> not just tidiness.
+>
+> **Audit method: combined Codex + Claude, cross-model ([[feedback_cross_model_review]]).** Every
+> diagnostic/verification pass runs BOTH a Claude heavy multi-lane audit (parallel subagents on distinct
+> lanes + a Fable synthesis for merit/design calls) AND a Codex pass on the same scope (Brian-run, or a
+> scoped prompt this session emits for him to run and fold back), then reconciles the two ledgers —
+> un-anchored eyes catch the author's blind spots, and absence-shaped defects need framing-free reviewers.
+>
+> **Step 0 (sequencing): decide whether to merge M5 → `main` first** (the branch is ~23 commits ahead).
+> Recommended: merge, so the codebase-wide reset + the doc "military reset" (R4) reconcile against the
+> canonical trunk, not a feature branch.
+>
+> **Bloat is measured, not vibes:** `m5-cutover.md` is ~2,260 lines (CLAUDE.md's compaction ceiling is
+> 1,500); `docs/sessions/` is ~43 files / ~5,000 lines; `docs/plans/` ~12 files / ~7,400 lines. R4 owns the cut.
 
 ## 1. Why this exists — the diagnosis
 
@@ -41,8 +60,14 @@ style harness). M5 must be finished behavior-first before the whole-codebase res
 
 ## 3. Proposed reset (multi-session, each with a goal) — PENDING BRIAN
 
-Precondition: **M5 complete (C5–C8), built behavior-first.** C5 fixes §J D-1/D-2 with round-trip tests and
-stands up the test-Mongo harness (the first bricks of the pyramid). Then, as separate goaled sessions:
+Precondition **MET** (M5 done; harness + D-1/D-2 guards landed at C5 — see banner). As separate goaled
+sessions (each a combined Codex+Claude audit per the banner method):
+
+- **R0 — Diagnostic refresh + campaign ledger (do first).** Re-run the drift/trust audit against the
+  now-live post-C8 code (the §4 inventory predates C5–C8; legacy is retired, D-1/D-2 guarded, one
+  integration smoke exists). Combined Codex+Claude. Output: a prioritized, deduplicated
+  trust-restoration ledger (docs/tests/code findings, each severity-graded + verified against source)
+  that R1–R4 execute against. Don't fix in R0 — map, dedup, prioritize.
 
 - **R1 — Legibility / architecture map.** A concise "how the whole system fits together" doc + reading order;
   identify the sprawl and the legacy/v2 dual-arm to retire post-cutover. Goal: the codebase is digestible in
