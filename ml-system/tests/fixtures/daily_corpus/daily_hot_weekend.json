@@ -1,0 +1,26 @@
+{
+  "case_id": "daily_hot_weekend",
+  "description": "A hot-weather weekend daily render (no forced item) — exercises the daily intent under a warm weather bucket + a lighter closet.",
+  "stresses": ["daily intent / no forced item", "hot weather bucket", "casual occasion"],
+  "request": {
+    "occasion": "weekend errands and lunch outside",
+    "weather": "hot",
+    "session_id": "corpus-daily-hot",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-linen", "name": "White linen tee", "type": "top", "warmth": 2, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "linen", "formality": "casual"},
+    {"id": "t-stripe", "name": "Navy striped tee", "type": "top", "warmth": 3, "color_tags": ["navy", "white"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "b-chino", "name": "Beige shorts", "type": "bottom", "warmth": 2, "color_tags": ["beige"], "occasion_tags": ["casual"], "material": "cotton", "formality": "casual"},
+    {"id": "b-denim", "name": "Light denim shorts", "type": "bottom", "warmth": 3, "color_tags": ["blue"], "occasion_tags": ["casual"], "material": "denim", "formality": "casual"},
+    {"id": "s-sneak", "name": "White canvas sneakers", "type": "shoes", "warmth": 3, "color_tags": ["white"], "occasion_tags": ["casual"], "material": "canvas", "formality": "casual"},
+    {"id": "s-sandal", "name": "Tan sandals", "type": "shoes", "warmth": 1, "color_tags": ["tan"], "occasion_tags": ["casual"], "material": "leather", "formality": "casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-linen", "role": "base_top"}, {"itemId": "b-chino", "role": "base_bottom"}, {"itemId": "s-sneak", "role": "shoes"}], "styleMove": {"moveType": "anchor", "changedItemIds": ["t-linen"], "oneSentence": "Lean into breathable linen with neutral shorts and canvas sneakers for a cool, easy errand day."}},
+      {"items": [{"itemId": "t-stripe", "role": "base_top"}, {"itemId": "b-denim", "role": "base_bottom"}, {"itemId": "s-sandal", "role": "shoes"}], "styleMove": {"moveType": "color-pop", "changedItemIds": ["t-stripe"], "oneSentence": "A navy stripe over light denim reads relaxed-nautical, finished with sandals for the heat."}},
+      {"items": [{"itemId": "t-linen", "role": "base_top"}, {"itemId": "b-denim", "role": "base_bottom"}, {"itemId": "s-sandal", "role": "shoes"}], "styleMove": {"moveType": "anchor", "changedItemIds": ["b-denim"], "oneSentence": "Pair the linen tee with denim shorts and sandals for the most heat-friendly, laid-back option."}}
+    ]
+  }
+}

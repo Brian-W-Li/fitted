@@ -38,6 +38,7 @@ from fitted_core.config import DEFAULT_K, N_SURFACED
 from fitted_core.generation import GenerationPrompt, Generator, ReplayGenerator
 from fitted_core.models import WardrobeItem
 from fitted_core.rescue import (
+    RenderRequest,
     RescueRequest,
     RescueResult,
     _build_prompt,
@@ -49,6 +50,7 @@ from fitted_core.rescue import (
     _resolve_forced_item,
     _resolve_pins,
     _scope_pool_to_pins,
+    render_with_trace,
     rescue,
 )
 from fitted_core.response import OutfitVariant
@@ -817,3 +819,292 @@ def format_cost_aggregate(agg: CostAggregate) -> str:
             f"  per-rescue=${agg.est_cost_per_rescue_usd:.5f}"
         )
     return "\n".join(lines)
+
+
+# ============================================================================
+# daily intent — M5 C8 half-2 F3 mechanical read (m5-cutover.md §C8 / half-2 runbook §4)
+# ============================================================================
+# The rescue path (evaluate_case) re-derives stages because the CLOSED rescue() exposes no trace.
+# The DAILY path instead calls render_with_trace(intent="daily"), which DOES expose the funnel
+# (attempts / validation / rescue_drops / result), so daily metrics are read STRAIGHT OFF the
+# RenderTrace — no second live call, no re-run. Daily has no forced item, so there is no
+# forced-item-inclusion metric; StyleMove presence + parse/reject/spread carry the gate.
+
+_DAILY_STYLE_MOVE_DROP = "stylemove_invalid"  # RescueDrop.drop_reason in the daily render
+
+
+@dataclass(frozen=True)
+class DailyCaseMetrics:
+    """Mechanical metrics for one DAILY render (read off render_with_trace's RenderTrace).
+
+    The daily analogue of CaseMetrics minus the forced-item fields (no forced item exists for
+    daily). Deterministic for a fixed generator output — the hermetic suite asserts exact values;
+    a real run histograms them across K.
+    """
+
+    case_id: str
+    not_enough_items: bool  # pre-GPT structural / controls-unbuildable exit (no generation)
+    reason_hint: Optional[str]
+    generator_calls: int  # 0 on a pre-GPT exit; 1 normally; 2 when the §12 repair retry fired
+    parse_success: bool  # a parseable payload after the one §12 repair
+    repair_used: bool
+    candidates_validated: int  # accepted (structurally valid, deduped) candidates
+    style_move_present: int  # of those, how many carry a valid StyleMove
+    rejection_histogram: dict[str, int]  # IssueCode value → rejects (hallucinated ids, schema)
+    warning_histogram: dict[str, int]
+    survivors: int  # candidates after the daily drops (StyleMove-required; + any locks)
+    dropped_missing_style_move: int  # dropped for an absent/invalid StyleMove
+    ranked_count: int
+    variant_count: int  # surfaced variants (≤ n_surfaced)
+    spread_collapsed: bool
+    cells: dict[str, int]  # "<path>/<risk>" → count over surfaced variants
+    insufficient_after_generation: bool
+
+
+@dataclass(frozen=True)
+class DailyCaseEvaluation:
+    """A daily case's metrics, the product result, and cost telemetry (the CLI reads all three)."""
+
+    case: CorpusCase
+    metrics: DailyCaseMetrics
+    result: RescueResult
+    cost: GenerationCost
+
+
+def load_daily_corpus_case(path: Path | str) -> CorpusCase:
+    """Load one DAILY corpus ``*.json`` file (like ``load_corpus_case`` but intent=daily).
+
+    A daily case carries NO ``forced_item_id`` (raises if it does — that would be a rescue case);
+    the ``RenderRequest`` is built with ``intent="daily"`` / ``forced_item_id=None``.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    req = data["request"]
+    case_id = str(data["case_id"])
+    if req.get("forced_item_id") is not None:
+        raise ValueError(
+            f"daily corpus case {case_id!r} must not set forced_item_id (that is a rescue case)"
+        )
+    request = RenderRequest(
+        wardrobe=[_item_from_dict(item) for item in data["wardrobe"]],
+        forced_item_id=None,
+        occasion=str(req["occasion"]),
+        weather=str(req["weather"]),
+        session_id=str(req.get("session_id", f"corpus-{case_id}")),
+        wardrobe_version=int(req.get("wardrobe_version", 1)),
+        generation_index=int(req.get("generation_index", 0)),
+        k=int(req.get("k", DEFAULT_K)),
+        n_surfaced=int(req.get("n_surfaced", N_SURFACED)),
+        date=req.get("date"),
+        intent="daily",
+    )
+    return CorpusCase(
+        case_id=case_id,
+        description=str(data.get("description", "")),
+        stresses=tuple(data.get("stresses", [])),
+        request=request,
+        canned_response=_canned_to_raw(data.get("canned_response")),
+    )
+
+
+def load_daily_corpus_dir(directory: Path | str) -> list[CorpusCase]:
+    """Load every daily ``*.json`` corpus case in ``directory``, sorted by filename."""
+    return [load_daily_corpus_case(p) for p in sorted(Path(directory).glob("*.json"))]
+
+
+def _daily_pre_gpt_metrics(case: CorpusCase, result: RescueResult) -> DailyCaseMetrics:
+    """Metrics for a pre-GPT daily exit (not_enough_items / controls-unbuildable)."""
+    return DailyCaseMetrics(
+        case_id=case.case_id,
+        not_enough_items=True,
+        reason_hint=result.reason_hint,
+        generator_calls=0,
+        parse_success=False,
+        repair_used=False,
+        candidates_validated=0,
+        style_move_present=0,
+        rejection_histogram={},
+        warning_histogram={},
+        survivors=0,
+        dropped_missing_style_move=0,
+        ranked_count=0,
+        variant_count=0,
+        spread_collapsed=False,
+        cells={},
+        insufficient_after_generation=False,
+    )
+
+
+def evaluate_daily_case(case: CorpusCase, generator: Generator) -> DailyCaseEvaluation:
+    """Run one daily case through ``render_with_trace`` and read metrics off the trace (F3).
+
+    Unlike ``evaluate_case`` (rescue), this needs no external stage re-derivation: the traced
+    daily render already carries the parse attempts, the validation funnel, the daily drops, and
+    the product result. The generator is sampled once (wrapped for cost telemetry).
+    """
+    model = getattr(generator, "_model", None)  # known for OpenAIGenerator; None for stubs
+    recording = RecordingGenerator(generator)
+    trace = render_with_trace(case.request, recording)  # intent="daily" dispatch
+    cost = _build_cost(case.case_id, model, recording)
+    result = trace.result
+
+    if result.not_enough_items:
+        return DailyCaseEvaluation(case, _daily_pre_gpt_metrics(case, result), result, cost)
+
+    attempts = trace.attempts
+    parse_success = bool(attempts) and attempts[-1].payload_parsed
+    repair_used = len(attempts) >= 2
+    validation = trace.validation
+    candidates = list(validation.candidates) if validation is not None else []
+    rejection_histogram = _histogram(validation.rejections) if validation is not None else {}
+    warning_histogram = _histogram(validation.warnings) if validation is not None else {}
+    style_present = sum(1 for c in candidates if c.style_move is not None)
+    dropped_move = sum(
+        1 for d in trace.rescue_drops if d.drop_reason == _DAILY_STYLE_MOVE_DROP
+    )
+    # survivors = validated candidates that survived ALL daily drops (StyleMove + any locks).
+    survivors = len(candidates) - len(trace.rescue_drops)
+
+    metrics = DailyCaseMetrics(
+        case_id=case.case_id,
+        not_enough_items=False,
+        reason_hint=result.reason_hint,
+        generator_calls=recording.call_count,
+        parse_success=parse_success,
+        repair_used=repair_used,
+        candidates_validated=len(candidates),
+        style_move_present=style_present,
+        rejection_histogram=rejection_histogram,
+        warning_histogram=warning_histogram,
+        survivors=survivors,
+        dropped_missing_style_move=dropped_move,
+        ranked_count=len(result.ranked.outfits) if result.ranked is not None else 0,
+        variant_count=len(result.variants),
+        spread_collapsed=result.spread_collapsed,
+        cells=_cell_histogram(result.variants),
+        insufficient_after_generation=result.insufficient_after_generation,
+    )
+    return DailyCaseEvaluation(case, metrics, result, cost)
+
+
+@dataclass(frozen=True)
+class DailyAggregateMetrics:
+    """K-run aggregate for one daily case (rates are means; histograms are summed)."""
+
+    case_id: str
+    runs: int
+    parse_success_rate: float
+    repair_rate: float
+    mean_candidates: float
+    style_move_rate: float  # mean (style_move_present / candidates_validated)
+    mean_survivors: float
+    mean_ranked: float
+    mean_variants: float
+    spread_collapsed_rate: float
+    insufficient_rate: float
+    rejection_histogram: dict[str, int]  # summed over runs
+    cell_histogram: dict[str, int]  # summed over runs
+
+
+def aggregate_daily(metrics_list: Sequence[DailyCaseMetrics]) -> DailyAggregateMetrics:
+    """Aggregate K ``DailyCaseMetrics`` for one case into rates + summed histograms (§E)."""
+    if not metrics_list:
+        raise ValueError("aggregate_daily() needs at least one DailyCaseMetrics")
+    n = len(metrics_list)
+
+    def mean(values: Sequence[float]) -> float:
+        return sum(values) / n
+
+    rejection_histogram: dict[str, int] = {}
+    cell_histogram: dict[str, int] = {}
+    for m in metrics_list:
+        for code, count in m.rejection_histogram.items():
+            rejection_histogram[code] = rejection_histogram.get(code, 0) + count
+        for cell, count in m.cells.items():
+            cell_histogram[cell] = cell_histogram.get(cell, 0) + count
+
+    return DailyAggregateMetrics(
+        case_id=metrics_list[0].case_id,
+        runs=n,
+        parse_success_rate=mean([1.0 if m.parse_success else 0.0 for m in metrics_list]),
+        repair_rate=mean([1.0 if m.repair_used else 0.0 for m in metrics_list]),
+        mean_candidates=mean([m.candidates_validated for m in metrics_list]),
+        style_move_rate=mean(
+            [_ratio(m.style_move_present, m.candidates_validated) for m in metrics_list]
+        ),
+        mean_survivors=mean([m.survivors for m in metrics_list]),
+        mean_ranked=mean([m.ranked_count for m in metrics_list]),
+        mean_variants=mean([m.variant_count for m in metrics_list]),
+        spread_collapsed_rate=mean([1.0 if m.spread_collapsed else 0.0 for m in metrics_list]),
+        insufficient_rate=mean(
+            [1.0 if m.insufficient_after_generation else 0.0 for m in metrics_list]
+        ),
+        rejection_histogram=rejection_histogram,
+        cell_histogram=cell_histogram,
+    )
+
+
+def format_daily_evaluation(evaluation: DailyCaseEvaluation) -> str:
+    """The full human-readable report for one daily case (header, metrics, variants, rubric)."""
+    case, metrics, result = evaluation.case, evaluation.metrics, evaluation.result
+    items_by_id = _items_by_id(case)
+    out: list[str] = ["=" * 78, f"CASE  {case.case_id}  [daily]", f"  {case.description}"]
+    if case.stresses:
+        out.append(f"  stresses: {', '.join(case.stresses)}")
+    out.append(f"  occasion={case.request.occasion!r}  weather={case.request.weather}")
+    out.append("-" * 78)
+
+    if metrics.not_enough_items:
+        out.append(f"PRE-GPT not_enough_items — no generation. hint: {metrics.reason_hint}")
+        out.append("=" * 78)
+        return "\n".join(out)
+
+    out.append("Mechanical metrics:")
+    out.append(
+        f"  generator_calls={metrics.generator_calls}"
+        f"  parse_success={metrics.parse_success}  repair_used={metrics.repair_used}"
+    )
+    out.append(
+        f"  candidates_validated={metrics.candidates_validated}"
+        f"  style_move_present={metrics.style_move_present}"
+    )
+    out.append(
+        f"  survivors={metrics.survivors}"
+        f"  (dropped: missing_style_move={metrics.dropped_missing_style_move})"
+    )
+    out.append(
+        f"  ranked_count={metrics.ranked_count}  variant_count={metrics.variant_count}"
+        f"  spread_collapsed={metrics.spread_collapsed}"
+        f"  insufficient_after_generation={metrics.insufficient_after_generation}"
+    )
+    out.append(_format_histogram("rejections", metrics.rejection_histogram))
+    out.append(_format_histogram("warnings", metrics.warning_histogram))
+    out.append(_format_histogram("cells", metrics.cells))
+    out.append(_format_cost_line(evaluation.cost))
+    out.append("-" * 78)
+
+    out.append(f"Surfaced ways to wear (n={metrics.variant_count}):")
+    if result.variants:
+        for i, variant in enumerate(result.variants, start=1):
+            out.append(format_variant(i, variant, items_by_id))
+    else:
+        out.append("  (none surfaced)")
+    out.append("-" * 78)
+    out.append(render_rubric_template())
+    out.append("=" * 78)
+    return "\n".join(out)
+
+
+def format_daily_aggregate(agg: DailyAggregateMetrics) -> str:
+    """A K-run daily aggregate as human-readable text (the CLI ``--runs`` summary)."""
+    out = [
+        f"AGGREGATE  {agg.case_id}  [daily]  over {agg.runs} run(s):",
+        f"  parse_success_rate={agg.parse_success_rate:.2f}  repair_rate={agg.repair_rate:.2f}",
+        f"  mean_candidates={agg.mean_candidates:.2f}  style_move_rate={agg.style_move_rate:.2f}",
+        f"  mean_survivors={agg.mean_survivors:.2f}"
+        f"  mean_ranked={agg.mean_ranked:.2f}  mean_variants={agg.mean_variants:.2f}",
+        f"  spread_collapsed_rate={agg.spread_collapsed_rate:.2f}"
+        f"  insufficient_rate={agg.insufficient_rate:.2f}",
+        _format_histogram("rejections (summed)", agg.rejection_histogram),
+        _format_histogram("cells (summed)", agg.cell_histogram),
+    ]
+    return "\n".join(out)

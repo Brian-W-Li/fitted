@@ -1,0 +1,27 @@
+{
+  "case_id": "daily_office",
+  "description": "A normal daily render: a work-appropriate closet, no forced item — the daily intent's baseline case for the M5 C8 F3 mechanical read.",
+  "stresses": ["daily intent / no forced item", "smart-casual office occasion", "vibe spread across paths"],
+  "request": {
+    "occasion": "office day at a business-casual workplace",
+    "weather": "indoor",
+    "session_id": "corpus-daily-office",
+    "wardrobe_version": 1
+  },
+  "wardrobe": [
+    {"id": "t-white", "name": "White oxford shirt", "type": "top", "warmth": 4, "color_tags": ["white"], "occasion_tags": ["work", "smart casual"], "material": "cotton", "formality": "business casual"},
+    {"id": "t-blue", "name": "Light blue button-down", "type": "top", "warmth": 4, "color_tags": ["blue"], "occasion_tags": ["work"], "material": "cotton", "formality": "business casual"},
+    {"id": "b-charcoal", "name": "Charcoal trousers", "type": "bottom", "warmth": 5, "color_tags": ["charcoal"], "occasion_tags": ["work"], "material": "wool", "formality": "business casual"},
+    {"id": "b-navy", "name": "Navy chinos", "type": "bottom", "warmth": 5, "color_tags": ["navy"], "occasion_tags": ["work", "casual"], "material": "cotton", "formality": "smart casual"},
+    {"id": "o-blazer", "name": "Grey blazer", "type": "outer_layer", "warmth": 6, "color_tags": ["grey"], "occasion_tags": ["work"], "material": "wool", "formality": "business"},
+    {"id": "s-derby", "name": "Brown derby shoes", "type": "shoes", "warmth": 3, "color_tags": ["brown"], "occasion_tags": ["work"], "material": "leather", "formality": "business casual"},
+    {"id": "s-loafer", "name": "Black loafers", "type": "shoes", "warmth": 3, "color_tags": ["black"], "occasion_tags": ["work"], "material": "leather", "formality": "business casual"}
+  ],
+  "canned_response": {
+    "outfits": [
+      {"items": [{"itemId": "t-white", "role": "base_top"}, {"itemId": "b-charcoal", "role": "base_bottom"}, {"itemId": "s-derby", "role": "shoes"}], "styleMove": {"moveType": "anchor", "changedItemIds": ["b-charcoal"], "oneSentence": "Keep it clean and professional with a crisp white shirt over charcoal trousers and brown derbies."}},
+      {"items": [{"itemId": "t-blue", "role": "base_top"}, {"itemId": "b-navy", "role": "base_bottom"}, {"itemId": "o-blazer", "role": "outer_layer"}, {"itemId": "s-loafer", "role": "shoes"}], "styleMove": {"moveType": "layer", "changedItemIds": ["o-blazer"], "oneSentence": "Add a grey blazer over the blue button-down to sharpen the look for meetings."}},
+      {"items": [{"itemId": "t-white", "role": "base_top"}, {"itemId": "b-navy", "role": "base_bottom"}, {"itemId": "s-loafer", "role": "shoes"}], "styleMove": {"moveType": "anchor", "changedItemIds": ["b-navy"], "oneSentence": "Swap in navy chinos and loafers for an easy smart-casual desk day."}}
+    ]
+  }
+}

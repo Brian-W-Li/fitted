@@ -31,12 +31,18 @@ from fitted_core.evaluation import (
     GenerationCost,
     aggregate,
     aggregate_cost,
+    aggregate_daily,
     evaluate_case,
+    evaluate_daily_case,
     format_aggregate,
     format_cost_aggregate,
+    format_daily_aggregate,
+    format_daily_evaluation,
     format_evaluation,
     load_corpus_case,
     load_corpus_dir,
+    load_daily_corpus_case,
+    load_daily_corpus_dir,
     replay_generator_for,
 )
 from fitted_core.generation import (
@@ -76,6 +82,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     source.add_argument(
         "--corpus-dir", metavar="DIR", help="run every *.json case in this directory"
+    )
+    parser.add_argument(
+        "--intent",
+        choices=("rescue", "daily"),
+        default="rescue",
+        help="which render intent to evaluate (default: rescue). daily = the M5 C8 F3 daily "
+        "mechanical read (a daily corpus carries no forced_item_id).",
     )
     parser.add_argument(
         "--dry-run",
@@ -131,10 +144,20 @@ def _make_generator_factory(
 
 
 def _run_case(
-    case: CorpusCase, make_generator: Callable[[], Generator], runs: int
+    case: CorpusCase, make_generator: Callable[[], Generator], runs: int, intent: str
 ) -> tuple[str, list[GenerationCost]]:
     """Evaluate one case ``runs`` times; return the report (+ aggregate when runs > 1) and the
-    per-run cost records (rolled into the global §E latency/$/rescue summary by ``main``)."""
+    per-run cost records (rolled into the global §E latency/$/rescue summary by ``main``).
+
+    ``intent`` selects the evaluator: rescue re-derives stages over the closed ``rescue()``; daily
+    reads the metrics off ``render_with_trace``'s trace (F3)."""
+    if intent == "daily":
+        evals = [evaluate_daily_case(case, make_generator()) for _ in range(runs)]
+        report = format_daily_evaluation(evals[0])
+        if runs > 1:
+            agg = aggregate_daily([e.metrics for e in evals])
+            report = report + "\n" + format_daily_aggregate(agg)
+        return report, [e.cost for e in evals]
     evaluations = [evaluate_case(case, make_generator()) for _ in range(runs)]
     report = format_evaluation(evaluations[0])
     if runs > 1:
@@ -144,9 +167,11 @@ def _run_case(
 
 
 def _load_cases(args: argparse.Namespace) -> list[CorpusCase]:
+    load_one = load_daily_corpus_case if args.intent == "daily" else load_corpus_case
+    load_dir = load_daily_corpus_dir if args.intent == "daily" else load_corpus_dir
     if args.closet:
-        return [load_corpus_case(args.closet)]
-    return load_corpus_dir(args.corpus_dir)
+        return [load_one(args.closet)]
+    return load_dir(args.corpus_dir)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -173,13 +198,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     mode = "dry-run (replayed)" if args.dry_run else f"real OpenAI model={args.model}"
-    print(f"# Spearhead C6 eval — {len(cases)} case(s) — {mode} — runs={args.runs}\n")
+    print(
+        f"# Spearhead C6 eval — intent={args.intent} — {len(cases)} case(s) — {mode} "
+        f"— runs={args.runs}\n"
+    )
 
     started = time.perf_counter()
     all_costs: list[GenerationCost] = []
     for case in cases:
         make_generator = _make_generator_factory(args, case)
-        report, costs = _run_case(case, make_generator, args.runs)
+        report, costs = _run_case(case, make_generator, args.runs, args.intent)
         print(report)
         print()
         all_costs.extend(costs)
