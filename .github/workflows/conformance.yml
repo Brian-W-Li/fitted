@@ -1,0 +1,53 @@
+# M5 H13 cross-runtime conformance — the C8 pre-flip gate (m5-cutover.md §C8 / half-2 runbook §4).
+#
+# Both suites (Python fitted_core + service, and Next/jest) must be green as a PRE-FLIP gate before
+# `USE_ML_SHORTLISTER` flips. The wire contract the flip depends on is validated by the conformance
+# tests carried INSIDE these suites — the Python↔TS snapshot/serde mirror
+# (test_snapshot_serde / test_render_contract ↔ generationSnapshotRoundTrip), the engineFailure vocab
+# mirror (contract_fields.json), and the seed golden vectors. Hermetic: no secrets, no OpenAI spend
+# (jest uses in-memory Mongo; pytest never reaches the real generator).
+name: conformance
+
+on:
+  push:
+    branches: [main, m5-c5-next-integration]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: pytest (fitted_core + service)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml-system
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install deps (core + service)
+        run: pip install -r requirements.txt -r service/requirements.txt
+      - name: pytest (floor 1049)
+        run: python -m pytest tests service/tests -q
+
+  jest:
+    name: jest + tsc (Next)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fitted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: fitted/package-lock.json
+      - name: Install (clean)
+        run: npm ci
+      - name: jest (floor 516)
+        run: npm test
+      - name: tsc --noEmit
+        run: npx tsc --noEmit

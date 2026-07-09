@@ -1835,6 +1835,10 @@ state gates (requestId minting/debounce already landed with the C6 UI contract).
 > - **⏳ half-2 — the live flip (REMAINS; needs infra/keys):** everything below (Fly deploy, the pre-flip
 >   gates G1/G2/G9 + index-existence + H13 conformance, the daily+rescue mechanical read, `USE_ML_SHORTLISTER=true`,
 >   the live-key smoke, the CI workflow YAML). The "Commit 2 — deletion" body below is **already done by half-1**.
+>   **Executable checklist:** `docs/plans/m5-c8-half2-runbook.md` (turnkey copy-paste commands, expected outputs,
+>   rollback). **Staged ahead (key-independent):** the H13 CI gate (`.github/workflows/conformance.yml`), the
+>   `.env.sample` half-2 block, and G2 (OpenAI $10 cap + alert, project `cssEnjbkDMOuCfMqzDuGdtLP`, done 2026-07-08).
+>   **Owed key-independent build:** a `daily`-intent path in `fitted_core/cli.py` (rescue-only today) for the F3 read.
 
 **Commit 1 — flip + smoke:** Fly.io deploy; **index disposition (disambiguates m4 §14.5's "autoIndex off
 on the M5 service" note — the Python service has no Mongo; Next is the only Mongo client):** keep
