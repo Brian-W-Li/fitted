@@ -70,15 +70,16 @@ describe("User — wardrobeVersion", () => {
 describe("OutfitInteraction — action enum + scope vocab", () => {
   const base = () => ({ user: oid(), items: [oid()], action: "accepted" });
 
-  it.each(["planned", "packed", "corrected"])("accepts new action=%s", (action) => {
+  // M5 (C8) trimmed the enum to the live pair + the [STAGED] board/routine scaffolding.
+  it.each(["accepted", "rejected", "planned", "packed"])("accepts action=%s", (action) => {
     const err = new OutfitInteraction({ ...base(), action }).validateSync();
     expect(err?.errors.action).toBeUndefined();
   });
 
-  it("still accepts the original action values", () => {
-    for (const action of ["generated", "accepted", "rejected", "saved", "worn", "rated"]) {
+  it("rejects the trimmed dead legacy actions (generated/saved/worn/rated/corrected)", () => {
+    for (const action of ["generated", "saved", "worn", "rated", "corrected"]) {
       const err = new OutfitInteraction({ ...base(), action }).validateSync();
-      expect(err?.errors.action).toBeUndefined();
+      expect(err?.errors.action).toBeDefined();
     }
   });
 
@@ -114,7 +115,7 @@ describe("OutfitInteraction — action enum + scope vocab", () => {
 });
 
 describe("OutfitInteraction — binding co-presence guard", () => {
-  const base = () => ({ user: oid(), items: [oid()], action: "worn" });
+  const base = () => ({ user: oid(), items: [oid()], action: "accepted" });
   const fullBinding = () => ({
     snapshotId: oid(),
     candidateId: "cand-1",

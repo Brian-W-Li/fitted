@@ -1494,8 +1494,18 @@ legacy deletion)** per CLAUDE.md.
 > `USE_ML_SHORTLISTER`; commits through `c1c6cdcc`). **✅ C6 COMPLETE** (`7c469e39` — feedback gate +
 > append-only interactions + §6.5 UI contract, daily AND rescue). **✅ C7 COMPLETE** (`e48af7dc` —
 > retained-route auth + client-state trust-boundary gates; C8-prep image/email/ownership fixes in
-> `326e0d61`). Current suite floors: **≥987 pytest** (`pytest tests service/tests`) / **546 jest**. Next
-> checkpoint: **C8** (legacy retirement + live-key cutover).
+> `326e0d61`). **✅ C8 half-1 COMPLETE** (key-independent legacy retirement, this session): the legacy
+> recommender + `regenerate/route.ts` + `lib/gemini.ts` deleted, `recommend/route.ts` rewritten to the
+> M5 dispatcher (flag-OFF → `renderDegraded()` §A empty state), the now-unused `openai`/`@google/generative-ai`
+> npm deps + `GEMINI_*` env rows removed, and the `OutfitInteraction.action` enum trimmed to
+> `accepted|rejected|planned|packed`. Current suite floors: **≥1049 pytest** (`pytest tests service/tests`) /
+> **516 jest** (jest rebaselined 546→516: 3 legacy suites removed — 2 pure inline-fakes
+> (`feedbackSemantics`/`endToEndRecommendationFlow`, zero production code) + `regenerateExclusion`, which
+> drove the now-deleted `regenerate` route (died with its subject, not a fake) — net of added real coverage:
+> engineFailure persistence, flag-routing, and `contextDetection` repointed to the live `bucketFromSummary`;
+> the disliked-exclusion contract those covered now lives in the controls path, guarded by
+> `mlRecommend`/`mlRequestAdapter` tests). Next: **C8 half-2** (the
+> live flip — Fly deploy + pre-flip gates + `USE_ML_SHORTLISTER=true` + live-key smoke; needs infra/keys).
 
 **Ladder sequencing invariant (trap-guard — the second-eval High finding, recalibrated for no legacy
 users):** at every checkpoint boundary the app must render **and** bind feedback end-to-end in at least
@@ -1808,6 +1818,24 @@ state gates (requestId minting/debounce already landed with the C6 UI contract).
 **Dependencies:** C5 (route rewrite lands there).
 
 #### C8 — Cutover  [HEAVY AUDIT; **two commits**]
+> **Re-sequenced into two key-gated halves (2026-07-08).** The plan's original order was flip→delete; it
+> was split so the **key-independent deletion lands first**. This is safe here because **this fork is
+> undeployed** (production runs the team repo) — there are no live users to serve degraded-empty while the
+> flag is still off, and flag-OFF → §A degraded empty state is precisely the post-deletion rollback story.
+> - **✅ half-1 — legacy retirement (DONE, this session; no deploy/key):** deleted `regenerate/route.ts`,
+>   the legacy module, `lib/gemini.ts`; rewrote `recommend/route.ts` to the M5 dispatcher with an exported
+>   `renderDegraded()` for the flag-OFF §A empty state; removed the now-unused `openai`/`@google/generative-ai`
+>   npm deps + `GEMINI_*` env rows; trimmed the `action` enum to `accepted|rejected|planned|packed`; migrated/
+>   rewrote the legacy tests (deleted 3 legacy suites — 2 inline-fakes + `regenerateExclusion` whose
+>   subject route was deleted; repointed `contextDetection` to the live
+>   `bucketFromSummary`; rewrote `recommendationStability` to the flag/degraded contract) + added the
+>   engineFailure-persistence test. Heavy-audited before commit. **CLAUDE.md env-table:** Gemini row removed;
+>   the `OPENAI_API_KEY`→service-side reconciliation (drop the Next row, add `ML_SERVICE_URL`/`FITTED_SERVICE_KEY`)
+>   is **owed at half-2** with the flip.
+> - **⏳ half-2 — the live flip (REMAINS; needs infra/keys):** everything below (Fly deploy, the pre-flip
+>   gates G1/G2/G9 + index-existence + H13 conformance, the daily+rescue mechanical read, `USE_ML_SHORTLISTER=true`,
+>   the live-key smoke, the CI workflow YAML). The "Commit 2 — deletion" body below is **already done by half-1**.
+
 **Commit 1 — flip + smoke:** Fly.io deploy; **index disposition (disambiguates m4 §14.5's "autoIndex off
 on the M5 service" note — the Python service has no Mongo; Next is the only Mongo client):** keep
 `autoIndex:true` + `db.ts` `Model.init()` at M5 (solo scale, near-empty collections — boot-time index

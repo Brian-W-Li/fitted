@@ -151,8 +151,10 @@ export async function resolveWeatherProd(input: WeatherInput): Promise<WeatherRe
   return { weather: bucketFromSummary(input.occasion), weatherRaw: null };
 }
 
-/** Coarse R5 bucketing from a free-text summary/occasion — the legacy heuristic, condensed. */
-function bucketFromSummary(text: string): WeatherBucket {
+/** Coarse R5 bucketing from a free-text summary/occasion — the legacy heuristic, condensed.
+ *  Exported so the weather-bucket keyword contract (incl. the substring-collision guards) is tested
+ *  against the LIVE function, not an inline copy. */
+export function bucketFromSummary(text: string): WeatherBucket {
   const t = (text ?? "").toLowerCase();
   const has = (w: string) => (w.includes(" ") ? t.includes(w) : new RegExp(`\\b${w}\\b`).test(t));
   if (["cold", "winter", "freezing", "chilly", "snow", "frigid"].some(has)) return "cold";
@@ -192,8 +194,18 @@ export function prodDeps(): MlRecommendDeps {
 function respondError(status: number, code: string, message: string): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
 }
-function respondDegraded(reasonHint: DegradedReasonHint): NextResponse {
+/**
+ * The §A degraded empty browser state as a standalone 200 response — empty candidates, no
+ * {snapshotId, candidateId} binding token, no snapshot written. Exported for the recommend route's
+ * flag-OFF arm: with the legacy recommender retired (C8), `USE_ML_SHORTLISTER` unset/false means the
+ * ML vertical is disabled, so the route returns this degraded state (never legacy, never a 5xx) —
+ * the rollback story. Defaults to `service_unavailable` (the honest hint when the engine is off).
+ */
+export function renderDegraded(reasonHint: DegradedReasonHint = "service_unavailable"): NextResponse {
   return NextResponse.json(buildDegradedResponse(reasonHint));
+}
+function respondDegraded(reasonHint: DegradedReasonHint): NextResponse {
+  return renderDegraded(reasonHint);
 }
 
 function rejectNonEmptyConstraints(raw: unknown): boolean {

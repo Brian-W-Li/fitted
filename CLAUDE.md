@@ -48,15 +48,14 @@ python3 outfit_recommender.py    # runs the rule-based demo on a hardcoded wardr
 
 ## Env (`fitted/.env.local`)
 
-The first four are required end-to-end. Missing any → silent failures or 500s on the relevant routes. The last two are optional (each degrades gracefully when absent).
+The first four are required end-to-end. Missing any → silent failures or 500s on the relevant routes. The last one (`CV_SERVICE_URL`) is optional (it degrades gracefully when absent).
 
 | Variable | Used by |
 |---|---|
 | `NEXT_PUBLIC_FIREBASE_*` (4 vars) | Client-side Firebase Auth (Google sign-in) |
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | Server-side Firebase Admin (token verification) |
 | `MONGODB_URI` | Mongo Atlas connection |
-| `OPENAI_API_KEY` | Main LLM in `/api/recommend` (the `gpt-5.4-mini` stylist) |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | **Optional.** Server-side Gemini "why" inference — `lib/gemini.ts` `inferWhyForInteraction`, fired best-effort from `/api/interactions` to populate `OutfitInteraction.inferredWhy` on each like/dislike. Absent key → the path no-ops (returns null); `GEMINI_MODEL` defaults to `gemini-2.5-flash-lite`. |
+| `OPENAI_API_KEY` | The `gpt-5.4-mini` stylist. **C8 (half-1) retired the legacy in-Next OpenAI call**; post-cutover the key lives service-side (the Fly render service, m5-cutover §D5), not the Next app. The full env reconciliation (drop this row, add `ML_SERVICE_URL`/`FITTED_SERVICE_KEY`) lands with the C8 half-2 flag flip. |
 | `CV_SERVICE_URL` | Optional CV-service endpoint; **no default** (the teammate HF Space was removed). The W-track replaces CV with Brian's own service (§18). |
 
 Brian was on the original team, so the team's `.env.local` from CS 148 work is the fastest source. `.env.local` is gitignored.
@@ -68,9 +67,8 @@ fallback arm, not behavioral truth; v2 wins when they disagree.
 
 | File | Purpose |
 |---|---|
-| `fitted/app/api/recommend/route.ts` | Legacy main recommendation endpoint; rewritten at M5 |
-| `fitted/app/api/recommend/regenerate/route.ts` | Legacy re-roll variant; folded into the single route at M5 |
-| `fitted/lib/weather.ts` | Legacy weather helper; v2 re-derives weather as the bucketed Lens field |
+| `fitted/app/api/recommend/route.ts` | The single recommend endpoint. **C8 rewrote it to the M5 dispatcher** (flag-ON → `lib/mlRecommend`; flag-OFF → §A degraded state). Legacy is deleted; regenerate is folded in (a `/render` with `parentSnapshotId`). |
+| `fitted/lib/weather.ts` | Weather helper; still live — `lib/mlRecommend.ts` imports `getWeatherContext` to re-derive the bucketed Lens field |
 | `fitted/models/*.ts` | Mongo schemas: `User`, `WardrobeItem`, `OutfitInteraction`, `WardrobeImage`, `GenerationSnapshot` (M4b; registered dormant) |
 | `fitted/docs/ML_OVERVIEW.md` | Legacy deployed-app writeup. Prefer source code; v2 wins. |
 | `fitted/docs/database.md` | Deployed-schema reference. Prefer `fitted/models/*.ts`; v2 wins for targets. |

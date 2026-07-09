@@ -56,22 +56,23 @@ const OutfitInteractionSchema = new Schema(
     action: {
       type: String,
       required: true,
+      // M5 (C8) trimmed the dead CS148 legacy verbs (generated/saved/worn/rated) and `corrected`.
+      // The live write path (POST /api/interactions, G8 allowlist) emits only accepted|rejected;
+      // `corrected` was superseded by H61 (a correction is a NEW accepted|rejected event keyed
+      // per-candidate, not its own action — keeping it invited a reducer-contract violation).
+      // `planned`/`packed` are retained [STAGED] scaffolding for the north-star board/routine
+      // feedback surface; decide them as one unit with the `scopeTarget` board/routine vocab at M6.
       enum: [
-        "generated",
         "accepted",
         "rejected",
-        "saved",
-        "worn",
-        "rated",
-        // M4 additive (scoped-feedback events); behavior wired at M5.
         "planned",
         "packed",
-        "corrected",
       ],
     },
     rating: { type: Number, min: 1, max: 5 },
     feedback: { type: String },
-    /** One-off "why" for this event: inferred by Gemini (what went right or wrong). */
+    /** DORMANT (C8): its Gemini writer (`lib/gemini.ts`) was deleted; the structured `feedbackReason`
+     *  below is the sanctioned "why" home. Column kept for any pre-C8 rows; no live write path. */
     inferredWhy: { type: String },
     /** Per-item feedback from the dislike modal: which pieces the user marked as disliked and any notes. */
     perItemFeedback: { type: [PerItemFeedbackSchema], default: undefined },

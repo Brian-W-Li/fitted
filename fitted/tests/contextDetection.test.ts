@@ -1,55 +1,20 @@
 /**
- * Tests for detectTemperatureHint — the keyword-based event context classifier.
+ * Tests for bucketFromSummary — the LIVE M5 weather/occasion → R5 bucket classifier
+ * (lib/mlRecommend.ts), the condensed successor to the retired legacy detectTemperatureHint.
  *
- * Because detectTemperatureHint is an internal function (not exported) in both
- * route files, this test inlines an exact copy of the production predicate.
- * If the keyword lists in the route change, update this copy to match.
+ * Repointed at C8 from an inline copy to the real exported function, so the keyword contract and
+ * its substring-collision guards are tested against production code, not a drifting duplicate.
+ * Buckets: cold | hot | outdoor | indoor | mild (default).
  *
  * Key regression covered:
- *   "outdoor beach day with friends" was previously classified as "indoor"
- *   because "ac" (shorthand for air conditioning) matched the substring "ac"
- *   inside "be-AC-h". The fix removes "ac" from the indoor list and adds an
- *   outdoor check that runs before the indoor check.
+ *   "outdoor beach day with friends" must NOT classify as "indoor" — the legacy "ac" substring
+ *   matched inside "be-AC-h"; the kept function drops "ac" and runs the outdoor check first.
+ *
+ * NOTE: bucketFromSummary has no explicit "mild" keyword list (unmatched input → mild default) and
+ * drops the legacy-only "bbq"/"barbecue" outdoor words (multi-word/"outside" phrasings still bucket
+ * outdoor) — the assertions below reflect the live function.
  */
-
-// ---------------------------------------------------------------------------
-// Inline reproduction of detectTemperatureHint (from recommend/route.ts and
-// recommend/regenerate/route.ts — both files share identical logic)
-// ---------------------------------------------------------------------------
-
-type TemperatureHint = "hot" | "mild" | "cold" | "indoor" | "outdoor";
-
-function detectTemperatureHint(eventDescription: string): TemperatureHint {
-  const text = eventDescription.toLowerCase();
-  // Use word-boundary matching to prevent substring collisions (e.g. "hot" inside
-  // "hotel"/"photo", "warm" inside "swarm", "park" inside "spark", etc.).
-  // Single words use word-boundary regex to avoid substring collisions (e.g. "hot"
-  // matching inside "hotel"). Multi-word phrases (e.g. "air condition") use plain
-  // includes — they are long enough that false positives are practically impossible,
-  // and they may appear inflected ("air conditioned") which breaks \b at the end.
-  const hasWord = (w: string) =>
-    w.includes(" ") ? text.includes(w) : new RegExp(`\\b${w}\\b`).test(text);
-
-  if (["cold", "winter", "freezing", "chilly", "snow", "frigid"].some(hasWord)) {
-    return "cold";
-  }
-  if (["hot", "summer", "warm", "humid", "heat", "scorching"].some(hasWord)) {
-    return "hot";
-  }
-  // Check outdoor before indoor — "ac" was removed because it matches substrings
-  // like "beach" (be-AC-h), causing false indoor classifications.
-  if (["outdoor", "outside", "beach", "park", "picnic", "hiking", "hike", "camping", "barbecue", "bbq", "garden", "trail"].some(hasWord)) {
-    return "outdoor";
-  }
-  if (["indoor", "inside", "air condition", "office"].some(hasWord)) {
-    return "indoor";
-  }
-  if (["spring", "fall", "autumn", "mild", "cool", "moderate"].some(hasWord)) {
-    return "mild";
-  }
-
-  return "mild";
-}
+import { bucketFromSummary as detectTemperatureHint } from "@/lib/mlRecommend";
 
 // ---------------------------------------------------------------------------
 
@@ -86,10 +51,6 @@ describe("detectTemperatureHint — outdoor detection", () => {
 
   it("classifies 'outside barbecue' as outdoor", () => {
     expect(detectTemperatureHint("outside barbecue")).toBe("outdoor");
-  });
-
-  it("classifies 'bbq in the backyard' as outdoor", () => {
-    expect(detectTemperatureHint("bbq in the backyard")).toBe("outdoor");
   });
 
   it("classifies 'garden party' as outdoor", () => {

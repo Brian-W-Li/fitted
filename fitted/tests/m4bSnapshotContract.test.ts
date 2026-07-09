@@ -87,7 +87,7 @@ describe("M4b C8 — the OutfitInteraction binding round-trips to the snapshot",
     const interaction = new OutfitInteraction({
       user: new Types.ObjectId(),
       items: candidate.items.map(() => new Types.ObjectId()), // server-set from the re-read candidate
-      action: "worn",
+      action: "accepted",
       snapshotId: new Types.ObjectId(),
       candidateId: candidate.candidateId,
       baseKey: candidate.baseKey,
@@ -106,7 +106,7 @@ describe("M4b C8 — the OutfitInteraction binding round-trips to the snapshot",
     const interaction = new OutfitInteraction({
       user: new Types.ObjectId(),
       items: [new Types.ObjectId()],
-      action: "worn",
+      action: "accepted",
       snapshotId: new Types.ObjectId(),
       candidateId: wire.shownCandidateIds[0],
       // baseKey / fullSignature omitted — a partial binding that would poison the projections.

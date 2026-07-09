@@ -1,20 +1,19 @@
 /**
- * POST /api/recommend — the single recommendation endpoint (M5 C5, seam #6).
+ * POST /api/recommend — the single recommendation endpoint (M5).
  *
  * Behind `USE_ML_SHORTLISTER`: flag-ON dispatches the M5 vertical (`mlRecommend` — the stateless
- * render service + live GenerationSnapshot write); flag-OFF runs the pre-M5 legacy recommender
- * (`legacy.ts`), unchanged, as rollback/reference scaffolding. C8 deletes `legacy.ts` + the one-line
- * flag-off arm; the M5 route file itself is never deleted (post-deletion flag-off = degraded empty
- * state, the rollback story).
+ * render service + live GenerationSnapshot write). The pre-M5 legacy recommender is RETIRED (C8);
+ * with the flag off/unset the ML vertical is disabled, so the route returns the §A degraded empty
+ * browser state (`renderDegraded`) — empty candidates, no {snapshotId,candidateId} binding token, no
+ * snapshot, HTTP 200 — never legacy, never a 5xx. That degraded state is the rollback story.
  *
  * The M5 vertical folds regenerate into this one route (a `/render` call with a `parentSnapshotId`);
- * there is no `/rerank` endpoint. The legacy `regenerate/route.ts` sibling stays until C8.
+ * there is no `/rerank` endpoint (the legacy `regenerate/route.ts` sibling was deleted at C8).
  *
- * Reference: docs/plans/m5-cutover.md §A / C5 checkpoint.
+ * Reference: docs/plans/m5-cutover.md §A / §19 (legacy retirement).
  */
 import { type NextRequest } from "next/server";
-import { legacyRecommend } from "./legacy";
-import { mlRecommend, prodDeps } from "@/lib/mlRecommend";
+import { mlRecommend, prodDeps, renderDegraded } from "@/lib/mlRecommend";
 
 // G6 host-timeout dominance (§D): the serverless platform must not abort the function BEFORE Next's
 // own fetch timeout fires, or the degrade logic never runs. maxDuration=60 (Vercel Hobby's ceiling)
@@ -27,5 +26,7 @@ export async function POST(request: NextRequest) {
   if (process.env.USE_ML_SHORTLISTER === "true") {
     return mlRecommend(request, prodDeps());
   }
-  return legacyRecommend(request);
+  // Flag off/unset: the ML vertical is disabled and legacy is retired — return the §A degraded
+  // empty state (200, no snapshot, no binding token), never legacy, never a 5xx.
+  return renderDegraded();
 }

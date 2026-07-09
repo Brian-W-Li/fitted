@@ -110,6 +110,7 @@ function variantWire(c: Any): Any {
 interface FakeOptions {
   overridePayload?: (p: Any) => void; // mutate the echoed payload (to inject an authorship mismatch)
   fail?: RenderServiceResult; // return a degraded result instead
+  degenerate?: boolean; // set the wire `degenerate` flag (a paid-but-nothing-surfaced §D render)
 }
 
 function fakeService(opts: FakeOptions = {}) {
@@ -201,7 +202,7 @@ function fakeService(opts: FakeOptions = {}) {
           spreadCollapsed: Boolean(rescueFlags.spreadCollapsed ?? payload.spreadCollapsed),
           reasonHint: typeof rescueFlags.reasonHint === "string" ? rescueFlags.reasonHint : null,
         },
-        degenerate: false,
+        degenerate: opts.degenerate ?? false,
       }),
     );
     return { ok: true, response };
@@ -763,5 +764,49 @@ describe("edge quantifier paths (review absence-shaped gaps)", () => {
     expect(row).not.toBeNull();
     expect(row.nSurfaced).toBe(0);
     expect(row.generationAttempts.length).toBeGreaterThan(0);
+  });
+
+  it("a degenerate:true + diagnostics.engineFailure render persists an engineFailure snapshot row", async () => {
+    // Item (d): distinct from the healthy nSurfaced=0 tests above — a §D engine failure (parse repair
+    // gave up) must round-trip its failure corpus through the orchestrator's validate→merge→write,
+    // never be strict-stripped, and never leak to the browser.
+    const failItemId = new mongoose.Types.ObjectId().toHexString();
+    const deps = makeDeps({
+      callService: fakeService({
+        degenerate: true,
+        overridePayload: (p) => {
+          p.candidates = [];
+          p.itemSnapshots = [];
+          p.generationAttempts = []; // build_degenerate_payload emits EMPTY attempts + engineFailure
+          p.shownCandidateIds = [];
+          p.shownFullSignatures = [];
+          p.nSurfaced = 0;
+          p.diagnostics.engineFailure = {
+            stage: "parse",
+            code: "parse_fail",
+            message: "GPT output failed JSON repair",
+            messageTruncated: false,
+            detail: { itemId: failItemId, count: 3 },
+          };
+        },
+      }),
+    });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);
+    const { status, body } = await json(res);
+    expect(status).toBe(200);
+    expect(body.bindable).toBe(false);
+    expect(body.shown).toEqual([]);
+
+    // The failure corpus survives the orchestrator write and reads back non-null.
+    const row = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+    expect(row).not.toBeNull();
+    expect(row.nSurfaced).toBe(0);
+    expect(row.diagnostics?.engineFailure).toBeTruthy();
+    expect(row.diagnostics.engineFailure.stage).toBe("parse");
+    expect(row.diagnostics.engineFailure.code).toBe("parse_fail");
+    expect(row.diagnostics.engineFailure.detail.itemId).toBe(failItemId);
+
+    // ...but the browser response leaks NONE of it (G15 negative allowlist).
+    expect(JSON.stringify(body)).not.toContain("engineFailure");
   });
 });
