@@ -1832,16 +1832,24 @@ state gates (requestId minting/debounce already landed with the C6 UI contract).
 >   engineFailure-persistence test. Heavy-audited before commit. **CLAUDE.md env-table:** Gemini row removed;
 >   the `OPENAI_API_KEY`→service-side reconciliation (drop the Next row, add `ML_SERVICE_URL`/`FITTED_SERVICE_KEY`)
 >   is **owed at half-2** with the flip.
-> - **⏳ half-2 — the live flip (REMAINS; needs infra/keys):** everything below (Fly deploy, the pre-flip
->   gates G1/G2/G9 + index-existence + H13 conformance, the daily+rescue mechanical read, `USE_ML_SHORTLISTER=true`,
->   the live-key smoke, the CI workflow YAML). The "Commit 2 — deletion" body below is **already done by half-1**.
->   **Executable checklist:** `docs/plans/m5-c8-half2-runbook.md` (turnkey copy-paste commands, expected outputs,
->   rollback). **Staged ahead (key-independent):** the H13 CI gate (`.github/workflows/conformance.yml`), the
->   `.env.sample` half-2 block, and G2 (OpenAI $10 cap + alert, project `cssEnjbkDMOuCfMqzDuGdtLP`, done 2026-07-08).
->   **F3 mechanical read DONE — BOTH intents (2026-07-08, `gpt-5.4-mini`):** daily (`--intent daily`, built
->   this session) + rescue, run live. Every generating case: parse 1.00, StyleMove 1.00, rescue forced-inclusion
->   1.00; 0 hallucinated/schema rejections (only correct duplicate-dedup); ~$0.16 total. Numbers in runbook §4.
->   F3 is a pre-flip gate satisfied; remaining half-2 = the deploy + flip + live smoke (infra/keys).
+> - **✅ half-2 — VALIDATED LOCALLY; cloud deploy DEFERRED (Brian, 2026-07-08).** The engineering is
+>   proven live end-to-end; the only remainder is standing up Fly + the visual UI click-through, deferred
+>   as an optional last-mile (a zero-user portfolio app doesn't need an always-on billed machine yet — no
+>   urgency, nothing left to *prove*). What was validated live:
+>   - **F3 mechanical read — BOTH intents (`gpt-5.4-mini`):** daily (`--intent daily`, built this session) +
+>     rescue. Every generating case: parse 1.00, StyleMove 1.00, rescue forced-inclusion 1.00; 0
+>     hallucinated/schema rejections (only correct duplicate-dedup); ~$0.16. Numbers in runbook §4.
+>   - **Full cross-runtime wire — LOCAL integration smoke (real service on localhost + real `gpt-5.4-mini`):**
+>     Next adapter → HTTP → python service → §G validation → snapshot write → §6.5 feedback bind, daily + rescue,
+>     over ephemeral Mongo (zero Atlas/Firebase). Green. Test: `fitted/tests/localServiceSmoke.integration.test.ts`
+>     (gated; CI-skipped). This is the cross-runtime integration coverage the contract-cure note wanted.
+>   - **Staged/done key-independent:** H13 CI gate (`.github/workflows/conformance.yml`), `.env.sample` half-2
+>     block, G2 (OpenAI $10 cap + alert, project `cssEnjbkDMOuCfMqzDuGdtLP`). The "Commit 2 — deletion" body
+>     below is done by half-1.
+> - **⏳ DEFERRED (whenever Fly is stood up):** `fly deploy` + secrets, the G1/G9/index live gates against the
+>   deployed instance, `USE_ML_SHORTLISTER=true` on the deploy host, the browser UI smoke, and landing the CI
+>   YAML on the default branch. **Executable checklist:** `docs/plans/m5-c8-half2-runbook.md` (turnkey; the
+>   deploy can be run remotely non-interactively via a `FLY_API_TOKEN` — no terminal login needed).
 
 **Commit 1 — flip + smoke:** Fly.io deploy; **index disposition (disambiguates m4 §14.5's "autoIndex off
 on the M5 service" note — the Python service has no Mongo; Next is the only Mongo client):** keep

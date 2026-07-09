@@ -7,7 +7,13 @@
 >
 > **Half-1 is DONE** (commit `754135a8`, this branch): legacy vertical + `regenerate/route.ts` +
 > `lib/gemini.ts` deleted; `recommend/route.ts` is the M5 dispatcher (flag-OFF → §A degraded empty
-> state); enum trimmed; `openai`/`@google/generative-ai` npm deps gone. Half-2 = everything below.
+> state); enum trimmed; `openai`/`@google/generative-ai` npm deps gone.
+>
+> **STATUS (2026-07-08): half-2 is VALIDATED LOCALLY; the cloud deploy is DEFERRED (Brian's call).**
+> The engine (F3, §4) and the full cutover wire (local integration smoke, §4 "Local backend smoke")
+> are proven live on `gpt-5.4-mini` — nothing left to *prove*. This runbook's deploy steps stand for
+> whenever Fly is stood up; they can be run **remotely, non-interactively** by exporting a `FLY_API_TOKEN`
+> (created in the Fly web dashboard) — no terminal/browser login required, only a Fly account + billing.
 
 ## Naming footgun (read first)
 The shared secret has **two different env-var names** for the same value:
