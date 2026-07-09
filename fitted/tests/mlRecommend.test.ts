@@ -10,16 +10,18 @@
  * list + the Fable Q2 absence list.
  */
 import mongoose from "mongoose";
+import http from "http";
 import { randomUUID } from "crypto";
+import type { AddressInfo } from "net";
 import { NextRequest } from "next/server";
 import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import WardrobeItem from "@/models/WardrobeItem";
 import OutfitInteraction from "@/models/OutfitInteraction";
-import { mlRecommend, type MlRecommendDeps, type WeatherResolution } from "@/lib/mlRecommend";
+import { mlRecommend, resolveWeatherProd, type MlRecommendDeps, type WeatherResolution } from "@/lib/mlRecommend";
 import { GENERATOR_EXPECTATION } from "@/lib/mlRequestAdapter";
 import type { RenderBody } from "@/lib/mlRequestAdapter";
-import type { RenderServiceResult } from "@/lib/mlServiceClient";
+import { callRenderService, type RenderServiceResult } from "@/lib/mlServiceClient";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -158,13 +160,30 @@ function fakeService(opts: FakeOptions = {}) {
         { attemptId: "a0", attemptIndex: 0, isRepair: false, payloadParsed: true, candidateCountEmitted: 2, rawText: "raw gpt text" },
       ],
       candidates,
-      diagnostics: { notEnoughItems: false },
+      diagnostics: {
+        samplerPerType: {},
+        candidateRequested: 2,
+        promptItemCount: body.wardrobe.length,
+        notEnoughItems: false,
+        scorerAvailable: false,
+        rejectionHistogram: {},
+        warningHistogram: {},
+        parse: { parseSuccess: true, repairUsed: false, generatorCalls: 1 },
+        ranker: {},
+        rescue: {
+          notEnoughItems: false,
+          insufficientAfterGeneration: false,
+          spreadCollapsed: false,
+          reasonHint: null,
+        },
+      },
       shownCandidateIds: ["c0", "c1"],
       shownFullSignatures: ["sig-0", "sig-1"],
       nSurfaced: 2,
       spreadCollapsed: false,
     };
     opts.overridePayload?.(payload);
+    const rescueFlags = payload.diagnostics?.rescue ?? {};
     const shown = payload.shownCandidateIds.map((cid: string) => ({
       candidateId: cid,
       outfit: variantWire(candidates.find((c) => c.candidateId === cid)),
@@ -176,7 +195,12 @@ function fakeService(opts: FakeOptions = {}) {
       JSON.stringify({
         payload,
         shown,
-        flags: { notEnoughItems: false, insufficientAfterGeneration: false, spreadCollapsed: false, reasonHint: null },
+        flags: {
+          notEnoughItems: Boolean(rescueFlags.notEnoughItems ?? payload.diagnostics?.notEnoughItems),
+          insufficientAfterGeneration: Boolean(rescueFlags.insufficientAfterGeneration),
+          spreadCollapsed: Boolean(rescueFlags.spreadCollapsed ?? payload.spreadCollapsed),
+          reasonHint: typeof rescueFlags.reasonHint === "string" ? rescueFlags.reasonHint : null,
+        },
         degenerate: false,
       }),
     );
@@ -244,6 +268,60 @@ describe("daily + rescue first render", () => {
     const row = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
     expect(row.intent).toBe("rescue_item");
     expect(row.forcedItemId).toBe(itemIds.top);
+  });
+
+  it("daily render excludes wardrobe items marked unavailable from the service body", async () => {
+    await WardrobeItem.findByIdAndUpdate(itemIds.shoes, { isAvailable: false });
+    let seenWardrobeIds: string[] = [];
+    const deps = makeDeps({
+      callService: async (b) => {
+        seenWardrobeIds = b.wardrobe.map((item) => item.id);
+        return fakeService()(b);
+      },
+    });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "weekend brunch" }), deps);
+    expect(res.status).toBe(200);
+    expect(seenWardrobeIds).not.toContain(itemIds.shoes);
+  });
+
+  it("route composes with the real HTTP service client and still writes the snapshot", async () => {
+    let seenKey: string | undefined;
+    let seenUrl: string | undefined;
+    const server = http.createServer((incoming, outgoing) => {
+      seenKey = incoming.headers["x-fitted-service-key"] as string | undefined;
+      seenUrl = incoming.url;
+      const chunks: Buffer[] = [];
+      incoming.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      incoming.on("end", () => {
+        void (async () => {
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as RenderBody;
+          const result = await fakeService()(body);
+          outgoing.writeHead(200, { "Content-Type": "application/json" });
+          outgoing.end(JSON.stringify(result.ok ? result.response : { error: { code: result.reasonHint } }));
+        })();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const deps = makeDeps({
+        callService: (body) =>
+          callRenderService(body, {
+            serviceUrl: `http://127.0.0.1:${port}`,
+            serviceKey: "route-client-test-key",
+            timeoutMs: 2_000,
+          }),
+      });
+      const res = await mlRecommend(req({ requestId: uuid(), occasion: "weekend brunch" }), deps);
+      const { status, body } = await json(res);
+      expect(status).toBe(200);
+      expect(body.bindable).toBe(true);
+      expect(seenUrl).toBe("/render");
+      expect(seenKey).toBe("route-client-test-key");
+      expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("browser response leaks NONE of the corpus internals (G15 negative allowlist)", async () => {
@@ -321,6 +399,69 @@ describe("§C.4 idempotency + G5", () => {
     expect(secondBody.shown[0].snapshotId).toBe(firstBody.shown[0].snapshotId); // same winner replayed
   });
 
+  it("a duplicate requestId replays the stored winner with the original browser flags", async () => {
+    const rid = uuid();
+    const deps = makeDeps({
+      callService: fakeService({
+        overridePayload: (p) => {
+          p.spreadCollapsed = true;
+          p.diagnostics.rescue.insufficientAfterGeneration = true;
+          p.diagnostics.rescue.spreadCollapsed = true;
+          p.diagnostics.rescue.reasonHint = "try regenerating";
+        },
+      }),
+    });
+    const first = await mlRecommend(req({ requestId: rid, occasion: "brunch" }), deps);
+    const firstBody = (await first.json()) as Any;
+    const second = await mlRecommend(req({ requestId: rid, occasion: "brunch" }), deps);
+    const secondBody = (await second.json()) as Any;
+
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+    expect(secondBody.shown[0].snapshotId).toBe(firstBody.shown[0].snapshotId);
+    expect(secondBody.flags).toEqual(firstBody.flags);
+    expect(secondBody.flags).toEqual({
+      notEnoughItems: false,
+      insufficientAfterGeneration: true,
+      spreadCollapsed: true,
+      reasonHint: "try regenerating",
+    });
+  });
+
+  it("requestId casing is canonicalized before lookup/write", async () => {
+    const rid = uuid();
+    const first = await mlRecommend(req({ requestId: rid.toUpperCase(), occasion: "brunch" }), makeDeps());
+    const firstBody = (await first.json()) as Any;
+    const second = await mlRecommend(req({ requestId: rid.toLowerCase(), occasion: "brunch" }), makeDeps());
+    const secondBody = (await second.json()) as Any;
+    const row = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+    expect(row.requestId).toBe(rid.toLowerCase());
+    expect(secondBody.shown[0].snapshotId).toBe(firstBody.shown[0].snapshotId);
+  });
+
+  it("a retry across UTC midnight still replays the winner (seedDate is not G5 identity)", async () => {
+    const rid = uuid();
+    let day = "2026-07-08";
+    let serviceCalls = 0;
+    const deps = makeDeps({
+      today: () => day,
+      callService: async (b) => {
+        serviceCalls += 1;
+        return fakeService()(b);
+      },
+    });
+    const first = await mlRecommend(req({ requestId: rid, occasion: "brunch" }), deps);
+    const firstBody = (await first.json()) as Any;
+    day = "2026-07-09";
+    const second = await mlRecommend(req({ requestId: rid, occasion: "brunch" }), deps);
+    const secondBody = (await second.json()) as Any;
+
+    expect(serviceCalls).toBe(1);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+    expect(secondBody.shown[0].snapshotId).toBe(firstBody.shown[0].snapshotId);
+  });
+
   it("a duplicate requestId with a CHANGED identity → 409 request_id_conflict, no second write", async () => {
     const rid = uuid();
     await mlRecommend(req({ requestId: rid, occasion: "brunch" }), makeDeps());
@@ -328,6 +469,32 @@ describe("§C.4 idempotency + G5", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).error.code).toBe("request_id_conflict");
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("concurrent duplicate requestId calls still store one snapshot and both replay the same winner", async () => {
+    const rid = uuid();
+    let arrivals = 0;
+    let release!: () => void;
+    const bothArrived = new Promise<void>((resolve) => { release = resolve; });
+    const deps = makeDeps({
+      callService: async (b) => {
+        arrivals += 1;
+        if (arrivals === 2) release();
+        await bothArrived;
+        return fakeService()(b);
+      },
+    });
+
+    const [first, second] = await Promise.all([
+      mlRecommend(req({ requestId: rid, occasion: "brunch" }), deps),
+      mlRecommend(req({ requestId: rid, occasion: "brunch" }), deps),
+    ]);
+    const firstBody = (await first.json()) as Any;
+    const secondBody = (await second.json()) as Any;
+
+    expect(arrivals).toBe(2); // both passed the early read-check before either write committed
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId: rid })).toBe(1);
+    expect(new Set([firstBody.shown[0].snapshotId, secondBody.shown[0].snapshotId]).size).toBe(1);
   });
 });
 
@@ -352,6 +519,35 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     expect(status).toBe(200);
     expect(body.flags.reasonHint).toBe("contract_invalid");
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it.each([
+    ["intent", (p: Any) => { p.intent = "rescue_item"; }],
+    ["weatherRaw", (p: Any) => { p.weatherRaw = "service invented weather"; }],
+    ["generationIndex", (p: Any) => { p.generationIndex = 99; }],
+    ["controls", (p: Any) => { p.controls = { lockedItemIds: [itemIds.top], dislikedItemIds: [] }; }],
+    ["generator", (p: Any) => { p.generator.maxCompletionTokens = 9999; }],
+  ])("a payload authorship mismatch on %s → contract_invalid degraded, no write", async (_field, mutate) => {
+    const deps = makeDeps({ callService: fakeService({ overridePayload: mutate }) });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);
+    const { status, body } = await json(res);
+    expect(status).toBe(200);
+    expect(body.flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("a re-roll whose payload changes the parent candidateCacheKey → contract_invalid, no child write", async () => {
+    const first = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    await first.json();
+    const parent = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+    const deps = makeDeps({
+      callService: fakeService({ overridePayload: (p) => { p.candidateCacheKey = "b".repeat(64); } }),
+    });
+    const res = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: parent._id.toString(), controls: {} }), deps);
+    const { status, body } = await json(res);
+    expect(status).toBe(200);
+    expect(body.flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1); // parent only
   });
 
   it("a swapped-body shown[].outfit (matching signature, different styleMove) → contract_invalid, no write", async () => {
@@ -389,11 +585,60 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
   });
 
+  it("non-empty constraints at M5 → contract_invalid degraded, no service call, no write", async () => {
+    let called = false;
+    const deps = makeDeps({ callService: async (b) => { called = true; return fakeService()(b); } });
+    const res = await mlRecommend(
+      req({ requestId: uuid(), occasion: "brunch", constraints: { dressCode: "formal" } }),
+      deps,
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).flags.reasonHint).toBe("contract_invalid");
+    expect(called).toBe(false);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("an invalid client-carried weather bucket → contract_invalid degraded, no service call, no write", async () => {
+    let called = false;
+    const deps = makeDeps({
+      resolveWeather: resolveWeatherProd,
+      callService: async (b) => { called = true; return fakeService()(b); },
+    });
+    const res = await mlRecommend(
+      req({ requestId: uuid(), occasion: "brunch", weather: "72F sunny", weatherRaw: "72F sunny" }),
+      deps,
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).flags.reasonHint).toBe("contract_invalid");
+    expect(called).toBe(false);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("malformed root controls with unknown fields → contract_invalid degraded, no service call, no write", async () => {
+    let called = false;
+    const deps = makeDeps({ callService: async (b) => { called = true; return fakeService()(b); } });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch", controls: { unknown: ["x"] } }), deps);
+    expect(res.status).toBe(200);
+    expect((await res.json()).flags.reasonHint).toBe("contract_invalid");
+    expect(called).toBe(false);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
   it("a rescue whose forced item is not in the wardrobe → 409 forced_item_unavailable, no service call", async () => {
     const gone = new mongoose.Types.ObjectId().toString();
     let called = false;
     const deps = makeDeps({ callService: async (b) => { called = true; return fakeService()(b); } });
     const res = await mlRecommend(req({ requestId: uuid(), occasion: "class", forcedItemId: gone }), deps);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("forced_item_unavailable");
+    expect(called).toBe(false);
+  });
+
+  it("a rescue whose forced item is marked unavailable → 409 forced_item_unavailable, no service call", async () => {
+    await WardrobeItem.findByIdAndUpdate(itemIds.top, { isAvailable: false });
+    let called = false;
+    const deps = makeDeps({ callService: async (b) => { called = true; return fakeService()(b); } });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "class", forcedItemId: itemIds.top }), deps);
     expect(res.status).toBe(409);
     expect((await res.json()).error.code).toBe("forced_item_unavailable");
     expect(called).toBe(false);
@@ -409,6 +654,50 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe("controls_contradictory");
+  });
+
+  it("a re-roll control id outside the available wardrobe → 400 control_item_unavailable", async () => {
+    const first = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    await first.json();
+    const parentId = ((await GenerationSnapshot.findOne({ user: userId }).lean()) as Any)._id.toString();
+    const gone = new mongoose.Types.ObjectId().toString();
+    let called = false;
+    const deps = makeDeps({ callService: async (b) => { called = true; return fakeService()(b); } });
+    const res = await mlRecommend(
+      req({ requestId: uuid(), parentSnapshotId: parentId, controls: { lockedItemIds: [gone], dislikedItemIds: [] } }),
+      deps,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe("control_item_unavailable");
+    expect(called).toBe(false);
+  });
+
+  it("a structurally impossible lock set → 400 controls_structurally_infeasible, no service call", async () => {
+    const secondShoe = await WardrobeItem.create({
+      user: userId,
+      name: "Loafers",
+      clothingType: "shoes",
+      warmth: 5,
+      category: "footwear",
+      colors: ["black"],
+      isAvailable: true,
+    });
+    const first = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    await first.json();
+    const parentId = ((await GenerationSnapshot.findOne({ user: userId }).lean()) as Any)._id.toString();
+    let called = false;
+    const deps = makeDeps({ callService: async (b) => { called = true; return fakeService()(b); } });
+    const res = await mlRecommend(
+      req({
+        requestId: uuid(),
+        parentSnapshotId: parentId,
+        controls: { lockedItemIds: [itemIds.shoes, secondShoe._id.toString()], dislikedItemIds: [] },
+      }),
+      deps,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe("controls_structurally_infeasible");
+    expect(called).toBe(false);
   });
 });
 

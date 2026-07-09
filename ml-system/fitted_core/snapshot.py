@@ -674,6 +674,7 @@ def _build_diagnostics(trace: RenderTrace) -> DiagnosticsPayload:
         "not_enough_items": result.not_enough_items,
         "insufficient_after_generation": result.insufficient_after_generation,
         "spread_collapsed": result.spread_collapsed,
+        "reason_hint": result.reason_hint,
     }
 
     return DiagnosticsPayload(
@@ -951,6 +952,7 @@ def build_degenerate_payload(
             "not_enough_items": False,
             "insufficient_after_generation": False,
             "spread_collapsed": False,
+            "reason_hint": None,
         },
         engine_failure=failure.to_payload_dict(),
     )

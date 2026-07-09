@@ -18,7 +18,12 @@ import { execFileSync } from "child_process";
 import { Types } from "mongoose";
 import OutfitInteraction from "@/models/OutfitInteraction";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
-import { buildBehavioralRows, type BehavioralRowsWire } from "@/lib/mlBehavioralRows";
+import {
+  buildBehavioralRows,
+  INTERACTION_ROWS_SCAN_LIMIT,
+  REPETITION_WINDOW_SNAPSHOTS,
+  type BehavioralRowsWire,
+} from "@/lib/mlBehavioralRows";
 import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 
 const ML_SYSTEM = path.join(__dirname, "../../ml-system");
@@ -152,12 +157,59 @@ describe("real Mongo fetch — sort, tie-break, bound, serialization", () => {
     expect(accepted.createdAt).toBe("2026-07-01T00:00:00.000Z");
   });
 
+  it("uses _id:-1 as the same-timestamp interaction tie-break", async () => {
+    const user = oid();
+    const lowId = new Types.ObjectId("000000000000000000000001");
+    const highId = new Types.ObjectId("000000000000000000000002");
+    const createdAt = new Date("2026-07-01T00:00:00Z");
+    await OutfitInteraction.create({
+      _id: lowId, user, items: [oid()], action: "accepted", snapshotId: oid(), candidateId: "low",
+      baseKey: "bk-low", fullSignature: "sig-low", createdAt,
+    });
+    await OutfitInteraction.create({
+      _id: highId, user, items: [oid()], action: "accepted", snapshotId: oid(), candidateId: "high",
+      baseKey: "bk-high", fullSignature: "sig-high", createdAt,
+    });
+    const rows = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
+    expect(rows.interactionRows.map((r) => r.candidateId)).toEqual(["high", "low"]);
+  });
+
+  it("bounds interactionRows at the reducer scan limit", async () => {
+    const user = oid();
+    const docs = Array.from({ length: INTERACTION_ROWS_SCAN_LIMIT + 1 }, (_, i) => ({
+      user,
+      items: [oid()],
+      action: "accepted",
+      snapshotId: oid(),
+      candidateId: `c${i}`,
+      baseKey: `bk${i}`,
+      fullSignature: `sig-${i}`,
+      createdAt: new Date(2026, 0, 1, 0, 0, i),
+    }));
+    await OutfitInteraction.create(docs);
+    const rows = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
+    expect(rows.interactionRows).toHaveLength(INTERACTION_ROWS_SCAN_LIMIT);
+    expect(rows.interactionRows[0].candidateId).toBe(`c${INTERACTION_ROWS_SCAN_LIMIT}`);
+  });
+
   it("recentSnapshots reads only nSurfaced>0", async () => {
     const user = oid();
     await GenerationSnapshot.create(snapshotDoc(user, 0, ["skipme"], new Date("2026-07-02T00:00:00Z")));
     await GenerationSnapshot.create(snapshotDoc(user, 3, ["keep"], new Date("2026-07-03T00:00:00Z")));
     const rows = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
     expect(rows.recentSnapshots.map((s) => s.shownFullSignatures)).toEqual([["keep"]]);
+  });
+
+  it("bounds recentSnapshots at the repetition-window snapshot limit", async () => {
+    const user = oid();
+    await GenerationSnapshot.create(
+      Array.from({ length: REPETITION_WINDOW_SNAPSHOTS + 1 }, (_, i) =>
+        snapshotDoc(user, 1, [`sig-${i}`], new Date(2026, 0, 1, 0, 0, i)),
+      ),
+    );
+    const rows = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
+    expect(rows.recentSnapshots).toHaveLength(REPETITION_WINDOW_SNAPSHOTS);
+    expect(rows.recentSnapshots[0].shownFullSignatures).toEqual([`sig-${REPETITION_WINDOW_SNAPSHOTS}`]);
   });
 
   it("is user-scoped — another user's rows never leak in", async () => {

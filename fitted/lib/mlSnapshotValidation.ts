@@ -104,6 +104,16 @@ function validateItemsSlotMapConsistency(cand: Any, id: string): void {
   }
 }
 
+function validateContentPreservation(cand: Any, id: string): void {
+  if (cand.accepted === true) return;
+  const items: Any[] = Array.isArray(cand.items) ? cand.items : [];
+  const hasItemsAndSlotMap = items.length > 0 && slotValues(cand.slotMap).length > 0;
+  const hasRawEmitted = cand.rawEmitted != null;
+  if (!hasItemsAndSlotMap && !hasRawEmitted) {
+    fail(`candidate ${id}: generated non-accepted candidate lacks items+slotMap or rawEmitted`);
+  }
+}
+
 function validateScoreTrace(cand: Any, id: string): void {
   const trace = cand.scoreTrace;
   if (!trace) return;
@@ -220,6 +230,7 @@ export function validateSnapshotPayload(payload: unknown): void {
       if (!knownItemIds.has(sv)) fail(`candidate ${id}: slotMap item ${sv} absent from itemSnapshots`);
     }
 
+    validateContentPreservation(cand, id);
     validateItemsSlotMapConsistency(cand, id);
     validateScoreTrace(cand, id);
     validateStyleMove(cand, id, itemIdSet);

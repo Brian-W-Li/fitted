@@ -209,6 +209,7 @@ def test_diagnostics_populated_from_results():
     # the k-relative ranker flags are carried through (insufficient_wardrobe = len < k, k=10)
     assert d.ranker["insufficient_wardrobe"] is True and "fallback_stage" in d.ranker
     assert d.rescue["not_enough_items"] is False
+    assert "reason_hint" in d.rescue
 
 
 def test_real_payload_crosses_the_c4_serde():
@@ -223,6 +224,7 @@ def test_real_payload_crosses_the_c4_serde():
     json.dumps(wire)  # finite floats, no non-serializable objects
     # parse nests + cases to the C5 schema shape; the data-Map key survives verbatim.
     assert set(wire["diagnostics"]["parse"]) == {"parseSuccess", "repairUsed", "generatorCalls"}
+    assert "reasonHint" in wire["diagnostics"]["rescue"]
     assert "outer_layer" in wire["diagnostics"]["samplerPerType"]  # ItemType key not mangled
     # full inverse round-trip (json-normalized so tuple↔list is not spurious).
     normalized = json.loads(json.dumps(dataclasses.asdict(payload)))

@@ -209,6 +209,22 @@ describe("item map (§15.2) + control caps", () => {
     expect(wire.occasionTags).toHaveLength(25);
   });
 
+  it("rejects dirty Mongo wardrobe scalar/container types through RequestContractError", () => {
+    expect(() => projectWardrobe([{ ...sampleItem, name: 123 as unknown as string }])).toThrow(
+      RequestContractError,
+    );
+    expect(() => projectWardrobe([{ ...sampleItem, colors: "navy" as unknown as string[] }])).toThrow(
+      RequestContractError,
+    );
+  });
+
+  it("treats a non-string imagePath as no-image instead of throwing TypeError", () => {
+    const [wire] = projectWardrobe([
+      { ...sampleItem, imageUrl: undefined, imagePath: { bad: true } as unknown as string },
+    ]);
+    expect(wire.imageUrl).toBe("");
+  });
+
   it("caps an over-long item name rather than rejecting the render", () => {
     const [wire] = projectWardrobe([{ ...sampleItem, name: "n".repeat(250) }]);
     expect(wire.name).toHaveLength(200);

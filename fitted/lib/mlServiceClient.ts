@@ -52,6 +52,18 @@ export type RenderServiceResult =
   | { ok: true; response: RenderServiceResponse }
   | { ok: false; reasonHint: DegradedReasonHint };
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isRenderServiceResponse(value: unknown): value is RenderServiceResponse {
+  if (!isObject(value)) return false;
+  if (!isObject(value.payload)) return false;
+  if (!Array.isArray(value.shown)) return false;
+  if (!isObject(value.flags)) return false;
+  return typeof value.degenerate === "boolean";
+}
+
 /** The §A degraded browser empty state — no snapshot, no binding token, no feedback controls. */
 export interface DegradedBrowserResponse {
   shown: [];
@@ -150,7 +162,10 @@ export async function callRenderService(
   // 2xx — a degenerate payload is STILL a 2xx (the service returns it for a paid-but-no-JSON run,
   // §A.6/§D); the route writes it as a snapshot. A body that won't parse is treated as an outage.
   try {
-    const response = (await res.json()) as RenderServiceResponse;
+    const response = (await res.json()) as unknown;
+    if (!isRenderServiceResponse(response)) {
+      return { ok: false, reasonHint: "contract_invalid" };
+    }
     return { ok: true, response };
   } catch {
     return { ok: false, reasonHint: "service_unavailable" };

@@ -97,6 +97,14 @@ describe("identity + coverage", () => {
       p.candidates[4].scoreTrace = { compatibility: 1.7 }; // c4 = validated, normally no trace
     });
   });
+  it("rejects a generated non-accepted bare candidate with neither items+slotMap nor rawEmitted", () => {
+    expectReject((p) => {
+      const rejected = p.candidates.find((c: Any) => c.candidateId === "c5");
+      delete rejected.rawEmitted;
+      rejected.items = [];
+      rejected.slotMap = null;
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

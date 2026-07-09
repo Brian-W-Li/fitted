@@ -33,7 +33,7 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-const body = {} as RenderBody; // the client only JSON.stringifies it — content is irrelevant here
+const body = { snapshotId: "snapshot-for-client-test" } as unknown as RenderBody;
 const call = (timeoutMs = 5_000): Promise<RenderServiceResult> =>
   callRenderService(body, { serviceUrl: baseUrl, serviceKey: KEY, timeoutMs });
 
@@ -46,13 +46,25 @@ function respondJson(res: http.ServerResponse, status: number, obj: unknown) {
 describe("callRenderService — success path", () => {
   it("returns ok + the parsed response on a 200, and sends the shared-secret header", async () => {
     let seenKey: string | undefined;
+    let seenMethod: string | undefined;
+    let seenUrl: string | undefined;
+    let seenContentType: string | undefined;
+    let seenBody: string | undefined;
     currentHandler = (req, res) => {
       seenKey = req.headers["x-fitted-service-key"] as string;
-      respondJson(res, 200, {
-        payload: { candidateCacheKey: "ck" },
-        shown: [{ candidateId: "c0" }],
-        flags: { notEnoughItems: false, insufficientAfterGeneration: false, spreadCollapsed: false, reasonHint: null },
-        degenerate: false,
+      seenMethod = req.method;
+      seenUrl = req.url;
+      seenContentType = req.headers["content-type"] as string;
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      req.on("end", () => {
+        seenBody = Buffer.concat(chunks).toString("utf8");
+        respondJson(res, 200, {
+          payload: { candidateCacheKey: "ck" },
+          shown: [{ candidateId: "c0" }],
+          flags: { notEnoughItems: false, insufficientAfterGeneration: false, spreadCollapsed: false, reasonHint: null },
+          degenerate: false,
+        });
       });
     };
     const result = await call();
@@ -62,6 +74,10 @@ describe("callRenderService — success path", () => {
       expect(result.response.degenerate).toBe(false);
     }
     expect(seenKey).toBe(KEY); // the auth header actually crossed the wire
+    expect(seenMethod).toBe("POST");
+    expect(seenUrl).toBe("/render");
+    expect(seenContentType).toBe("application/json");
+    expect(JSON.parse(seenBody ?? "{}")).toEqual(body);
   });
 
   it("treats a degenerate 2xx as a success to persist (not a degrade)", async () => {
@@ -115,6 +131,12 @@ describe("callRenderService — degrade triggers (§D H12)", () => {
       res.end("not json{");
     };
     expect(await call()).toEqual({ ok: false, reasonHint: "service_unavailable" });
+  });
+
+  it("maps a parseable but malformed 2xx body → contract_invalid", async () => {
+    currentHandler = (_req, res) =>
+      respondJson(res, 200, { payload: {}, shown: {}, flags: {}, degenerate: false });
+    expect(await call()).toEqual({ ok: false, reasonHint: "contract_invalid" });
   });
 
   it("an unreachable service (connection refused) → service_unavailable", async () => {

@@ -123,17 +123,20 @@ function resolveImageUrl(item: WardrobeItemSource): string {
   return resolved.length > MAX_IMAGE_URL_CHARS ? "" : resolved;
 }
 function resolveRawImageUrl(item: WardrobeItemSource): string {
-  if (item.imageUrl) return item.imageUrl;
+  if (typeof item.imageUrl === "string" && item.imageUrl) return item.imageUrl;
   const p = item.imagePath;
-  if (p && p.startsWith("mongo:")) return `/api/images/${p.slice("mongo:".length)}`;
-  return p ?? "";
+  if (typeof p !== "string") return "";
+  if (p.startsWith("mongo:")) return `/api/images/${p.slice("mongo:".length)}`;
+  return p;
 }
 
 /** Trim, drop blank + over-length elements, and cap the count — mirrors the service _string_list so
  *  a stored-but-untrimmed tag never rejects the whole render. Blank/over-long tags are noise
  *  (dropped, not truncated — truncating would fabricate a corrupt tag). */
 function sanitizeTags(tags: string[] | undefined): string[] {
-  return (tags ?? [])
+  if (tags == null) return [];
+  if (!Array.isArray(tags)) throw new RequestContractError("wardrobe tag container is not an array");
+  return tags
     .filter((t): t is string => typeof t === "string")
     .map((t) => t.trim())
     .filter((t) => t.length > 0 && t.length <= MAX_ITEM_TAG_CHARS)
@@ -161,7 +164,8 @@ function projectWardrobeItem(item: WardrobeItemSource): WardrobeItemWire {
   // (warmth is keyword-derived at ingestion, so this should never fire — but Mongoose must not be
   // the first validator mid-write).
   if (!id) throw new RequestContractError("wardrobe item is missing an id");
-  const name = (item.name ?? "").trim();
+  if (typeof item.name !== "string") throw new RequestContractError(`wardrobe item ${id} has a non-string name`);
+  const name = item.name.trim();
   if (!name) throw new RequestContractError(`wardrobe item ${id} is missing a name`);
   if (typeof item.warmth !== "number" || !Number.isFinite(item.warmth) || item.warmth < 0 || item.warmth > 10) {
     throw new RequestContractError(`wardrobe item ${id} has an out-of-range warmth`);

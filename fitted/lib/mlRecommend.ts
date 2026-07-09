@@ -130,8 +130,11 @@ async function verifyUserProd(request: NextRequest): Promise<VerifyResult> {
 /** Resolve weather to an R5 bucket + raw summary. A client-frozen bucket (F10 replay) is honored
  *  verbatim; otherwise the route resolves server-side (getWeatherContext when geo is present, else
  *  the occasion-text heuristic). See the §F/§C.4 weather-freeze reconciliation in the plan. */
-async function resolveWeatherProd(input: WeatherInput): Promise<WeatherResolution> {
-  if (typeof input.weather === "string" && WEATHER_BUCKETS.includes(input.weather as WeatherBucket)) {
+export async function resolveWeatherProd(input: WeatherInput): Promise<WeatherResolution> {
+  if (input.weather != null) {
+    if (typeof input.weather !== "string" || !WEATHER_BUCKETS.includes(input.weather as WeatherBucket)) {
+      throw new RequestContractError("weather must be a resolved M5 bucket");
+    }
     const raw = typeof input.weatherRaw === "string" ? input.weatherRaw : null;
     return { weather: input.weather as WeatherBucket, weatherRaw: raw };
   }
@@ -193,6 +196,33 @@ function respondDegraded(reasonHint: DegradedReasonHint): NextResponse {
   return NextResponse.json(buildDegradedResponse(reasonHint));
 }
 
+function rejectNonEmptyConstraints(raw: unknown): boolean {
+  if (raw == null) return false;
+  if (typeof raw !== "object" || Array.isArray(raw)) return true;
+  return Object.keys(raw as Record<string, unknown>).length > 0;
+}
+
+function canonicalRequestId(raw: string): string {
+  return raw.includes("-") ? raw.toLowerCase() : raw.toUpperCase();
+}
+
+function structuralLockError(lockedItemIds: string[], forcedItemId: string | null, wardrobeDocs: Any[]): string | null {
+  const byId = new Map<string, string>(wardrobeDocs.map((d) => [d._id.toString(), String(d.clothingType ?? "")]));
+  const pinIds = new Set(lockedItemIds);
+  if (forcedItemId) pinIds.add(forcedItemId);
+  const seenTypes = new Set<string>();
+  for (const id of [...pinIds].sort()) {
+    const type = byId.get(id);
+    if (!type) continue;
+    if (seenTypes.has(type)) return `more than one lock occupies the ${type} slot`;
+    seenTypes.add(type);
+  }
+  if (seenTypes.has("dress") && (seenTypes.has("top") || seenTypes.has("bottom"))) {
+    return "a locked dress cannot coexist with a locked top or bottom";
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // The orchestrator.
 // ---------------------------------------------------------------------------
@@ -207,10 +237,11 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     // 2. Parse + validate the idempotency token BEFORE any work (§C.4).
     const body = (await request.json().catch(() => null)) as Any;
     if (!body || typeof body !== "object") return respondError(400, "contract_invalid", "malformed body");
-    const requestId: unknown = body.requestId;
-    if (typeof requestId !== "string" || requestId.length > 64 || !REQUEST_ID_RE.test(requestId)) {
+    const rawRequestId: unknown = body.requestId;
+    if (typeof rawRequestId !== "string" || rawRequestId.length > 64 || !REQUEST_ID_RE.test(rawRequestId)) {
       return respondError(400, "contract_invalid", "requestId must be a UUIDv4 or ULID (<=64 chars)");
     }
+    const requestId = canonicalRequestId(rawRequestId);
 
     const { GenerationSnapshot, WardrobeItem, OutfitInteraction } = deps.models;
 
@@ -270,6 +301,9 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       if (typeof body.occasion !== "string") {
         return respondError(400, "contract_invalid", "occasion is required");
       }
+      if (rejectNonEmptyConstraints(body.constraints)) {
+        return respondDegraded("contract_invalid");
+      }
       const resolved = await deps.resolveWeather({
         occasion: body.occasion,
         weather: body.weather,
@@ -328,21 +362,28 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     }
 
     // 6. Fetch wardrobe (full docs — evidence source) + behavioral rows; preflight.
-    const wardrobeDocs = (await WardrobeItem.find({ user: userObjectId }).lean()) as Any[];
+    const wardrobeDocs = (await WardrobeItem.find({ user: userObjectId, isAvailable: { $ne: false } }).lean()) as Any[];
     const wardrobeIds = new Set<string>(wardrobeDocs.map((d) => d._id.toString()));
 
     // G16 (§C.3) — a rescue whose forced item was deleted since the parent render is a state conflict.
     if (intent === "rescue_item" && lens.forcedItemId && !wardrobeIds.has(lens.forcedItemId)) {
       return respondError(409, "forced_item_unavailable", "the item to rescue is no longer in your closet");
     }
-    // Cheap request-decidable preflight mirrors (§C.3 / §I) → stable 400. Structural feasibility +
-    // control-id-in-wardrobe stay service-side (they arrive as contract_invalid degraded).
+    // Cheap request-decidable preflight mirrors (§C.3 / §I) → stable 400 before service spend.
     const dislikedSet = new Set(controls.dislikedItemIds);
     if (controls.lockedItemIds.some((id) => dislikedSet.has(id))) {
       return respondError(400, "controls_contradictory", "an item is both locked and disliked");
     }
     if (lens.forcedItemId && dislikedSet.has(lens.forcedItemId)) {
       return respondError(400, "controls_contradictory", "the forced item is disliked");
+    }
+    const missingControlId = [...controls.lockedItemIds, ...controls.dislikedItemIds].find((id) => !wardrobeIds.has(id));
+    if (missingControlId) {
+      return respondError(400, "control_item_unavailable", "a locked or disliked item is no longer in your closet");
+    }
+    const structuralError = structuralLockError(controls.lockedItemIds, lens.forcedItemId, wardrobeDocs);
+    if (structuralError) {
+      return respondError(400, "controls_structurally_infeasible", structuralError);
     }
 
     const interactionCountAtRequest = await OutfitInteraction.countDocuments({ user: userObjectId });

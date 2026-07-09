@@ -71,7 +71,17 @@ export interface NormalizedControls {
 }
 
 export function normalizeControls(controls: unknown): NormalizedControls {
-  const c = (controls ?? {}) as Any;
+  if (controls == null) {
+    return { lockedItemIds: [], dislikedItemIds: [] };
+  }
+  if (typeof controls !== "object" || Array.isArray(controls)) {
+    throw new RequestContractError("controls must be an object");
+  }
+  const c = controls as Record<string, unknown>;
+  const unknownKeys = Object.keys(c).filter((k) => k !== "lockedItemIds" && k !== "dislikedItemIds");
+  if (unknownKeys.length > 0) {
+    throw new RequestContractError(`controls has unknown field(s): ${unknownKeys.sort().join(", ")}`);
+  }
   return {
     lockedItemIds: normalizeIdList(c.lockedItemIds, "lockedItemIds"),
     dislikedItemIds: normalizeIdList(c.dislikedItemIds, "dislikedItemIds"),
@@ -416,7 +426,7 @@ export function isDegeneratePayload(payload: Any): boolean {
 // §A/G15 browser allowlist — the browser gets a PROJECTED UI object, never the corpus payload. Card
 // body from candidates[candidateId] (never shown[].outfit); item display fields joined from
 // itemSnapshots[] (no post-Python DB refetch, H10). Reusable for the §C.4 dedup replay from a stored
-// doc: pass the doc; the live path additionally passes the wire `flags` (reasonHint is NOT persisted).
+// doc: pass the doc; the live path additionally passes the wire `flags`.
 // ---------------------------------------------------------------------------
 export interface BrowserFlags {
   notEnoughItems: boolean;
@@ -443,15 +453,22 @@ export interface BrowserResponse {
   parentSnapshotId?: string | null;
 }
 
-/** Reconstruct the client-facing flags from a stored doc for the replay path (reasonHint is not
- *  persisted, so it is null on replay — the winner's shown set is the authoritative idempotent
- *  result; the prose hint is a first-response-only nicety). */
+/** Reconstruct the client-facing flags from a stored doc for the replay path. The service writes
+ *  the healthy-render flags under diagnostics.rescue; older C5 rows lacked rescue.reasonHint, so
+ *  fall back to null except for engine-failure rows where the stable machine hint is derivable. */
 function flagsFromDoc(doc: Any): BrowserFlags {
+  const rescue = doc.diagnostics?.rescue ?? {};
+  const storedReasonHint = rescue.reasonHint;
   return {
-    notEnoughItems: Boolean(doc.diagnostics?.notEnoughItems),
-    insufficientAfterGeneration: false,
-    spreadCollapsed: Boolean(doc.spreadCollapsed),
-    reasonHint: null,
+    notEnoughItems: Boolean(rescue.notEnoughItems ?? doc.diagnostics?.notEnoughItems),
+    insufficientAfterGeneration: Boolean(rescue.insufficientAfterGeneration),
+    spreadCollapsed: Boolean(rescue.spreadCollapsed ?? doc.spreadCollapsed),
+    reasonHint:
+      typeof storedReasonHint === "string"
+        ? storedReasonHint
+        : doc.diagnostics?.engineFailure
+          ? "engine_failure"
+          : null,
   };
 }
 
@@ -524,6 +541,36 @@ const RESERVED_PAYLOAD_KEYS = new Set([
   "interactionCountAtRequest",
 ]);
 
+const M5_PAYLOAD_KEYS = new Set([
+  "sessionId",
+  "requestId",
+  "parentSnapshotId",
+  "intent",
+  "occasion",
+  "weather",
+  "weatherRaw",
+  "location",
+  "constraints",
+  "forcedItemId",
+  "wardrobeVersion",
+  "seedDate",
+  "candidateCacheKey",
+  "generationIndex",
+  "controls",
+  "fittedCoreVersion",
+  "generator",
+  "rankerConfigVersion",
+  "scorer",
+  "itemSnapshots",
+  "generationAttempts",
+  "candidates",
+  "diagnostics",
+  "shownCandidateIds",
+  "shownFullSignatures",
+  "nSurfaced",
+  "spreadCollapsed",
+]);
+
 export interface MergeInputs {
   payload: Any;
   snapshotId: unknown; // the pre-allocated ObjectId
@@ -543,7 +590,10 @@ export function buildSnapshotDoc(inputs: MergeInputs): Record<string, unknown> {
 
   const doc: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(payload)) {
-    if (!RESERVED_PAYLOAD_KEYS.has(k)) doc[k] = v;
+    if (RESERVED_PAYLOAD_KEYS.has(k) || !M5_PAYLOAD_KEYS.has(k)) {
+      fail4(`payload contains non-M5 writer field ${k}`);
+    }
+    doc[k] = v;
   }
   doc._id = snapshotId;
   doc.user = user;

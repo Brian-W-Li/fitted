@@ -623,7 +623,8 @@
     "rescue": {
       "notEnoughItems": false,
       "insufficientAfterGeneration": false,
-      "spreadCollapsed": true
+      "spreadCollapsed": true,
+      "reasonHint": null
     },
     "engineFailure": null
   },
