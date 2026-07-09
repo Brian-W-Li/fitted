@@ -115,6 +115,25 @@ python -m fitted_core.cli --intent rescue --corpus-dir tests/fixtures/corpus    
 > **F3 COMPLETE for both intents.** Optionally route a read through the deployed `/render` HTTP path
 > if you want the wire covered by the eval too (else the live smoke, step 6, covers the wire).
 
+### Local backend smoke (automatable, pre-deploy — no Fly, no browser) — ✅ RUN 2026-07-08
+Proves the WHOLE cutover wire (Next adapter → HTTP → python service → real `gpt-5.4-mini` → §G
+validation → snapshot write → §6.5 feedback bind) across both runtimes on localhost, over an
+**ephemeral in-memory Mongo** (zero Atlas/Firebase touch). Run it before the cloud deploy for near-zero
+deploy risk:
+```sh
+# 1. Launch the service locally (uvicorn is a container dep — add it to the venv once):
+cd ml-system && source .venv/bin/activate && pip install uvicorn==0.50.2
+OPENAI_API_KEY=<key> SERVICE_KEY_CURRENT=local-smoke \
+  python -m uvicorn service.app:app --host 127.0.0.1 --port 8099 &
+curl -s http://127.0.0.1:8099/readyz          # expect {"ready": true, "versions": {...}}
+# 2. Drive the real Next core → the local service → snapshot + feedback (gated jest, skips in CI):
+cd ../fitted
+ML_SMOKE_URL=http://127.0.0.1:8099 ML_SMOKE_KEY=local-smoke npx jest localServiceSmoke --runInBand
+```
+**Result (2026-07-08):** both cases green — daily 200/bindable/3-outfit snapshot
+(`generator.model=gpt-5.4-mini`) + feedback bound to `{snapshotId,candidateId}`; rescue forced-item
+in every surfaced outfit. Only the CLOUD deploy (Fly) + the visual UI click-through remain.
+
 ## 5. Wire Next + flip the flag
 `fitted/.env.local` (local smoke) **or** the deploy-host env:
 ```sh
