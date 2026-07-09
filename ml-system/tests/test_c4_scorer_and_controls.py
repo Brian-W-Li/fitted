@@ -293,6 +293,33 @@ def test_disliked_item_never_appears_in_the_surfaced_set():
         assert "s1" not in {item_id for item_id, _ in variant.items}
 
 
+def test_item_affinity_changes_which_outfit_surfaces_first_end_to_end():
+    """§23-H61 / personalization proof: reduced feedback (`item_affinity`) fed as `behavioral_signals`
+    changes WHICH outfit surfaces first through the real `render_with_trace` pipeline — not just a
+    ScoreBreakdown delta. Two outfits share a bottom; the one whose top carries affinity is surfaced
+    on top, and the SAME wardrobe/envelope with no signals surfaces the other first."""
+    wardrobe = [_item("t1", ItemType.top), _item("t2", ItemType.top), _item("b1", ItemType.bottom)]
+    request = _daily(wardrobe, k=2, n_surfaced=2)
+    env = _envelope(
+        _outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),
+        _outfit([("t2", Role.base_top), ("b1", Role.base_bottom)], ["t2"]),
+    )
+
+    def surfaced_tops(signals):
+        variants = render_with_trace(request, StubGenerator(env), behavioral_signals=signals).result.variants
+        return [next(i for i, _ in v.items if i.startswith("t")) for v in variants]
+
+    # Baseline (no feedback): t1 surfaces first by canonical tie-break.
+    assert surfaced_tops(None) == ["t1", "t2"]
+
+    # Liking t2 (the baseline loser) flips it to the top of the surfaced set — end-to-end.
+    liked_t2 = BehavioralSignals(
+        item_affinity={"t2": 20}, liked_full_signatures=frozenset(),
+        shown_full_signatures=(), recent_disliked_base_keys=(), recent_disliked_item_ids=(),
+    )
+    assert surfaced_tops(liked_t2) == ["t2", "t1"]
+
+
 def test_locked_optional_item_omitted_is_dropped_post_validation():
     # An OPTIONAL lock (shoes) is the case the post-validate drop actually catches: a base-only
     # outfit passes M2 validation but omits the locked shoes → lock_unsatisfied drop (never silent).

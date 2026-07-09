@@ -5,7 +5,6 @@ from fitted_core.models import ItemType, WardrobeItem
 from fitted_core.reducers import (
     AffinitySignalScorer,
     COUNTED_ACTIONS,
-    FEEDBACK_DEDUP_WINDOW,
     INTERACTION_ROWS_SCAN_LIMIT,
     REDUCER_CONFIG_VERSION,
     REJECTED_ACTION,
@@ -72,13 +71,16 @@ def test_reduce_interaction_rows_maps_actions_and_skips_unbound_or_excluded_rows
     )
 
 
-def test_accepted_item_affinity_dedups_only_counted_projection_within_window():
+def test_repeated_like_of_one_candidate_counts_once_latest_state():
+    """§23-H61: per-candidate latest-state. Three accepts of the SAME candidate (any time gap —
+    the retired 300s window no longer matters) contribute ONE affinity increment and only the
+    latest (first-seen) row's signature."""
     rows = [
         {
             "snapshotId": "s1",
             "candidateId": "c1",
             "action": "accepted",
-            "createdAt": _ts(FEEDBACK_DEDUP_WINDOW),
+            "createdAt": _ts(300),
             "items": ["t1"],
             "fullSignature": "sig-latest",
         },
@@ -88,24 +90,22 @@ def test_accepted_item_affinity_dedups_only_counted_projection_within_window():
             "action": "accepted",
             "createdAt": _ts(0),
             "items": ["t1"],
-            "fullSignature": "sig-older-duplicate",
+            "fullSignature": "sig-older",
         },
         {
             "snapshotId": "s1",
             "candidateId": "c1",
             "action": "accepted",
-            "createdAt": _ts(-(FEEDBACK_DEDUP_WINDOW + 1)),
+            "createdAt": _ts(-9_999),
             "items": ["t1"],
-            "fullSignature": "sig-outside-window",
+            "fullSignature": "sig-oldest",
         },
     ]
 
     signals = reduce_interaction_rows(rows)
 
-    assert signals.item_affinity == {"t1": 2}
-    assert signals.liked_full_signatures == frozenset(
-        {"sig-latest", "sig-older-duplicate", "sig-outside-window"}
-    )
+    assert signals.item_affinity == {"t1": 1}
+    assert signals.liked_full_signatures == frozenset({"sig-latest"})
 
 
 def test_reduce_snapshot_rows_keeps_recent_order_dedups_and_truncates_to_ranker_window():
@@ -198,10 +198,8 @@ def test_action_mapping_constants_move_reducer_digest(monkeypatch):
 
 def test_reducer_constants_stay_out_of_ranker_config_module():
     assert not hasattr(config, "INTERACTION_ROWS_SCAN_LIMIT")
-    assert not hasattr(config, "FEEDBACK_DEDUP_WINDOW")
     assert not hasattr(config, "REPETITION_WINDOW_SNAPSHOTS")
     assert INTERACTION_ROWS_SCAN_LIMIT == 500
-    assert FEEDBACK_DEDUP_WINDOW == 300
     assert REPETITION_WINDOW_SNAPSHOTS == 50
 
 
@@ -235,98 +233,109 @@ def test_snapshot_scan_limit_bounds_repetition_rows():
     assert "past-limit" not in shown
 
 
-def test_dedup_counts_middle_event_when_only_adjacent_to_older_duplicate():
+def _bound(snapshot, candidate, action, **extra):
+    """A bound feedback row. Rows are passed most-recent-first (the caller's sort); this helper
+    keeps the H61 latest-state tests readable — position 0 is the newest event."""
+    return {"snapshotId": snapshot, "candidateId": candidate, "action": action, **extra}
+
+
+def test_like_then_dislike_same_candidate_nets_to_dislike():
+    """§23-H61: a like CORRECTED to a dislike on the same candidate leaves NO lingering affinity
+    or liked signature; the dislike's cooldown/dislike-window signal stands alone."""
     rows = [
-        {
-            "snapshotId": "s1",
-            "candidateId": "c1",
-            "action": "accepted",
-            "createdAt": _ts(FEEDBACK_DEDUP_WINDOW * 2 + 2),
-            "items": ["t1"],
-            "fullSignature": "latest",
-        },
-        {
-            "snapshotId": "s1",
-            "candidateId": "c1",
-            "action": "accepted",
-            "createdAt": _ts(FEEDBACK_DEDUP_WINDOW + 1),
-            "items": ["t1"],
-            "fullSignature": "middle",
-        },
-        {
-            "snapshotId": "s1",
-            "candidateId": "c1",
-            "action": "accepted",
-            "createdAt": _ts(1),
-            "items": ["t1"],
-            "fullSignature": "older",
-        },
-    ]
-
-    assert reduce_interaction_rows(rows).item_affinity == {"t1": 2}
-
-
-def test_missing_created_at_never_counts_affinity_but_keeps_liked_signatures():
-    rows = [
-        {
-            "snapshotId": "s1",
-            "candidateId": "c1",
-            "action": "accepted",
-            "items": ["t1"],
-            "fullSignature": "one",
-        },
-        {
-            "snapshotId": "s1",
-            "candidateId": "c1",
-            "action": "accepted",
-            "items": ["t1"],
-            "fullSignature": "two",
-        },
+        _bound("s1", "c1", "rejected", baseKey="base-1", fullSignature="sig-1",
+               perItemFeedback=[{"itemId": "t1", "disliked": True}]),          # newest = the correction
+        _bound("s1", "c1", "accepted", items=["t1", "b1"], fullSignature="sig-1"),  # older = the retracted like
     ]
 
     signals = reduce_interaction_rows(rows)
+
     assert signals.item_affinity == {}
-    assert signals.liked_full_signatures == frozenset({"one", "two"})
+    assert signals.liked_full_signatures == frozenset()
+    assert signals.recent_disliked_base_keys == ("base-1",)
+    assert signals.recent_disliked_item_ids == ("t1",)
 
 
-def test_unparsable_created_at_never_counts_affinity():
+def test_dislike_then_like_same_candidate_nets_to_like_and_drops_cooldown():
+    """§23-H61: the reverse correction — a dislike changed to a like — drops the cooldown and
+    restores affinity + the liked signature (the direction the old reducer also got wrong)."""
     rows = [
-        {
-            "snapshotId": "s1",
-            "candidateId": "c1",
-            "action": "accepted",
-            "createdAt": "not-a-date",
-            "items": ["t1"],
-            "fullSignature": "one",
-        },
+        _bound("s1", "c1", "accepted", items=["t1"], fullSignature="sig-1"),   # newest = the like
+        _bound("s1", "c1", "rejected", baseKey="base-1", fullSignature="sig-1",
+               perItemFeedback=[{"itemId": "t1", "disliked": True}]),          # older = the retracted dislike
     ]
 
     signals = reduce_interaction_rows(rows)
-    assert signals.item_affinity == {}
-    assert signals.liked_full_signatures == frozenset({"one"})
+
+    assert signals.item_affinity == {"t1": 1}
+    assert signals.liked_full_signatures == frozenset({"sig-1"})
+    assert signals.recent_disliked_base_keys == ()
+    assert signals.recent_disliked_item_ids == ()
 
 
-def test_numeric_created_at_is_not_accepted_for_affinity_counting():
+def test_waffle_honors_only_the_latest_reaction():
+    """§23-H61: like → dislike → like (newest first: like, dislike, like) resolves to the latest
+    action (like)."""
     rows = [
-        {
-            "snapshotId": "s1",
-            "candidateId": "c1",
-            "action": "accepted",
-            "createdAt": 1_800_000_000,
-            "items": ["t1"],
-            "fullSignature": "one",
-        },
-        {
-            "snapshotId": "s1",
-            "candidateId": "c1",
-            "action": "accepted",
-            "createdAt": 1_800_001_000,
-            "items": ["t1"],
-            "fullSignature": "two",
-        },
+        _bound("s1", "c1", "accepted", items=["t1"], fullSignature="sig-1"),   # newest
+        _bound("s1", "c1", "rejected", baseKey="base-1", fullSignature="sig-1",
+               perItemFeedback=[{"itemId": "t1", "disliked": True}]),
+        _bound("s1", "c1", "accepted", items=["t1"], fullSignature="sig-1"),   # oldest
     ]
 
-    assert reduce_interaction_rows(rows).item_affinity == {}
+    signals = reduce_interaction_rows(rows)
+
+    assert signals.item_affinity == {"t1": 1}
+    assert signals.liked_full_signatures == frozenset({"sig-1"})
+    assert signals.recent_disliked_base_keys == ()
+
+
+def test_cross_candidate_shared_item_keeps_both_signals():
+    """§23-H61: retraction is scoped to {snapshotId, candidateId}. A like of outfit A and a
+    dislike of a DIFFERENT outfit B that share item t1 are NOT a contradiction — the item keeps
+    its affinity AND enters the dislike window."""
+    rows = [
+        _bound("s2", "cB", "rejected", baseKey="base-B",
+               perItemFeedback=[{"itemId": "t1", "disliked": True}]),          # dislike of B
+        _bound("s1", "cA", "accepted", items=["t1", "b1"], fullSignature="sig-A"),  # like of A
+    ]
+
+    signals = reduce_interaction_rows(rows)
+
+    assert signals.item_affinity == {"t1": 1, "b1": 1}
+    assert signals.liked_full_signatures == frozenset({"sig-A"})
+    assert signals.recent_disliked_item_ids == ("t1",)
+
+
+def test_signature_blocked_when_latest_reaction_to_that_shape_is_reject():
+    """§23-H61: `liked_full_signatures` is a set (one sign per shape). When two DIFFERENT
+    candidates share a signature and the most-recent reaction to it is a reject, the signature is
+    blocked from the liked set — even though the older like still boosts its own items."""
+    rows = [
+        _bound("s2", "cB", "rejected", baseKey="base-B", fullSignature="shared-sig"),  # newest for shared-sig
+        _bound("s1", "cA", "accepted", items=["t1"], fullSignature="shared-sig"),      # older like, same shape
+    ]
+
+    signals = reduce_interaction_rows(rows)
+
+    assert "shared-sig" not in signals.liked_full_signatures
+    assert signals.item_affinity == {"t1": 1}  # cA's like still boosts its item (per-candidate)
+
+
+def test_latest_state_honors_caller_order_not_content():
+    """§23-H61: the reducer trusts the caller's most-recent-first sort — the FIRST row per
+    candidate wins regardless of any createdAt field (determinism rides mlBehavioralRows'
+    {createdAt:-1,_id:-1} projection, not a re-sort here)."""
+    older_wins_if_resorted = [
+        _bound("s1", "c1", "rejected", baseKey="b", createdAt="2999-01-01T00:00:00Z"),  # newest by position
+        _bound("s1", "c1", "accepted", items=["t1"], createdAt="1999-01-01T00:00:00Z"),
+    ]
+
+    signals = reduce_interaction_rows(older_wins_if_resorted)
+
+    # Position 0 (reject) wins because it is first — the misleading createdAt values are ignored.
+    assert signals.item_affinity == {}
+    assert signals.recent_disliked_base_keys == ("b",)
 
 
 def test_excluded_worn_action_contributes_nothing():

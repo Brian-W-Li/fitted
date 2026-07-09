@@ -11,7 +11,6 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from itertools import islice
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -21,7 +20,6 @@ from fitted_core.sampler import RequestContext
 
 
 REPETITION_WINDOW_SNAPSHOTS = 50
-FEEDBACK_DEDUP_WINDOW = 300  # seconds
 INTERACTION_ROWS_SCAN_LIMIT = 500
 
 COUNTED_ACTIONS = frozenset({"accepted"})
@@ -76,52 +74,36 @@ def _as_str_sequence(value: object) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _parse_created_at(value: object) -> Optional[float]:
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-        return dt.timestamp()
-    if isinstance(value, str) and value.strip():
-        raw = value.strip()
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        try:
-            dt = datetime.fromisoformat(raw)
-        except ValueError:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.timestamp()
-    return None
-
-
 def _is_bound_feedback(row: Mapping[str, Any]) -> bool:
     return _truthy_str(row.get("snapshotId")) is not None and _truthy_str(row.get("candidateId")) is not None
 
 
-def _is_duplicate_counted_event(
-    seen: dict[tuple[str, str, str], list[Optional[float]]],
-    key: tuple[str, str, str],
-    created_at: Optional[float],
-) -> bool:
-    if created_at is None:
-        return True
-    previous = seen.setdefault(key, [])
-    for prior in previous:
-        if abs(prior - created_at) <= FEEDBACK_DEDUP_WINDOW:
-            return True
-    previous.append(created_at)
-    return False
-
-
 def reduce_interaction_rows(rows: Iterable[Mapping[str, Any]]) -> BehavioralSignals:
-    """Reduce most-recent-first bound feedback rows into interaction-derived signals."""
+    """Reduce most-recent-first bound feedback rows into interaction-derived signals.
+
+    **Per-candidate latest-STATE (§23-H61).** Rows arrive most-recent-first (the caller sorts by
+    ``{createdAt:-1, _id:-1}``); for each ``{snapshotId, candidateId}`` only the FIRST row seen —
+    its latest action — contributes. Every older row for that candidate (a same-action repeat OR a
+    superseded opposite action) is skipped. Consequences:
+      - a like later CORRECTED to a dislike on the same candidate nets to the dislike: no lingering
+        item affinity, no liked signature — honoring the UI promise ("to change your mind, just
+        react again"); the reverse (dislike→like) drops the cooldown symmetrically;
+      - a repeated like of one candidate counts ONCE (this subsumes the old 300s double-tap window,
+        now retired — ordering alone does the work);
+      - a signature whose latest-winning candidate action is ``rejected`` is BLOCKED from
+        ``liked_full_signatures`` (a set can't hold both signs; the most recent reaction to that
+        shape wins).
+    Item affinity stays strictly per-candidate, so a like of one outfit and a dislike of a
+    *different* outfit that share an item keep BOTH signals — legitimate cross-candidate taste, not
+    a contradiction. Determinism rides the caller's sort; same-``createdAt`` ties resolve on ``_id``.
+    """
     item_affinity: dict[str, int] = {}
-    liked_full_signatures: set[str] = set()
+    signature_action: dict[str, str] = {}  # first-seen (= latest) winning action per signature
     recent_disliked_base_keys: list[str] = []
     recent_disliked_item_ids: list[str] = []
     seen_base_keys: set[str] = set()
     seen_disliked_item_ids: set[str] = set()
-    counted_events: dict[tuple[str, str, str], list[Optional[float]]] = {}
+    seen_candidates: set[tuple[str, str]] = set()
 
     for row in islice(rows, INTERACTION_ROWS_SCAN_LIMIT):
         if not _is_bound_feedback(row):
@@ -132,15 +114,23 @@ def reduce_interaction_rows(rows: Iterable[Mapping[str, Any]]) -> BehavioralSign
         assert snapshot_id is not None and candidate_id is not None
         if action is None:
             continue
+        # Only meaningful feedback participates in latest-state. A neutral action (e.g. a future
+        # `saved`/`worn`, ignored at M5) must NOT occupy a candidate/signature slot — otherwise a
+        # neutral newest row would wrongly supersede an older standing like/dislike. Membership-gated
+        # so a later promotion of an action into COUNTED_ACTIONS/REJECTED_ACTION includes it here too.
+        if action not in COUNTED_ACTIONS and action != REJECTED_ACTION:
+            continue
+
+        candidate_key = (snapshot_id, candidate_id)
+        if candidate_key in seen_candidates:
+            continue  # a superseded older row — this candidate's latest action already counted
+        seen_candidates.add(candidate_key)
+
+        signature = _truthy_str(row.get("fullSignature"))
+        if signature is not None and signature not in signature_action:
+            signature_action[signature] = action  # first-seen == latest reaction to this shape
 
         if action in COUNTED_ACTIONS:
-            signature = _truthy_str(row.get("fullSignature"))
-            if signature is not None:
-                liked_full_signatures.add(signature)
-            dedup_key = (snapshot_id, candidate_id, action)
-            created_at = _parse_created_at(row.get("createdAt"))
-            if _is_duplicate_counted_event(counted_events, dedup_key, created_at):
-                continue
             for item_id in _as_str_sequence(row.get("items")):
                 item_affinity[item_id] = item_affinity.get(item_id, 0) + 1
             continue
@@ -169,9 +159,12 @@ def reduce_interaction_rows(rows: Iterable[Mapping[str, Any]]) -> BehavioralSign
                         seen_disliked_item_ids.add(item_id)
                         recent_disliked_item_ids.append(item_id)
 
+    liked_full_signatures = frozenset(
+        sig for sig, act in signature_action.items() if act in COUNTED_ACTIONS
+    )
     return BehavioralSignals(
         item_affinity=item_affinity,
-        liked_full_signatures=frozenset(liked_full_signatures),
+        liked_full_signatures=liked_full_signatures,
         shown_full_signatures=(),
         recent_disliked_base_keys=tuple(recent_disliked_base_keys),
         recent_disliked_item_ids=tuple(recent_disliked_item_ids),

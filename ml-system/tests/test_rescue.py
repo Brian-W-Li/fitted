@@ -1141,6 +1141,33 @@ def test_rescue_forced_dress_surfaces_variants_including_the_lone_dress():
     assert result.insufficient_after_generation is False  # 3 ≥ n_surfaced
 
 
+def test_rescue_forced_top_is_in_every_surfaced_variant_across_distinct_basekeys():
+    """The green-shirt invariant, asserted end-to-end: a forced TOP appears in EVERY surfaced
+    variant even when the variants span DISTINCT BaseKeys (different bottoms) — not just the
+    single-BaseKey dress sub-case. Pins §6.4/§H42 "the forced item is in 100% of rescue candidates"
+    through the whole rescue() pipeline (pool pin → prompt → post-validate drop → rank → surface)."""
+    wardrobe = [
+        _item("t1", ItemType.top),
+        _item("b1", ItemType.bottom), _item("b2", ItemType.bottom), _item("b3", ItemType.bottom),
+    ]
+    request = RescueRequest(
+        wardrobe=wardrobe, forced_item_id="t1", occasion="brunch", weather="mild",
+        session_id="sess-forced-top", wardrobe_version=1, n_surfaced=3,
+    )
+    canned = _envelope(
+        _outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["b1"]),
+        _outfit([("t1", Role.base_top), ("b2", Role.base_bottom)], ["b2"]),
+        _outfit([("t1", Role.base_top), ("b3", Role.base_bottom)], ["b3"]),
+    )
+    result = rescue(request, StubGenerator(canned))
+
+    assert result.ranked is not None
+    assert len(result.ranked.outfits) >= 2  # multiple distinct variants surface
+    assert len({o.base_key for o in result.ranked.outfits}) >= 2  # spanning distinct BaseKeys
+    for outfit in result.ranked.outfits:
+        assert outfit.slot_map.top == "t1"  # the forced item is in EVERY surfaced variant
+
+
 def test_rescue_forced_dress_drops_lone_dress_missing_style_move():
     # The inverse of the §D lone-dress rule: a dress-alone outfit whose styleMove is absent leaves
     # M2's style_move None, and decision 8 drops the whole (only) outfit — graceful insufficient,

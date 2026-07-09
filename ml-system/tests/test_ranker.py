@@ -453,6 +453,51 @@ def test_rank_non_empty_returns_sorted_ranker_result():
     )
 
 
+# ---- personalization: the three ADDITIVE signals must change rank ORDER (not just breakdown) ----
+# The affinity sort is covered above (test_rank_non_empty_returns_sorted_ranker_result) and the
+# cooldown hard-filter below. These pin that combo-boost / repetition / soft-dislike each flip the
+# ORDER of two otherwise-tied candidates through the PUBLIC rank() — the "feedback demonstrably
+# changes the surfaced ranking" guard the suite previously proved only as ScoreBreakdown deltas.
+# Baseline (no signals) is deterministically ["sigB","sigA"]; each test flips it.
+
+_PERSO_A = dict(source_index=0, top="ta", bottom="ba", base_key="bkA", full_signature="sigA")
+_PERSO_B = dict(source_index=1, top="tb", bottom="bb", base_key="bkB", full_signature="sigB")
+
+
+def test_personalization_baseline_order_is_deterministic():
+    a, b = _candidate(**_PERSO_A), _candidate(**_PERSO_B)
+    assert _result_signatures(ranker.rank([a, b], _ctx(k=2))) == ["sigB", "sigA"]
+
+
+def test_liked_full_signature_combo_boost_lifts_rank():
+    a, b = _candidate(**_PERSO_A), _candidate(**_PERSO_B)
+    # sigA (the baseline loser) becomes the liked combo → it overtakes sigB.
+    result = ranker.rank([a, b], _ctx(k=2, liked_full_signatures={"sigA"}))
+    assert _result_signatures(result) == ["sigA", "sigB"]
+    assert result.outfits[0].breakdown.combo == config.COMBO_BOOST
+    assert result.outfits[1].breakdown.combo == 0.0
+
+
+def test_shown_full_signature_repetition_penalty_sinks_rank():
+    a, b = _candidate(**_PERSO_A), _candidate(**_PERSO_B)
+    # sigB (the baseline winner) was shown recently → the repetition penalty drops it below sigA.
+    result = ranker.rank([a, b], _ctx(k=2, shown_full_signatures=("sigB",)))
+    assert _result_signatures(result) == ["sigA", "sigB"]
+    sig_to_rep = {o.full_signature: o.breakdown.repetition for o in result.outfits}
+    assert sig_to_rep["sigB"] == -config.REPETITION_PENALTY
+    assert sig_to_rep["sigA"] == 0.0
+
+
+def test_recent_disliked_item_soft_penalty_sinks_rank():
+    a, b = _candidate(**_PERSO_A), _candidate(**_PERSO_B)
+    # sigB contains item tb, freshly soft-disliked → the −DISLIKE_PENALTY drops it below sigA.
+    result = ranker.rank([a, b], _ctx(k=2, recent_disliked_item_ids=("tb",)))
+    assert _result_signatures(result) == ["sigA", "sigB"]
+    sig_to_dislike = {o.full_signature: o.breakdown.dislike for o in result.outfits}
+    assert sig_to_dislike["sigB"] == -config.DISLIKE_PENALTY
+    assert sig_to_dislike["sigA"] == 0.0
+
+
 # ------------------------ Step 4 — lock filter (C2, §6 step 3) ------------------------
 
 
