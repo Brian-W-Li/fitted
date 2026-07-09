@@ -378,6 +378,18 @@ describe("§C.1 lineage (re-roll)", () => {
     expect(child.forcedItemId).toBe(itemIds.top);
   });
 
+  it("an uppercase-hex parentSnapshotId is canonicalized so an identical retry replays the winner (not 409)", async () => {
+    const { parentId } = await firstRender();
+    const rid = uuid();
+    const upperParent = parentId.toUpperCase(); // a valid ObjectId, non-canonical case
+    const first = await mlRecommend(req({ requestId: rid, parentSnapshotId: upperParent, controls: {} }), makeDeps());
+    expect(first.status).toBe(200);
+    // Same requestId + same (uppercase) parent = the same render identity → must replay, not conflict.
+    const second = await mlRecommend(req({ requestId: rid, parentSnapshotId: upperParent, controls: {} }), makeDeps());
+    expect(second.status).toBe(200);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, generationIndex: 1 })).toBe(1);
+  });
+
   it("a forged / cross-user parentSnapshotId → 404, no service call, no write", async () => {
     const foreign = new mongoose.Types.ObjectId().toString();
     let called = false;

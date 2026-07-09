@@ -121,6 +121,12 @@ function validateScoreTrace(cand: Any, id: string): void {
   // validator — the reason this helper exists). Not serde-producible, but a TS/service bug could.
   if (trace.compatibility != null && !inUnit(trace.compatibility)) fail(`candidate ${id}: compatibility out of [0,1]`);
   if (trace.visibility != null && !inUnit(trace.visibility)) fail(`candidate ${id}: visibility out of [0,1]`);
+  // Same finite guard for the two other bare-`Number` trace fields, on EVERY path (not just the
+  // with-breakdown branch below): `rankerScore` and `signalScore` (the reserved M6-scorer output
+  // slot) have no schema validator, so an unguarded ±Infinity would persist. compat/vis are
+  // already guarded breakdown-less above; these two were the asymmetry.
+  if (trace.rankerScore != null && !isFiniteNum(trace.rankerScore)) fail(`candidate ${id}: rankerScore non-finite`);
+  if (trace.signalScore != null && !isFiniteNum(trace.signalScore)) fail(`candidate ${id}: signalScore non-finite`);
   // Coverage key (G12): a candidate carries a scoreBreakdown IFF it was scored. A Step-4
   // hard-dropped candidate legitimately has none — do NOT require one.
   if (!trace.scoreBreakdown) return;
@@ -207,6 +213,15 @@ export function validateSnapshotPayload(payload: unknown): void {
     if (typeof iid !== "string" || !iid) fail("itemSnapshots row missing itemId");
     if (knownItemIds.has(iid)) fail(`duplicate itemSnapshots itemId ${iid}`);
     knownItemIds.add(iid);
+    // engineVisible.warmth is the one numeric ML feature the ranker conditions on, stored as a
+    // bare Mongoose `Number` (no min/max/finite validator) — so Mongoose stores ±Infinity
+    // silently (it rejects only NaN). This helper is the sole guard: a non-finite / out-of-range
+    // warmth would persist into the immutable corpus M6 trains on. Range mirrors the ingestion
+    // derivation + the adapter bound (0..10).
+    const warmth = snap.engineVisible?.warmth;
+    if (warmth != null && (!isFiniteNum(warmth) || warmth < 0 || warmth > 10)) {
+      fail(`itemSnapshots ${iid}: engineVisible.warmth ${warmth} is non-finite or outside [0,10]`);
+    }
   }
 
   // Per-candidate: id uniqueness, content-id coverage, scoreTrace, styleMove, template.

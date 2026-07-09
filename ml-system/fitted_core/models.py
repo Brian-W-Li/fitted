@@ -92,6 +92,10 @@ class IssueCode(Enum):
 
     # --- pool membership / keys / dedup (M2 Step-3 owned) ---
     item_outside_sampled_pool = "itemOutsideSampledPool"
+    # GPT's assigned role puts an item in a slot whose required ItemType the item does not have
+    # (e.g. a top tagged role=base_bottom). GPT's role is untrusted (§5); the pool carries the
+    # authoritative type. Distinct from item_outside_sampled_pool (the id IS in the pool).
+    role_type_mismatch = "roleTypeMismatch"
     duplicate_full_signature = "duplicateFullSignature"
     key_precondition_failed = "keyPreconditionFailed"
 

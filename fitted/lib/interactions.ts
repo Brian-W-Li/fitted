@@ -165,6 +165,14 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
     // perItemFeedback — each itemId 24-hex ObjectId AND ∈ candidate items (⊄ rejects, G10); notes capped.
     let perItemFeedback: Array<{ itemId: string; disliked: boolean; notes?: string }> | undefined;
     if (body.perItemFeedback != null) {
+      // perItemFeedback is a REJECT-time channel: the affinity reducer reads it only on the
+      // rejected branch (a dislike window). On an `accepted` action the reducer grants every
+      // outfit item +1 and never consults perItemFeedback — so a `{disliked:true}` entry there
+      // would silently give the disliked item positive affinity. Reject it at the boundary rather
+      // than persist a row whose per-item signal is dropped.
+      if (action !== "rejected") {
+        return respondError(400, "contract_invalid", "perItemFeedback is only accepted on a 'rejected' action");
+      }
       if (!Array.isArray(body.perItemFeedback)) return respondError(400, "contract_invalid", "perItemFeedback must be an array");
       if (body.perItemFeedback.length > MAX_PER_ITEM_FEEDBACK) {
         return respondError(400, "contract_invalid", `perItemFeedback exceeds ${MAX_PER_ITEM_FEEDBACK} entries`);

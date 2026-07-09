@@ -545,6 +545,34 @@ def test_membership_uses_pool_not_wider_wardrobe():
     assert _codes(result.rejections) == [IssueCode.item_outside_sampled_pool]
 
 
+def test_role_type_mismatch_rejected():
+    # GPT (untrusted, §5) assigns a TOP item the role base_bottom. The outfit is structurally
+    # valid two-piece and every id is in the pool, but the item's authoritative ItemType
+    # contradicts the slot its role placed it in — without the 5.5b check this would be surfaced
+    # and persisted as a bottom (an LLM-injected corpus lie).
+    pool = [
+        WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg"),
+        WardrobeItem("t2", "Shirt", ItemType.top, warmth=4, image_url="t2.jpg"),
+    ]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "t2", "role": "base_bottom"},  # a top masquerading as the bottom
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.role_type_mismatch]
+    assert result.candidates == []
+
+
+def test_pool_membership_precedes_type_check():
+    # An id that is BOTH out-of-pool AND would mistype reports the membership code first
+    # (an out-of-pool id has no authoritative type to compare).
+    pool = [WardrobeItem("t1", "Tee", ItemType.top, warmth=4, image_url="t1.jpg")]
+    result = validate_gpt_payload({"outfits": [{"items": [
+        {"itemId": "t1", "role": "base_top"},
+        {"itemId": "ghost", "role": "base_bottom"},
+    ]}]}, pool)
+    assert _codes(result.rejections) == [IssueCode.item_outside_sampled_pool]
+
+
 def test_structural_reject_precedes_pool_reject():
     # An out-of-pool id on a structurally INVALID candidate reports the structural code,
     # not pool — 5.4 runs before 5.5 (mutation guard: don't check pool before structure).

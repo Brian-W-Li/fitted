@@ -75,6 +75,23 @@ describe("scoreTrace algebra + coverage (G12)", () => {
 });
 
 // ---------------------------------------------------------------------------
+describe("corpus-integrity finite guards (Mongoose stores ±Infinity silently)", () => {
+  it("rejects a non-finite engineVisible.warmth (would poison the ranker's ML feature)", () => {
+    expectReject((p) => (p.itemSnapshots[0].engineVisible.warmth = Infinity));
+  });
+  it("rejects an out-of-range engineVisible.warmth (> 10)", () => {
+    expectReject((p) => (p.itemSnapshots[0].engineVisible.warmth = 11));
+  });
+  it("rejects a non-finite rankerScore on a breakdown-LESS trace (the early-return gap)", () => {
+    // c4 = validated, normally no trace/breakdown; a bare rankerScore must still be finite.
+    expectReject((p) => (p.candidates[4].scoreTrace = { rankerScore: Infinity }));
+  });
+  it("rejects a non-finite signalScore (the reserved M6-scorer label slot)", () => {
+    expectReject((p) => (p.candidates[4].scoreTrace = { signalScore: Infinity }));
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe("identity + coverage", () => {
   it("rejects a duplicate candidateId", () => {
     expectReject((p) => (p.candidates[1].candidateId = p.candidates[0].candidateId));

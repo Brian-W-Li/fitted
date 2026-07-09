@@ -228,12 +228,30 @@ def _optional_string(value: Any, name: str, *, max_chars: int) -> Optional[str]:
     return value
 
 
-def _non_bool_int(value: Any, name: str, *, minimum: int = 0) -> int:
+def _non_bool_int(value: Any, name: str, *, minimum: int = 0, maximum: Optional[int] = None) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ContractInvalid(f"{name} must be a non-bool integer")
     if value < minimum:
         raise ContractInvalid(f"{name} must be >= {minimum}")
+    if maximum is not None and value > maximum:
+        raise ContractInvalid(f"{name} must be <= {maximum}")
     return value
+
+
+def _exact_number(value: Any, name: str, expected: float) -> None:
+    """Exact-equality guard for a numeric wire field vs a configured constant. Rejects non-numbers
+    AND arbitrary-precision ints that overflow ``float()`` (e.g. a 400-digit integer) — a raw
+    ``float(value)`` there raises OverflowError, which would escape the ``ContractInvalid`` parse
+    contract as a 500 instead of a 400. Such a value can never equal the finite configured constant
+    anyway, so it is rejected without coercing."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ContractInvalid(f"{name} must exactly equal the service's configured value")
+    try:
+        equal = float(value) == float(expected)
+    except OverflowError:
+        equal = False
+    if not equal:
+        raise ContractInvalid(f"{name} must exactly equal the service's configured value")
 
 
 def _string_list(value: Any, name: str, *, max_items: int, max_chars: int) -> list[str]:
@@ -279,7 +297,7 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
     _validate_key_safe_item_id(item_id, f"{where}.id")
     name = _string(raw["name"], f"{where}.name", max_chars=cfg.MAX_ITEM_NAME_CHARS)
     clothing_type = raw["clothingType"]
-    if clothing_type not in _ITEM_TYPE_VALUES:
+    if not isinstance(clothing_type, str) or clothing_type not in _ITEM_TYPE_VALUES:
         raise ContractInvalid(f"{where}.clothingType must be one of {sorted(_ITEM_TYPE_VALUES)}")
     warmth = _non_bool_int(raw["warmth"], f"{where}.warmth")
     if warmth > 10:
@@ -437,17 +455,15 @@ def _validate_generator_expectation(raw: Any, config: ServiceConfig) -> None:
     )
     if raw["provider"] != cfg.GENERATOR_PROVIDER:
         raise ContractInvalid(f"{where}.provider must be {cfg.GENERATOR_PROVIDER!r}")
-    if raw["model"] not in cfg.GENERATOR_MODEL_ALLOWLIST or raw["model"] != cfg.GENERATOR_MODEL:
-        raise ContractInvalid(f"{where}.model is not the service's configured model")
-    temperature = raw["temperature"]
     if (
-        isinstance(temperature, bool)
-        or not isinstance(temperature, (int, float))
-        or float(temperature) != cfg.GENERATOR_TEMPERATURE
+        not isinstance(raw["model"], str)
+        or raw["model"] not in cfg.GENERATOR_MODEL_ALLOWLIST
+        or raw["model"] != cfg.GENERATOR_MODEL
     ):
-        raise ContractInvalid(
-            f"{where}.temperature must exactly equal the service's configured value"
-        )
+        # isinstance-guard first: `x in <frozenset>` raises TypeError on an unhashable list/dict,
+        # which would escape the ContractInvalid parse contract as a 500.
+        raise ContractInvalid(f"{where}.model is not the service's configured model")
+    _exact_number(raw["temperature"], f"{where}.temperature", cfg.GENERATOR_TEMPERATURE)
     tokens = raw["maxCompletionTokens"]
     if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens != config.max_completion_tokens:
         raise ContractInvalid(
@@ -467,15 +483,7 @@ def _validate_generator_expectation(raw: Any, config: ServiceConfig) -> None:
             raise ContractInvalid(
                 f"{where}.{field} must exactly equal the service's configured value"
             )
-    timeout = raw["timeoutSeconds"]
-    if (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or float(timeout) != float(cfg.OPENAI_TIMEOUT_SECONDS)
-    ):
-        raise ContractInvalid(
-            f"{where}.timeoutSeconds must exactly equal the service's configured timeout"
-        )
+    _exact_number(raw["timeoutSeconds"], f"{where}.timeoutSeconds", cfg.OPENAI_TIMEOUT_SECONDS)
     retries = raw["maxRetries"]
     if isinstance(retries, bool) or not isinstance(retries, int) or retries != cfg.OPENAI_MAX_RETRIES:
         raise ContractInvalid(
@@ -529,10 +537,10 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     session_id = _string(body["sessionId"], "sessionId", max_chars=cfg.MAX_SESSION_ID_CHARS)
 
     intent = body["intent"]
-    if intent not in cfg.SUPPORTED_INTENTS:
+    if not isinstance(intent, str) or intent not in cfg.SUPPORTED_INTENTS:
         raise ContractInvalid(f"intent must be one of {sorted(cfg.SUPPORTED_INTENTS)}")
 
-    generation_index = _non_bool_int(body["generationIndex"], "generationIndex")
+    generation_index = _non_bool_int(body["generationIndex"], "generationIndex", maximum=cfg.MAX_WIRE_INT)
     parent_snapshot_id = body["parentSnapshotId"]
     if parent_snapshot_id is not None:
         parent_snapshot_id = _string(parent_snapshot_id, "parentSnapshotId", max_chars=cfg.MAX_ID_CHARS)
@@ -570,7 +578,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     )
     occasion = _string(lens["occasion"], "lens.occasion", max_chars=cfg.MAX_OCCASION_CHARS)
     weather = lens["weather"]
-    if weather not in cfg.WEATHER_BUCKETS:
+    if not isinstance(weather, str) or weather not in cfg.WEATHER_BUCKETS:
         raise ContractInvalid(f"lens.weather must be one of {sorted(cfg.WEATHER_BUCKETS)}")
     weather_raw = _optional_string(lens.get("weatherRaw"), "lens.weatherRaw", max_chars=cfg.MAX_WEATHER_RAW_CHARS)
     location = _optional_string(lens.get("location"), "lens.location", max_chars=cfg.MAX_LOCATION_CHARS)
@@ -611,8 +619,10 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     # item) must be structurally buildable, ALL pre-spend.
     _preflight_controls(locked_item_ids, disliked_item_ids, wardrobe, forced_item_id, intent)
 
-    wardrobe_version = _non_bool_int(body["wardrobeVersion"], "wardrobeVersion")
-    interaction_count = _non_bool_int(body["interactionCountAtRequest"], "interactionCountAtRequest")
+    wardrobe_version = _non_bool_int(body["wardrobeVersion"], "wardrobeVersion", maximum=cfg.MAX_WIRE_INT)
+    interaction_count = _non_bool_int(
+        body["interactionCountAtRequest"], "interactionCountAtRequest", maximum=cfg.MAX_WIRE_INT
+    )
     interaction_rows, snapshot_rows = _validate_behavioral_rows(body["behavioralRows"])
     _validate_generator_expectation(body["generator"], config)
 

@@ -283,7 +283,10 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       }
       const parent = await GenerationSnapshot.findOne({ _id: rawParent, user: userObjectId }).lean();
       if (!parent) return respondError(404, "parent_not_found", "parent snapshot not found");
-      parentSnapshotId = rawParent;
+      // Canonicalize to the stored (lowercase) ObjectId string: `.create()` casts the stored
+      // parentSnapshotId to canonical form, so an uppercase-hex rawParent would make an identical
+      // retry's identity compare (step 5) mismatch and wrongly 409 instead of replaying the winner.
+      parentSnapshotId = new mongoose.Types.ObjectId(rawParent).toString();
       generationIndex = (parent.generationIndex ?? 0) + 1;
       intent = parent.intent as Intent;
       seedDate = parent.seedDate;

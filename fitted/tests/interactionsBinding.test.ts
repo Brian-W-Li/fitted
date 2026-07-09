@@ -190,6 +190,24 @@ describe("POST /api/interactions — bind + append (§I)", () => {
     expect(row.perItemFeedback[0].disliked).toBe(true);
   });
 
+  it("accepted with per-item feedback → 400, no row (perItemFeedback is a reject-time channel)", async () => {
+    // The reducer reads perItemFeedback only on the rejected branch; on 'accepted' it would grant
+    // the disliked item +1 affinity and drop the dislike. Reject at the boundary.
+    const userId = oid();
+    const { snapshotId, candidateId, topId } = await makeSnapshot(userId);
+    const res = await postInteraction(
+      postReq({
+        snapshotId,
+        candidateId,
+        action: "accepted",
+        perItemFeedback: [{ itemId: topId, disliked: true }],
+      }),
+      deps(userId),
+    );
+    expect(res.status).toBe(400);
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+  });
+
   it("cross-user snapshot → 404, no row (ownership re-read)", async () => {
     const owner = oid();
     const attacker = oid();

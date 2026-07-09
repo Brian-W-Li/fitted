@@ -92,13 +92,198 @@ sessions (each a combined Codex+Claude audit per the banner method):
 Sequencing rationale: legibility first (so I can hold it), then the behavioral safety net (so de-dup is safe),
 then de-dup, then the doc reset against a system that's both live and legible. Interleaving R2/R3 is fine.
 
-## 4. Drift-surface inventory (2026-07-08 sweep) — reference
+## 4. R0 verified findings (2026-07-09) — the current state
 
-~35 surfaces across 6 categories: wire field sets (request GUARDED via `contract.py`; **response envelope +
-`flags` UNGUARDED**), enum mirrors (clothingType/weather/action/roles across Python+TS, mostly UNGUARDED),
-format rules (ObjectId/UUID/seedDate/createdAt/key-safe ids, several hand-duplicated), numeric constants
-(service clamps vs Mongoose limits — the "C5 mirror obligation"), persisted-payload↔schema (the two D-1/D-2
-drops), and the `templateType`-vs-`template` naming split. **Top-5 by silent-break risk:** (1) D-1
-`engineFailure` drop, (2) D-2 `controls` drop, (3) service clamps vs absent Mongoose `maxlength` (closet
-permanently unrenderable), (4) clothingType unknown→"top" coercion, (5) `keys.py`↔`app.py` key-safe id
-hand-duplication (spend-then-fail). All are guarded by the R2 behavioral suite, not per-field pins.
+Re-verified against now-live post-C8 code (M5 merged to `main`; every finding opened at `file:line` by
+Claude — four claim-verification lanes + a Fable calibration seat + an adversarial code-first break-it pass
+emulating independent cross-model error-hunting, run in-session since Codex is unavailable). **The headline: the
+2026-07-08 alarm (~35 surfaces / ~22 unguarded / 2 data-loss defects) does not survive verification** — its
+specific items (D-1/D-2, the "unrenderable" top-5) were closed by C5–C8 *while being built*. **But the
+adversarial break-it pass then found NEW defects the four claim-lanes structurally could not — including one
+blocker (§4.1b B1) and three important-grade holes.** That is the load-bearing lesson: claim-verification
+(does the stated guard exist?) and code-first fault-injection (construct an input that breaks it) find
+*different* bug classes — the split is exactly why R2's behavioral suite is worth building. Net: the old alarm
+was stale, but the diagnosis is NOT "all clear" — the adversarial pass found real defects. **Per Brian's
+"find an issue, fix an issue," the blockers + several importants were FIXED in this R0 session (§4.5), each
+with a behavioral test + a fresh-eyes review pass (0 findings); the remainder is registered for the reset
+sessions.** Floors grew: pytest 1060→1072, jest 516→522.
+
+### 4.0 Closed by verification — the alarm, retired
+- **D-1 `engineFailure` + D-2 `controls`** (the two "confirmed data-loss defects"): **CLOSED**, both backed
+  by a real write→read behavioral guard over in-memory Mongo (`generationSnapshotRoundTrip.test.ts:113-192`,
+  `mongoHarness.ts`). Payload↔schema is 27/27 fields; no new drop found.
+- **"service clamps vs absent Mongoose `maxlength` → closet permanently unrenderable"** (top-5 #3, the
+  scariest): **STALE for the length fields** — the C5 adapter *sanitizes* name/tags/imageUrl
+  (`mlRequestAdapter.ts` `sanitizeTags`/name-slice/over-cap-`imageUrl`→`""`). **But the unrenderable failure
+  mode itself is NOT fully closed** — the adversarial pass found the same "one bad row → whole closet
+  degraded" shape survives for the *unsanitized* fields (clothingType/warmth/scalar-colors, §4.1b A-cluster).
+- **`keys.py`↔`app.py` key-safe id** (top-5 #5): **moot cross-runtime** — key validation is Python-only
+  (`app.py:212`); the TS side mints zero keys (grep empty). No mirror to drift.
+- **clothingType unknown→`"top"`** (top-5 #4): still present (`clothingType.ts:25-29`) but **intentional**
+  (deployed-parity default, W-track-deferred), not silent corruption.
+- **Test trust NET-IMPROVED at the merge**: all 4 deleted tests were **replaced** by real behavioral tests
+  (3 were themselves fake inline-mirrors of the overturned re-rank/disliked-filter logic).
+
+### 4.1 Code / test residuals (verified) — small, real
+- **[important] T1 — `wardrobeFilter.test.ts:37-60` is a fake inline-mirror.** Local `applyPipeline()`
+  reimplements the wardrobe filter/search/sort; never imports `page.tsx` (no exported pipeline exists), so a
+  regression can't redden it. Display-only, no data risk. → fix (extract + import real unit) or delete.
+- **[important] C1 — adapter↔service numeric clamps hand-duplicated, unpinned.**
+  `mlRequestAdapter.ts:71-78` mirrors `config.py:87-91` (name/tag/tag-count/imageUrl caps); values match
+  today, no equality test. Loosen an adapter cap without the service → the service rejects the *whole* render
+  `contract_invalid`, degrading that closet. → cross-runtime equality test.
+- **[important] C2 — cross-runtime format regexes hand-duplicated, unpinned.** ObjectId/UUIDv4/ULID/seedDate
+  patterns live independently at `app.py:74-79`, `GenerationSnapshot.ts:315-316`, `mlRequestAdapter.ts:229`,
+  `interactions.ts:41`; byte-identical today, nothing asserts they match. → equality test.
+- **[important] C3 — the round-trip guard is defect-specific, not class-closing.**
+  `generationSnapshotRoundTrip.test.ts:201-218` asserts only the `generator` block survives; the
+  candidate/diagnostics body is written but never survival-asserted. The whole "no new data-loss" claim rests
+  on this one test being a *fence*. → extend to full-payload assertion (cheap; upgraded from minor per Fable).
+- **[minor] C4 — enum value-set mirrors self-consistent but cross-runtime-unpinned:** weather, intent
+  (schema is a superset), optionPath/risk, clothingType, Role, action — each validated per-runtime, none
+  asserted TS==Python. The `ENGINE_FAILURE` vocab is the one correctly three-way pinned (the model to copy).
+  → fold equality tests into C1/C2's file where cheap.
+- **[minor] C5 — generator `timeoutSeconds`/`maxRetries` schema-`required` but Python omits when `None`**
+  (`GenerationSnapshot.ts:383-384` ↔ `snapshot.py:843-846`); not live (config pins finite values). → note only.
+
+### 4.1b Adversarial break-it findings (verified) — what the claim-lanes missed
+Code-first fault-injection on the M5 trust boundary + data-integrity + reducer paths. Every one re-opened at
+`file:line` by me after the agents reported.
+- **[blocker, latent] B1 — `engineVisible` numerics are never validated; `±Infinity` persists into immutable
+  training truth.** `validateSnapshotPayload`'s itemSnapshots loop (`mlSnapshotValidation.ts:205-210`) checks
+  only `itemId`; it never inspects `engineVisible`. `warmth` is `{ type: Number, required: true }` with no
+  bound (`GenerationSnapshot.ts:219`). Mongoose rejects `NaN` (CastError) but **stores `Infinity` silently**
+  (empirically confirmed) — `warmth` is the live ranker feature, so a non-finite value poisons the corpus M6
+  will train on. Latent today (warmth is keyword-derived at a controlled ingestion path, zero users) but the
+  validator is the *sole* guard and has the hole. → validate `engineVisible` numerics (finite + `warmth ∈
+  [0,10]`) in the helper; regression fixture = a payload with `warmth: Infinity`.
+- **[important] B2 — `scoreTrace.rankerScore` escapes the finite check when there's no breakdown.**
+  `validateScoreTrace` early-returns at `:126` (`if (!trace.scoreBreakdown) return;`); `rankerScore` is only
+  checked at `:133`, inside the with-breakdown branch. compat/vis ARE guarded breakdown-less (`:122-123`) —
+  the asymmetry is the bug. → move the finite check ahead of the early return.
+- **[important] B3 — `scoreTrace.signalScore` is validated on no path at all** (`:117-138`) — and it's the
+  reserved slot for the M6 scorer's output (the literal label M6 consumes). `Infinity` persists unguarded on
+  both sides. → add a finite check.
+- **[important] A-cluster — one malformed wardrobe row makes the WHOLE closet unrenderable.** The adapter's
+  stated intent ("sanitize so one bad row can't break the render") is only half-applied: `clothingType` is
+  passed through raw (`mlRequestAdapter.ts:179` → the service rejects the whole render on a stale/undefined
+  value), while a bad `warmth` (`:170-172`) or a scalar `colors` (`sanitizeTags:138`) *throws* — and
+  `projectWardrobe:198` is a plain `.map`, so any one throw kills all items. All three are plausible on
+  CV-derived / legacy / user-edited data. → per-item resilience (fail or drop only the bad row, not the
+  closet); test = several good items + one bad-`clothingType`/`warmth`/scalar-`colors` row.
+- **[minor, latent] C1 — `accepted` + `perItemFeedback:[{itemId:X, disliked:true}]` gives X `+1` affinity
+  and records no dislike.** The reducer's accepted branch (`reducers.py:133-136`) grants affinity and
+  `continue`s, never reading `perItemFeedback` (read only in the rejected branch, `:148-160`); the route
+  (`interactions.ts`) accepts `perItemFeedback` on any action. Unreachable from today's UI (dislikes post
+  `action:"rejected"`), so latent. → route rejects per-item dislikes on a non-rejected action, or the reducer
+  honors them.
+- **[sub-minor, noted]** cross-candidate BaseKey cooldown is a recency window, not latest-state (a just-liked
+  silhouette can stay cooled, `reducers.py:138-146`); same-millisecond latest-state relies on `_id`
+  monotonicity that isn't guaranteed across serverless instances (`reducers.py:108-127`). Both effectively
+  unreachable via the live UI; recorded, not scheduled.
+- **Verified CLEAN under attack (convergence evidence, worth stating):** feedback binding is **not
+  spoofable** — `{items,baseKey,fullSignature,occasion}` are re-derived server-side from the `{_id,user}`-
+  scoped snapshot, never client-echoed; a cross-user snapshot 404s; a candidate must be in `shownCandidateIds`
+  *and* `candidates`. **Append-only holds** (production writes are `.create()`-only, no update/delete/upsert in
+  `fitted/lib` or `mlRecommend.ts`). `mlServiceClient` is robust (non-200 never parsed as success;
+  timeout/abort/malformed-JSON all fold to `service_unavailable`). Repetition window has no off-by-one.
+
+### 4.2 Doc residuals (verified) — the bulk, and the top of the hierarchy
+- **[blocker: misleading truth] D1 — `CLAUDE.md` "Current focus" says M5 is "mid-build, C5 next / C1–C4
+  landed."** M5 is C1–C8 done. The **root of the ambition→spec→docs→code hierarchy is stale**; every session
+  bootstraps from it. → rewrite to "M5 C1–C8 done (cloud deploy deferred); next = post-M5 reset."
+- **[important] D2 — Spec §23 `H7:1230` / `H8:1231` / `H61:1284` still read "→ implement at Cn" though
+  shipped** (H61 live at `reducers.py:82-117`). → flip to IMPLEMENTED (Cn) + code cite. This is the exact
+  process failure §4.3 names.
+- **[important] D3 — `m5-cutover.md` is unmarked-completed, 2261 lines, and carries a stale precedence
+  clause** ("this plan wins until the spec rewrite lands" — the rewrite landed: spec §15 = "no runtime cache
+  — D2"). → `> COMPLETED` banner + delete the clause. **Retiring exempts it from the length standard — do
+  NOT spend a session compacting a doc nobody re-reads** (git is the archive); rehome only its ~5 forward
+  trap-guards (⚠ C5 mirror obligation, ladder-sequencing invariant) if they aren't already live in the spec.
+- **[important] D4 — Spec §23 resolved-hole rows carry review-history narrative** ("Codex read …",
+  "Fable-reviewed …"); spec is 1393/1500, near the compaction trigger. → trim past-oriented provenance
+  opportunistically while flipping D2; keep trap-guards.
+- **[minor] D5 — `post-m4-readiness.md` completed/superseded, unmarked.** → `> COMPLETED` banner.
+- **[minor, measured] D6 — 43 session notes (5082 lines) / 12 plans (7433).** Session notes are write-mostly
+  by design (leave them); completed plans already carry banners except D3/D5. → no dedicated session.
+
+### 4.3 Process root cause (Brian's real target) — proposed as CLAUDE.md edits, NOT a new doc
+Recurrence mechanism, verified in the findings above: (i) decisions recorded as "→ implement at Cn" never get
+flipped when Cn lands — no definition-of-done closes the loop (D2 is the live example); (ii) cross-layer facts
+(enums/clamps/regexes) get hand-copied into N places with no single-home-or-equality-test rule (C1/C2/C4);
+(iii) some tests reimplement logic inline (T1). **Fable's sharpening (adopted): do NOT add a 4th prose rule** —
+CLAUDE.md *already* says "conflicts are bugs / single-home" and the staleness happened anyway; prose enforced
+by discipline dies under context pressure, steps in the executed build-and-audit loop survive. Propose:
+- **P1 (the one highest-leverage change) — wire decision-status closure into the per-checkpoint
+  definition-of-done:** a checkpoint isn't done until a grep for its checkpoint/hole ID across docs returns
+  **zero forward-looking statements** ("→ implement", "Cn next"). Mechanical step, not a virtue to remember.
+- **P2 — cross-layer-fact rule that compiles to a test:** a fact that must agree across runtimes gets a
+  single generated source OR a cross-runtime equality test in the *same* checkpoint that introduces the copy.
+- **P3 — test-reality rule that compiles to a test:** a test imports and exercises the real unit; inline
+  reimplementation (a "mirror") is prohibited.
+- **General principle to write down:** rules that compile to CI-shaped artifacts survive; prose rules
+  enforced by discipline don't.
+
+### 4.4 Proposed execution order — REVISES the §3 R1–R4 arc (pending Brian's shaping)
+Fable's calibration: the campaign was sized to the alarm; the alarm's root cause ("unit-only pyramid") was
+substantially cured *during* C5–C8 (the behavioral harness + real-Mongo tests exist; fake tests replaced;
+feedback→output proven). **Collapse five sessions to two, and cut the rest:**
+- **Session A (short; do first — merge gate already satisfied):** D1 CLAUDE.md rewrite + D2 §23 status flips +
+  D4 narrative trim + D3 m5-cutover banner/clause + D5 banner + the P1–P3 process edits. Cheap, top-of-
+  hierarchy, load-bearing for everything downstream — doc-truth first.
+- **Session B:** the code/test residuals NOT already fixed in R0 (§4.6) — the **A-cluster** per-item
+  resilience (after its Fable read), **W2-4a** interactions rate limit, and the test-hardening batch (T1
+  wardrobeFilter + C1/C2/C4 equality tests + C3 full-body round-trip). The blockers (B1/B2/B3, W2-2a/2b,
+  W2-3a) + W2-1a + C1-reducer are already fixed (§4.5).
+- **CUT — R1 (standalone legibility map):** a map that lives anywhere is a new doc in disguise (violates the
+  hard constraint) and goes stale. Legibility is delivered *as* the CLAUDE.md hierarchy fix (Session A).
+- **CUT — R3 as a session:** cross-runtime facts mostly can't cheaply share a source; equality tests are the
+  correct tool and land in Session B.
+- **CUT — R4 heavy compaction:** retire `m5-cutover.md` with a banner (D3) instead of compacting it; trim §23
+  opportunistically (D4); leave the session notes.
+
+### 4.5 Fixed in this R0 session (2026-07-09) — verified + tested + reviewed
+All landed on `main` with a behavioral test and a 0-finding fresh-eyes review of the diff.
+- **B1/B2/B3 (blocker) — corpus-integrity finite guards.** `mlSnapshotValidation.ts` now rejects non-finite/
+  out-of-[0,10] `engineVisible.warmth` and non-finite `rankerScore`/`signalScore` on a breakdown-less trace
+  (`mlSnapshotValidation.test.ts` +4).
+- **W2-2a (blocker) — service type-confusion → 500.** `app.py` isinstance-guards the intent/weather/
+  clothingType/model membership checks + an overflow-safe `_exact_number` for temperature/timeout; malformed
+  types now return `400 contract_invalid` (`test_render_contract.py` parametrized, +10).
+- **W2-2b (minor) — unbounded ints.** `config.MAX_WIRE_INT` ceiling on generationIndex/wardrobeVersion/
+  interactionCountAtRequest.
+- **W2-3a (blocker-class) — LLM role↔type.** `validator.py` cross-checks GPT's assigned role against the
+  pooled item's authoritative `ItemType` (new `IssueCode.role_type_mismatch`); a hallucinated
+  {top-item, role:base_bottom} is now rejected, not persisted (`test_validator.py` +2).
+- **W2-1a (important) — parentSnapshotId case.** `mlRecommend.ts` canonicalizes it so an uppercase-hex
+  re-roll retry replays the winner instead of a wrong 409 (`mlRecommend.test.ts` +1).
+- **C1-reducer (minor) — perItemFeedback on `accepted`.** `interactions.ts` rejects it (a reject-time channel)
+  so a disliked item can't silently gain +1 affinity (`interactionsBinding.test.ts` +1).
+- **Doc-truth + process:** D1 (CLAUDE.md "Current focus" → M5 done), D2 (§23 H7/H8/H61 → IMPLEMENTED),
+  D3 (m5-cutover `> COMPLETED` banner + stale-precedence-clause delete), and the P1–P3 process rules added to
+  CLAUDE.md's build-and-audit loop (decision-status closure grep step; cross-runtime-fact-needs-a-test;
+  test-imports-the-real-unit).
+
+### 4.6 Registered (not fixed) — with disposition
+- **A-cluster (important) — DESIGN CALL, needs a Fable read.** One malformed wardrobe row still degrades the
+  whole closet (clothingType passed raw → service reject; bad warmth / scalar colors → throw in `projectWardrobe`'s
+  plain `.map`). The fix (per-item resilience: drop/skip the bad row, don't sink the batch) is a fail-loud-vs-
+  degrade trust-boundary decision, not a mechanical fix — reason from the promise + Fable-review before cutting.
+  Mitigant: a clean M4 DB makes it latent (ingestion guarantees valid clothingType/warmth).
+- **W2-4a (important) — interactions write is unbounded** (no rate limit / no dedup; own-account-only). Fix:
+  `allowRequest(userId, ~60/min)` in `postInteraction` + `__resetRateLimit()` in the binding tests' setup.
+- **W2-1b — reviewed, likely correct-as-is, NOT a bug.** A Mongo read blip → 500 is defensible; the
+  never-5xx contract is about the *Python service* path — degrading a DB outage to an empty state would render
+  a fake-empty closet. Left as-is by decision.
+- **Test-hardening (the R2 batch):** T1 (`wardrobeFilter.test.ts` fake inline-mirror → extract the pipeline +
+  import), C1/C2/C4 (cross-runtime equality tests for clamps/regexes/enums), C3 (full-body round-trip
+  assertion, not just the generator block).
+- **Minors:** W2-1c/1d (uppercase forced/control id wrong-error; missing-vs-empty occasion 400/200 split),
+  W2-3b (dotted/`$` Map-key guard, latent on hex ids), W2-4b/c/d (cookie revocation, CV MIME trust, sync 500),
+  C5 (generator timeout omit-when-None), D4 (§23 review-history trim), D5 (post-m4-readiness COMPLETED banner).
+
+**Why the campaign is worth it (the real justification):** not portfolio ROI — **trust in the process holding
+long-term.** The recurrence mechanism in §4.3 is what erodes it: every "found another one" commit is a small
+withdrawal from confidence that the ambition→spec→docs→code→tests hierarchy means what it says. Sessions A+B
+plus the P1 closure step stop the withdrawals cheaply. (Getting 3–5 friend closets toward M6 is a separate,
+independently good thing — not a substitute for, or an argument against, fixing the process.)

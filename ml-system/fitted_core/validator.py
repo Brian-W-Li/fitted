@@ -37,6 +37,7 @@ from typing import Optional, Sequence, Union
 
 from fitted_core.keys import base_key, full_signature
 from fitted_core.models import (
+    ItemType,
     IssueCode,
     SlotMap,
     StyleMove,
@@ -138,6 +139,7 @@ _SEVERITY: dict[IssueCode, Severity] = {
     IssueCode.duplicate_item_id: Severity.rejection,
     # pool membership / keys / dedup
     IssueCode.item_outside_sampled_pool: Severity.rejection,
+    IssueCode.role_type_mismatch: Severity.rejection,
     IssueCode.duplicate_full_signature: Severity.rejection,
     IssueCode.key_precondition_failed: Severity.rejection,
     # StyleMove + aggregate (warnings)
@@ -370,25 +372,38 @@ def _validate_candidate(candidate: object, index: int) -> Optional[Issue]:
     return None
 
 
-def _build_pool_index(sampled_pool: Sequence[WardrobeItem]) -> set[str]:
-    """Flatten the sampled pool to its set of item ids (flow step 2, M2 plan §8).
+def _build_pool_index(sampled_pool: Sequence[WardrobeItem]) -> dict[str, ItemType]:
+    """Index the sampled pool as ``{item id → ItemType}`` (flow step 2, M2 plan §8).
 
-    The pool is the bounded set GPT was shown; candidate ids are validated against it
-    (never the wider wardrobe). A **duplicate id** is caller-contract misuse →
-    ``ValueError`` (mirrors ``sampler.reject_duplicate_ids``): a duplicate collapses
-    the membership lookup and breaks key equality (§7/R12). A clean M1 path can never
-    produce this, so raising surfaces the upstream bug loudly instead of silently
-    mis-validating. Built up front — before the root envelope — so this caller-contract
-    violation always raises, even for a payload that would itself be rejected.
+    The pool is the bounded set GPT was shown; candidate ids are validated against its keys
+    (never the wider wardrobe), and the mapped ``ItemType`` is the authoritative type used to
+    cross-check GPT's untrusted role assignment (5.5b). A **duplicate id** is caller-contract
+    misuse → ``ValueError`` (mirrors ``sampler.reject_duplicate_ids``): a duplicate collapses
+    the membership lookup and breaks key equality (§7/R12). A clean M1 path can never produce
+    this, so raising surfaces the upstream bug loudly instead of silently mis-validating. Built
+    up front — before the root envelope — so this caller-contract violation always raises, even
+    for a payload that would itself be rejected.
     """
-    seen: set[str] = set()
+    pool: dict[str, ItemType] = {}
     for item in sampled_pool:
-        if item.id in seen:
+        if item.id in pool:
             raise ValueError(
                 f"duplicate item id {item.id!r} in sampled_pool (R12): ids must be unique"
             )
-        seen.add(item.id)
-    return seen
+        pool[item.id] = item.type
+    return pool
+
+
+# Each SlotMap slot requires a specific ItemType. GPT assigns a *role* (→ slot); the pooled item
+# carries the authoritative *type*. They must agree (5.5b) — the fixed single-valued type is the
+# engine's plumbing (H52: a context-polysemous garment carries one type at serving time).
+_SLOT_REQUIRED_TYPE: tuple[tuple[str, ItemType], ...] = (
+    ("dress", ItemType.dress),
+    ("top", ItemType.top),
+    ("bottom", ItemType.bottom),
+    ("outer", ItemType.outer_layer),
+    ("shoes", ItemType.shoes),
+)
 
 
 @dataclass(frozen=True)
@@ -404,7 +419,7 @@ class _Structure:
 
 
 def _validate_structure(
-    candidate: dict, index: int, pool_ids: set[str]
+    candidate: dict, index: int, pool: dict[str, ItemType]
 ) -> Union[Issue, _Structure]:
     """SlotMap + structural + pool validation of a schema-valid candidate (5.3–5.5).
 
@@ -428,12 +443,26 @@ def _validate_structure(
     valid, struct_code = is_valid_slotmap(slot_map)
     if not valid:
         return Issue(struct_code, index)
-    # 5.5 sampled-pool membership — every filled slot id must be in the pool. Runs
-    # after structural validity, so a structural reject always precedes a pool reject.
-    for item_id in (slot_map.dress, slot_map.top, slot_map.bottom, slot_map.outer, slot_map.shoes):
-        if item_id is not None and item_id not in pool_ids:
+    # 5.5 sampled-pool membership (a) + role↔type consistency (b). Every filled slot id must be
+    # in the pool; and the pooled item's authoritative ItemType must match the slot its
+    # GPT-assigned role placed it in. normalize_to_slotmap slots items purely by GPT's role, so
+    # without (b) a hallucinated {top-item, role:base_bottom} would validate and be surfaced +
+    # persisted as a bottom (LLM-injected corpus lie, §5). Runs after structural validity;
+    # membership precedes the type check so an out-of-pool id always reports first.
+    for slot, required_type in _SLOT_REQUIRED_TYPE:
+        item_id = getattr(slot_map, slot)
+        if item_id is None:
+            continue
+        if item_id not in pool:
             return Issue(
                 IssueCode.item_outside_sampled_pool, index, f"itemId {item_id!r} not in sampled pool"
+            )
+        if pool[item_id] != required_type:
+            return Issue(
+                IssueCode.role_type_mismatch,
+                index,
+                f"itemId {item_id!r} is a {pool[item_id].value} but its role puts it in the "
+                f"{required_type.value} slot",
             )
     return _Structure(slot_map=slot_map)
 

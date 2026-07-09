@@ -33,6 +33,40 @@ def _reject(body_overrides=None, *, body=None, expect_code="contract_invalid"):
     return status, response
 
 
+# --- malformed field TYPES must be 400 contract_invalid, never a 500 crash ----------
+# Regression for the type-confusion class: `value in <frozenset>` raises TypeError on an
+# unhashable list/dict, and `float(value)` raises OverflowError on a 400-digit int — both would
+# escape the ContractInvalid parse contract as a 500 (mislabelling a caller bug as infra).
+
+
+def _huge_int() -> int:
+    return 10**400  # arbitrary-precision int; overflows float(), far over MAX_WIRE_INT
+
+
+@pytest.mark.parametrize(
+    "make_body",
+    [
+        lambda: render_body(intent=[]),
+        lambda: render_body(intent={}),
+        lambda: render_body(lens={"weather": []}),
+        lambda: render_body(generator={"model": []}),
+        lambda: render_body(generator={"temperature": _huge_int()}),
+        lambda: render_body(generator={"timeoutSeconds": _huge_int()}),
+        # parent set → passes the lineage check, so it reaches the generationIndex max guard
+        lambda: render_body(generationIndex=_huge_int(), parentSnapshotId="65a1f0000000000000000002"),
+        lambda: render_body(wardrobeVersion=_huge_int()),
+        lambda: render_body(interactionCountAtRequest=_huge_int()),
+        lambda: render_body(wardrobe=[{**wire_item("t1", "top"), "clothingType": []}]),
+    ],
+)
+def test_malformed_field_type_is_400_contract_invalid_not_500(make_body):
+    app, stub = make_app(daily_envelope())
+    status, response = http(app, "POST", "/render", headers=AUTH, json_body=make_body())
+    assert status == 400, response
+    assert response["error"]["code"] == "contract_invalid", response
+    assert stub.call_count == 0  # pre-spend
+
+
 # --- auth (§A) ----------------------------------------------------------------------
 
 

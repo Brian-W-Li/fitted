@@ -1,14 +1,17 @@
 # M5 — Live cutover (`USE_ML_SHORTLISTER`)
 
+> COMPLETED 2026-07-08 (C1–C8; cloud Fly deploy deferred — see `docs/plans/m5-c8-half2-runbook.md`).
+> Off the default reading list; retained as the completed-M5 reference. `Fitted_Spec_v2.md` is canonical
+> and wins any conflict.
+>
 > Slug: `m5-cutover`. Owns the live GenerationSnapshot write and the wholesale replacement of the
 > legacy recommendation vertical. Decisions D1–D7 and every §-contract below are **locked**; the
 > 2026-07-06/07 review-and-hardening history lives in git, not here. `docs/plans/regen-controls.md`
-> is historical/superseded.
-> Where this plan and `Fitted_Spec_v2.md` §15/§6.7 disagree on caching/regenerate, **this plan wins**
-> until the scheduled same-commit spec rewrite lands (§C.5 / Verification).
-> **Reading list for implementation:** this doc + `docs/Fitted_Spec_v2.md` (§12/§15/§15.1/§15.2/§16/§19/
-> §20/§23) + `docs/plans/m4-data-model-migration.md` §8/§14.5 for substrate history only. On any
-> Python↔TS merge-boundary/authorship conflict, this plan's §G.1 wins for M5 live writes.
+> is historical/superseded. (The `Fitted_Spec_v2.md` §15/§6.7 no-cache/regenerate rewrite has landed —
+> the earlier "this plan wins until the rewrite lands" precedence clause is retired; the spec is canonical.)
+> **Substrate reference:** `docs/Fitted_Spec_v2.md` (§12/§15/§15.1/§15.2/§16/§19/§20/§23) +
+> `docs/plans/m4-data-model-migration.md` §8/§14.5 for substrate history. On any Python↔TS
+> merge-boundary/authorship question, this plan's §G.1 records what M5 live writes did.
 
 ## Steering bias (Brian, 2026-07-06)
 
