@@ -12,8 +12,9 @@ read by authority level, not by filename age or folder location.
 - `plans/m3-ranker.md` - completed M3 ranker plan (C1-C6); reference. See the §11 checkpoint table for per-checkpoint detail.
 - `plans/m2-validator.md` - completed M2 validator plan; reference.
 - `plans/m0-m1-substrate.md` - completed M0/M1 substrate plan; historical context.
-- `plans/regen-controls.md` - R9 regeneration-controls design note; M3 notes are superseded by
-  `plans/m3-ranker.md`, but M5 wiring still uses it for locked/contextual re-roll behavior.
+- `plans/regen-controls.md` - **historical** R9 regeneration-controls design note; superseded for M5 by
+  `plans/m5-cutover.md` (its own banner says so). Read only for the locked/contextual-dislike *concept*,
+  never for the cache/merge/re-rank mechanism (that behavior was overturned at M5).
 - Other active `plans/*.md` files only when they are the current milestone or are directly referenced by
   `Fitted_Spec_v2.md`.
 - Latest dated file in `sessions/` only when resuming recent work.

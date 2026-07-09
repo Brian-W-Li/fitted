@@ -1489,8 +1489,13 @@ legacy deletion)** per CLAUDE.md.
 > call sites. **✅ C3 COMPLETE (2026-07-07, incl. post-review hardening rounds: service-owned
 > `timeout=30s`/`max_retries=0` provenance, blank-imageUrl acceptance + the fly.toml deploy-context pin;
 > the §D assembly-failure degenerate arm + the token-cap hard ceiling/floor + the digest-pinned base image +
-> explicit service prompt-cache/readiness gates).** C4 is complete below; current suite floor is **987 pytest**
-> (`pytest tests service/tests`). Next checkpoint: **C5**.
+> explicit service prompt-cache/readiness gates).** C4 is complete below. **✅ C5 COMPLETE** (Next-side
+> integration — adapter/client/projection/snapshot write/validation + route rewrite behind
+> `USE_ML_SHORTLISTER`; commits through `c1c6cdcc`). **✅ C6 COMPLETE** (`7c469e39` — feedback gate +
+> append-only interactions + §6.5 UI contract, daily AND rescue). **✅ C7 COMPLETE** (`e48af7dc` —
+> retained-route auth + client-state trust-boundary gates; C8-prep image/email/ownership fixes in
+> `326e0d61`). Current suite floors: **≥987 pytest** (`pytest tests service/tests`) / **546 jest**. Next
+> checkpoint: **C8** (legacy retirement + live-key cutover).
 
 **Ladder sequencing invariant (trap-guard — the second-eval High finding, recalibrated for no legacy
 users):** at every checkpoint boundary the app must render **and** bind feedback end-to-end in at least
@@ -1708,7 +1713,7 @@ payload fields + serde mappings + the `candidate_cache_key()` helper landed at C
 (pins 1–3, 5) + §E. **Acceptance:** §C + §E. **Dependencies:** C1, C2
 (`REDUCER_CONFIG_VERSION` for the diagnostics record), C3.
 
-#### C5 — Next-side integration  [HEAVY AUDIT before + after]
+#### C5 — Next-side integration  [HEAVY AUDIT before + after] — ✅ DONE
 **Touches:** `fitted/app/api/recommend/route.ts` **rewritten in place** (one route; same path as the
 legacy file — flag-on → the M5 vertical, flag-off → the legacy behavior, **extracted to a clearly-named
 legacy module** (e.g. `fitted/app/api/recommend/legacy.ts`) called from the flag-off arm, so C8 commit 2
@@ -1745,7 +1750,7 @@ carry `requestId` + every §G.1 echo-through field** (the idempotency index is d
 `tsc --noEmit` + `eslint` clean on touched.
 **Dependencies:** C3, C4, C2.
 
-#### C6 — Feedback gate + append-only interactions + UI contract cutover, **daily AND rescue** (Next)
+#### C6 — Feedback gate + append-only interactions + UI contract cutover, **daily AND rescue** (Next) — ✅ DONE
 **Touches:** `fitted/app/api/interactions/route.ts` (gate + PATCH/DELETE removal + Gemini write-back
 removal), `fitted/models/OutfitInteraction.ts` (`feedbackReason` schema addition; binding fields already exist),
 **`dashboard/page.tsx` + `history/page.tsx` (the UI rewrite — moved here from C8 per the ladder
@@ -1795,7 +1800,7 @@ every surfaced outfit shows the forced item, a rescue re-roll writes a lineaged 
 legacy-shaped response branch and no `itemIds`-bound POST path remain**; history is append-only with no
 PATCH/DELETE call sites (grep + jest). **Dependencies:** C5 (needs live snapshots to bind against).
 
-#### C7 — Close remaining §19 gates (Next)
+#### C7 — Close remaining §19 gates (Next) — ✅ DONE
 **Touches:** `account/route.ts`, `auth/sync/route.ts`, `images/[imageId]/route.ts`, `cv/infer/route.ts`, the
 new recommend route (H59/H60), `dashboard/page.tsx`, `wardrobe/page.tsx`, `(app)/RedirectIfAuthenticated.tsx`,
 `signin/page.tsx`. **Deliverables:** §I retained-route auth + route-rewrite guards + remaining client-side

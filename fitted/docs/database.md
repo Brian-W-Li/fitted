@@ -35,11 +35,11 @@ Indexes:
 - Scope: required `user` plus `items` array of wardrobe item ids.
 - Action: `action` enum (`generated`, `accepted`, `rejected`, `saved`, `worn`, `rated`, `planned`, `packed`, `corrected`), optional `rating`/`feedback`.
 - Context: weather, temp, location, occasion, notes.
-- Feedback: optional `inferredWhy`, per-item feedback, and the M4 nullable snapshot-binding fields (`snapshotId`, `candidateId`, `baseKey`, `fullSignature`).
+- Feedback: per-item feedback, the M5 structured "why" (`feedbackReason`: closed `codes` from `FEEDBACK_REASON_CODES` + bounded `rawText`), and the M4 nullable snapshot-binding fields (`snapshotId`, `candidateId`, `baseKey`, `fullSignature`). (`inferredWhy` is a dormant legacy column — its Gemini write-back was removed at M5; do not treat it as populated.)
 - Learning scope: optional `scopeTarget` and `learningDisposition`; behavior is wired later.
 
 Indexes:
-- `{ user: 1, createdAt: -1 }` — timelines per user.
+- `{ user: 1, createdAt: -1, _id: -1 }` — timelines per user; the `_id` tie-break makes same-millisecond feedback ordering deterministic (load-bearing for the §H reducer's most-recent-first scan).
 - `{ user: 1, items: 1 }` — quickly aggregate feedback for an item set.
 - `{ snapshotId: 1, candidateId: 1 }` — snapshot-bound feedback joins.
 
