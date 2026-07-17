@@ -12,8 +12,10 @@ Request lifecycle for ``POST /render`` (each stage ordered before any OpenAI spe
   2. **rate ceiling** — per-instance token bucket (§A) → 429 envelope.
   3. **body cap** — ``MAX_REQUEST_BODY_BYTES`` at the ASGI read loop (G7).
   4. **parse + depth cap** — malformed / too-deep JSON is a caller bug → ``contract_invalid``.
-  5. **validation** (§A/G7/§D) — clamps, closed vocabularies, generator exact-match, the
-     rescue forced-item pre-spend check, duplicate-id rejection, ``RenderRequest`` guards.
+  5. **validation** (§A/G7/§D) — clamps, closed vocabularies, UTF-8 well-formedness (an
+     unpaired surrogate is a caller bug, never a downstream encode crash), generator
+     exact-match, the rescue forced-item pre-spend check, duplicate-id rejection,
+     ``RenderRequest`` guards.
      Any failure → ``contract_invalid``, **no payload, no snapshot** (§D corpus purity).
   6. **reducers** — the §H reducers run HERE (they are Python), over the raw
      ``behavioralRows`` Next fetched; their output feeds both sampler + ranker seams. The
@@ -198,6 +200,19 @@ def _require_keys(
         raise ContractInvalid(f"{where} has unknown field(s): {sorted(unknown)}")
 
 
+def _require_utf8(value: str, name: str) -> None:
+    """Reject a string that is not UTF-8-encodable (an unpaired surrogate — the only way a Python
+    str fails UTF-8). ``json.loads`` accepts the ``"\\ud83d"`` escape, but such text is not valid
+    Unicode (I-JSON forbids it) and would raise ``UnicodeEncodeError`` downstream — in
+    ``candidate_cache_key`` (outside the §D guard → a bare 500 losing the row) or the OpenAI SDK's
+    request encode (a poisoned item name turning every render into a failure row). A caller bug,
+    rejected pre-spend. The message never echoes the value (field name only)."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ContractInvalid(f"{name} contains an unpaired surrogate (not valid UTF-8 text)") from None
+
+
 def _string(value: Any, name: str, *, max_chars: int, allow_blank: bool = False) -> str:
     if not isinstance(value, str):
         raise ContractInvalid(f"{name} must be a string")
@@ -206,6 +221,7 @@ def _string(value: Any, name: str, *, max_chars: int, allow_blank: bool = False)
         raise ContractInvalid(f"{name} must be a non-blank string")
     if len(value) > max_chars:
         raise ContractInvalid(f"{name} exceeds {max_chars} characters")
+    _require_utf8(value, name)
     return value
 
 
@@ -225,6 +241,7 @@ def _optional_string(value: Any, name: str, *, max_chars: int) -> Optional[str]:
         raise ContractInvalid(f"{name} must be a string or null")
     if len(value) > max_chars:
         raise ContractInvalid(f"{name} exceeds {max_chars} characters")
+    _require_utf8(value, name)
     return value
 
 
@@ -265,6 +282,7 @@ def _string_list(value: Any, name: str, *, max_items: int, max_chars: int) -> li
             raise ContractInvalid(f"{name} entries must be non-blank strings")
         if len(element) > max_chars:
             raise ContractInvalid(f"{name} entries exceed {max_chars} characters")
+        _require_utf8(element, f"{name} entries")
         out.append(element)
     return out
 
@@ -815,8 +833,9 @@ class FittedService:
             # An internal engine failure on a VALID request (§D): degrade to a schema-valid
             # payload with EMPTY attempts + diagnostics.engineFailure — never a 500 that
             # drops the failure corpus, never a fabricated attempt. The stage split rides
-            # the call counter (a mid-trace generator exception loses the in-flight attempt's
-            # raw text — the known §D micro-gap — but is still recorded via engineFailure).
+            # the call counter (a mid-trace generator exception loses the trace's attempt
+            # raw text — including a COMPLETED first attempt when the repair call raises —
+            # the known §D micro-gap — but is still recorded via engineFailure).
             calls = generator.calls if generator is not None else 0
             failure = EngineFailure(
                 stage="pre_generation" if calls == 0 else "unknown",

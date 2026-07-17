@@ -28,6 +28,10 @@ from fitted_core.generation import (
     RESPONSE_FORMAT_JSON_SCHEMA_STRICT,
 )
 
+# Re-export (single home: fitted_core/snapshot.py) so the cross-runtime clamp mirror can pin the
+# TS model's hand copy (GenerationSnapshot.ts maxlength) to the live Python value via contract.py.
+from fitted_core.snapshot import ENGINE_FAILURE_MESSAGE_MAX_CHARS as ENGINE_FAILURE_MESSAGE_MAX_CHARS
+
 # --- Generator config (§A.6 / D6 — service-owned, never wire-controlled) ---------------
 GENERATOR_PROVIDER = "openai"
 GENERATOR_MODEL_ALLOWLIST = frozenset({"gpt-5.4-mini"})

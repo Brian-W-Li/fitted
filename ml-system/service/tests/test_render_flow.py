@@ -605,6 +605,36 @@ def test_mid_generation_exception_records_the_true_generator_call_count():
     assert parse["parseSuccess"] is False
 
 
+class RepairCallRaisingGenerator:
+    """Call 1 returns unparseable text (triggers the §12 repair); call 2 raises mid-flight."""
+
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def generate(self, prompt) -> str:
+        self.call_count += 1
+        if self.call_count == 1:
+            return "{ not json"
+        raise RuntimeError("boom on the repair call")
+
+
+def test_exception_on_the_repair_call_records_both_paid_calls():
+    # The other half of the §D micro-gap: a raise on call 2 loses the COMPLETED first
+    # attempt's raw text too (the attempts list lives in the raised-away frame), but the
+    # spend count must still say 2 and mark the repair as used — never a false 1 or 0.
+    generator = RepairCallRaisingGenerator()
+    status, body, _ = _render(render_body(), generator=generator)
+    assert status == 200
+    assert generator.call_count == 2
+    payload = body["payload"]
+    assert payload["generationAttempts"] == []  # both raw texts lost — the documented gap
+    assert payload["diagnostics"]["engineFailure"]["stage"] == "unknown"
+    parse = body["payload"]["diagnostics"]["parse"]
+    assert parse["generatorCalls"] == 2
+    assert parse["repairUsed"] is True
+    assert parse["parseSuccess"] is False
+
+
 def test_no_image_wardrobe_items_render_fine():
     # Integration fact, not a hypothetical: the deployed WardrobeItem model does NOT require
     # an image (imageUrl/imagePath both optional, WardrobeItem.ts), and spec §15.2 pins the

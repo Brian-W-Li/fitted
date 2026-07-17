@@ -39,7 +39,9 @@ import { OBJECT_ID_RE } from "@/lib/formats";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
-const ALLOWED_ACTIONS = new Set(["accepted", "rejected"]);
+// The live feedback vocabulary — pinned to contract_fields.json crossRuntime.enums.interactionAction
+// (derived from the Python reducers' COUNTED_ACTIONS ∪ REJECTED_ACTION) by crossRuntimeContract.test.ts.
+export const ALLOWED_ACTIONS = new Set(["accepted", "rejected"]);
 export const MAX_PER_ITEM_FEEDBACK = 20; // §A clamp table (mirror of config.MAX_PER_ITEM_FEEDBACK)
 const NOTES_MAX_CHARS = FEEDBACK_REASON_RAW_TEXT_MAX_CHARS; // 500 — same route cap
 const HISTORY_LIMIT = 50;

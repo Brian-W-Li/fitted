@@ -183,6 +183,17 @@ function isStringArrayOrNil(v: unknown): v is string[] | undefined {
   return v == null || Array.isArray(v);
 }
 
+/** Truncate without minting a lone surrogate: `slice(0, max)` can split an astral pair exactly at
+ *  the boundary, and the service rejects non-UTF-8-encodable text (an unpaired surrogate) for the
+ *  WHOLE render — so a well-formed stored name must never project to an ill-formed wire name. Only
+ *  a trailing HIGH surrogate can be minted this way (pairs are high-then-low and only the tail is
+ *  cut); dropping that one code unit is still truncation, never substitution (no U+FFFD). */
+function sliceSurrogateSafe(s: string, max: number): string {
+  const cut = s.slice(0, max);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+}
+
 /** Project ONE wardrobe row, or report it as a per-item drop. A per-garment fault (bad/absent id,
  *  non-string/blank name, out-of-range warmth, a clothingType outside the 5-value set, a scalar
  *  tag container) means the row is unusable — the render is still well-defined without it, so it is
@@ -220,7 +231,7 @@ function tryProjectWardrobeItem(
       // Cap the name to the service limit (⚠ mirror obligation — an over-long name would reject the
       // whole render). The untrimmed/untruncated original is preserved verbatim in the snapshot's
       // evidence{} block server-side (§15.1); engineVisible carries the bounded projection.
-      name: name.length > MAX_ITEM_NAME_CHARS ? name.slice(0, MAX_ITEM_NAME_CHARS) : name,
+      name: name.length > MAX_ITEM_NAME_CHARS ? sliceSurrogateSafe(name, MAX_ITEM_NAME_CHARS) : name,
       clothingType: item.clothingType,
       warmth: item.warmth,
       colorTags: sanitizeTags(item.colors),

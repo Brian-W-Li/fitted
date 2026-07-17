@@ -372,3 +372,136 @@ def test_rejected_caps_cooldown_and_disliked_item_windows():
     assert len(signals.recent_disliked_item_ids) == config.DISLIKE_WINDOW_SIZE
     assert signals.recent_disliked_base_keys[0] == "base-0"
     assert signals.recent_disliked_item_ids[0] == "i0"
+
+
+# --- messy-row guard branches (Lane H hardening) -----------------------------------------
+# The wire parser treats behavioralRows rows as OPAQUE dicts, so every shape below can reach
+# the reducers from the live wire. Each guard existed but was untested — a mutant deleting it
+# passed the whole suite while silently corrupting signals.
+
+
+def test_non_dict_per_item_feedback_entries_are_skipped_not_crashed():
+    rows = [
+        {
+            "snapshotId": "s1",
+            "candidateId": "c1",
+            "action": "rejected",
+            "createdAt": _ts(10),
+            "baseKey": "base-1",
+            "perItemFeedback": ["not-a-dict", 42, None, {"itemId": "keep", "disliked": True}],
+        },
+        {
+            "snapshotId": "s2",
+            "candidateId": "c2",
+            "action": "rejected",
+            "createdAt": _ts(9),
+            "baseKey": "base-2",
+            "perItemFeedback": "a-scalar-not-a-list",  # str is Sequence — must NOT iterate chars
+        },
+    ]
+
+    signals = reduce_interaction_rows(rows)
+
+    assert signals.recent_disliked_item_ids == ("keep",)
+    assert signals.recent_disliked_base_keys == ("base-1", "base-2")
+
+
+def test_non_int_n_surfaced_rows_are_skipped():
+    def row(n_surfaced):
+        return {"nSurfaced": n_surfaced, "shownFullSignatures": ["poison"]}
+
+    for bad in (True, 2.5, "3", None, [3]):
+        assert reduce_snapshot_rows([row(bad)]) == (), bad
+    assert reduce_snapshot_rows([row(1)]) == ("poison",)
+
+
+def test_bound_row_with_missing_or_blank_action_is_skipped_and_does_not_occupy_the_slot():
+    rows = [
+        # Newest row for c1: bound but action missing — must NOT supersede the older like.
+        {"snapshotId": "s1", "candidateId": "c1", "createdAt": _ts(10), "items": ["x"]},
+        {"snapshotId": "s1", "candidateId": "c1", "action": "   ", "createdAt": _ts(9), "items": ["x"]},
+        {
+            "snapshotId": "s1",
+            "candidateId": "c1",
+            "action": "accepted",
+            "createdAt": _ts(8),
+            "items": ["t1"],
+            "fullSignature": "sig-1",
+        },
+    ]
+
+    signals = reduce_interaction_rows(rows)
+
+    assert signals.item_affinity == {"t1": 1}
+    assert signals.liked_full_signatures == frozenset({"sig-1"})
+
+
+def test_non_string_entries_in_items_and_signatures_are_dropped():
+    rows = [
+        {
+            "snapshotId": "s1",
+            "candidateId": "c1",
+            "action": "accepted",
+            "createdAt": _ts(10),
+            "items": [1, None, "", "  ", "t1", ["nested"]],
+            "fullSignature": "sig-1",
+        },
+        {
+            # items as a scalar string — must NOT count each character as an item id.
+            "snapshotId": "s2",
+            "candidateId": "c2",
+            "action": "accepted",
+            "createdAt": _ts(9),
+            "items": "abc",
+        },
+    ]
+
+    signals = reduce_interaction_rows(rows)
+    assert signals.item_affinity == {"t1": 1}
+
+    shown = reduce_snapshot_rows(
+        [{"nSurfaced": 2, "shownFullSignatures": [7, None, "sig-a", ""]}]
+    )
+    assert shown == ("sig-a",)
+
+
+def test_non_string_snapshot_or_candidate_id_is_unbound():
+    rows = [
+        {"snapshotId": 123, "candidateId": "c1", "action": "accepted", "createdAt": _ts(10), "items": ["poison"]},
+        {"snapshotId": "s1", "candidateId": 5, "action": "accepted", "createdAt": _ts(9), "items": ["poison"]},
+    ]
+    assert reduce_interaction_rows(rows).item_affinity == {}
+
+
+def test_affinity_scorer_drops_non_string_and_empty_keys():
+    scorer = AffinitySignalScorer({"good": 2, "": 5, 7: 3, None: 4})  # type: ignore[dict-item]
+    item = WardrobeItem(
+        id="good", name="n", type=ItemType.top, warmth=5, image_url="",
+        style_tags=[], color_tags=[], occasion_tags=[],
+    )
+    context = RequestContext(occasion="casual", weather="mild", session_id="s", wardrobe_version=1)
+    assert scorer.is_available() is True
+    assert scorer.score(item, context) == 2.0
+
+
+def test_reducing_the_same_rows_twice_is_deterministic():
+    rows = [
+        {
+            "snapshotId": f"s{i}",
+            "candidateId": f"c{i}",
+            "action": "accepted" if i % 2 else "rejected",
+            "createdAt": _ts(100 - i),
+            "items": [f"i{i}", "shared"],
+            "fullSignature": f"sig-{i}",
+            "baseKey": f"base-{i}",
+            "perItemFeedback": [{"itemId": f"d{i}", "disliked": True}],
+        }
+        for i in range(20)
+    ]
+    snapshots = [{"nSurfaced": 1, "shownFullSignatures": [f"shown-{i}"]} for i in range(10)]
+
+    first = reduce_behavioral_signals(rows, snapshots)
+    second = reduce_behavioral_signals([dict(r) for r in rows], list(snapshots))
+
+    assert first == second
+    assert tuple(first.item_affinity.items()) == tuple(second.item_affinity.items())

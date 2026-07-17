@@ -2,6 +2,7 @@
   "crossRuntime": {
     "_comment": "Values/behaviors hand-mirrored across the Next app (TS/Mongoose) and this service (Python). This file is the single source; a TS test and a Python test each assert their runtime matches these, so a one-sided edit reddens a suite instead of drifting silently (post-m5-reset \u00a74.1 C1/C2/C4).",
     "clamps": {
+      "ENGINE_FAILURE_MESSAGE_MAX_CHARS": 300,
       "FEEDBACK_REASON_RAW_TEXT_MAX_CHARS": 500,
       "MAX_CONTROL_IDS": 50,
       "MAX_IMAGE_URL_CHARS": 2048,
@@ -25,6 +26,10 @@
       "intent": [
         "daily",
         "rescue_item"
+      ],
+      "interactionAction": [
+        "accepted",
+        "rejected"
       ],
       "weather": [
         "cold",

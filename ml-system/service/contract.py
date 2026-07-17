@@ -36,6 +36,7 @@ See ``docs/plans/m5-cutover.md`` §"Wire contract".
 from __future__ import annotations
 
 from fitted_core.models import ItemType, Role, Template
+from fitted_core.reducers import COUNTED_ACTIONS, REJECTED_ACTION
 from fitted_core.response import OptionPath, Risk
 from fitted_core.snapshot import CANDIDATE_STAGES, ENGINE_FAILURE_CODES, ENGINE_FAILURE_STAGES
 from service import config as cfg
@@ -178,6 +179,9 @@ CROSS_RUNTIME_CLAMPS: dict[str, int] = {
     "MAX_IMAGE_URL_CHARS": cfg.MAX_IMAGE_URL_CHARS,
     "MAX_PER_ITEM_FEEDBACK": cfg.MAX_PER_ITEM_FEEDBACK,
     "FEEDBACK_REASON_RAW_TEXT_MAX_CHARS": cfg.FEEDBACK_REASON_RAW_TEXT_MAX_CHARS,
+    # Single home fitted_core/snapshot.py (re-exported via config); the TS model's maxlength +
+    # validation helper re-declare it (GenerationSnapshot.ts ENGINE_FAILURE_MESSAGE_MAX_CHARS).
+    "ENGINE_FAILURE_MESSAGE_MAX_CHARS": cfg.ENGINE_FAILURE_MESSAGE_MAX_CHARS,
 }
 
 # Clamps the SERVICE alone enforces — intentionally NOT mirrored Next-side (documented so the
@@ -204,6 +208,12 @@ CROSS_RUNTIME_ENUMS: dict[str, list[str]] = {
     "weather": sorted(cfg.WEATHER_BUCKETS),
     "intent": sorted(cfg.SUPPORTED_INTENTS),
     "clothingType": sorted(t.value for t in ItemType),
+    # The live feedback vocabulary — three hand copies exist (the Next route allowlist
+    # lib/interactions.ts ALLOWED_ACTIONS, the OutfitInteraction Mongoose enum, and the reducers'
+    # COUNTED_ACTIONS/REJECTED_ACTION). Derived here from the reducers (the consumer); the TS test
+    # pins the route allowlist EQUAL and the Mongoose enum a SUPERSET (planned/packed are [STAGED]
+    # scaffolding the route never emits and the reducers deliberately treat as neutral).
+    "interactionAction": sorted(COUNTED_ACTIONS | {REJECTED_ACTION}),
 }
 
 # Candidate/role vocab that ONLY the GenerationSnapshot Mongoose schema re-declares — no adapter/config

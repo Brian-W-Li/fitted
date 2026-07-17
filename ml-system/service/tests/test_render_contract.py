@@ -821,3 +821,43 @@ def test_declared_row_reads_drive_live_signals():
     assert signals.recent_disliked_base_keys == ("bk-1",)         # baseKey + action
     assert signals.recent_disliked_item_ids == ("it3",)           # perItemFeedback → itemId/disliked
     assert shown == ("shown-1",)                                   # nSurfaced gate + shownFullSignatures
+
+
+# --- UTF-8 well-formedness (G7) — an unpaired surrogate is a caller bug, never a 500 -----
+# json.loads happily parses the "\ud83d" escape into a str that raises UnicodeEncodeError on
+# .encode("utf-8"). Unguarded, that crashed candidate_cache_key OUTSIDE the §D guard (a bare
+# 500 losing the row — confirmed live over HTTP pre-fix), and a poisoned item name would blow
+# up inside the OpenAI SDK's request encode on every render. Rejected pre-spend at the string
+# boundary; a WELL-FORMED astral pair (real emoji) must keep passing.
+
+_LONE_SURROGATE = "\ud83d"  # a high surrogate with no low half
+
+
+@pytest.mark.parametrize(
+    "make_body",
+    [
+        lambda: render_body(sessionId=f"sess {_LONE_SURROGATE}"),
+        lambda: render_body(lens={"occasion": f"brunch {_LONE_SURROGATE}"}),
+        lambda: render_body(lens={"weatherRaw": f"72F {_LONE_SURROGATE}"}),
+        lambda: render_body(lens={"location": f"SB {_LONE_SURROGATE}"}),
+        lambda: render_body(wardrobe=[wire_item("t1", "top", name=f"tee {_LONE_SURROGATE}")]),
+        lambda: render_body(wardrobe=[wire_item("t1", "top", colorTags=[f"navy {_LONE_SURROGATE}"])]),
+        lambda: render_body(wardrobe=[wire_item("t1", "top", material=f"wool {_LONE_SURROGATE}")]),
+    ],
+)
+def test_unpaired_surrogate_in_any_wire_string_is_400_not_500(make_body):
+    app, stub = make_app(daily_envelope())
+    status, response = http(app, "POST", "/render", headers=AUTH, json_body=make_body())
+    assert status == 400, response
+    assert response["error"]["code"] == "contract_invalid", response
+    assert _LONE_SURROGATE not in response["error"]["message"]  # never echo the value
+    assert stub.call_count == 0  # pre-spend
+
+
+def test_well_formed_astral_text_still_renders():
+    # A real emoji (a proper surrogate PAIR in JSON escapes) is legitimate text end-to-end.
+    app, stub = make_app(daily_envelope())
+    body = render_body(lens={"occasion": "beach day \U0001F60E"})
+    status, response = http(app, "POST", "/render", headers=AUTH, json_body=body)
+    assert status == 200, response
+    assert stub.call_count >= 1

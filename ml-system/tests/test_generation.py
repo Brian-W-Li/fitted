@@ -138,6 +138,12 @@ def test_openai_generator_sends_m5_defaults_and_max_completion_tokens(monkeypatc
     assert captured["temperature"] == 0.5
     assert captured["max_completion_tokens"] == 512
     assert "max_tokens" not in captured
+    # The prompt halves land as the two-message system/user array — a swapped role or a
+    # dropped system message is a silent prompt corruption no other assertion would catch.
+    assert captured["messages"] == [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u"},
+    ]
     assert generator.last_usage == {
         "prompt_tokens": 1,
         "completion_tokens": 2,

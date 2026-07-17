@@ -214,6 +214,16 @@ describe("item map (§15.2) + control caps", () => {
     expect(projectOne({ ...sampleItem, name: "n".repeat(250) }).name).toHaveLength(200);
   });
 
+  it("never mints a lone surrogate when the name cap splits an astral pair (⚠ service rejects ill-formed text)", () => {
+    // 199 BMP chars + an emoji (a surrogate PAIR straddling index 200): a bare slice(0, 200) keeps
+    // only the high half — ill-formed UTF-16 the service now 400s for the whole render. The safe
+    // slice drops that trailing high surrogate (still truncation, never a U+FFFD substitution).
+    const name = "n".repeat(199) + "😎" + "tail";
+    const projected = projectOne({ ...sampleItem, name }).name;
+    expect(projected).toBe("n".repeat(199)); // the split pair's high half is dropped
+    expect(projected.isWellFormed()).toBe(true);
+  });
+
   // --- A-cluster: per-item resilience. A malformed row is DROPPED (with a reason), not fatal, so
   // one corrupt garment never costs the user their whole closet. Coercion is prohibited (it would
   // fabricate signal the immutable M6 corpus trains on) — sanitize removes noise, never invents it.

@@ -27,11 +27,11 @@ import {
   WEATHER_BUCKETS,
   SUPPORTED_INTENTS,
 } from "@/lib/mlRequestAdapter";
-import { MAX_PER_ITEM_FEEDBACK } from "@/lib/interactions";
-import { FEEDBACK_REASON_RAW_TEXT_MAX_CHARS } from "@/models/OutfitInteraction";
+import { ALLOWED_ACTIONS, MAX_PER_ITEM_FEEDBACK } from "@/lib/interactions";
+import OutfitInteraction, { FEEDBACK_REASON_RAW_TEXT_MAX_CHARS } from "@/models/OutfitInteraction";
 import { CLOTHING_TYPES } from "@/lib/clothingType";
 import { OBJECT_ID_RE, SEED_DATE_RE, isValidRequestId } from "@/lib/formats";
-import GenerationSnapshot from "@/models/GenerationSnapshot";
+import GenerationSnapshot, { ENGINE_FAILURE_MESSAGE_MAX_CHARS } from "@/models/GenerationSnapshot";
 
 interface FormatVector {
   valid: string[];
@@ -82,12 +82,16 @@ const TS_CLAMPS: Record<string, number> = {
   MAX_IMAGE_URL_CHARS,
   MAX_PER_ITEM_FEEDBACK,
   FEEDBACK_REASON_RAW_TEXT_MAX_CHARS,
+  ENGINE_FAILURE_MESSAGE_MAX_CHARS,
 };
 
 const TS_ENUMS: Record<string, readonly string[]> = {
   weather: WEATHER_BUCKETS,
   intent: SUPPORTED_INTENTS,
   clothingType: CLOTHING_TYPES,
+  // The live feedback vocabulary the route allowlist gates on — the Python reducers derive the
+  // mirror from COUNTED_ACTIONS ∪ REJECTED_ACTION, so a one-sided action change reddens a suite.
+  interactionAction: [...ALLOWED_ACTIONS],
 };
 
 const TS_FORMATS: Record<string, (s: string) => boolean> = {
@@ -129,6 +133,19 @@ describe("cross-runtime enums (TS == contract_fields.json crossRuntime.enums)", 
     // clothingType schema enums import CLOTHING_TYPES (no separate literal), so pinning CLOTHING_TYPES
     // to the mirror (above) transitively pins the schemas — assert the source really is CLOTHING_TYPES.
     expect([...CLOTHING_TYPES].sort()).toEqual([...enums.clothingType].sort());
+  });
+
+  // The Mongoose OutfitInteraction.action enum is a deliberate SUPERSET of the live vocabulary:
+  // planned/packed are [STAGED] board/routine scaffolding the route never emits and the Python
+  // reducers treat as neutral. The live set must stay writable — a member dropped from the schema
+  // would write-reject real feedback while the route/reducers still accept it.
+  it("OutfitInteraction.action schema enum ⊇ the mirrored live vocabulary", () => {
+    const schemaActions =
+      (OutfitInteraction.schema.path("action") as { enumValues?: string[] }).enumValues ?? [];
+    expect(schemaActions.length).toBeGreaterThan(0); // guard a wrong path yielding []
+    for (const action of enums.interactionAction) {
+      expect(schemaActions).toContain(action);
+    }
   });
 });
 
