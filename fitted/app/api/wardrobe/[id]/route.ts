@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import { normalizeClothingType } from "@/lib/clothingType";
+import { deriveClothingType, normalizeClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
 import { validateWardrobePatchPayload } from "@/lib/wardrobeRequestValidation";
 
@@ -98,6 +98,31 @@ export async function PATCH(
           category: (update.category as string) ?? existing.category,
           subCategory: (update.subCategory as string) ?? existing.subCategory,
           seasons: (update.seasons as string[]) ?? existing.seasons,
+        });
+      }
+    }
+
+    // clothingType (§10.3): the same staleness rule as warmth — stored, NOT read-time-derived, and
+    // it decides which outfit SLOT the item occupies, so a corrected Category/Type dropdown must
+    // re-derive it or the item is offered in the wrong slot forever (the edit form never sends
+    // clothingType). Driving fields are the STRUCTURED taxonomy inputs only (category/subCategory/
+    // layerRole) — deliberately NOT `name`: a bare rename must never clobber an explicitly-set
+    // clothingType (the W-track correction path; pinned by the edit-ingestion test). An explicit
+    // valid clothingType in the body (normalized above) still wins outright.
+    const typeDrivingFieldsChanged = ["category", "subCategory", "layerRole"].some(
+      (f) => f in update,
+    );
+    if (typeof update.clothingType !== "string" && typeDrivingFieldsChanged) {
+      const existing = await WardrobeItem.findOne({ _id: itemId, user: userId })
+        .select("name category subCategory layerRole")
+        .lean<{ name?: string; category?: string; subCategory?: string; layerRole?: string }>()
+        .exec();
+      if (existing) {
+        update.clothingType = deriveClothingType({
+          name: (update.name as string) ?? existing.name,
+          category: (update.category as string) ?? existing.category,
+          subCategory: (update.subCategory as string) ?? existing.subCategory,
+          layerRole: (update.layerRole as string) ?? existing.layerRole,
         });
       }
     }

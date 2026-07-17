@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebaseClient";
+import { clearSessionCookie } from "@/lib/sessionCookie";
 
 type AccountUser = {
   id: string;
@@ -34,6 +35,44 @@ export default function AccountPage() {
   const [ratingScore10Input, setRatingScore10Input] = useState<number>(0);
   const [feedbackCommentInput, setFeedbackCommentInput] = useState("");
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  /** The friend-facing data-deletion promise: wardrobe/photos/feedback are hard-deleted, snapshots
+   *  redacted, and the Google sign-in binding removed (DELETE /api/account). Irreversible. */
+  async function deleteAccount() {
+    const fbUser = auth.currentUser;
+    if (!fbUser || deleting) return;
+    if (
+      !confirm(
+        "Delete your account and ALL your data (closet, photos, outfit history, feedback)? This cannot be undone.",
+      )
+    )
+      return;
+    if (!confirm("Really delete everything? There is no recovery.")) return;
+    try {
+      setDeleting(true);
+      setError(null);
+      const token = await fbUser.getIdToken();
+      const res = await fetch("/api/account", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Failed to delete account. Please try again.");
+        setDeleting(false);
+        return;
+      }
+      await clearSessionCookie();
+      await signOut(auth).catch(() => {});
+      // Full navigation (not router.push) so every uid-keyed client state is flushed with the page.
+      window.location.href = "/";
+    } catch (e) {
+      console.error("Error deleting account:", e);
+      setError("Failed to delete account. Please try again.");
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
@@ -382,6 +421,22 @@ export default function AccountPage() {
               </button>
               {feedbackMessage && <p className="text-sm text-emerald-700">{feedbackMessage}</p>}
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-red-200 bg-red-50/40 p-5">
+            <h2 className="text-sm font-semibold text-red-800">Delete account</h2>
+            <p className="mt-1 text-sm text-red-700/80">
+              Permanently deletes your closet, photos, outfit history, and feedback, and removes
+              your sign-in. This cannot be undone.
+            </p>
+            <button
+              type="button"
+              onClick={deleteAccount}
+              disabled={deleting}
+              className="mt-3 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting ? "Deleting…" : "Delete my account"}
+            </button>
           </div>
         </div>
       )}

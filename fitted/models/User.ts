@@ -1,4 +1,4 @@
-import { Schema, model, models, type InferSchemaType } from "mongoose";
+import { Schema, Types, model, models, type InferSchemaType } from "mongoose";
 
 const UserSchema = new Schema(
   {
@@ -37,9 +37,18 @@ type CascadeDb = {
  * W-track (§14.4-H14).
  */
 export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Promise<void> {
-  await db.collection("wardrobeitems").deleteMany({ user: userId });
-  await db.collection("outfitinteractions").deleteMany({ user: userId });
-  await db.collection("wardrobeimages").deleteMany({ user: userId });
+  // These deleteMany calls hit the NATIVE driver collections (`this.model.db`), which perform NO
+  // Mongoose casting — a hex-string user id (the API routes' representation, sanctioned by
+  // `deleteUserWithData`'s `UserId = ObjectId | string` type) would match zero ObjectId-typed
+  // `user` fields and the cascade would silently delete nothing (caught by the DELETE /api/account
+  // behavioral test). Cast at this single choke point.
+  const id =
+    typeof userId === "string" && /^[0-9a-fA-F]{24}$/.test(userId)
+      ? new Types.ObjectId(userId)
+      : userId;
+  await db.collection("wardrobeitems").deleteMany({ user: id });
+  await db.collection("outfitinteractions").deleteMany({ user: id });
+  await db.collection("wardrobeimages").deleteMany({ user: id });
 }
 
 /**

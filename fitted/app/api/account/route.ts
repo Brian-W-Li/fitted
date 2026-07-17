@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { initDatabase } from "@/lib/db";
+import { deleteUserWithData, initDatabase } from "@/lib/db";
 import { verifyFirebaseUser } from "@/lib/apiAuth";
+import { adminAuth } from "@/lib/firebaseAdmin";
 
 function parseAge(value: unknown): number | null {
   if (value === "" || value === null || value === undefined) return null;
@@ -212,5 +213,55 @@ export async function PATCH(request: NextRequest) {
   } catch (error) {
     console.error("Error updating account:", error);
     return NextResponse.json({ error: "Failed to update account" }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/account — the user-facing data-deletion promise (§14.4 / §23-H43).
+ *
+ * Order is deliberate:
+ *   1. REDACT the user's GenerationSnapshots — the H43 seam (`redacted`/`redactedAt`/
+ *      `redactionReason` are the ONLY post-insert-mutable fields; the immutability guard enforces
+ *      it). Training-truth rows stay, marked; full PII-nulling is the Privacy milestone's.
+ *   2. Hard-delete the User row — the pre-delete hook cascade-deletes wardrobe items,
+ *      interactions, AND images (models/User.ts).
+ *   3. Delete the Firebase Auth account so the Google binding is gone too. A failure here (after
+ *      the Mongo data is already gone) is logged, not fatal — the orphaned auth account would just
+ *      re-create a fresh empty user on a future sign-in.
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    // §I gate — identity comes ONLY from the verified Firebase token.
+    const auth = await verifyFirebaseUser(request);
+    if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+    const { User, GenerationSnapshot } = await initDatabase();
+    const user = (await User.findById(auth.userId).select("authId").lean()) as {
+      authId?: string;
+    } | null;
+    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+    await GenerationSnapshot.updateMany(
+      { user: auth.userId, redacted: { $ne: true } },
+      { $set: { redacted: true, redactedAt: new Date(), redactionReason: "account_deleted" } },
+    );
+
+    const deleted = await deleteUserWithData(auth.userId);
+    if (!deleted) {
+      return NextResponse.json({ error: "Failed to delete account" }, { status: 500 });
+    }
+
+    if (user.authId) {
+      try {
+        await adminAuth.deleteUser(user.authId);
+      } catch (e) {
+        console.error("Firebase auth deletion failed (Mongo data already removed):", e);
+      }
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("Error deleting account:", error);
+    return NextResponse.json({ error: "Failed to delete account" }, { status: 500 });
   }
 }

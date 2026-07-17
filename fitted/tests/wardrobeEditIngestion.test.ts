@@ -122,6 +122,25 @@ describe("PATCH /api/wardrobe/[id] — M4 ingestion edit round-trip (behavioral,
     expect((await readItem(id)).clothingType).toBe("dress"); // preserved
   });
 
+  // §10.3 slot-staleness: clothingType decides the outfit SLOT, so a corrected taxonomy dropdown
+  // (category/subCategory/layerRole) must re-derive it — the friend who dropdown-slipped Type=Jeans
+  // on a tee, then corrected it, must not have the tee offered in the pants slot forever.
+  it("re-derives clothingType when a taxonomy field changes and the body omits clothingType", async () => {
+    // Seeded as a mis-stored bottom (the dropdown slip); the correction changes subCategory only.
+    const id = await seedItem({ clothingType: "bottom", subCategory: "jeans" });
+    const res = await patch(id, { subCategory: "t-shirt" });
+    expect(res.status).toBe(200);
+    expect((await readItem(id)).clothingType).toBe("top"); // re-derived from category=top + t-shirt
+  });
+
+  it("re-derive still respects an explicit clothingType in the same body (the correction path wins)", async () => {
+    const id = await seedItem({ clothingType: "top" });
+    const res = await patch(id, { subCategory: "jeans", clothingType: "dress" });
+    expect(res.status).toBe(200);
+    // The explicit value persists; the taxonomy-driven re-derivation must not overwrite it.
+    expect((await readItem(id)).clothingType).toBe("dress");
+  });
+
   // §23-H47: warmth is stored, never read-time-derived — so an edit must re-derive, not leave it stale.
   it("re-derives warmth from the merged item when a warmth-driving field (name) changes", async () => {
     const id = await seedItem(); // seeded warmth 2

@@ -42,7 +42,8 @@ export default function RedirectIfAuthenticated({
           }),
         });
       } catch {
-        // A failed sync should not trap the user on the auth page; the dashboard resync also runs.
+        // A failed sync must not trap the user on the auth page — AuthGate re-runs the idempotent
+        // sync on every app load, so the row is repaired on arrival.
       }
       if (!cancelled) router.replace("/dashboard");
     });

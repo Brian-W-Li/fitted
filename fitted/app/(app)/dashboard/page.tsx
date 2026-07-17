@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { resolveImageSrc } from "@/lib/imageUrl";
 import { clearSessionCookie } from "@/lib/sessionCookie";
+import { MAX_OCCASION_CHARS } from "@/lib/mlRequestAdapter";
 
 // ============================================================================
 // M5 §6.5 browser contract (the G15 allowlist the /api/recommend route returns).
@@ -169,14 +170,32 @@ function sortDisplayItems(items: DisplayItem[]): DisplayItem[] {
 const MACHINE_REASON_COPY: Record<string, string> = {
   service_unavailable: "The stylist is temporarily unavailable. Please try again in a moment.",
   contract_invalid: "We couldn't build a request from that input. Try rephrasing the occasion.",
-  rate_limited: "You're generating a bit fast — give it a few seconds and try again.",
-  auth_failed: "Your session expired. Please sign in again.",
+  // The ceiling is GLOBAL across users (12 renders/min at one service machine) — often someone
+  // else's traffic, so never blame the user's pace.
+  rate_limited: "The stylist is busy right now — try again in a few seconds.",
+  // auth_failed here is the SERVICE key handshake failing (an ops misconfig), not the user's
+  // session — "sign in again" would send users on a futile loop.
+  auth_failed: "The stylist is temporarily unavailable. Please try again later.",
   engine_failure: "Something went wrong generating outfits. Please try again.",
 };
 
+/** UUIDv4 for the idempotency token. `crypto.randomUUID` needs a secure context + a ~2021 browser;
+ *  on anything older, fall back to a Math.random v4 (fine here — it's an idempotency key, not a
+ *  security token) instead of throwing BEFORE any state change (which made Generate a silent no-op). */
+function newRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 /** Turn a render result into the user-facing empty-state message (prose hint or mapped code). */
 function emptyStateMessage(result: RenderResult): string {
-  const { flags } = result;
+  // Defensive: a result restored from sessionStorage may predate a shape change — never crash.
+  const flags = result.flags ?? ({} as RenderResult["flags"]);
   const healthy = flags.notEnoughItems || flags.insufficientAfterGeneration;
   if (healthy && flags.reasonHint) return flags.reasonHint; // prose register — genuine advice
   if (flags.reasonHint && MACHINE_REASON_COPY[flags.reasonHint]) return MACHINE_REASON_COPY[flags.reasonHint];
@@ -411,13 +430,13 @@ function RegenerateModal({
                     onClick={() => setLock(item.itemId)}
                     className={`px-2.5 py-1 text-xs font-medium rounded-lg ${isLocked ? "bg-green-200 text-green-800" : "bg-slate-200 text-slate-700 hover:bg-slate-300"}`}
                   >
-                    {isLocked ? "🔒 Keep" : "Keep"}
+                    {isLocked ? "Keeping" : "Keep"}
                   </button>
                   <button
                     onClick={() => setDislike(item.itemId)}
                     className={`px-2.5 py-1 text-xs font-medium rounded-lg ${isDisliked ? "bg-red-200 text-red-800" : "bg-slate-200 text-slate-700 hover:bg-red-100"}`}
                   >
-                    {isDisliked ? "🚫 Avoid" : "Avoid"}
+                    {isDisliked ? "Avoiding" : "Avoid"}
                   </button>
                 </div>
               </div>
@@ -491,21 +510,21 @@ function OutfitCard({
             onClick={onRegenerate}
             className="px-3 py-1 bg-blue-100 text-blue-700 text-sm font-medium rounded-lg hover:bg-blue-200 flex items-center gap-1"
           >
-            <span>🔄</span> Regenerate
+            Regenerate
           </button>
           {bindable && !outfit.feedback && (
             <>
               <button onClick={onLike} className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-lg hover:bg-green-200 flex items-center gap-1">
-                <span>👍</span> Like
+                Like
               </button>
               <button onClick={onDislike} className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 flex items-center gap-1">
-                <span>👎</span> Dislike
+                Dislike
               </button>
             </>
           )}
           {outfit.feedback && (
             <span className={`px-3 py-1 text-sm font-medium rounded-lg ${outfit.feedback === "liked" ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}>
-              {outfit.feedback === "liked" ? "👍 Liked" : "👎 Disliked"}
+              {outfit.feedback === "liked" ? "Liked" : "Disliked"}
             </span>
           )}
         </div>
@@ -616,7 +635,7 @@ function DashboardInner() {
       }
       await clearSessionCookie(); // revoke the image-serving session cookie on logout (§I)
       await signOut(auth);
-      localStorage.removeItem("userId");
+      localStorage.removeItem("userId"); // legacy key — no longer written; clear leftovers
       router.push("/");
     } catch (err) {
       console.error("Error signing out:", err);
@@ -638,7 +657,9 @@ function DashboardInner() {
       user: FirebaseUser,
       envelope: PendingEnvelope,
       body: Record<string, unknown>,
-      onResult: (r: RenderResult) => void,
+      // Return `false` to REJECT the result: it is neither set as state nor persisted (the
+      // re-roll path uses this to keep the outfits on screen when a re-roll degrades).
+      onResult: (r: RenderResult) => void | boolean,
     ) => {
       const userUid = user.uid;
       try {
@@ -670,8 +691,8 @@ function DashboardInner() {
         }
 
         const rendered = data as RenderResult;
-        onResult(rendered);
-        persistResult(rendered);
+        const accepted = onResult(rendered);
+        if (accepted !== false) persistResult(rendered);
         // Hydrated success (bindable render) or a completed degraded render — either way the render
         // is done, so the envelope is cleared (a degraded render wrote no snapshot to replay).
         removeKey(PENDING_KEY(userUid));
@@ -705,7 +726,15 @@ function DashboardInner() {
                 controls: envelope.normalizedControls,
               }
             : buildRootBody(envelope);
-      void runRender(user, envelope, body, (r) => setResult(r));
+      void runRender(user, envelope, body, (r) => {
+        // Same no-wipe rule as submitRegenerate: a resumed RE-ROLL that comes back degraded/empty
+        // must not replace (or overwrite the persisted copy of) the outfits restored on reload.
+        if (envelope.parentSnapshotId != null && !r.bindable && (r.shown?.length ?? 0) === 0) {
+          setError(emptyStateMessage(r));
+          return false;
+        }
+        setResult(r);
+      });
     },
     [runRender],
   );
@@ -721,7 +750,7 @@ function DashboardInner() {
     }
     if (inFlight) return; // Generate is disabled while a render is in flight
 
-    const requestId = crypto.randomUUID();
+    const requestId = newRequestId();
     const lensSummary: LensSummary = {
       occasion,
       forcedItemId: rescueItemId ?? null,
@@ -750,7 +779,7 @@ function DashboardInner() {
     async (controls: NormalizedControls) => {
       if (!firebaseUser || !uid || !regenModal || inFlight) return;
       const parentSnapshotId = regenModal.outfit.snapshotId;
-      const requestId = crypto.randomUUID(); // a re-roll is a new Generate action → new requestId
+      const requestId = newRequestId(); // a re-roll is a new Generate action → new requestId
       const envelope: PendingEnvelope = {
         requestId,
         intent: "daily", // real intent is derived server-side from the parent; unused on a re-roll
@@ -766,6 +795,13 @@ function DashboardInner() {
         envelope,
         { requestId, parentSnapshotId, controls },
         (r) => {
+          // A degraded/empty re-roll (rate-limited, outage, nothing buildable under the locks)
+          // must NOT wipe the outfits the user is looking at — keep the current result and show
+          // the reason in the modal instead. The modal stays open so they can adjust and retry.
+          if (!r.bindable && (r.shown?.length ?? 0) === 0) {
+            setError(emptyStateMessage(r));
+            return false; // reject: state + persisted copy keep the previous render
+          }
           setResult(r);
           setRegenModal(null);
         },
@@ -873,7 +909,7 @@ function DashboardInner() {
         {rescueItemId && (
           <div className="mt-4 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
             <span>
-              ✨ Building an outfit around <strong>{rescueItemName || "your item"}</strong>. Every suggestion will include it.
+              Building an outfit around <strong>{rescueItemName || "your item"}</strong>. Every suggestion will include it.
             </span>
             <button
               onClick={() => {
@@ -894,13 +930,13 @@ function DashboardInner() {
               value={occasion}
               onChange={(e) => setOccasion(e.target.value)}
               rows={3}
-              maxLength={280}
+              maxLength={MAX_OCCASION_CHARS}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 placeholder:text-slate-400"
               placeholder="e.g. Outdoor brunch with friends in early spring, smart casual but comfortable. Might get windy."
             />
             <div className="mt-1 flex justify-between text-[11px] text-slate-500">
               <span>Tell the AI what the event is, the vibe, and any constraints.</span>
-              <span>{occasion.length}/280</span>
+              <span>{occasion.length}/{MAX_OCCASION_CHARS}</span>
             </div>
           </div>
 

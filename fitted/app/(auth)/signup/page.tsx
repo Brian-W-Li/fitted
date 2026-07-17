@@ -14,11 +14,16 @@ function normalizeAuthError(error: unknown) {
   if (code === "auth/unauthorized-domain") {
     return "This domain is not authorized in Firebase Auth, use localhost or add this domain in Firebase Console";
   }
-  if (code === "auth/popup-blocked") {
-    return "Popup was blocked by browser, please allow popups and try again";
+  if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+    // Chat-app in-app browsers (Instagram/Messenger/iMessage webviews) block the OAuth popup and
+    // there is no popup setting to change — the actionable fix is a real browser.
+    return "Sign-up couldn't open here. Open this page in Safari or Chrome (not the in-app browser) and try again.";
   }
   if (code === "auth/popup-closed-by-user") {
     return "Sign-up popup was closed before completing login";
+  }
+  if (message.includes("disallowed_useragent")) {
+    return "Google sign-in doesn't work inside in-app browsers. Open this page in Safari or Chrome and try again.";
   }
 
   return message || "Sign-up failed";
@@ -59,15 +64,13 @@ export default function SignupPage() {
         throw new Error(detail);
       }
 
-      const data = await syncResponse.json();
+      await syncResponse.json().catch(() => null); // drain the body; nothing consumes it
 
       // Mint the session cookie so owner-only images (/api/images) load on the first app view (§I).
       await ensureSessionCookie(user);
 
-      // Store userId for convenience
-      if (data.userId) {
-        localStorage.setItem("userId", data.userId);
-      }
+      // (No localStorage "userId" write — nothing reads it, and a stale id would linger for the
+      // next account on a shared device.)
 
       router.push("/dashboard");
     } catch (e) {

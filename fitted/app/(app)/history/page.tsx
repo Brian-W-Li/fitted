@@ -145,7 +145,6 @@ export default function HistoryPage() {
               }`}
             >
               <span className="flex items-center gap-2">
-                <span aria-hidden>{tab === "liked" ? "👍" : "👎"}</span>
                 {tab === "liked" ? "Liked" : "Disliked"}
                 {count > 0 && (
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeTab === tab ? "bg-slate-100 text-slate-700" : "bg-slate-200 text-slate-600"}`}>
@@ -175,10 +174,7 @@ export default function HistoryPage() {
         </div>
       ) : cards.length === 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-12 text-center sm:p-16">
-          <div className="text-5xl sm:text-6xl" aria-hidden>
-            {activeTab === "liked" ? "👍" : "👎"}
-          </div>
-          <h2 className="mt-4 text-lg font-medium text-slate-800">
+          <h2 className="text-lg font-medium text-slate-800">
             {activeTab === "liked" ? "No liked outfits yet" : "No disliked outfits yet"}
           </h2>
           <p className="mt-2 max-w-sm mx-auto text-sm text-slate-500">

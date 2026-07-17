@@ -42,13 +42,36 @@ export async function POST(request: NextRequest) {
     const { User } = await initDatabase();
     let user = await User.findOne({ authProvider: "firebase", authId: firebaseUid });
     if (!user) {
-      user = await User.create({
-        authProvider: "firebase",
-        authId: firebaseUid,
-        email,
-        displayName: body.displayName || undefined,
-        photoURL: body.photoURL || undefined,
-      });
+      // About to CREATE a row — harden against the deleted-account ghost: a just-deleted user's
+      // ID token stays cryptographically valid for up to ~1h, and a stale tab's sync would mint a
+      // fresh row for a Firebase account that no longer exists. The unique email index would then
+      // lock that address out of ever re-signing up (the new uid's create hits E11000 and the
+      // authId re-find misses). Account deletion REVOKES tokens, so re-verify with checkRevoked
+      // (an extra Firebase round-trip, paid only on the create path — first-ever sign-ins).
+      try {
+        await adminAuth.verifyIdToken(idToken, true);
+      } catch {
+        return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
+      }
+      try {
+        user = await User.create({
+          authProvider: "firebase",
+          authId: firebaseUid,
+          email,
+          displayName: body.displayName || undefined,
+          photoURL: body.photoURL || undefined,
+        });
+      } catch (err) {
+        // First sign-in fires sync TWICE concurrently (the page click-handler + the auth-state
+        // listener) — the racing loser hits E11000 on the unique {authProvider,authId} index.
+        // Re-find the winner's row instead of flashing "Failed to sync user" on a healthy sign-in.
+        // (An E11000 on the unique email index — a different account squatting the email — still
+        // re-finds nothing and rethrows, preserving the §19 squat rejection.)
+        if ((err as { code?: number })?.code === 11000) {
+          user = await User.findOne({ authProvider: "firebase", authId: firebaseUid });
+        }
+        if (!user) throw err;
+      }
     }
 
     return NextResponse.json({

@@ -249,7 +249,7 @@ function WardrobeCard({
             href={`/dashboard?rescue=${encodeURIComponent(item.id)}&name=${encodeURIComponent(item.name)}`}
             className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
           >
-            <span aria-hidden>✨</span> Build an outfit around this
+            Build an outfit around this
           </Link>
         )}
       </div>
@@ -261,9 +261,14 @@ type WardrobeFormValues = Omit<WardrobeItem, "id">;
 
 type AddItemModalProps = {
   onClose: () => void;
-  /** Returns `false` when the save FAILED — the modal then stays open so the user's input is not
-   *  lost (§I client-state gate). Any other result (success) closes the modal. */
-  onSave: (item: WardrobeFormValues, imageFile: File | null) => Promise<boolean | void> | boolean | void;
+  /** Returns `false` (or an error-message string) when the save FAILED — the modal then stays open
+   *  so the user's input is not lost (§I client-state gate), and a string is rendered as the
+   *  in-modal error (the page-level banner is invisible behind the modal overlay). Any other
+   *  result (success) closes the modal. */
+  onSave: (
+    item: WardrobeFormValues,
+    imageFile: File | null,
+  ) => Promise<boolean | string | void> | boolean | string | void;
   initialItem?: WardrobeFormValues;
   title?: string;
   /** Add flow: step 1 is upload-only, step 2 is form. When null, single form (edit or add without CV). */
@@ -297,6 +302,7 @@ function AddItemModal({
   const [subCategory, setSubCategory] = useState(initialItem?.subCategory ?? "");
   const [colors, setColors] = useState<string[]>(initialItem?.colors ?? []);
   const [colorsInput, setColorsInput] = useState("");
+  const [colorError, setColorError] = useState<string | null>(null);
   const [pattern, setPattern] = useState(initialItem?.pattern ?? "");
   const [layerRole, setLayerRole] = useState(initialItem?.layerRole ?? "");
   const [seasons, setSeasons] = useState<string[]>(initialItem?.seasons ?? []);
@@ -373,14 +379,26 @@ function AddItemModal({
     setImageFile(file);
   }
 
-  function addColor(hex: string) {
-    const h = hex.trim();
+  /** Accept a color NAME ("navy", "light blue") or a hex code — the server stores arbitrary color
+   *  strings, and names read better in the stylist prompt than hex. An invalid entry must show a
+   *  visible error, never silently no-op (the pre-fix behavior stranded users at "Add at least one
+   *  color" with no way to satisfy it). */
+  function addColor(raw: string) {
+    const h = raw.trim();
     if (!h) return;
-    const normalized = /^#[0-9A-Fa-f]{6}$/.test(h) ? h : /^[0-9A-Fa-f]{6}$/.test(h) ? `#${h}` : null;
-    if (normalized && !colors.includes(normalized)) {
-      setColors((prev: string[]) => [...prev, normalized]);
-      setColorsInput("");
+    const hex = /^#[0-9A-Fa-f]{6}$/.test(h) ? h.toLowerCase() : /^[0-9A-Fa-f]{6}$/.test(h) ? `#${h.toLowerCase()}` : null;
+    const name = /^[A-Za-z][A-Za-z\- ]{1,23}$/.test(h) ? h.toLowerCase().replace(/\s+/g, " ") : null;
+    const normalized = hex ?? name;
+    if (!normalized) {
+      setColorError('Use a color name (e.g. "navy") or a hex code (e.g. #382828).');
+      return;
     }
+    setColorError(null);
+    // Case-insensitive dedupe — CV-prefilled hex may be uppercase while new entries are lowercased.
+    if (!colors.some((c) => c.toLowerCase() === normalized)) {
+      setColors((prev: string[]) => [...prev, normalized]);
+    }
+    setColorsInput("");
   }
 
   function addOccasionTag(value: string) {
@@ -413,7 +431,8 @@ function AddItemModal({
     }
 
     const colorsToSave = colors;
-    const fileToUpload = isEdit ? null : (addStep === "form" ? pendingAddFile ?? imageFile : imageFile);
+    // Edit mode passes the picked file too — the edit save path uploads it as a replacement photo.
+    const fileToUpload = isEdit ? imageFile : (addStep === "form" ? pendingAddFile ?? imageFile : imageFile);
 
     setSaving(true);
     try {
@@ -422,9 +441,11 @@ function AddItemModal({
           name: name.trim(),
           category,
           subCategory: subCategory || undefined,
-          pattern: pattern.trim() || undefined,
+          // Edit mode sends "" (an explicit clear) — `undefined` is dropped by JSON.stringify, so
+          // a mis-set pattern/layerRole could otherwise never be cleared via the PATCH.
+          pattern: isEdit ? pattern.trim() : pattern.trim() || undefined,
           colors: colorsToSave,
-          layerRole: layerRole || undefined,
+          layerRole: isEdit ? layerRole : layerRole || undefined,
           fit: fit.trim(),
           size: "",
           seasons,
@@ -434,7 +455,13 @@ function AddItemModal({
         },
         fileToUpload
       );
-      // Close ONLY on success — a failed save keeps the modal open so the input is not lost.
+      // Close ONLY on success — a failed save keeps the modal open so the input is not lost. A
+      // string result is the server-failure message, shown INSIDE the modal (the page banner sits
+      // behind the overlay).
+      if (typeof result === "string") {
+        setFormError(result);
+        return;
+      }
       if (result !== false) onClose();
     } finally {
       setSaving(false);
@@ -500,7 +527,6 @@ function AddItemModal({
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
-                <span className="text-3xl text-slate-300 mb-2">📷</span>
                 <p className="text-sm font-medium text-slate-600">Drop a photo here or click to browse</p>
                 <p className="text-xs text-slate-400 mt-0.5">JPEG, PNG or WEBP · max 5MB</p>
               </div>
@@ -717,12 +743,13 @@ function AddItemModal({
               {formError && formError.includes("color") && (
                 <p className="text-xs text-red-600">{formError}</p>
               )}
+              {colorError && <p className="text-xs text-red-600">{colorError}</p>}
               <div className="flex gap-2">
                 <input
                   className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
                   value={colorsInput}
                   onChange={(e) => setColorsInput(e.target.value)}
-                  placeholder="Add hex (e.g. #382828)"
+                  placeholder='Add a color (e.g. "navy" or #382828)'
                   onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addColor(colorsInput))}
                 />
                 <button
@@ -852,25 +879,28 @@ function AddItemModal({
               </div>
             </section>
 
-            {!isEdit && (
-              <section className="space-y-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Photo</h3>
-                {addStep === "form" && pendingAddFile && (
-                  <p className="text-sm text-slate-600">Photo will be saved with this item.</p>
-                )}
-                {(!addStep || addStep !== "form" || !pendingAddFile) && (
-                  <div>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
-                      onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
-                    />
-                    {imageError && <p className="mt-1 text-xs text-red-600">{imageError}</p>}
-                  </div>
-                )}
-              </section>
-            )}
+            <section className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Photo</h3>
+              {isEdit && (
+                <p className="text-sm text-slate-600">
+                  Optional — choose a file to {initialItem?.imagePath ? "replace the current photo" : "add a photo"}.
+                </p>
+              )}
+              {addStep === "form" && pendingAddFile && (
+                <p className="text-sm text-slate-600">Photo will be saved with this item.</p>
+              )}
+              {(isEdit || !addStep || addStep !== "form" || !pendingAddFile) && (
+                <div>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+                    onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
+                  />
+                  {imageError && <p className="mt-1 text-xs text-red-600">{imageError}</p>}
+                </div>
+              )}
+            </section>
           </div>
 
           <div className="p-5 pt-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl shrink-0">
@@ -905,6 +935,43 @@ function AddItemModal({
   );
 }
 
+/** Downscale a photo client-side before upload. Two hard reasons: Vercel rejects request bodies
+ *  over ~4.5MB at the platform edge (the route's own 5MB check never runs in production), and
+ *  images live as base64 in a 512MB Atlas M0 — full-size phone photos would exhaust it within a
+ *  few closets. Longest edge 1280px; JPEG q0.85 (PNG stays PNG to preserve CV-crop transparency).
+ *  Falls back to the original file on any decode/canvas failure. */
+async function prepareImageForUpload(file: File): Promise<File> {
+  const SKIP_BELOW_BYTES = 400 * 1024; // already small — don't re-encode
+  const MAX_EDGE_PX = 1280;
+  if (file.size <= SKIP_BELOW_BYTES) return file;
+  try {
+    // imageOrientation honors EXIF rotation (phone photos); fall back where unsupported.
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() =>
+      createImageBitmap(file),
+    );
+    const scale = Math.min(1, MAX_EDGE_PX / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bitmap.close();
+      return file;
+    }
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close(); // release the decoded bitmap promptly (large phone photos)
+    const isPng = file.type === "image/png";
+    const blob: Blob | null = await new Promise((resolve) =>
+      canvas.toBlob(resolve, isPng ? "image/png" : "image/jpeg", isPng ? undefined : 0.85),
+    );
+    if (!blob || blob.size >= file.size) return file; // re-encode didn't help — keep the original
+    const newName = isPng ? file.name : file.name.replace(/\.\w+$/, "") + ".jpg";
+    return new File([blob], newName, { type: blob.type });
+  } catch {
+    return file;
+  }
+}
+
 async function uploadWardrobeItemImage(params: {
   firebaseUser: FirebaseUser;
   wardrobeItemId: string;
@@ -912,8 +979,15 @@ async function uploadWardrobeItemImage(params: {
 }) {
   const token = await params.firebaseUser.getIdToken();
 
+  const file = await prepareImageForUpload(params.file);
+  if (file.size > 4 * 1024 * 1024) {
+    // Vercel's platform body cap (~4.5MB) would kill the request with an opaque non-JSON 413 —
+    // fail here with an actionable message instead.
+    throw new Error("That photo is too large even after compression — try a smaller image.");
+  }
+
   const fd = new FormData();
-  fd.append("file", params.file);
+  fd.append("file", file);
 
   const res = await fetch(`/api/wardrobe/${params.wardrobeItemId}/image`, {
     method: "POST",
@@ -1002,6 +1076,9 @@ export default function WardrobePage() {
 
   async function handleDeleteItem(item: WardrobeItem) {
     if (!firebaseUser) return;
+    // Deletion is permanent (the item's photo is cascade-deleted too) and the trash button sits a
+    // fat-finger away from Edit — confirm, same as Delete-all.
+    if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
     try {
       setError(null);
       const token = await firebaseUser.getIdToken();
@@ -1055,48 +1132,16 @@ export default function WardrobePage() {
     }
   }
 
-  async function handleClearWardrobe() {
-    if (!firebaseUser) return;
-
-    const confirmed = window.confirm(
-      "Delete ALL wardrobe items? This cannot be undone."
-    );
-    if (!confirmed) return;
-
-    try {
-      setError(null);
-      setLoading(true);
-
-      const token = await firebaseUser.getIdToken();
-      const res = await fetch("/api/wardrobe/clear", {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Failed to delete all items.");
-        return;
-      }
-
-      // Keep UI consistent with DB: clear local state after successful API delete
-      setItems([]);
-    } catch (e) {
-      console.error("Error clearing wardrobe:", e);
-      setError("Failed to delete all items.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  /** Returns the saved item, or an error-message STRING on failure — the caller feeds the string
+   *  back to the modal (the page banner is hidden behind the modal overlay, so a null-style
+   *  failure was invisible mid-save). */
   async function handleAddItem(
     newItem: Omit<WardrobeItem, "id">,
-  ): Promise<WardrobeItem | null> {
+  ): Promise<WardrobeItem | string> {
     if (!firebaseUser) {
-      setError("You are not signed in. Please sign in again.");
-      return null;
+      const msg = "You are not signed in. Please sign in again.";
+      setError(msg);
+      return msg;
     }
 
     try {
@@ -1110,27 +1155,30 @@ export default function WardrobePage() {
         },
         body: JSON.stringify(newItem),
       });
-      
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Failed to save item.");
-        return null;
+        const msg = data.error ?? "Failed to save item.";
+        setError(msg);
+        return msg;
       }
 
       const raw = data.item;
       const saved: WardrobeItem = { ...raw, id: raw.id ?? raw._id };
 
       if (!saved.id) {
-        setError("Item saved but server did not return an id.");
-        return null;
+        const msg = "Item saved but server did not return an id.";
+        setError(msg);
+        return msg;
       }
 
       setItems((prev) => [saved, ...prev]);
       return saved;
     } catch (e) {
       console.error("Error saving wardrobe item:", e);
-      setError("Failed to save item.");
-      return null;
+      const msg = "Failed to save item.";
+      setError(msg);
+      return msg;
     }
   }
 
@@ -1325,7 +1373,7 @@ export default function WardrobePage() {
             if (editingItem) {
               if (!firebaseUser) {
                 setError("You are not signed in. Please sign in again.");
-                return false;
+                return "You are not signed in. Please sign in again.";
               }
               try {
                 setError(null);
@@ -1340,8 +1388,9 @@ export default function WardrobePage() {
                 });
                 const respData = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                  setError(respData.error ?? "Failed to update item.");
-                  return false;
+                  const msg = respData.error ?? "Failed to update item.";
+                  setError(msg);
+                  return msg; // shown in-modal; the page banner is behind the overlay
                 }
                 const raw = respData.item;
                 let updated: WardrobeItem = {
@@ -1351,8 +1400,9 @@ export default function WardrobePage() {
                   createdAt: raw.createdAt ?? editingItem.createdAt,
                 };
                 if (!updated.id) {
-                  setError("Update succeeded but server did not return an id.");
-                  return false;
+                  const msg = "Update succeeded but server did not return an id.";
+                  setError(msg);
+                  return msg;
                 }
                 // Preserve existing image if user did not upload a new one
                 if (!imageFile) {
@@ -1374,15 +1424,17 @@ export default function WardrobePage() {
                   prev.map((it) => (it.id === updated.id ? updated : it))
                 );
                 // Success — the modal's onClose (below) clears editingItem. On any failure above we
-                // returned `false` so the modal stays open and the edited values are preserved.
+                // returned the error MESSAGE so the modal stays open, shows it, and preserves the
+                // edited values.
               } catch (e) {
                 console.error("Error updating wardrobe item:", e);
                 setError("Failed to update item.");
-                return false;
+                return "Failed to update item.";
               }
             } else {
               const saved = await handleAddItem(data);
-              if (!saved) return false; // save failed — keep the modal open, preserve the form
+              // Save failed — return the message so the MODAL shows it (stays open, form preserved).
+              if (typeof saved === "string") return saved;
               if (firebaseUser) {
                 try {
                   if (addInferredCroppedImage) {

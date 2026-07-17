@@ -132,7 +132,13 @@ export async function POST(request: NextRequest) {
         totalMs: sinceStartMs(),
       });
       return NextResponse.json(
-        { error: "CV_SERVICE_URL is not configured on the server" },
+        {
+          ok: false,
+          error: "CV_SERVICE_UNAVAILABLE",
+          // The client renders `message` (falling back to `error`) — without this, users saw the
+          // raw infrastructure string when clicking Analyze with no CV service configured.
+          message: "Image analysis is temporarily unavailable. You can continue by filling the form manually.",
+        },
         { status: 503 }
       );
     }
