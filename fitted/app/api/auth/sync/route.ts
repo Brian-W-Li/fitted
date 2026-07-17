@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
+import { sliceSurrogateSafe } from "@/lib/mlRequestAdapter";
 
 /**
  * POST /api/auth/sync — first-login upsert of the Firebase user into Mongo.
@@ -33,9 +34,11 @@ export async function POST(request: NextRequest) {
     };
     // Bound what the body can store (the only two body-sourced fields): unbounded strings here
     // would persist ~4.5MB per field into the users collection, and photoURL is later echoed to
-    // the account UI as an <img src> — require an http(s) URL, not an arbitrary string.
+    // the account UI as an <img src> — require an http(s) URL, not an arbitrary string. The
+    // surrogate-safe slice keeps the truncation from minting ill-formed UTF-16 (same doctrine as
+    // the wardrobe validator/adapter).
     const displayName =
-      typeof body.displayName === "string" ? body.displayName.slice(0, 200) : undefined;
+      typeof body.displayName === "string" ? sliceSurrogateSafe(body.displayName, 200) : undefined;
     const photoURL =
       typeof body.photoURL === "string" && /^https?:\/\//.test(body.photoURL)
         ? body.photoURL.slice(0, 2048)

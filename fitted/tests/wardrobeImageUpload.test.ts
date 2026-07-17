@@ -169,6 +169,55 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     // The oversized upload must not have repointed the item.
     expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBeUndefined();
   });
+
+  it("413s when the per-user byte budget is exhausted (the hard storage bound, §I) — nothing written", async () => {
+    // The budget's failure mode is SILENT non-enforcement (a wrong $match cast or a sizeBytes
+    // rename makes the aggregate sum 0 and the guard never trips) — this pins it. Seed stored
+    // bytes just under the cap on ANOTHER item so the new upload pushes over.
+    const { MAX_USER_IMAGE_BYTES } = await import("@/app/api/wardrobe/[id]/image/route");
+    const otherItem = await seedItem();
+    await WardrobeImage.create({
+      user: userId,
+      wardrobeItem: otherItem,
+      base64: "aGk=",
+      contentType: "image/jpeg",
+      sizeBytes: MAX_USER_IMAGE_BYTES - 4,
+    });
+    const id = await seedItem();
+    const res = await post(id, makeRequest({ file: makeFile(8) }));
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toContain("storage limit");
+    expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBeUndefined();
+    expect(await WardrobeImage.countDocuments({ wardrobeItem: id })).toBe(0);
+  });
+
+  it("does NOT count another user's stored bytes against the budget", async () => {
+    // The $match user-scope is the load-bearing line — an unscoped aggregate would let one heavy
+    // user brick everyone's uploads (and the reverse cast bug would enforce nothing, caught above).
+    const { MAX_USER_IMAGE_BYTES } = await import("@/app/api/wardrobe/[id]/image/route");
+    const other = await User.create({ authProvider: "firebase", authId: "uid-other", email: "o@x.com" });
+    const otherItem = await seedItem({}, other._id.toString());
+    await WardrobeImage.create({
+      user: other._id,
+      wardrobeItem: otherItem,
+      base64: "aGk=",
+      contentType: "image/jpeg",
+      sizeBytes: MAX_USER_IMAGE_BYTES - 4,
+    });
+    const id = await seedItem();
+    const res = await post(id, makeRequest({ file: makeFile(8) }));
+    expect(res.status).toBe(200);
+  });
+
+  it("429s once the per-user upload pacing window is exhausted — nothing written on the denied call", async () => {
+    const id = await seedItem();
+    let last: Any = null;
+    // The courtesy window is 30/10min per user; the 31st call in-window must be denied.
+    for (let i = 0; i < 31; i++) last = await post(id, makeRequest({ file: makeFile(8) }));
+    expect(last.status).toBe(429);
+    // 30 replace-style uploads leave exactly one stored image; the denied call added none.
+    expect(await WardrobeImage.countDocuments({ user: userId })).toBe(1);
+  });
 });
 
 export {};

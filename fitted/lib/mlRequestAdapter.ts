@@ -191,7 +191,7 @@ function isStringArrayOrNil(v: unknown): v is string[] | undefined {
  *  WHOLE render — so a well-formed stored name must never project to an ill-formed wire name. Only
  *  a trailing HIGH surrogate can be minted this way (pairs are high-then-low and only the tail is
  *  cut); dropping that one code unit is still truncation, never substitution (no U+FFFD). */
-function sliceSurrogateSafe(s: string, max: number): string {
+export function sliceSurrogateSafe(s: string, max: number): string {
   const cut = s.slice(0, max);
   const last = cut.charCodeAt(cut.length - 1);
   return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;

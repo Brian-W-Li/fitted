@@ -2,17 +2,22 @@ export type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string };
 
-// Storage bounds (§I): the render adapter clamps what reaches the WIRE
-// (lib/mlRequestAdapter MAX_ITEM_NAME_CHARS / MAX_ITEM_TAGS / MAX_ITEM_TAG_CHARS), but nothing
-// bounded what Mongo STORES — an authenticated caller could persist ~4.5MB strings per request
-// against the shared 512MB Atlas M0. Caps align with the wire clamps where a wire clamp exists;
-// `notes` never reaches the wire and gets its own cap. Rejection (not truncation) — a cap hit is
-// user-visible and fixable, and silent truncation would store data the user never entered.
-export const MAX_NAME_CHARS = 200;
-export const MAX_FIELD_CHARS = 60;
+import {
+  MAX_ITEM_NAME_CHARS,
+  MAX_ITEM_TAG_CHARS,
+  MAX_ITEM_TAGS,
+} from "@/lib/mlRequestAdapter";
+
+// Storage bounds (§I): the render adapter clamps what reaches the WIRE, but nothing bounded what
+// Mongo STORES — an authenticated caller could persist ~4.5MB strings per request against the
+// shared 512MB Atlas M0. The caps IMPORT the adapter's wire clamps (single source, no same-runtime
+// copy); `notes` never reaches the wire and gets its own cap. Rejection (not truncation) — a cap
+// hit is user-visible and fixable, and silent truncation would store data the user never entered.
+export const MAX_NAME_CHARS = MAX_ITEM_NAME_CHARS; // 200
+export const MAX_FIELD_CHARS = MAX_ITEM_TAG_CHARS; // 60 — taxonomy strings share the tag clamp
 export const MAX_NOTES_CHARS = 2000;
 export const MAX_IMAGE_PATH_CHARS = 2048;
-export const MAX_ARRAY_ITEMS = 25;
+export const MAX_ARRAY_ITEMS = MAX_ITEM_TAGS; // 25
 
 const FIELD_MAX_CHARS: Record<string, number> = {
   name: MAX_NAME_CHARS,
@@ -24,7 +29,6 @@ const FIELD_MAX_CHARS: Record<string, number> = {
   layerRole: MAX_FIELD_CHARS,
   notes: MAX_NOTES_CHARS,
   imagePath: MAX_IMAGE_PATH_CHARS,
-  clothingType: MAX_FIELD_CHARS,
 };
 
 // Reject ill-formed UTF-16 (a lone surrogate half) at the storage door. A stored lone surrogate

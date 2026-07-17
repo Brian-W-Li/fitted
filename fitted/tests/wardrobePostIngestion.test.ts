@@ -222,6 +222,15 @@ describe("POST /api/wardrobe — storage bounds (§I, Track 2 Lane B)", () => {
     expect(await count()).toBe(0);
   });
 
+  it("429s once the per-user create pacing window is exhausted — the denied create writes nothing", async () => {
+    // The courtesy window is 60/10min per user; the 61st call in-window must be denied. (Real
+    // friends add one item per modal — only a scripted loop reaches this.)
+    let last: Awaited<ReturnType<typeof post>> | null = null;
+    for (let i = 0; i < 61; i++) last = await post({ name: `Tee ${i}`, category: "top" });
+    expect(last!.status).toBe(429);
+    expect(await count()).toBe(60);
+  });
+
   it("rejects a create once the per-user item ceiling is reached — existing items untouched", async () => {
     const { MAX_ITEMS_PER_USER } = await import("@/app/api/wardrobe/route");
     await WardrobeItem.insertMany(
