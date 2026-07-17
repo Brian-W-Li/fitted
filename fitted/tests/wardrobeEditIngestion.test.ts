@@ -1,184 +1,183 @@
 /**
- * M4 C2 — the edit (PATCH) half of the ingestion contract.
+ * PATCH /api/wardrobe/[id] — the edit half of the ingestion contract, BEHAVIORAL over real in-memory
+ * Mongo (post-m5-reset §4.6 / Track-1). The prior version mocked `findOneAndUpdate` and asserted the
+ * `$set` it was handed — it never proved the edit actually SURVIVED a write→read, nor that the
+ * owner-scope filter really excludes another user's row (the mock returned a doc regardless of the
+ * filter). This version seeds a REAL item, drives the REAL route, and READS THE ROW BACK.
  *
- * §14.2 C2 trap-guard: editing an item's clothingType must NOT silently revert it —
- * the 5-value enum has to survive an edit round-trip, not get coerced back to
- * top/bottom (the legacy `=== "bottom" ? "bottom" : "top"` funnel). A regression to
- * that funnel would otherwise pass the rest of the suite green.
+ * §14.2 C2 trap-guard it reddens on: editing an item's clothingType must NOT silently revert it (the
+ * legacy `=== "bottom" ? "bottom" : "top"` funnel). A regression to that funnel now fails the read-back.
+ * §23-H47: warmth is stored, never read-time-derived — an edit must not leave it stale.
  *
- * Mocks: @/lib/db, @/lib/firebaseAdmin (real lib/clothingType runs).
+ * Non-DB seams mocked (Mongo connect + Firebase token verify); models/documents are REAL.
  */
-jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
-jest.mock("@/lib/firebaseAdmin", () => ({
-  adminAuth: { verifyIdToken: jest.fn() },
-}));
-
 import type { NextRequest } from "next/server";
+import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
+import User from "@/models/User";
+import WardrobeItem from "@/models/WardrobeItem";
+import { deriveWarmth } from "@/lib/deriveWarmth";
 
-function makeRequest(body: Record<string, unknown>): NextRequest {
-  return {
-    headers: {
-      get: (h: string) => (h === "authorization" ? "Bearer fake-token" : null),
-    },
-    json: async () => body,
-  } as unknown as NextRequest;
-}
+jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
+jest.mock("@/lib/firebaseAdmin", () => ({ adminAuth: { verifyIdToken: jest.fn() } }));
 
-const params = (id: string) => ({ params: Promise.resolve({ id }) });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
 
-/** Capture the $set passed to findOneAndUpdate and echo it back as the updated doc. */
-function setupMocks(existing: Record<string, unknown> = { name: "Cotton Tee", category: "top" }) {
+let harness: MongoHarness;
+let userId: string;
+
+function mockDb() {
   const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
+  initDatabase.mockResolvedValue({ User, WardrobeItem, WardrobeImage: { deleteOne: jest.fn() } });
+}
+function setToken(uid: string) {
   const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
     adminAuth: { verifyIdToken: jest.Mock };
   };
-  adminAuth.verifyIdToken.mockResolvedValue({ uid: "firebase-uid" });
-
-  const findOneAndUpdate = jest.fn().mockImplementation(
-    (filter: Record<string, unknown>, update: { $set: Record<string, unknown> }) => ({
-      exec: async () => ({
-        _id: { toString: () => (filter._id as string) ?? "item-id" },
-        category: "top",
-        ...update.$set,
-      }),
-    }),
-  );
-
-  // The warmth re-derivation path reads the existing row (merge baseline) via
-  // findOne(...).select(...).lean().exec().
-  const findOne = jest.fn().mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      lean: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(existing) }),
-    }),
-  });
-
-  initDatabase.mockResolvedValue({
-    User: {
-      findOne: jest.fn().mockReturnValue({
-        exec: jest.fn().mockResolvedValue({ _id: { toString: () => "user-id" } }),
-      }),
-    },
-    WardrobeItem: { findOneAndUpdate, findOne },
-    WardrobeImage: { deleteOne: jest.fn() },
-  });
-
-  return { findOneAndUpdate, findOne };
+  adminAuth.verifyIdToken.mockResolvedValue({ uid });
 }
 
-describe("PATCH /api/wardrobe/[id] — M4 ingestion (edit round-trip)", () => {
-  beforeEach(() => {
-    jest.resetModules();
-    jest.clearAllMocks();
-  });
+beforeAll(async () => {
+  harness = await startMemoryMongo([User, WardrobeItem]);
+}, 120_000);
+afterAll(async () => {
+  await harness.stop();
+});
+afterEach(async () => {
+  await harness.clear();
+  jest.clearAllMocks();
+});
+beforeEach(async () => {
+  mockDb();
+  setToken("firebase-uid");
+  const user = await User.create({ authProvider: "firebase", authId: "firebase-uid", email: "u@x.com" });
+  userId = user._id.toString();
+});
 
+function makeRequest(body: Record<string, unknown>): NextRequest {
+  return {
+    headers: { get: (h: string) => (h === "authorization" ? "Bearer fake-token" : null) },
+    json: async () => body,
+  } as unknown as NextRequest;
+}
+const params = (id: string) => ({ params: Promise.resolve({ id }) });
+
+async function patch(id: string, body: Record<string, unknown>) {
+  const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+  return PATCH(makeRequest(body), params(id));
+}
+
+/** Seed a real item owned by `owner` (default: the authenticated user); returns its string _id. */
+async function seedItem(fields: Record<string, unknown> = {}, owner = userId) {
+  const doc = await WardrobeItem.create({
+    user: owner,
+    name: "Cotton Tee",
+    category: "top",
+    clothingType: "top",
+    warmth: 2, // a light tee — differs from any wool re-derivation, so a stale value is detectable
+    ...fields,
+  });
+  return doc._id.toString();
+}
+async function readItem(id: string) {
+  return WardrobeItem.findById(id).lean<Any>();
+}
+
+describe("PATCH /api/wardrobe/[id] — M4 ingestion edit round-trip (behavioral, real Mongo)", () => {
   it.each(["dress", "outer_layer", "shoes"] as const)(
     "persists an explicit clothingType=%s without coercing it back to top/bottom",
     async (type) => {
-      const { findOneAndUpdate } = setupMocks();
-
-      const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-      const res = await PATCH(makeRequest({ clothingType: type }), params("item-1"));
+      const id = await seedItem();
+      const res = await patch(id, { clothingType: type });
       expect(res.status).toBe(200);
 
-      // The $set carries the un-coerced 5-value type, and the response echoes it.
-      expect(findOneAndUpdate.mock.calls[0][1].$set.clothingType).toBe(type);
-      const body = await res.json();
-      expect(body.item.clothingType).toBe(type);
+      // The stored row carries the un-coerced 5-value type, and the response echoes it.
+      expect((await readItem(id)).clothingType).toBe(type);
+      expect((await res.json()).item.clothingType).toBe(type);
     },
   );
 
   it("normalizes an invalid clothingType on edit to top (never persists garbage)", async () => {
-    const { findOneAndUpdate } = setupMocks();
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    const res = await PATCH(makeRequest({ clothingType: "hat" }), params("item-1"));
+    const id = await seedItem({ clothingType: "dress" });
+    const res = await patch(id, { clothingType: "hat" });
     expect(res.status).toBe(200);
-    expect(findOneAndUpdate.mock.calls[0][1].$set.clothingType).toBe("top");
+    // "hat" would be rejected by the schema enum; a persisted "top" proves normalization ran.
+    expect((await readItem(id)).clothingType).toBe("top");
   });
 
-  it("scopes the update to the owning user (no cross-user edit)", async () => {
-    const { findOneAndUpdate } = setupMocks();
+  it("scopes the update to the owning user — a cross-user edit 404s and does not mutate the row", async () => {
+    const otherUser = await User.create({ authProvider: "firebase", authId: "other", email: "o@x.com" });
+    const id = await seedItem({ name: "Victim" }, otherUser._id.toString());
 
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    await PATCH(makeRequest({ name: "Renamed" }), params("item-42"));
-    expect(findOneAndUpdate.mock.calls[0][0]).toEqual({ _id: "item-42", user: "user-id" });
+    // Authenticated as firebase-uid, edit an item owned by `other`.
+    const res = await patch(id, { name: "Renamed by attacker" });
+    expect(res.status).toBe(404);
+    expect((await readItem(id)).name).toBe("Victim"); // untouched
   });
 
   it("does not touch clothingType when the edit body omits it", async () => {
-    const { findOneAndUpdate } = setupMocks();
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    await PATCH(makeRequest({ name: "Just a rename" }), params("item-1"));
-    expect("clothingType" in findOneAndUpdate.mock.calls[0][1].$set).toBe(false);
+    const id = await seedItem({ clothingType: "dress" });
+    const res = await patch(id, { name: "Just a rename" });
+    expect(res.status).toBe(200);
+    expect((await readItem(id)).clothingType).toBe("dress"); // preserved
   });
 
-  // §23-H47: warmth is stored, never read-time-derived — so an edit must not leave it stale.
+  // §23-H47: warmth is stored, never read-time-derived — so an edit must re-derive, not leave it stale.
   it("re-derives warmth from the merged item when a warmth-driving field (name) changes", async () => {
-    // existing is a light tee (would derive hot ~2); rename to a wool sweater → cold center 8.
-    const { findOneAndUpdate } = setupMocks({ name: "Cotton Tee", category: "top" });
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    const res = await PATCH(makeRequest({ name: "Wool Sweater" }), params("item-1"));
+    const id = await seedItem(); // seeded warmth 2
+    const res = await patch(id, { name: "Wool Sweater" });
     expect(res.status).toBe(200);
-    expect(findOneAndUpdate.mock.calls[0][1].$set.warmth).toBe(8);
-    expect((await res.json()).item.warmth).toBe(8);
+
+    const expected = deriveWarmth({ name: "Wool Sweater", category: "top" });
+    const stored = (await readItem(id)).warmth;
+    expect(stored).toBe(expected);
+    expect(stored).not.toBe(2); // proves the re-derivation persisted, not the stale seed
+    expect((await res.json()).item.warmth).toBe(expected);
   });
 
   it("honors a valid explicit warmth (the correction path) over re-derivation", async () => {
-    const { findOneAndUpdate, findOne } = setupMocks({ name: "Cotton Tee", category: "top" });
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    const id = await seedItem();
     // Even though the name changes to a warm garment, an explicit warmth=3 must win.
-    await PATCH(makeRequest({ name: "Wool Sweater", warmth: 3 }), params("item-1"));
-    expect(findOneAndUpdate.mock.calls[0][1].$set.warmth).toBe(3);
-    expect(findOne).not.toHaveBeenCalled(); // explicit value short-circuits the merge read
+    const res = await patch(id, { name: "Wool Sweater", warmth: 3 });
+    expect(res.status).toBe(200);
+    expect((await readItem(id)).warmth).toBe(3);
   });
 
   it("rejects an out-of-range explicit warmth by falling back to re-derivation", async () => {
-    const { findOneAndUpdate } = setupMocks({ name: "Cotton Tee", category: "top" });
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    await PATCH(makeRequest({ name: "Wool Sweater", warmth: 99 }), params("item-1"));
-    // 99 is invalid → ignored → re-derived from the new name (cold 8), never persisted as 99.
-    expect(findOneAndUpdate.mock.calls[0][1].$set.warmth).toBe(8);
+    const id = await seedItem();
+    const res = await patch(id, { name: "Wool Sweater", warmth: 99 });
+    expect(res.status).toBe(200);
+    // 99 is invalid → ignored → re-derived from the new name, never persisted as 99.
+    const stored = (await readItem(id)).warmth;
+    expect(stored).toBe(deriveWarmth({ name: "Wool Sweater", category: "top" }));
+    expect(stored).not.toBe(99);
   });
 
-  it("does not re-derive (or read) warmth when no warmth-driving field changes", async () => {
-    const { findOneAndUpdate, findOne } = setupMocks();
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    await PATCH(makeRequest({ isAvailable: false }), params("item-1"));
-    expect("warmth" in findOneAndUpdate.mock.calls[0][1].$set).toBe(false);
-    expect(findOne).not.toHaveBeenCalled();
+  it("does not re-derive warmth when no warmth-driving field changes", async () => {
+    const id = await seedItem(); // warmth 2
+    const res = await patch(id, { isAvailable: false });
+    expect(res.status).toBe(200);
+    expect((await readItem(id)).warmth).toBe(2); // unchanged
   });
 
-  it("rejects string booleans instead of coercing them on edit", async () => {
-    const { findOneAndUpdate } = setupMocks();
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    const res = await PATCH(makeRequest({ isAvailable: "false" }), params("item-1"));
-
+  it("rejects string booleans instead of coercing them on edit (row unchanged)", async () => {
+    const id = await seedItem({ isAvailable: true });
+    const res = await patch(id, { isAvailable: "false" });
     expect(res.status).toBe(400);
-    expect(findOneAndUpdate).not.toHaveBeenCalled();
+    expect((await readItem(id)).isAvailable).toBe(true);
   });
 
-  it("rejects scalar array fields instead of clearing them on edit", async () => {
-    const { findOneAndUpdate } = setupMocks();
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    const res = await PATCH(makeRequest({ colors: "#111111" }), params("item-1"));
-
+  it("rejects scalar array fields instead of clearing them on edit (row unchanged)", async () => {
+    const id = await seedItem({ colors: ["#222222"] });
+    const res = await patch(id, { colors: "#111111" });
     expect(res.status).toBe(400);
-    expect(findOneAndUpdate).not.toHaveBeenCalled();
+    expect((await readItem(id)).colors).toEqual(["#222222"]);
   });
 
-  it("rejects whitespace-only required strings on edit", async () => {
-    const { findOneAndUpdate } = setupMocks();
-
-    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
-    const res = await PATCH(makeRequest({ name: "   " }), params("item-1"));
-
+  it("rejects whitespace-only required strings on edit (row unchanged)", async () => {
+    const id = await seedItem({ name: "Keep me" });
+    const res = await patch(id, { name: "   " });
     expect(res.status).toBe(400);
-    expect(findOneAndUpdate).not.toHaveBeenCalled();
+    expect((await readItem(id)).name).toBe("Keep me");
   });
 });

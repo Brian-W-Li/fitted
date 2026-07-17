@@ -676,6 +676,24 @@ def test_cross_runtime_clamps_derive_from_live_config():
         assert hasattr(cfg, name), f"service-only clamp {name} is not a config attribute"
 
 
+def test_cross_runtime_schema_enums_derive_from_fitted_core():
+    """The candidate/role enums the GenerationSnapshot Mongoose schema re-declares are mirrored FROM the
+    fitted_core ontology by cross_runtime_mirror(), so a member added to Role/Template/OptionPath/Risk/
+    CANDIDATE_STAGES flows into the JSON the TS crossRuntimeContract test pins. This asserts the mirror
+    equals the live enums (a rename/addition on either side reddens); the TS side asserts the Mongoose
+    schema's literal enum arrays equal the same JSON."""
+    from fitted_core.models import Role, Template
+    from fitted_core.response import OptionPath, Risk
+    from fitted_core.snapshot import CANDIDATE_STAGES
+
+    se = contract.cross_runtime_mirror()["schemaEnums"]
+    assert set(se["stageReached"]) == set(CANDIDATE_STAGES)
+    assert set(se["role"]) == {r.value for r in Role}
+    assert set(se["template"]) == {t.value for t in Template}
+    assert set(se["optionPath"]) == {p.value for p in OptionPath}
+    assert set(se["risk"]) == {r.value for r in Risk}
+
+
 def test_cross_runtime_format_vectors_match_service_regexes():
     """The service's id/format regexes accept every `valid` vector and reject every `invalid` one.
     The same vectors pin the TS regexes (crossRuntimeContract.test.ts), so the two runtimes are proven

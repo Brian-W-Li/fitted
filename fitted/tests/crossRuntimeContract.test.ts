@@ -43,8 +43,29 @@ const CONTRACT = JSON.parse(
   crossRuntime: {
     clamps: Record<string, number>;
     enums: Record<string, string[]>;
+    schemaEnums: Record<string, string[]>;
     formats: Record<string, FormatVector>;
   };
+};
+
+// The GenerationSnapshot candidate sub-schema enums (role/stageReached/template/optionPath/risk) are a
+// SEPARATE copy from any adapter/config const — they exist ONLY in the Mongoose schema, mirrored from the
+// fitted_core ontology (Role/Template/OptionPath/Risk/CANDIDATE_STAGES). Read the live schema enumValues
+// off the nested candidate (and candidate.items) sub-schemas so a drift there — which would write-reject a
+// valid service candidate — reddens here. (post-m5-reset §4.6 "role/candidate enums unpinned".)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CANDIDATE_SUBSCHEMA = (GenerationSnapshot.schema.path("candidates") as any).schema;
+function candidateEnum(path: string): string[] {
+  return (CANDIDATE_SUBSCHEMA.path(path) as { enumValues?: string[] }).enumValues ?? [];
+}
+const TS_SCHEMA_ENUMS: Record<string, string[]> = {
+  stageReached: candidateEnum("stageReached"),
+  // role lives one level deeper, on the candidate.items[] sub-schema.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  role: ((CANDIDATE_SUBSCHEMA.path("items") as any).schema.path("role") as { enumValues?: string[] }).enumValues ?? [],
+  template: candidateEnum("template"),
+  optionPath: candidateEnum("optionPath"),
+  risk: candidateEnum("risk"),
 };
 
 // The TS-side value for every clamp the JSON mirrors. If the JSON gains a clamp with no entry here
@@ -108,6 +129,23 @@ describe("cross-runtime enums (TS == contract_fields.json crossRuntime.enums)", 
     // clothingType schema enums import CLOTHING_TYPES (no separate literal), so pinning CLOTHING_TYPES
     // to the mirror (above) transitively pins the schemas — assert the source really is CLOTHING_TYPES.
     expect([...CLOTHING_TYPES].sort()).toEqual([...enums.clothingType].sort());
+  });
+});
+
+describe("cross-runtime candidate/role schema enums (Mongoose == contract_fields.json crossRuntime.schemaEnums)", () => {
+  const schemaEnums = CONTRACT.crossRuntime.schemaEnums;
+  it("the TS schema-enum map covers EXACTLY the mirrored keys (no un-pinned or stray candidate enum)", () => {
+    expect(Object.keys(TS_SCHEMA_ENUMS).sort()).toEqual(Object.keys(schemaEnums).sort());
+  });
+  for (const [name, values] of Object.entries(schemaEnums)) {
+    it(`candidate.${name} schema enum value-set matches`, () => {
+      expect([...TS_SCHEMA_ENUMS[name]].sort()).toEqual([...values].sort());
+    });
+  }
+  it("reads REAL non-empty schema enums (guards a wrong Mongoose path silently yielding [])", () => {
+    // If the nested-path traversal broke, every enum would be [] and the equality checks above would
+    // pass only vacuously against a (non-empty) mirror — assert the traversal actually resolved.
+    for (const values of Object.values(TS_SCHEMA_ENUMS)) expect(values.length).toBeGreaterThan(0);
   });
 });
 

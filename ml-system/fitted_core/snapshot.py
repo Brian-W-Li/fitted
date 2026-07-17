@@ -209,6 +209,14 @@ class GenerationSnapshotPayload:
 # §D engine-failure record (C3) — the diagnostics.engineFailure shape (§G item 4).
 # ---------------------------------------------------------------------------
 
+# The candidate funnel vocabulary (§8.2-F) — the closed set of values assigned to
+# ``CandidatePayload.stage_reached`` in ``_assemble_candidates`` below (default "generated", then
+# "validated"/"ranked"/"shown"). Declared here as the single Python authority so the GenerationSnapshot
+# Mongoose candidate schema enum can be pinned to it cross-runtime (service.contract cross_runtime_mirror
+# → contract_fields.json → crossRuntimeContract.test.ts); a member added on either side reddens a test
+# instead of silently write-rejecting a valid candidate. Append-only.
+CANDIDATE_STAGES = frozenset({"generated", "validated", "ranked", "shown"})
+
 # Closed vocabularies (m5-cutover.md §G item 4). The TS helper re-enforces them; append-only.
 ENGINE_FAILURE_STAGES = frozenset(
     {"sample", "generate", "parse", "validate", "rank", "assemble", "pre_generation", "unknown"}

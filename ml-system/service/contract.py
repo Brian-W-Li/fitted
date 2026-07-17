@@ -35,8 +35,9 @@ See ``docs/plans/m5-cutover.md`` §"Wire contract".
 
 from __future__ import annotations
 
-from fitted_core.models import ItemType
-from fitted_core.snapshot import ENGINE_FAILURE_CODES, ENGINE_FAILURE_STAGES
+from fitted_core.models import ItemType, Role, Template
+from fitted_core.response import OptionPath, Risk
+from fitted_core.snapshot import CANDIDATE_STAGES, ENGINE_FAILURE_CODES, ENGINE_FAILURE_STAGES
 from service import config as cfg
 
 # --- POST /render top-level body (§A) -------------------------------------------------
@@ -205,6 +206,19 @@ CROSS_RUNTIME_ENUMS: dict[str, list[str]] = {
     "clothingType": sorted(t.value for t in ItemType),
 }
 
+# Candidate/role vocab that ONLY the GenerationSnapshot Mongoose schema re-declares — no adapter/config
+# const mirrors these (unlike the CROSS_RUNTIME_ENUMS above, which the Next request path also gates on).
+# Derived from the fitted_core ontology so a member added to Role/Template/OptionPath/Risk/CANDIDATE_STAGES
+# flows into the JSON mirror; the TS side pins the schema's literal enum arrays to this set. A drift
+# would write-reject a valid service candidate (post-m5-reset §4.6 "role/candidate enums unpinned").
+CROSS_RUNTIME_SCHEMA_ENUMS: dict[str, list[str]] = {
+    "stageReached": sorted(CANDIDATE_STAGES),
+    "role": sorted(r.value for r in Role),
+    "template": sorted(t.value for t in Template),
+    "optionPath": sorted(p.value for p in OptionPath),
+    "risk": sorted(r.value for r in Risk),
+}
+
 # Behavioral accept/reject vectors for the id/format regexes (see the note above).
 CROSS_RUNTIME_FORMATS: dict[str, object] = {
     "_comment": (
@@ -267,5 +281,6 @@ def cross_runtime_mirror() -> dict:
             "names": list(CROSS_RUNTIME_SERVICE_ONLY_CLAMPS),
         },
         "enums": {name: list(values) for name, values in CROSS_RUNTIME_ENUMS.items()},
+        "schemaEnums": {name: list(values) for name, values in CROSS_RUNTIME_SCHEMA_ENUMS.items()},
         "formats": CROSS_RUNTIME_FORMATS,
     }

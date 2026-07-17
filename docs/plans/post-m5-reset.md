@@ -274,15 +274,17 @@ All landed on `main` with a behavioral test and a 0-finding fresh-eyes review of
   message, instead of the design-intended `422 control_item_unusable`/`forced_item_unusable`. Both are hard
   rejects (no spend, no write) — legibility only, not a resilience/data hole. A single invalid-clothingType pin
   is handled correctly. (Found in the Session-B A-cluster audit.)
-- **[minor, latent] Mongoose role/candidate enums are cross-runtime-unpinned.** `GenerationSnapshot.ts`'s
-  `role` (base_top/…), candidate `status`/`optionPath`/`risk`/`template` enums mirror `fitted_core` vocab
-  (OutfitRole etc.) and are Mongoose-validated on values the Python service emits, but nothing asserts
-  TS==Python for them (weather + clothingType were pinned in Session B; these are the remaining copies). A
-  drift would write-reject a valid service candidate. Pre-existing; latent (the vocab is stable).
+- **[CLOSED — Track 1, 2026-07-16] Mongoose role/candidate enums cross-runtime-pinned.** The
+  `GenerationSnapshot.ts` candidate `role`/`stageReached`/`template`/`optionPath`/`risk` enums are now
+  pinned TS==Python: `service/contract.py` `CROSS_RUNTIME_SCHEMA_ENUMS` DERIVES the value-sets from the
+  live `fitted_core` ontology (`Role`/`Template`/`OptionPath`/`Risk` + `snapshot.CANDIDATE_STAGES`) into
+  `contract_fields.json` `crossRuntime.schemaEnums`; `crossRuntimeContract.test.ts` pins the Mongoose
+  schema `enumValues` to it and `test_render_contract.py::test_cross_runtime_schema_enums_derive_from_fitted_core`
+  pins the Python side, so a one-sided edit reddens a suite instead of write-rejecting a valid candidate.
 - **Minors (unchanged):** W2-1c/1d (uppercase forced/control id wrong-error; missing-vs-empty occasion 400/200
   split), W2-3b (dotted/`$` Map-key guard, latent on hex ids), W2-4b/c/d (cookie revocation, CV MIME trust,
-  sync 500), C5 (generator timeout omit-when-None), D4 (§23 review-history trim), D5 (post-m4-readiness
-  COMPLETED banner).
+  sync 500), C5 (generator timeout omit-when-None), D4 (§23 review-history trim). **D5 (post-m4-readiness
+  COMPLETED banner) — DONE (Track 1, 2026-07-16).**
 
 ### 4.7 Session B (2026-07-16) — EXECUTED
 Built behavior-first, heavy-audited (4 parallel lanes + a regression-of-fixes pass), full suites green.
@@ -309,6 +311,48 @@ Floors grew: **jest 522→577, pytest 1072→1074**.
   `.fullmatch` so a trailing `\n` (which `$` allowed) is rejected, matching JS `$`. (d) weather/clothingType
   Mongoose schema enums pinned to the mirror. (e) `MAX_ID_CHARS` mislabel corrected (it IS re-declared
   Next-side, regex-redundant).
+
+### 4.8 Track 1 (2026-07-16) — EXECUTED: finish the trust net
+The last shape-fixture surfaces converted to real behavior + the named cross-runtime residual pinned.
+Behavior-first; heavy-audited (4 parallel fresh-context lanes — test-trust, correctness, security,
+cross-runtime — + a Fable read on the one design call). Floors grew: **jest 577→604, pytest 1074→1075**.
+- **The 4 DB-mocked route suites → BEHAVIORAL over real in-memory Mongo (`mongoHarness`).**
+  `wardrobePostIngestion`/`wardrobeEditIngestion` now seed a real `User`+item, drive the real POST/PATCH,
+  and READ THE ROW BACK (the live schema's clothingType-enum/warmth-bound/strict-strip is exercised, not a
+  captured mock arg); `wardrobeImageUpload` runs the REAL `uploadWardrobeImage` so an upload actually
+  persists a `WardrobeImage` + repoints the item (and the old-image-cleanup-on-replace path); `apiCvInferRoute`
+  runs the REAL `verifyFirebaseUser` over real Mongo (only the external CV `fetch` stays mocked). Negative
+  tests now prove the side-effect was prevented (`countDocuments===0` / row-unchanged), not just the status.
+- **3 untested routes now covered behaviorally.** `auth/session` (the httpOnly `__session` cookie
+  mint/clear boundary — ZERO test before; asserts the cookie is the *minted* value, httpOnly, path/maxAge,
+  and NO cookie on the 401 paths); `cv/status` (all env/probe branches, no-network on not_configured);
+  `wardrobe/clear` (the destructive route path — auth gate + cross-user isolation: only the caller's rows
+  deleted, another user's survive; unknown-user 401 deletes nothing).
+- **The cross-runtime role/candidate enum residual — PINNED both runtimes.** `[CLOSED]` above (§4.6):
+  `GenerationSnapshot.ts` candidate `role`/`stageReached`/`template`/`optionPath`/`risk` enums are now pinned
+  TS==Python via `contract.py CROSS_RUNTIME_SCHEMA_ENUMS` (DERIVED from `Role`/`Template`/`OptionPath`/`Risk`
+  + the new `snapshot.CANDIDATE_STAGES` authority) → `contract_fields.json crossRuntime.schemaEnums`; a TS
+  test pins the Mongoose `enumValues`, a Python test pins the derivation. Lane-proven load-bearing in all 4
+  drift directions.
+- **Legacy `category`/`subCategory` vs 5-value `clothingType` (the design call) — SPLIT to the W-track,
+  Fable-confirmed.** There is no active correctness bug (§6.1/§15.1: the two are intentionally separate —
+  display/CV vocab vs engine slot-partition; category is storage-only). The genuine reconciliation (surface
+  + let users correct `clothingType`; then migrate the UI filter key) IS H52 rung-2 = the W-track review
+  surface, which is spec-first — and doing the "cheap" filter-key migration *before* correction exists is
+  strictly worse (a mis-derived item vanishes from every filter with no recourse). Recorded as scope in
+  Spec §18 (H52 rung-2) + a trap-guard comment at the `deriveClothingType` seam; no mapping test (the
+  disagreement is intentional — a test would freeze a false invariant).
+- **Audit convergence + residuals named (not "all clean").** All 4 lanes returned zero load-bearing
+  findings on the source; each proved its guard reddens on a real injected drift/bypass. One reliability
+  concern (a cross-user test seen returning 200 on 2 *cold* runs) was investigated — **not reproduced in 22
+  clean cold runs + the full suite in both `--runInBand` and default-parallel modes** — and attributed to
+  concurrent audit-lane fault-injection contaminating the shared tree during the run (the security lane was
+  live-dropping the route's `user:` scope at the time); the suites use the repo's proven harness idiom.
+  Non-load-bearing observations left as-is: the storage-cap 413 test's secondary `imagePath===undefined`
+  assertion (carried by the `countDocuments===0` proof); the single-item `DELETE /api/wardrobe/[id]` handler
+  has no dedicated cross-user test (mirrors the proven PATCH/image scoping). The audit process itself
+  surfaced a meta-lesson: subagents' "clean git status" self-reports are unreliable — the tree was
+  reconciled by direct inspection, not by trusting the lanes.
 
 **Why the campaign is worth it (the real justification):** not portfolio ROI — **trust in the process holding
 long-term.** The recurrence mechanism in §4.3 is what erodes it: every "found another one" commit is a small

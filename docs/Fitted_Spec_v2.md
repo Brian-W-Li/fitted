@@ -1035,6 +1035,16 @@ across three milestones:
 - **Dedicated review surface** = CV-correction form = manual-entry form: chips/suggestions, **named colors
   not hex codes**, review only low-confidence fields. (M4 ships the data-path defaults in the existing
   upload form; the dedicated review surface lands here.)
+- **Taxonomy legibility (H52 rung-2).** Today the UI speaks `category`/`subCategory` (the display/CV
+  vocabulary — "what is it called") while the engine partitions on the derived, invisible, uncorrectable
+  `clothingType` (the outfit-slot vocabulary — "what slot does it fill"). Keeping both is correct (two
+  questions, two fields); the debt is that the engine's field has **no visible bridge**. This W-track owns
+  it: **surface `clothingType` and let the owner correct it** in the review surface (the disambiguating
+  knob `layerRole` is already consumed by `deriveClothingType`; only the edit UI is unbuilt). **Then, and
+  only then, revisit whether the wardrobe UI filter key should migrate `category`→`clothingType`** — doing
+  that migration *before* correction exists is strictly worse (it makes a wrong derivation silently
+  authoritative, hiding a mis-derived item from every filter with no recourse). Decide the filter-key
+  migration here, not before.
 - **Extractor** `[STAGED]`: leading option is **VLM structured extraction** (JSON-schema output of the §6.1
   attribute set + per-field confidence + an image **embedding** for similarity/cold-start; same
   backend-validates-structure philosophy as the GPT pipeline). Fallback: rehost a CV model on the service

@@ -71,6 +71,17 @@ const BARE_DRESS = /\bdress(es)?\b/;
 /**
  * M4 C2 — ingestion clothingType classifier (the §10.3 canonical rule).
  *
+ * ⚠ Two-taxonomy seam (spec §6.1/§18-H52 rung-2). `category`/`subCategory` (the display + CV
+ * vocabulary — "what is this garment called") and `clothingType` (the engine's outfit-slot
+ * partition — "what slot does it fill") are INTENTIONALLY DIFFERENT cuts and legitimately
+ * disagree: a coat is `category="top"` but `clothingType="outer_layer"`; a jumpsuit is
+ * `category="one piece"` but `clothingType="dress"`. Do NOT "reconcile" them by equating the two,
+ * and do NOT switch the wardrobe UI filter to this derived `clothingType` yet — it is invisible
+ * and uncorrectable, so filtering on it would make a mis-derivation silently authoritative (a
+ * wrongly-typed item vanishes from every filter with no recourse). User correction of clothingType
+ * is the W-track review surface (§18-H52 rung-2); the filter-key migration is decided THERE, after
+ * correction exists — not here.
+ *
  * The upload form does not supply clothingType today, so it is derived from the
  * garment's category / subCategory / name (+ layerRole) at ingestion. One ordered
  * first-match cascade, consolidating the two divergent legacy string-match sites

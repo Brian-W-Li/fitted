@@ -80,6 +80,35 @@
         ]
       }
     },
+    "schemaEnums": {
+      "optionPath": [
+        "bridge",
+        "reliable",
+        "stretch"
+      ],
+      "risk": [
+        "bold",
+        "noticeable",
+        "safe"
+      ],
+      "role": [
+        "base_bottom",
+        "base_top",
+        "one_piece",
+        "outer_layer",
+        "shoes"
+      ],
+      "stageReached": [
+        "generated",
+        "ranked",
+        "shown",
+        "validated"
+      ],
+      "template": [
+        "one_piece",
+        "two_piece"
+      ]
+    },
     "serviceOnlyClamps": {
       "_comment": "Constants enforced ONLY by the service (ml-system/service/config.py) and intentionally NOT mirrored Next-side \u2014 the service is the sole enforcer, so there is no second copy to drift. Listed so the boundary reads as deliberate, not an omission.",
       "names": [

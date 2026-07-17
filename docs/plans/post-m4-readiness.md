@@ -1,5 +1,10 @@
 # Post-M4 Forward-Readiness & Pre-Mortem
 
+> COMPLETED 2026-07-16 (D5). Fully consumed: the M5 `/spec` inheritance this doc fed (§3/§4/§7 — H49/H50/H51,
+> the generator + interaction-count single-source rules, the Lens adapter table) all landed with M5 C1–C8
+> (`docs/plans/m5-cutover.md`), and the H26 framing (§2/§6) was superseded by `h26-compatibility-spike-v2.md`.
+> Off the default reading list; git is the archive. `Fitted_Spec_v2.md` is canonical and wins any conflict.
+
 > **⚠️ Partial supersession (2026-06-28).** **§2 (the H26 pre-registration sketch) AND §6's H26-artifact framing
 > — both `GPT-4o`-as-judge, `Δ ≤ 0.03 AUC` parity, "before the H26 `/spec`" — are SUPERSEDED by
 > `h26-compatibility-spike-v2.md`** (the finalized H26 build doc: judge = `gpt-5.4-mini`, parity = **FITB
