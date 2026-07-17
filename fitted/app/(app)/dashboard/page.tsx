@@ -644,9 +644,15 @@ function DashboardInner() {
   }
 
   const persistResult = useCallback(
-    (r: RenderResult) => {
+    // `occasionForResult` lets runRender persist the ENVELOPE's frozen occasion. The state fallback
+    // (feedback marks) is fine there, but on a resumed render the closure predates the sessionStorage
+    // restore — persisting state `occasion` would overwrite the saved occasion with "".
+    (r: RenderResult, occasionForResult?: string) => {
       if (!uid) return;
-      writeJSON(DASHBOARD_KEY(uid), { occasion, result: r } satisfies PersistedDashboard);
+      writeJSON(DASHBOARD_KEY(uid), {
+        occasion: occasionForResult ?? occasion,
+        result: r,
+      } satisfies PersistedDashboard);
     },
     [uid, occasion],
   );
@@ -692,11 +698,10 @@ function DashboardInner() {
 
         const rendered = data as RenderResult;
         const accepted = onResult(rendered);
-        if (accepted !== false) persistResult(rendered);
+        if (accepted !== false) persistResult(rendered, envelope.lensSummary.occasion);
         // Hydrated success (bindable render) or a completed degraded render — either way the render
         // is done, so the envelope is cleared (a degraded render wrote no snapshot to replay).
         removeKey(PENDING_KEY(userUid));
-        void envelope;
       } catch {
         // A dropped response — KEEP the envelope so a reload resumes with the SAME requestId.
         setError("The connection dropped. Reload to resume — you won't lose your place.");
@@ -733,6 +738,10 @@ function DashboardInner() {
           setError(emptyStateMessage(r));
           return false;
         }
+        // The arriving render is FOR the envelope's frozen occasion — fill the input when it's
+        // empty (a root resume has no saved dashboard to restore it from, and later feedback marks
+        // persist the state occasion). Never clobber text the user typed during the resume window.
+        setOccasion((prev) => prev || envelope.lensSummary.occasion);
         setResult(r);
       });
     },

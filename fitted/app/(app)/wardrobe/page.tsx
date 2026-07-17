@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
@@ -1182,6 +1182,31 @@ export default function WardrobePage() {
     }
   }
 
+  // Memoized: the modal's sync effect keys on this object's IDENTITY, and a fresh inline object on
+  // every parent re-render made any parent setState while the edit modal was open (notably the
+  // failed-save setError) re-run that effect and RESET the form to the original values — silently
+  // discarding the user's edits while the modal claimed to preserve them (§I client-state gate).
+  const modalInitialItem = useMemo<WardrobeFormValues | undefined>(() => {
+    if (editingItem) {
+      return {
+        name: editingItem.name,
+        category: editingItem.category,
+        subCategory: editingItem.subCategory,
+        pattern: editingItem.pattern,
+        colors: editingItem.colors,
+        layerRole: editingItem.layerRole,
+        fit: editingItem.fit ?? "",
+        size: editingItem.size,
+        seasons: editingItem.seasons ?? [],
+        occasions: editingItem.occasions ?? [],
+        notes: editingItem.notes,
+        isAvailable: editingItem.isAvailable,
+        imagePath: editingItem.imagePath,
+      };
+    }
+    return addStep === "form" ? addInferred ?? undefined : undefined;
+  }, [editingItem, addStep, addInferred]);
+
   async function handleClearAll() {
     if (!firebaseUser) return;
     if (!confirm("Delete ALL wardrobe items? This cannot be undone.")) return;
@@ -1477,27 +1502,7 @@ export default function WardrobePage() {
               setAddInferredCroppedImage(null);
             }
           }}
-          initialItem={
-            editingItem
-              ? {
-                  name: editingItem.name,
-                  category: editingItem.category,
-                  subCategory: editingItem.subCategory,
-                  pattern: editingItem.pattern,
-                  colors: editingItem.colors,
-                  layerRole: editingItem.layerRole,
-                  fit: editingItem.fit ?? "",
-                  size: editingItem.size,
-                  seasons: editingItem.seasons ?? [],
-                  occasions: editingItem.occasions ?? [],
-                  notes: editingItem.notes,
-                  isAvailable: editingItem.isAvailable,
-                  imagePath: editingItem.imagePath,
-                }
-              : addStep === "form"
-                ? addInferred ?? undefined
-                : undefined
-          }
+          initialItem={modalInitialItem}
           title={editingItem ? "Edit clothing item" : addStep === "form" ? "Confirm & save item" : "Add clothing item"}
           addStep={editingItem ? undefined : addStep ?? undefined}
           pendingAddFile={addPendingFile}
@@ -1531,7 +1536,7 @@ export default function WardrobePage() {
               }
               const full = json as CVInferResponse & { cropped_image_base64?: string | null };
               setAddInferred(cvResponseToFormValues(full));
-              const cropped = typeof (full as any).cropped_image_base64 === "string" ? (full as any).cropped_image_base64 : null;
+              const cropped = typeof full.cropped_image_base64 === "string" ? full.cropped_image_base64 : null;
               setAddInferredCroppedImage(cropped);
               setAddPendingFile(file);
               setAddStep("form");

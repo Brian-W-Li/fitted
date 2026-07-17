@@ -65,7 +65,14 @@ export default function AccountPage() {
       }
       await clearSessionCookie();
       await signOut(auth).catch(() => {});
-      // Full navigation (not router.push) so every uid-keyed client state is flushed with the page.
+      // sessionStorage SURVIVES navigation — clear it so the deleted account's uid-keyed render
+      // results / pending envelope don't linger in the tab; then a full navigation (not
+      // router.push) flushes in-memory state too.
+      try {
+        window.sessionStorage.clear();
+      } catch {
+        // best-effort
+      }
       window.location.href = "/";
     } catch (e) {
       console.error("Error deleting account:", e);
