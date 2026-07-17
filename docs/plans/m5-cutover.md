@@ -1,6 +1,6 @@
 # M5 — Live cutover (`USE_ML_SHORTLISTER`)
 
-> COMPLETED 2026-07-08 (C1–C8; cloud Fly deploy deferred — see `docs/plans/m5-c8-half2-runbook.md`).
+> COMPLETED 2026-07-08 (C1–C8); cloud deploy LIVE 2026-07-16 — deployed state in `docs/plans/m5-c8-half2-runbook.md` §8.
 > Off the default reading list; retained as the completed-M5 reference. `Fitted_Spec_v2.md` is canonical
 > and wins any conflict.
 >
@@ -1835,10 +1835,8 @@ state gates (requestId minting/debounce already landed with the C6 UI contract).
 >   engineFailure-persistence test. Heavy-audited before commit. **CLAUDE.md env-table:** Gemini row removed;
 >   the `OPENAI_API_KEY`→service-side reconciliation (drop the Next row, add `ML_SERVICE_URL`/`FITTED_SERVICE_KEY`)
 >   is **owed at half-2** with the flip.
-> - **✅ half-2 — VALIDATED LOCALLY; cloud deploy DEFERRED (Brian, 2026-07-08).** The engineering is
->   proven live end-to-end; the only remainder is standing up Fly + the visual UI click-through, deferred
->   as an optional last-mile (a zero-user portfolio app doesn't need an always-on billed machine yet — no
->   urgency, nothing left to *prove*). What was validated live:
+> - **✅ half-2 — VALIDATED LOCALLY (2026-07-08), then DEPLOYED + LIVE-VERIFIED (2026-07-16).** What
+>   was validated locally first:
 >   - **F3 mechanical read — BOTH intents (`gpt-5.4-mini`):** daily (`--intent daily`, built this session) +
 >     rescue. Every generating case: parse 1.00, StyleMove 1.00, rescue forced-inclusion 1.00; 0
 >     hallucinated/schema rejections (only correct duplicate-dedup); ~$0.16. Numbers in runbook §4.
@@ -1849,10 +1847,12 @@ state gates (requestId minting/debounce already landed with the C6 UI contract).
 >   - **Staged/done key-independent:** H13 CI gate (`.github/workflows/conformance.yml`), `.env.sample` half-2
 >     block, G2 (OpenAI $10 cap + alert, project `cssEnjbkDMOuCfMqzDuGdtLP`). The "Commit 2 — deletion" body
 >     below is done by half-1.
-> - **⏳ DEFERRED (whenever Fly is stood up):** `fly deploy` + secrets, the G1/G9/index live gates against the
->   deployed instance, `USE_ML_SHORTLISTER=true` on the deploy host, the browser UI smoke, and landing the CI
->   YAML on the default branch. **Executable checklist:** `docs/plans/m5-c8-half2-runbook.md` (turnkey; the
->   deploy can be run remotely non-interactively via a `FLY_API_TOKEN` — no terminal login needed).
+> - **✅ CLOUD DEPLOY — DONE (2026-07-16, the Track 2 session):** Fly render service deployed (G1
+>   single-machine pin + G9 `/readyz` + live auth-boundary probes all verified), the fork's Next app on
+>   Vercel with `USE_ML_SHORTLISTER=true`, the `{user,requestId}` index confirmed in Atlas, and a full
+>   live E2E observed (daily/rescue/re-roll snapshots with real provenance + bound feedback). **Deployed
+>   state + friend onboarding + ops: `docs/plans/m5-c8-half2-runbook.md` §8.** Residual not live-clicked:
+>   the browser UI layer (C6's jest coverage stands; it gets its human pass as closets are added).
 
 **Commit 1 — flip + smoke:** Fly.io deploy; **index disposition (disambiguates m4 §14.5's "autoIndex off
 on the M5 service" note — the Python service has no Mongo; Next is the only Mongo client):** keep

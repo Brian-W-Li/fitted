@@ -9,11 +9,10 @@
 > `lib/gemini.ts` deleted; `recommend/route.ts` is the M5 dispatcher (flag-OFF → §A degraded empty
 > state); enum trimmed; `openai`/`@google/generative-ai` npm deps gone.
 >
-> **STATUS (2026-07-08): half-2 is VALIDATED LOCALLY; the cloud deploy is DEFERRED (Brian's call).**
-> The engine (F3, §4) and the full cutover wire (local integration smoke, §4 "Local backend smoke")
-> are proven live on `gpt-5.4-mini` — nothing left to *prove*. This runbook's deploy steps stand for
-> whenever Fly is stood up; they can be run **remotely, non-interactively** by exporting a `FLY_API_TOKEN`
-> (created in the Fly web dashboard) — no terminal/browser login required, only a Fly account + billing.
+> **STATUS (2026-07-16): DEPLOYED + LIVE-VERIFIED.** The cloud deploy ran (Track 2 collaborative ops
+> session): Fly render service + the fork's Next app on Vercel, real E2E observed (daily + rescue +
+> re-roll + bound feedback persisted to Atlas). **§8 below is the deployed-state record + friend
+> onboarding + ops notes** — the current-truth section; §§0–7 remain as the (executed) procedure.
 
 ## Naming footgun (read first)
 The shared secret has **two different env-var names** for the same value:
@@ -161,11 +160,55 @@ cd fitted && npm run build && npm run start     # or: npm run dev
 - **flag OFF** (unset `USE_ML_SHORTLISTER`, restart) → §A degraded empty state ("stylist temporarily
   unavailable", no feedback controls). Sanity-check the rollback path.
 
-## 7. Post-flip reconciliation (same or follow-up commit)
-- `fitted/.env.sample`: delete the `OPENAI_API_KEY` row; **uncomment** the staged half-2 block.
-- `CLAUDE.md` env table: drop `OPENAI_API_KEY`; add `ML_SERVICE_URL` + `FITTED_SERVICE_KEY` rows.
-- `docs/plans/m5-cutover.md`: mark **C8 half-2 ✅ DONE**; record before/after numbers for the writeup.
-- Ensure `.github/workflows/conformance.yml` is on the default branch.
+## 7. Post-flip reconciliation — ✅ DONE (2026-07-16, the Track 2 deploy commit)
+- `fitted/.env.sample` rewritten post-cutover; `CLAUDE.md` env table reconciled; `m5-cutover.md`
+  half-2 marked done; `conformance.yml` confirmed on `main`.
+
+## 8. Deployed state (2026-07-16) — current truth
+
+| Piece | Value |
+|---|---|
+| Render service | Fly app `fitted-render-service`, region `lax`, **1× shared-cpu-1x / 512 MB (G1 pin verified — Fly auto-created a 2nd HA machine on deploy; scaled back to 1)** |
+| Service URL | `https://fitted-render-service.fly.dev` — `/readyz` green (fitted_core 0.5.0, prompt `m5-c1.v1`); 401 on missing/wrong key; 404 envelope on unknown routes — all probed live |
+| Fly secrets | `OPENAI_API_KEY`, `SERVICE_KEY_CURRENT` (imported via `fly secrets import` from a staging file, since deleted; values never in any transcript/history) |
+| Next app | Vercel project `brian-lis-projects-64ed3bc0/fitted` (Hobby), rooted at `fitted/` via CLI link |
+| App URL | **`https://fitted-three.vercel.app`** (production alias) |
+| Vercel env (production) | `NEXT_PUBLIC_FIREBASE_*` ×4, `FIREBASE_SERVICE_ACCOUNT_KEY`, `MONGODB_URI` (Atlas), `ML_SERVICE_URL`, `FITTED_SERVICE_KEY`, `USE_ML_SHORTLISTER=true` |
+| Database | Fresh Atlas **M0** cluster (project `fitted-3To5PeopleTest`, `cluster0.d3swzkg`), db **`fitted`**, network access 0.0.0.0/0 (Vercel egress is dynamic; the credential is the lock — dedicated least-privilege DB user). Local dev `.env.local` keeps `MONGODB_URI`=localhost; the Atlas URI lives Vercel-side (+ a `MONGODB_URI_ATLAS` convenience row locally). |
+| Firebase | Production domain `fitted-three.vercel.app` added to Auth authorized domains |
+| Spend envelope (all verified active) | OpenAI **$10/mo project cap** (re-confirmed at deploy); per-request `max_completion_tokens=2200`; service token bucket **12 renders/min global** (true only under the 1-machine pin); interactions limiter 60/min/user + `MAX_PER_ITEM_FEEDBACK=20`. Observed cost ~$0.002–0.004/render. |
+| CV | `CV_SERVICE_URL` unset → `/api/cv/status` returns `not_configured`; upload UI degrades to manual entry (verified live) |
+
+**E2E verification observed (2026-07-16):** cloud smoke (gated jest `localServiceSmoke` against the
+deployed Fly URL) passed both intents; then a full driver against the deployed Vercel app (admin-minted
+token for Brian's real user) — 8 wardrobe items (classifier-derived `clothingType`/`warmth`), a daily
+render, a rescue (forced item in **every** shown outfit), a re-roll, and accepted+rejected feedback.
+Atlas read-back confirmed: 3 `GenerationSnapshot` rows with the full §A.6 generator provenance
+(`gpt-5.4-mini`/0.5/2200/`chat_completions`/`json_schema_strict`/`none`/`none`), correct lineage
+(`generationIndex=1`, `parentSnapshotId` → the daily root, inherited occasion/seedDate, same
+`candidateCacheKey`), both interactions bound `{snapshotId, candidateId}` with candidate ∈ shown set,
+and the `{user,requestId}` partial-unique index built. **Known residue:** Brian's account holds those
+8 placeholder items + 3 test snapshots + 2 test interactions — wipe the placeholder wardrobe before
+adding the real closet (snapshots are append-only and stay; filter by date/user for M6).
+
+### Friend onboarding (what a friend does)
+1. Visit **https://fitted-three.vercel.app** → sign in with any Google account.
+2. Wardrobe → add items **manually** (CV is off): name + category minimum; honest names/colors/
+   occasions make both the recommendations and the M6 corpus better. Photos optional (stored in Mongo).
+   6+ items across tops/bottoms/shoes gives the engine room.
+3. Dashboard → daily render (pick an occasion) or rescue (pick an item to build around); re-roll and
+   like/dislike freely — every render persists a snapshot, every reaction binds to it.
+4. Privacy: items/photos/feedback are stored in Brian's Atlas cluster for the M6 personalization
+   experiment; account deletion (account page) cascades wardrobe/images/interactions and redacts
+   snapshots.
+
+### Ops notes (Brian)
+- **Spend:** OpenAI usage dashboard (the $10 cap is the hard backstop); `fly status`/`fly logs --app
+  fitted-render-service`; Vercel logs via the project's Inspect URL.
+- **Machine count must stay 1** (`fly scale show`) — >1 silently multiplies the rate ceiling (G1).
+- **Rollback:** remove/false `USE_ML_SHORTLISTER` in Vercel env + `npx vercel --prod` redeploy → §A
+  degraded state (never legacy, never 5xx). `fly scale count 0` stops the service (and all spend);
+  `fly apps destroy fitted-render-service` ends the ~$4/mo when the collection window closes.
 
 ## Rollback (pinned — honest)
 - **Immediate safe state:** `USE_ML_SHORTLISTER` off/unset → §A **degraded empty state** (no

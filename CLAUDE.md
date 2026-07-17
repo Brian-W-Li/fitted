@@ -6,7 +6,8 @@ Guidance for Claude Code sessions in this repo.
 
 **Fitted** — outfit recommender. Users upload clothing photos → CV service extracts attributes → wardrobe stored in Mongo → LLM-generated outfit candidates → Python sampler/ranker validates and ranks → structured feedback (`OutfitInteraction` + `FeedbackReason`) personalizes over time.
 
-- **Deployed:** https://fitted-outfits.vercel.app/ (runs the team's repo, not this fork)
+- **Deployed (team, legacy):** https://fitted-outfits.vercel.app/ (runs the team's repo, not this fork)
+- **Deployed (this fork, live):** https://fitted-three.vercel.app (Vercel, Brian's account) → https://fitted-render-service.fly.dev (the M5 render service, Fly, single-machine pin). Deployed 2026-07-16 for Track 2 friend-closet data collection; deployed state + ops notes in `docs/plans/m5-c8-half2-runbook.md` §8.
 - **Upstream (team repo):** ucsb-cs148-w26/pj12-outfit-recommender — tracked as the `upstream` remote
 - **This fork:** Brian-W-Li/fitted — Brian's solo continuation, focused on the `ml-system/` rewrite
 - **License:** MIT (originally a UCSB CS 148 team project; git history preserves all contributors)
@@ -48,22 +49,25 @@ python3 outfit_recommender.py    # runs the rule-based demo on a hardcoded wardr
 
 ## Env (`fitted/.env.local`)
 
-The first four are required end-to-end. Missing any → silent failures or 500s on the relevant routes. The last one (`CV_SERVICE_URL`) is optional (it degrades gracefully when absent).
+All rows are required end-to-end except the two marked optional. Missing a required one → silent failures or 500s on the relevant routes. The Next app holds **no OpenAI key** — the `gpt-5.4-mini` stylist lives service-side (the Fly render service reads `OPENAI_API_KEY` + `SERVICE_KEY_CURRENT` from Fly secrets; `ml-system/service/config.py`).
 
 | Variable | Used by |
 |---|---|
 | `NEXT_PUBLIC_FIREBASE_*` (4 vars) | Client-side Firebase Auth (Google sign-in) |
-| `FIREBASE_SERVICE_ACCOUNT_KEY` | Server-side Firebase Admin (token verification) |
-| `MONGODB_URI` | Mongo Atlas connection |
-| `OPENAI_API_KEY` | The `gpt-5.4-mini` stylist. **C8 (half-1) retired the legacy in-Next OpenAI call**; post-cutover the key lives service-side (the Fly render service, m5-cutover §D5), not the Next app. The full env reconciliation (drop this row, add `ML_SERVICE_URL`/`FITTED_SERVICE_KEY`) lands with the C8 half-2 flag flip. |
-| `CV_SERVICE_URL` | Optional CV-service endpoint; **no default** (the teammate HF Space was removed). The W-track replaces CV with Brian's own service (§18). |
+| `FIREBASE_SERVICE_ACCOUNT_KEY` | Server-side Firebase Admin (token verification). The JSON key as a single line — it is `JSON.parse`'d, a file path will not work. |
+| `MONGODB_URI` | Mongo connection (deployed: the Track 2 Atlas M0; local dev may point at localhost) |
+| `ML_SERVICE_URL` | `lib/mlServiceClient.ts` — the render-service base URL (`https://fitted-render-service.fly.dev`) |
+| `FITTED_SERVICE_KEY` | `lib/mlServiceClient.ts` — the shared-secret auth header. **Must byte-equal the service's `SERVICE_KEY_CURRENT`** (same value, two var names — the naming footgun). |
+| `USE_ML_SHORTLISTER` | `app/api/recommend/route.ts` — `"true"` enables the ML vertical; off/unset → the §A degraded empty state (the rollback switch) |
+| `ML_SERVICE_TIMEOUT_MS` | Optional (default 45000; keep < the route's 60s `maxDuration` budget) |
+| `CV_SERVICE_URL` | Optional CV-service endpoint; **no default** (the teammate HF Space was removed). Absent → the upload UI degrades to manual entry. The W-track replaces CV with Brian's own service (§18). |
 
-Brian was on the original team, so the team's `.env.local` from CS 148 work is the fastest source. `.env.local` is gitignored.
+`.env.local` is gitignored.
 
 ## Where the recommendation flow lives
 
-Read these before changing app-side recommendation wiring. These files are the deployed legacy vertical /
-fallback arm, not behavioral truth; v2 wins when they disagree.
+Read these before changing app-side recommendation wiring. Since C8 these files ARE the live M5
+vertical (legacy is deleted); v2 wins when they disagree.
 
 | File | Purpose |
 |---|---|
@@ -75,7 +79,7 @@ fallback arm, not behavioral truth; v2 wins when they disagree.
 
 ## Current focus: `ml-system/` rewrite
 
-Goal: build the v2 recommendation substrate first, then use it as the seam for the trained style-graph scorer. The substrate (`ml-system/fitted_core/` M0–M3 + the Spearhead rescue vertical) and the M4 data/snapshot layer are **built**. The **H26 compatibility spike** is **DONE** (C1–C6, 2026-07-05; offline; the zero-user demonstrable ML result): mechanical verdict **NO-GO by the frozen letter** — gate B "underpowered / inconclusive" (a power miss at the frozen N=500 cap, not an accuracy miss — the CI sits wholly above +δ) while gates A/D pass and the seam ablation falsified the item-level shape. Deliverable: `ml-system/experiments/h26/results.md`; M6 entry conditions in Spec §20/§23-H26/H28. **M5 service cutover is DONE** (C1–C8, `docs/plans/m5-cutover.md`; merged to `main` 2026-07-09): the intent-generic render core, reducers + `AffinitySignalScorer`, the stateless Fly.io render service, the full Next-side integration (recommend/interactions rewrite behind `USE_ML_SHORTLISTER`), the live GenerationSnapshot write + authenticity gate, and the daily/rescue UI — all landed; C8 half-2 validated locally on real `gpt-5.4-mini` (cloud Fly deploy deferred, `docs/plans/m5-c8-half2-runbook.md`). **Now: the post-M5 trust-restoration campaign** (`docs/plans/post-m5-reset.md` §4 — R0 diagnosed 2026-07-09). Sequence: consolidation → H26 ✅ → M5 ✅ → reset (Spec §20).
+Goal: build the v2 recommendation substrate first, then use it as the seam for the trained style-graph scorer. The substrate (`ml-system/fitted_core/` M0–M3 + the Spearhead rescue vertical) and the M4 data/snapshot layer are **built**. The **H26 compatibility spike** is **DONE** (C1–C6, 2026-07-05; offline; the zero-user demonstrable ML result): mechanical verdict **NO-GO by the frozen letter** — gate B "underpowered / inconclusive" (a power miss at the frozen N=500 cap, not an accuracy miss — the CI sits wholly above +δ) while gates A/D pass and the seam ablation falsified the item-level shape. Deliverable: `ml-system/experiments/h26/results.md`; M6 entry conditions in Spec §20/§23-H26/H28. **M5 service cutover is DONE** (C1–C8, `docs/plans/m5-cutover.md`; merged to `main` 2026-07-09): the intent-generic render core, reducers + `AffinitySignalScorer`, the stateless Fly.io render service, the full Next-side integration (recommend/interactions rewrite behind `USE_ML_SHORTLISTER`), the live GenerationSnapshot write + authenticity gate, and the daily/rescue UI — all landed; C8 half-2 validated locally, then **deployed to the cloud + live-verified 2026-07-16** (Fly render service + the fork's Next app on Vercel; deployed state in `docs/plans/m5-c8-half2-runbook.md` §8). The **post-M5 trust-restoration campaign is DONE** (R0 + Session B + Track 1, 2026-07-09→16, `docs/plans/post-m5-reset.md`). **Now: Track 2 — real closet data through the live pipeline**: the deployment is live and E2E-verified; the remaining work is recruiting the 3–5 friend closets (Brian, out-of-session) toward the M6/H26 re-measure entry conditions (Spec §20/§23-H26). Sequence: consolidation → H26 ✅ → M5 ✅ → reset ✅ → Track 2 (live).
 
 Maps to team issues **#84** (Brian's own: *"LLM prompts make it better"*) and **#112** (*"Shortlisting strategy for LLM context"*). The team's brainstorm in `ml-system/mlWhatWeAreGoingTodo` essentially specced it.
 
@@ -97,7 +101,7 @@ This is an **overhaul**. The product direction is the **lens-first personal styl
 
 **Authoritative for design:**
 - `docs/Fitted_Spec_v2.md` — **the** canonical spec. Build-ladder tagged (`[NOW]`/`[NEXT]`/`[STAGED]`/`[NORTH-STAR]`); §23 is the live Open Holes Register. When v2 and deployed behavior disagree, v2 wins.
-- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context; `docs/plans/spearhead.md` is the **completed Spearhead reference** (orphan-item rescue, C1–C6; C6/H40 live-eval in its §E). `docs/plans/m4-data-model-migration.md` is the **completed M4 reference** (C1–C8; the §14.5 M5-handoff note records what M5 inherits/owns). `docs/plans/h26-compatibility-spike-v2.md` is the **completed H26 reference** (C1–C6; verdict NO-GO by the frozen letter; the deliverable is `ml-system/experiments/h26/results.md`). `docs/plans/m5-cutover.md` is the **completed M5 reference** (C1–C8; cloud deploy deferred to `docs/plans/m5-c8-half2-runbook.md`). **Next active work: the post-M5 trust-restoration campaign — `docs/plans/post-m5-reset.md` (§4 R0 diagnosed 2026-07-09). Sequence = consolidation → H26 ✅ → M5 ✅ → reset (Spec §20). M4/M5 done.**
+- `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context; `docs/plans/spearhead.md` is the **completed Spearhead reference** (orphan-item rescue, C1–C6; C6/H40 live-eval in its §E). `docs/plans/m4-data-model-migration.md` is the **completed M4 reference** (C1–C8; the §14.5 M5-handoff note records what M5 inherits/owns). `docs/plans/h26-compatibility-spike-v2.md` is the **completed H26 reference** (C1–C6; verdict NO-GO by the frozen letter; the deliverable is `ml-system/experiments/h26/results.md`). `docs/plans/m5-cutover.md` is the **completed M5 reference** (C1–C8; the cloud deployment is live — deployed state + friend onboarding + ops in `docs/plans/m5-c8-half2-runbook.md` §8). `docs/plans/post-m5-reset.md` is the **completed reset-campaign reference** (R0 + Session B + Track 1). **Next active work: Track 2 friend-closet data collection on the live deployment (recruiting is Brian's, out-of-session), gating the M6/H26 re-measure (Spec §20).**
 - `docs/plans/*.md` — per-milestone plans produced by `/spec` or the `planner` subagent. Active execution plans.
 - This `CLAUDE.md` — project conventions and scope.
 
