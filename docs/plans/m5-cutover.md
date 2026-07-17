@@ -1107,7 +1107,10 @@ GenerationSnapshotSchema.index(
 );
 
 // 3. Delete guard (H54 — the immutability contract has update/replace/save guards but NO delete guard;
-//    verified absent). Redaction (redacted:true) is the only sanctioned removal.
+//    verified absent). Redaction (redacted:true) is the only sanctioned removal AT THE MONGOOSE LAYER.
+//    (Post-M5, Track 2 adds ONE sanctioned hard-delete — account-deletion erasure via the native-driver
+//    User cascade, §23-H43 — deliberately below this guard; the guard message in the live code was
+//    updated accordingly. This M5 snippet shows the as-built M5 guard.)
 //    Trap-guard (verified against mongoose's own docs, schema.js pre() jsdoc): pre('deleteOne') alone
 //    registers QUERY middleware only — Document#deleteOne() needs {document:true}, and
 //    findOneAndDelete/findByIdAndDelete fire their own 'findOneAndDelete' hook. All three registrations
@@ -2014,7 +2017,9 @@ code paths.
   (lineage from the rescue parent) or feedback-bound from the UI → the C6 rescue-reachable acceptance must fail (F2 — rescue is a user-facing intent, not just a service endpoint).
 - Remove any one of the **four** delete-guard paths (query `deleteOne`/`deleteMany`/`findOneAndDelete`, or the `{document:true}` `doc.deleteOne()` variant — §G acceptance covers all four) → its jest rejection case must fail.
 - Add `GenerationSnapshot.bulkWrite`, `GenerationSnapshot.collection.delete*`, or raw `generationsnapshots`
-  delete calls outside an approved maintenance script → the static guard test must fail.
+  delete calls outside an approved path → should fail a static guard test. (NOTE: this static source-grep
+  test was never built — a pre-existing coverage gap, registered for the test lane. The one approved raw
+  delete is the Track-2 account-deletion erasure cascade, §23-H43.)
 - Make the service clamp-or-obey a mismatched wire `generator.temperature` or `generator.maxCompletionTokens`
   instead of rejecting → the exact-match `contract_invalid` test must fail.
 - Send `max_tokens` to OpenAI instead of `max_completion_tokens` → the fake-client generation test must fail.
