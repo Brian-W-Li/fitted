@@ -107,6 +107,14 @@ describe("deriveClothingType (the §10.3 ingestion classifier)", () => {
     expect(deriveClothingType({ category: "bottom" })).toBe("bottom");
     expect(deriveClothingType({ category: "misc", name: "blue jeans" })).toBe("bottom");
     expect(deriveClothingType({ name: "pleated skirt" })).toBe("bottom");
+    expect(deriveClothingType({ name: "olive cargos" })).toBe("bottom"); // the UI Type option
+  });
+
+  it("does NOT let the cargos keyword steal outerwear (bottom rung runs before outer)", () => {
+    // A bare "cargo" keyword would classify these as bottom — the rung-order trap the
+    // plural-only rule exists for.
+    expect(deriveClothingType({ name: "Cargo Jacket" })).toBe("outer_layer");
+    expect(deriveClothingType({ name: "cargo parka" })).toBe("outer_layer");
   });
 
   it("classifies footwear as shoes", () => {

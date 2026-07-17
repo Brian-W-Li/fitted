@@ -109,6 +109,11 @@ export async function PATCH(
     // layerRole) — deliberately NOT `name`: a bare rename must never clobber an explicitly-set
     // clothingType (the W-track correction path; pinned by the edit-ingestion test). An explicit
     // valid clothingType in the body (normalized above) still wins outright.
+    // ⚠ Scope of that guarantee: the trigger is key-PRESENCE, and the UI edit modal sends the
+    // taxonomy fields on every save — so every modal edit re-derives, and the no-clobber promise
+    // protects API-shaped renames only. Benign while nothing sets an explicit divergent type; the
+    // future W-track correction form MUST echo clothingType or its correction is silently lost on
+    // the next modal edit (§23-H52 records that obligation).
     const typeDrivingFieldsChanged = ["category", "subCategory", "layerRole"].some(
       (f) => f in update,
     );

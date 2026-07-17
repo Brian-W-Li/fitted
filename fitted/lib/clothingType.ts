@@ -36,7 +36,10 @@ const ONE_PIECE_KEYWORDS = ["jumpsuit", "romper", "sundress", "gown", "frock"];
 export const BOTTOM_KEYWORDS = [
   "pants", "sweatpants", "joggers", "snowpants", "jeggings", "jeans",
   "shorts", "skirt", "trousers", "chinos", "leggings", "slacks",
-  "cargos", "cargo", // the UI's "Cargos" Type option must keyword-rescue like every other bottom
+  // The UI's "Cargos" Type option must keyword-rescue like every other bottom. PLURAL ONLY —
+  // the bottom rung runs before the outer rung, so a bare "cargo" would mis-slot "Cargo
+  // Jacket"/"Cargo Vest" as bottom (whole-word matching keeps "cargos" from matching those).
+  "cargos",
 ];
 export const SHOE_KEYWORDS = [
   "shoes", "sneakers", "boots", "sandals", "loafers", "heels", "flats",
