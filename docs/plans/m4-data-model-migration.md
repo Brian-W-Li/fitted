@@ -181,7 +181,8 @@ row-stored**. Client echoes `{snapshotId,candidateId}` **only**; the server re-r
 **K — redaction seam (H43, D4; behavior `[STAGED]`).** Reserve `redacted`(default false)/`redactedAt?`/
 `redactionReason?` (lineage, posture rule 3); M4 does **not** wire the `User` snapshot-redaction
 cascade (`cascadeDeleteUserData` in `User.ts` covers `wardrobeitems`/`outfitinteractions`/`wardrobeimages`,
-never the snapshot collection). A rebuildable-projection affinity (OQ2) rebuilds clean after
+never the snapshot collection — an M4-era statement; the cascade gained `generationsnapshots` at
+Track 2, §23-H43). A rebuildable-projection affinity (OQ2) rebuilds clean after
 redaction (D4/D6). **Recorded privacy-milestone intent:** the snapshot's user-context PII (`occasion`,
 `location`, `weatherRaw`, `rawText`/`rawEmitted`) is structurally separable from training signal — redaction
 MAY null those while preserving keys/scores/`itemSnapshots`, the designed exit for the

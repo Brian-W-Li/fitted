@@ -1,5 +1,9 @@
 # Post-M5 reset — the trust-restoration campaign
 
+> **COMPLETED 2026-07-16.** R0 + Session B + Track 1 all executed (per-item DONE markers inline);
+> off the default reading list; kept as the campaign reference. Original 2026-07-08 shaping context
+> follows.
+>
 > Status: **SHAPED + ready to execute (Brian, 2026-07-08).** Precondition MET — M5 is complete
 > (C8 half-1 + half-2 validated locally; [[project_m5_c8_2026_07_08]]) and was built behavior-first
 > (the test-Mongo harness + D-1/D-2 round-trip guards landed at C5 — `generationSnapshotRoundTrip.test.ts`;

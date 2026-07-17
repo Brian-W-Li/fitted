@@ -192,17 +192,37 @@ and the `{user,requestId}` partial-unique index built. **Known residue:** Brian'
 adding the real closet (snapshots are append-only and stay; filter by date/user for M6).
 
 ### Friend onboarding (what a friend does)
-1. Visit **https://fitted-three.vercel.app** → sign in with any Google account.
-2. Wardrobe → add items **manually** (CV is off): name + category minimum; honest names/colors/
-   occasions make both the recommendations and the M6 corpus better. Photos optional (stored in Mongo).
-   6+ items across tops/bottoms/shoes gives the engine room.
+
+> **The ask is data-shaped (Lane F, 2026-07-17).** The M6/H26 catalog→closet transfer re-measure is
+> an *image-embedding* measure — a photo-less item contributes ZERO to it, however many snapshots it
+> generates — and its negative-sampling needs category depth (H26 skipped 25/39 pairs for lack of a
+> same-category negative; the closet probe read effective-N = 6). Decidability needs ~30–60 usable
+> positively-labeled outfits across the cohort (~8–15 per friend over a few weeks). Pitch photos and
+> depth as the default, not an extra, or Track 2 "succeeds" while the transfer lever stays unpowered.
+
+1. Visit **https://fitted-three.vercel.app** → sign in with any Google account (a real browser, not
+   an in-app one — Instagram/Messenger webviews block Google sign-in).
+2. Wardrobe → add items **manually** (CV is off): **photo + name + category for every item** — the
+   photos are the point (they feed the ML measurement; the app downscales client-side, ~1MB each).
+   Aim for **~15+ items with at least 2 per category** across tops/bottoms/shoes (outerwear too);
+   honest names/colors/occasions make both the recommendations and the corpus better.
 3. Dashboard → daily render (pick an occasion) or rescue (pick an item to build around); re-roll and
-   like/dislike freely — every render persists a snapshot, every reaction binds to it.
-4. Privacy: items/photos/feedback are stored in Brian's Atlas cluster for the M6 personalization
-   experiment; account deletion (account page) permanently deletes your wardrobe, photos, feedback,
-   **and all generated-outfit snapshots** — nothing of yours is retained after deletion.
+   like/dislike freely — every render persists a snapshot, every reaction binds to it. **Make honest
+   feedback a habit** (like what you'd actually wear, dislike what you wouldn't): the accepted/rejected
+   labels are the positive/negative signal the re-measure trains against.
+4. Privacy: your items, photos, and feedback are stored in Brian's database for a small ML experiment
+   among friends (3–5 closets). Deleting your account (account page) permanently erases everything of
+   yours **on our side** — wardrobe, photos, feedback, and every generated-outfit record —
+   immediately and irreversibly. The only things we can't reach in and delete are transient
+   third-party operational logs (hosting + the AI provider's standard short-term retention), which
+   age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
+- **⚠ PRECONDITION for the first friend sign-up: push + redeploy.** The deployed Vercel app runs the
+  last-pushed code — until the Track 2 audit stack (erasure deletion, friend-readiness fixes, storage
+  bounds) is pushed and redeployed, the LIVE app still has the old redact-only deletion, so the
+  privacy promise above is not yet live. Push main → `npx vercel --prod` → verify DELETE /api/account
+  on a throwaway account BEFORE recruiting.
 - **Corpus health:** re-certify the growing friend corpus any time with the gated read-back verifier
   (runs the real payload validator + lineage/join/orphan/degenerate checks over the live DB, read-only):
   `cd fitted && CORPUS_READBACK_URI="$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" npx jest corpusReadback --runInBand`

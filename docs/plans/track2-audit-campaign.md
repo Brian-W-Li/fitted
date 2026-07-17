@@ -24,25 +24,60 @@
 | A | Correctness/edge-case deep-read of the friend-readiness fixes | DONE — 3a652675 |
 | G | Corpus audit: account deletion = erasure (H43), live-corpus read-back verifier | DONE — 3ae0fbe3 + dcd234ed |
 | H | Deployed-service audit (ml-system as deployed): surrogate→500 corpus loss + cross-runtime pins | DONE — 3a9008d4 |
-| B | Security / untrusted-input / spend-abuse on the live deployment (IDOR matrix, spend exhaustion, secret hygiene, PII) | pending |
-| C | Wide diff catch-net: hunk-by-hunk over the full 42-file diff | pending |
-| D | Test quality / mutation / coverage of the new Track 2 code paths | pending |
-| E | Documentation consistency + spec↔code fidelity (runbook §8 claims, CLAUDE.md, single-home) | pending |
-| F | Fable seat: ambition-merit (do 3–5 closets power the H26 re-measure?) + the privacy and ship-readiness policy calls | pending |
+| B | Security / untrusted-input / spend-abuse on the live deployment (IDOR matrix, spend exhaustion, secret hygiene, PII) | DONE — 51203254 (IDOR/secrets clean; storage bounds + per-user render pacing + interactions erasure-race landed) |
+| C | Wide diff catch-net: hunk-by-hunk over the full 43-file diff | DONE — 959a28fb (no load-bearing; cargos keyword + env.sample warning + honest re-derive comment) |
+| D | Test quality / mutation / coverage of the new Track 2 code paths | DONE — 9452af5e (2 load-bearing holes guarded, mutants killed at landing; verifier mirror pinned) |
+| E | Documentation consistency + spec↔code fidelity (runbook §8 claims, CLAUDE.md, single-home) | DONE — this commit (§19/§20/H13/H28 reconciled; floors run-verified) |
+| F | Fable seat: ambition-merit (do 3–5 closets power the H26 re-measure?) + the privacy and ship-readiness policy calls | DONE — this commit (all four verdicts GO/GO-WITH-CONDITIONS; data-shaped onboarding ask + §H43 scope note landed) |
 | Final | Fresh-context regression round on the post-fix diff; converged only at zero load-bearing | pending |
+
+## Lane F verdicts (2026-07-17, Fable seat)
+
+- **Merit — GO-WITH-CONDITIONS.** The two M6 entry levers are decoupled: gate-B repower is
+  corpus-side and friend-independent (~100–250 more judged questions from the frozen
+  `fitb_order.json`, ≈$0.41–$1.03 — see the registered micro-session below); the friend closets
+  power ONLY the catalog→closet transfer, and 3–5 *photo-bearing, category-deep, feedback-active*
+  closets sit in the needed ~30–60-positive-outfit range. The onboarding ask was rewritten
+  data-shaped (runbook §8) so recruiting can't "succeed" while the transfer stays at effective-N=6.
+- **Privacy — GO with one sequencing condition.** The shipped H43 erasure is defensible
+  delete-means-delete; the runbook copy now carries the honest third-party-residue scope note.
+  Condition: **push + redeploy BEFORE the first friend signs up** (the live app still runs the
+  pre-audit build — ops-note precondition in runbook §8).
+- **Ship-readiness — GO.** No must-fix among the residuals; worst (in-app-browser sign-in) is
+  mitigated by personal onboarding + the sign-in-page copy.
+- **Fidelity — GO.** H28 rank hook still open; SignalScorer seam exercised; Lane G field-verified
+  the corpus feeds the re-measure. The only drift found was the recruiting guidance itself (fixed).
+
+## Registered follow-ups (explicitly out of this campaign)
+
+- **Gate-B repower micro-session (pre-M6, decoupled from recruiting):** rework the H56 repower
+  tooling ledger ergonomics (append/keep-last, not delete-then-regenerate), then judge +100–250
+  more questions in the frozen order (≈$0.41–$1.03) to close the +3.02e-4 half-width miss.
+  Friend data contributes nothing to this lever.
+- **Client-side test infra (jsdom + RTL) — an explicit decision, not a default:** the unguarded
+  client cluster (re-roll veto *wiring*, edit-modal input-loss fix, resume occasion restore,
+  delete-account client flow, prepareImageForUpload) is only honestly testable with component
+  rendering; one infra investment would cover all of it. Until decided, the compensating control
+  is the runbook §8 manual E2E.
+- **Optional polish (Lane F #6):** reuse `prepareImageForUpload` for the account profile photo
+  (kills the dataURL ~4.5MB 413 dead-end on an optional vanity feature).
 
 ## Execution model
 
 Lanes B–F fan out as parallel fresh-context **report-only** auditors. The coordinator
 verifies every finding against source before acting, lands fixes serially (one commit per
 lane), runs tsc + jest + build per landing, and keeps docs reconciled in the same pass.
-Floors: jest ≥611, pytest ≥1075 — green and may grow, never shrink.
+Floors (run-verified 2026-07-17): jest ≥637, pytest ≥1091 — green and may grow, never shrink.
 
-## Residuals ledger (logged in 46e6c2c6; re-verify status before re-reporting)
+## Residuals ledger (from 46e6c2c6, updated by the lane landings)
 
-- transparent-WEBP flattens to JPEG on client downscale
-- multi-word color names render an empty swatch
-- sync-E11000 branch untested; DELETE /api/account partial-failure branch untested
-- account profile photo uploads as a dataURL (~4.5MB exposure)
-- AuthGate first paint pays a sync+cookie round-trip
-- no signInWithRedirect fallback for in-app browsers (copy says use a real browser)
+Open (all judged non-blocking for the 3–5-friend cohort by Lane F):
+- transparent-WEBP flattens to JPEG on client downscale (phone cameras emit JPEG/HEIC — rare input)
+- multi-word color names render an empty swatch (cosmetic; data stored fine)
+- account profile photo uploads as a dataURL (~4.5MB 413 dead-end on an optional feature — polish chip above)
+- AuthGate first paint pays a sync+cookie round-trip (the price of the self-healing sync)
+- no signInWithRedirect fallback for in-app browsers (copy + personal onboarding mitigate)
+
+Closed by this campaign:
+- ~~sync-E11000 branch untested~~ + ~~DELETE partial-failure branch untested~~ → Lane D (9452af5e)
+- ~~interactions writer lacked the post-persist erasure check~~ → Lane B (51203254)
