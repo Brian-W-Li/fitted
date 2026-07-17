@@ -29,12 +29,16 @@ type CascadeDb = {
 /**
  * Cascade-delete every collection a user owns. Exported (and the hook delegates to it) so the
  * cascade is unit-testable without a live DB. On user delete we hard-delete wardrobe items,
- * outfit interactions, AND wardrobe images — the latter closes H14's cascade arm (M4b C7).
+ * outfit interactions, wardrobe images (H14's cascade arm, M4b C7), AND generation snapshots.
  *
- * GenerationSnapshots are intentionally NOT cascaded here: erasing a user's training-truth
- * records is the Privacy-milestone redaction path (null the PII, keep keys/scores), not a
- * hard delete (§14.4 / §23-H43). The image-replacement delete-before-commit ordering bug stays
- * W-track (§14.4-H14).
+ * The generationsnapshots arm is the SINGLE SANCTIONED ERASURE DOOR through the snapshot
+ * immutability/delete guard (§23-H43, Track 2 policy): user-invoked account deletion means
+ * "delete me" — the snapshots ARE the outfit history and retain the user's own text (item
+ * names, occasion notes, raw generation text), so they are erased, not just redacted. This
+ * runs on the NATIVE driver, deliberately below the Mongoose delete guard — exactly like the
+ * other cascade arms. Redaction (`redacted:true`) remains the tool for non-erasure removal
+ * (corpus hygiene) and as the account route's phase-1 fail-safe. The image-replacement
+ * delete-before-commit ordering bug stays W-track (§14.4-H14).
  */
 export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Promise<void> {
   // These deleteMany calls hit the NATIVE driver collections (`this.model.db`), which perform NO
@@ -49,6 +53,7 @@ export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Pro
   await db.collection("wardrobeitems").deleteMany({ user: id });
   await db.collection("outfitinteractions").deleteMany({ user: id });
   await db.collection("wardrobeimages").deleteMany({ user: id });
+  await db.collection("generationsnapshots").deleteMany({ user: id });
 }
 
 /**

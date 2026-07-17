@@ -58,8 +58,9 @@ export function getUserOutfitInteractions(userId: UserId) {
 
 /**
  * Delete a user and hard-delete their cascade-owned data (wardrobe items, interactions, wardrobe
- * images). GenerationSnapshots are redacted, not hard-deleted (see the User cascade hook).
- * Uses the cascade delete middleware defined on User schema.
+ * images, AND generation snapshots — account deletion is erasure, §23-H43 Track 2 policy; the
+ * account route redacts first as a two-phase fail-safe). Uses the cascade delete middleware
+ * defined on User schema.
  */
 export async function deleteUserWithData(userId: UserId) {
   await initDatabase();

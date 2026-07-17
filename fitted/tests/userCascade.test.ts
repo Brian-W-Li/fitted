@@ -1,11 +1,12 @@
 /**
- * M4b C7 — User cascade: a user delete hard-deletes their wardrobeimages (the H14 arm),
- * alongside the existing wardrobeitems + outfitinteractions cascade.
+ * User cascade: a user delete hard-deletes their wardrobeimages (the H14 arm, M4b C7),
+ * wardrobeitems, outfitinteractions, AND generationsnapshots (account-deletion erasure,
+ * §23-H43 Track 2 policy — the single sanctioned door through the snapshot delete guard).
  *
- * No DB harness in this repo, so we exercise the exported cascade function + the EXACT
- * registered pre-hook directly, with a stub connection that records every deleteMany.
+ * We exercise the exported cascade function + the EXACT registered pre-hook directly, with a
+ * stub connection that records every deleteMany.
  *
- * Reference: docs/plans/m4-data-model-migration.md §14 (C7); §14.4 (H14).
+ * Reference: docs/plans/m4-data-model-migration.md §14 (C7); docs/Fitted_Spec_v2.md §23-H43.
  */
 import { Types } from "mongoose";
 import User, { cascadeDeleteUserData, cascadeUserDataHook } from "@/models/User";
@@ -26,7 +27,7 @@ function stubDb() {
 }
 
 describe("User cascade — cascadeDeleteUserData", () => {
-  it("hard-deletes wardrobeitems, outfitinteractions, AND wardrobeimages", async () => {
+  it("hard-deletes wardrobeitems, outfitinteractions, wardrobeimages, AND generationsnapshots", async () => {
     const db = stubDb();
     const userId = new Types.ObjectId();
 
@@ -35,12 +36,7 @@ describe("User cascade — cascadeDeleteUserData", () => {
     expect(db.calls.wardrobeitems).toEqual([{ user: userId }]);
     expect(db.calls.outfitinteractions).toEqual([{ user: userId }]);
     expect(db.calls.wardrobeimages).toEqual([{ user: userId }]); // the C7 arm
-  });
-
-  it("does NOT cascade generationsnapshots (redaction is the Privacy path, not a hard delete)", async () => {
-    const db = stubDb();
-    await cascadeDeleteUserData(db, new Types.ObjectId());
-    expect(db.calls.generationsnapshots).toBeUndefined();
+    expect(db.calls.generationsnapshots).toEqual([{ user: userId }]); // §23-H43 erasure arm
   });
 });
 
@@ -52,7 +48,7 @@ describe("User cascade — the registered hook", () => {
     expect((pres.get("findOneAndDelete") || []).length).toBeGreaterThan(0);
   });
 
-  it("the hook cascades all three collections then calls next (covers both delete paths)", async () => {
+  it("the hook cascades all four collections then calls next (covers both delete paths)", async () => {
     // Both User.deleteOne (direct) and deleteUserWithData (→ User.deleteOne) fire this same hook.
     const db = stubDb();
     const userId = new Types.ObjectId();
@@ -63,6 +59,7 @@ describe("User cascade — the registered hook", () => {
     expect(db.calls.wardrobeimages).toEqual([{ user: userId }]);
     expect(db.calls.wardrobeitems).toEqual([{ user: userId }]);
     expect(db.calls.outfitinteractions).toEqual([{ user: userId }]);
+    expect(db.calls.generationsnapshots).toEqual([{ user: userId }]);
     expect(next).toHaveBeenCalledTimes(1);
   });
 

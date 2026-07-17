@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteUserWithData, initDatabase } from "@/lib/db";
 import { verifyFirebaseUser } from "@/lib/apiAuth";
 import { adminAuth } from "@/lib/firebaseAdmin";
+import { cascadeDeleteUserData } from "@/models/User";
 
 function parseAge(value: unknown): number | null {
   if (value === "" || value === null || value === undefined) return null;
@@ -217,17 +218,27 @@ export async function PATCH(request: NextRequest) {
 }
 
 /**
- * DELETE /api/account — the user-facing data-deletion promise (§14.4 / §23-H43).
+ * DELETE /api/account — the user-facing data-deletion promise (§14.4 / §23-H43, Track 2 policy:
+ * "delete me" means delete — the UI copy "permanently deletes … outfit history" is literally true).
  *
- * Order is deliberate:
- *   1. REDACT the user's GenerationSnapshots — the H43 seam (`redacted`/`redactedAt`/
- *      `redactionReason` are the ONLY post-insert-mutable fields; the immutability guard enforces
- *      it). Training-truth rows stay, marked; full PII-nulling is the Privacy milestone's.
- *   2. Hard-delete the User row — the pre-delete hook cascade-deletes wardrobe items,
- *      interactions, AND images (models/User.ts).
- *   3. Delete the Firebase Auth account so the Google binding is gone too. A failure here (after
+ * Three-phase erasure, order deliberate:
+ *   1. Phase-1 fail-safe: REDACT the user's GenerationSnapshots (the H43 seam — the only
+ *      post-insert-mutable fields). If the cascade below dies midway, the rows are at least
+ *      marked, M6-excluded, and findable via the {user, redacted} index for a manual sweep
+ *      (the corpusReadback verifier flags this exact state).
+ *   2. Hard-delete the User row — the PRE-delete hook cascade-deletes wardrobe items,
+ *      interactions, images, AND generation snapshots (models/User.ts — the single sanctioned
+ *      erasure door through the snapshot delete guard; native driver by design).
+ *   3. Phase-3 sweep: re-run the cascade AFTER the User row is gone. The cascade is a pre-hook,
+ *      so a snapshot/interaction persisted by an in-flight request AFTER the cascade's sweep but
+ *      BEFORE the user row died would otherwise survive; once the user row is gone, no new write
+ *      can slip past (auth + the writer's post-persist User.exists check both fail), so this
+ *      sweep is the closing bracket of the race.
+ *   4. Delete the Firebase Auth account so the Google binding is gone too. A failure here (after
  *      the Mongo data is already gone) is logged, not fatal — the orphaned auth account would just
  *      re-create a fresh empty user on a future sign-in.
+ * The in-flight-render race is thus closed from both sides: mlRecommend self-erases when it sees
+ * the user gone post-persist; this route sweeps once the user row's death makes that check reliable.
  */
 export async function DELETE(request: NextRequest) {
   try {
@@ -250,6 +261,10 @@ export async function DELETE(request: NextRequest) {
     if (!deleted) {
       return NextResponse.json({ error: "Failed to delete account" }, { status: 500 });
     }
+
+    // Phase-3 sweep (see the docblock): idempotent cascade re-run now that the user row is gone,
+    // catching any row an in-flight request persisted between the pre-hook sweep and the row's death.
+    await cascadeDeleteUserData(User.db, auth.userId);
 
     if (user.authId) {
       try {

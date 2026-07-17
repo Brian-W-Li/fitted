@@ -19,6 +19,7 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import WardrobeItem from "@/models/WardrobeItem";
 import OutfitInteraction from "@/models/OutfitInteraction";
+import User from "@/models/User";
 import { mlRecommend, resolveWeatherProd, type MlRecommendDeps } from "@/lib/mlRecommend";
 import { callRenderService } from "@/lib/mlServiceClient";
 import { postInteraction, type InteractionDeps } from "@/lib/interactions";
@@ -36,14 +37,16 @@ let ids: { top: string; b1: string; b2: string; shoes: string; outer: string };
 
 gate("LOCAL service smoke — real Next core ↔ real service ↔ real gpt-5.4-mini", () => {
   beforeAll(async () => {
-    harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, OutfitInteraction]);
+    harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, OutfitInteraction, User]);
   });
   afterAll(async () => {
     await harness.stop();
   });
   beforeEach(async () => {
     await harness.clear();
-    userId = new mongoose.Types.ObjectId().toString();
+    // A REAL user row — the 11.5 erasure-race check re-reads it after every snapshot write.
+    const user = await User.create({ authProvider: "firebase", authId: "uid-smoke", email: "s@example.com" });
+    userId = user._id.toString();
     const mk = async (name: string, clothingType: string, category: string) => {
       const doc = await WardrobeItem.create({
         user: userId, name, clothingType, warmth: 5, category,
@@ -63,7 +66,7 @@ gate("LOCAL service smoke — real Next core ↔ real service ↔ real gpt-5.4-m
   function deps(): MlRecommendDeps {
     return {
       verifyUser: async () => ({ userId }),
-      models: { GenerationSnapshot, WardrobeItem, OutfitInteraction },
+      models: { GenerationSnapshot, WardrobeItem, OutfitInteraction, User },
       callService: (body) =>
         callRenderService(body, { serviceUrl: SMOKE_URL, serviceKey: SMOKE_KEY, timeoutMs: 60_000 }),
       today: () => "2026-07-08",

@@ -487,11 +487,12 @@ const GenerationSnapshotSchema = new Schema(
     nSurfaced: { type: Number, required: true, min: 0 },
     spreadCollapsed: { type: Boolean, required: true },
 
-    // --- K: redaction seam (H43, [STAGED]) — the only post-insert-mutable fields AT M4.
-    // M4 reserves them + does NOT wire the User cascade (premature with zero users — §14.4).
-    // The Privacy milestone wires redaction and EXTENDS the guard whitelist to also null the
-    // PII-bearing fields (occasion/location/weatherRaw/raw text) while preserving keys/scores/
-    // itemSnapshots (spec §15.1 / §8.2-K) — so this whitelist is the M4 set, not the final one. ---
+    // --- K: redaction seam (H43) — the only post-insert-mutable fields. Redaction is the
+    // NON-ERASURE removal tool (corpus hygiene / bad batches) and the account route's phase-1
+    // fail-safe; account deletion itself ERASES the user's snapshots via the User cascade
+    // (Track 2 policy — "delete me" means delete). A [STAGED] PII-null scrub (null occasion/
+    // location/weatherRaw/raw text, preserve keys/scores/itemSnapshots) remains reserved for a
+    // future consent-based-retention option (spec §15.1 / §23-H43). ---
     redacted: { type: Boolean, default: false },
     redactedAt: { type: Date },
     redactionReason: { type: String },
@@ -608,12 +609,21 @@ GenerationSnapshotSchema.pre("save", immutableSaveGuard);
 
 // Delete guard (§G item 3 / H54) — the immutability contract had update/replace/save guards but NO
 // delete guard. A GenerationSnapshot is immutable training truth; redaction (redacted:true) is the
-// only sanctioned removal. Mongoose fires DIFFERENT hooks per delete path: pre('deleteOne') alone
+// sanctioned removal for corpus hygiene. The ONE sanctioned hard-delete is user-invoked account
+// erasure via the User cascade (`User.ts cascadeDeleteUserData` + the mlRecommend post-persist
+// orphan check), which runs on the NATIVE driver deliberately below this guard — "delete me"
+// means the user's own text (names, occasions, raw generation text) leaves the DB (§23-H43,
+// Track 2 policy). Mongoose fires DIFFERENT hooks per delete path: pre('deleteOne') alone
 // is QUERY middleware only — Document#deleteOne() needs {document:true}, and findOneAndDelete/
 // findByIdAndDelete fire their own 'findOneAndDelete' hook. All three registrations or the guard
 // has bypasses (verified against mongoose schema.js pre() jsdoc).
 export function immutableDeleteGuard(next: (err?: Error) => void): void {
-  next(new Error("GenerationSnapshot is immutable training truth; use redaction, never delete"));
+  next(
+    new Error(
+      "GenerationSnapshot is immutable training truth; use redaction — the sole sanctioned " +
+        "hard-delete is account-deletion erasure via the User cascade (native driver)",
+    ),
+  );
 }
 GenerationSnapshotSchema.pre(["deleteOne", "deleteMany", "findOneAndDelete"], immutableDeleteGuard); // query paths
 GenerationSnapshotSchema.pre("deleteOne", { document: true, query: false }, immutableDeleteGuard); // doc.deleteOne()
@@ -641,7 +651,7 @@ GenerationSnapshotSchema.index(
 GenerationSnapshotSchema.index({ user: 1, shownFullSignatures: 1, createdAt: -1 });
 // M6 training batch read — scan non-redacted by time.
 GenerationSnapshotSchema.index({ redacted: 1, createdAt: 1 });
-// Redaction cascade sweep (the H43 [STAGED] path).
+// The account route's phase-1 redaction fail-safe sweep + manual-sweep lookup (H43).
 GenerationSnapshotSchema.index({ user: 1, redacted: 1 });
 
 export type GenerationSnapshotDocument = InferSchemaType<typeof GenerationSnapshotSchema>;

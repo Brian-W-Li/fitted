@@ -1,10 +1,11 @@
 /**
  * DELETE /api/account — the account-deletion promise, BEHAVIORAL over real in-memory Mongo.
  *
- * The friend-facing contract (m5-c8-half2-runbook §8 / §23-H43): deleting an account hard-deletes
- * the user's wardrobe items, interactions, and images (the User cascade hook), REDACTS their
- * GenerationSnapshots (the H43 seam — the only post-insert-mutable fields, immutability-guard
- * enforced), removes the Firebase Auth binding, and touches NOTHING owned by other users.
+ * The friend-facing contract (m5-c8-half2-runbook §8 / §23-H43 Track 2 policy — "delete me"
+ * means delete): deleting an account hard-deletes the user's wardrobe items, interactions,
+ * images, AND GenerationSnapshots (the cascade's native-driver erasure door through the
+ * snapshot delete guard; the route redacts first as a two-phase fail-safe), removes the
+ * Firebase Auth binding, and touches NOTHING owned by other users.
  *
  * Non-DB seams mocked (Mongo connect + Firebase admin); models/documents/hooks/guards are REAL —
  * the cascade hook and the snapshot immutability guard both execute against a real mongod.
@@ -175,7 +176,7 @@ async function seedUser(authId: string, email: string) {
   return { userId, itemId: item._id.toString(), snapshotId: snapshot._id.toString() };
 }
 
-describe("DELETE /api/account — cascade + redaction + auth removal", () => {
+describe("DELETE /api/account — cascade erasure + auth removal", () => {
   it("401s without a bearer token; 404s for a token with no user row", async () => {
     const resNoAuth = await DELETE(makeRequest(null));
     expect(resNoAuth.status).toBe(401);
@@ -185,7 +186,7 @@ describe("DELETE /api/account — cascade + redaction + auth removal", () => {
     expect(resNoRow.status).toBe(404);
   });
 
-  it("deletes ONLY the caller's user+wardrobe+images+interactions, REDACTS their snapshots, and removes the Firebase user", async () => {
+  it("erases ONLY the caller's user+wardrobe+images+interactions+snapshots, and removes the Firebase user", async () => {
     const a = await seedUser("uid-a", "a@example.com");
     const b = await seedUser("uid-b", "b@example.com");
 
@@ -200,25 +201,45 @@ describe("DELETE /api/account — cascade + redaction + auth removal", () => {
     expect(await WardrobeImage.countDocuments({ user: a.userId })).toBe(0);
     expect(await OutfitInteraction.countDocuments({ user: a.userId })).toBe(0);
 
-    // …their snapshot SURVIVES, redacted (H43), with its training truth untouched.
-    const snapA = (await GenerationSnapshot.findById(a.snapshotId).lean()) as Any;
-    expect(snapA).not.toBeNull();
-    expect(snapA.redacted).toBe(true);
-    expect(snapA.redactionReason).toBe("account_deleted");
-    expect(snapA.redactedAt).toBeInstanceOf(Date);
-    expect(snapA.occasion).toBe("occasion-uid-a"); // non-redaction fields unchanged
+    // …including their snapshots: erased, not just redacted — the friend-facing "delete me"
+    // promise (§23-H43 Track 2 policy). The cascade's native-driver arm is the ONE sanctioned
+    // door through the snapshot delete guard.
+    expect(await GenerationSnapshot.findById(a.snapshotId)).toBeNull();
+    expect(await GenerationSnapshot.countDocuments({ user: a.userId })).toBe(0);
 
     // The Firebase Auth binding was removed for A's uid.
     expect(mockedAdminAuth().deleteUser).toHaveBeenCalledTimes(1);
     expect(mockedAdminAuth().deleteUser).toHaveBeenCalledWith("uid-a");
 
-    // B is fully intact — user, rows, and an UNredacted snapshot.
+    // B is fully intact — user, rows, and an UNredacted, UNerased snapshot.
     expect(await User.findById(b.userId)).not.toBeNull();
     expect(await WardrobeItem.countDocuments({ user: b.userId })).toBe(1);
     expect(await WardrobeImage.countDocuments({ user: b.userId })).toBe(1);
     expect(await OutfitInteraction.countDocuments({ user: b.userId })).toBe(1);
     const snapB = (await GenerationSnapshot.findById(b.snapshotId).lean()) as Any;
+    expect(snapB).not.toBeNull();
     expect(snapB.redacted).toBe(false);
+  });
+
+  it("phase-3 sweep erases a snapshot that landed AFTER the cascade's pre-hook sweep (the third race interleaving)", async () => {
+    // The User cascade is a PRE-hook: an in-flight render can persist a row after the cascade's
+    // generationsnapshots deleteMany but before (or around) the user row's death — the writer's
+    // own User.exists check may still see the user alive. The route's phase-3 post-deletion
+    // cascade re-run is what erases that row; simulate the interleaving by injecting a late
+    // snapshot write inside deleteUserWithData, after the real cascade has already swept.
+    const a = await seedUser("uid-a", "a@example.com");
+    setToken("uid-a");
+    const { deleteUserWithData } = jest.requireMock("@/lib/db") as { deleteUserWithData: jest.Mock };
+    deleteUserWithData.mockImplementationOnce(async (userId: unknown) => {
+      const UserModel = jest.requireActual("@/models/User").default;
+      const result = await UserModel.deleteOne({ _id: userId }); // real cascade sweep runs here
+      await makeSnapshot(String(userId), "late-in-flight-write"); // the racing row lands after it
+      return result.deletedCount > 0;
+    });
+
+    const res = await DELETE(makeRequest());
+    expect(res.status).toBe(200);
+    expect(await GenerationSnapshot.countDocuments({ user: a.userId })).toBe(0); // swept by phase 3
   });
 
   it("still reports success when the Firebase-side deletion fails (Mongo data already removed)", async () => {

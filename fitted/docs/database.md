@@ -66,7 +66,7 @@ Use these helpers instead of raw queries to ensure users only access their own d
 - `getUserOutfitInteractions(userId)` – get all interactions for a user
 
 ## Cascade delete
-When a user is deleted via `User.deleteOne()` or `User.findOneAndDelete()`, Mongoose middleware automatically removes their wardrobe items, outfit interactions, and wardrobe image documents. Use `deleteUserWithData(userId)` from `lib/db.ts` for a clean helper. GenerationSnapshots are not hard-deleted here; the reserved privacy path redacts them.
+When a user is deleted via `User.deleteOne()` or `User.findOneAndDelete()`, Mongoose middleware automatically removes their wardrobe items, outfit interactions, wardrobe image documents, AND generation snapshots (account deletion is erasure — docs/Fitted_Spec_v2.md §23-H43). Use `deleteUserWithData(userId)` from `lib/db.ts` for a clean helper.
 
 ## Extensibility
 `metadata` fields in each collection allow adding new attributes later (e.g., ML outputs, stats) without breaking existing data. Add indexes as new query patterns emerge.

@@ -199,10 +199,13 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
 3. Dashboard → daily render (pick an occasion) or rescue (pick an item to build around); re-roll and
    like/dislike freely — every render persists a snapshot, every reaction binds to it.
 4. Privacy: items/photos/feedback are stored in Brian's Atlas cluster for the M6 personalization
-   experiment; account deletion (account page) cascades wardrobe/images/interactions and redacts
-   snapshots.
+   experiment; account deletion (account page) permanently deletes your wardrobe, photos, feedback,
+   **and all generated-outfit snapshots** — nothing of yours is retained after deletion.
 
 ### Ops notes (Brian)
+- **Corpus health:** re-certify the growing friend corpus any time with the gated read-back verifier
+  (runs the real payload validator + lineage/join/orphan/degenerate checks over the live DB, read-only):
+  `cd fitted && CORPUS_READBACK_URI="$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" npx jest corpusReadback --runInBand`
 - **Spend:** OpenAI usage dashboard (the $10 cap is the hard backstop); `fly status`/`fly logs --app
   fitted-render-service`; Vercel logs via the project's Inspect URL.
 - **Machine count must stay 1** (`fly scale show`) — >1 silently multiplies the rate ceiling (G1).

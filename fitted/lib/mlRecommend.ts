@@ -81,6 +81,8 @@ export interface MlModels {
   WardrobeItem: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   OutfitInteraction: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  User: any; // the post-persist erasure-race check (account deletion during an in-flight render)
 }
 
 export interface WeatherResolution {
@@ -180,6 +182,9 @@ export function prodDeps(): MlRecommendDeps {
       get OutfitInteraction() {
         return mongoose.models.OutfitInteraction;
       },
+      get User() {
+        return mongoose.models.User;
+      },
     } as unknown as MlModels,
     callService: (body) => callRenderService(body),
     today: () => new Date().toISOString().slice(0, 10),
@@ -256,7 +261,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     }
     const requestId = canonicalRequestId(rawRequestId);
 
-    const { GenerationSnapshot, WardrobeItem, OutfitInteraction } = deps.models;
+    const { GenerationSnapshot, WardrobeItem, OutfitInteraction, User } = deps.models;
 
     // 3. §C.1 lineage gate FIRST, then intent — a re-roll carries only {requestId, parentSnapshotId,
     //    controls}; intent + Lens are derived FROM THE PARENT, never the client (else a rescue re-roll,
@@ -522,6 +527,23 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     } catch (err) {
       console.error("GenerationSnapshot write failed:", err);
       return respondDegraded("service_unavailable");
+    }
+
+    // 11.5 Erasure-race close, writer side (§23-H43 / Track 2): the account-deletion flow may run
+    // while the render is in flight (auth re-reads the User row, so only an ALREADY-authed render
+    // can race). A snapshot persisted for a since-deleted user must not survive — "delete me"
+    // means delete — and must not hand back a binding token. Erase via the native driver (the
+    // same sanctioned erasure door the User cascade uses; the Mongoose delete guard stays intact
+    // for every other path) and degrade non-bindably. This check is reliable only once the User
+    // row is actually gone — the deletion cascade is a PRE-hook, so a write landing between the
+    // cascade's sweep and the user row's death still sees the user alive here; the account
+    // route's phase-3 post-deletion sweep is the other half that closes that interleaving.
+    const userStillExists = await User.exists({ _id: userObjectId });
+    if (!userStillExists) {
+      await GenerationSnapshot.db
+        .collection("generationsnapshots")
+        .deleteMany({ user: userObjectId });
+      return respondDegraded("auth_failed");
     }
 
     if (writeResult.deduped) {

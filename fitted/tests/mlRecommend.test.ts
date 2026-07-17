@@ -18,6 +18,7 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import WardrobeItem from "@/models/WardrobeItem";
 import OutfitInteraction from "@/models/OutfitInteraction";
+import User from "@/models/User";
 import { mlRecommend, resolveWeatherProd, type MlRecommendDeps, type WeatherResolution } from "@/lib/mlRecommend";
 import { GENERATOR_EXPECTATION } from "@/lib/mlRequestAdapter";
 import type { RenderBody } from "@/lib/mlRequestAdapter";
@@ -31,7 +32,7 @@ let userId: string;
 let itemIds: { top: string; b1: string; b2: string; shoes: string };
 
 beforeAll(async () => {
-  harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, OutfitInteraction]);
+  harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, OutfitInteraction, User]);
 });
 afterAll(async () => {
   await harness.stop();
@@ -41,7 +42,9 @@ afterEach(async () => {
 });
 
 beforeEach(async () => {
-  userId = new mongoose.Types.ObjectId().toString();
+  // A REAL user row — the 11.5 erasure-race check re-reads it after every snapshot write.
+  const user = await User.create({ authProvider: "firebase", authId: "uid-test", email: "t@example.com" });
+  userId = user._id.toString();
   const mk = async (name: string, clothingType: string, category: string) => {
     const doc = await WardrobeItem.create({
       user: userId,
@@ -215,7 +218,7 @@ function fakeService(opts: FakeOptions = {}) {
 function makeDeps(over: Partial<MlRecommendDeps> = {}): MlRecommendDeps {
   return {
     verifyUser: async () => ({ userId }),
-    models: { GenerationSnapshot, WardrobeItem, OutfitInteraction },
+    models: { GenerationSnapshot, WardrobeItem, OutfitInteraction, User },
     callService: fakeService(),
     today: () => "2026-07-08",
     newId: () => new mongoose.Types.ObjectId().toString(),
@@ -593,6 +596,25 @@ describe("§C.4 idempotency + G5", () => {
 });
 
 describe("degrade + reject arms (no write, snapshotId discarded)", () => {
+  it("account deleted mid-render (erasure race, §23-H43) → no surviving snapshot, non-bindable degraded", async () => {
+    // The account-deletion cascade runs while the render is in flight (after auth, before the
+    // write): simulate by deleting the user inside the service call. The REAL cascade hook fires
+    // (wardrobe/interactions/snapshots erased); the 11.5 post-persist check must then self-erase
+    // the just-written row and refuse to hand back a binding token.
+    const deps = makeDeps({
+      callService: async (b: RenderBody) => {
+        await User.deleteOne({ _id: userId });
+        return fakeService()(b);
+      },
+    });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);
+    const { status, body } = await json(res);
+    expect(status).toBe(200);
+    expect(body.bindable).toBe(false);
+    expect(body.shown).toEqual([]);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0); // delete means delete
+  });
+
   it("a service failure → 200 degraded empty state, no snapshot", async () => {
     const deps = makeDeps({ callService: fakeService({ fail: { ok: false, reasonHint: "service_unavailable" } }) });
     const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);

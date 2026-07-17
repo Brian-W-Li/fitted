@@ -37,8 +37,9 @@ export default function AccountPage() {
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  /** The friend-facing data-deletion promise: wardrobe/photos/feedback are hard-deleted, snapshots
-   *  redacted, and the Google sign-in binding removed (DELETE /api/account). Irreversible. */
+  /** The friend-facing data-deletion promise: wardrobe/photos/feedback AND generation snapshots
+   *  are hard-deleted (erasure, §23-H43 Track 2 policy) and the Google sign-in binding removed
+   *  (DELETE /api/account). Irreversible. */
   async function deleteAccount() {
     const fbUser = auth.currentUser;
     if (!fbUser || deleting) return;
@@ -433,8 +434,9 @@ export default function AccountPage() {
           <div className="rounded-2xl border border-red-200 bg-red-50/40 p-5">
             <h2 className="text-sm font-semibold text-red-800">Delete account</h2>
             <p className="mt-1 text-sm text-red-700/80">
-              Permanently deletes your closet, photos, outfit history, and feedback, and removes
-              your sign-in. This cannot be undone.
+              Permanently deletes your closet, photos, outfit history (including every
+              generated-outfit record on our side), and feedback, and removes your sign-in. This
+              cannot be undone.
             </p>
             <button
               type="button"
