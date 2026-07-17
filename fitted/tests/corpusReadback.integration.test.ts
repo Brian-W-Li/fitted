@@ -14,7 +14,10 @@
  * Skips entirely unless CORPUS_READBACK_URI is set — so `npm test` / CI never touch a real DB.
  */
 import mongoose from "mongoose";
-import { createHash } from "crypto";
+// The read-back truth check that a stored candidateCacheKey really is the sha256 of the row's
+// OWN Lens-chain fields. Shared with the CI known-answer pin (crossRuntimeContract.test.ts), so
+// the recompute can't drift from seed.py while this gated verifier sits idle.
+import { recomputeCandidateCacheKey } from "./helpers/candidateCacheKey";
 import { validateSnapshotPayload } from "@/lib/mlSnapshotValidation";
 import { projectInteractionRow } from "@/lib/mlBehavioralRows";
 import { isValidRequestId, OBJECT_ID_RE, SEED_DATE_RE } from "@/lib/formats";
@@ -24,27 +27,6 @@ type Any = any;
 
 const URI = process.env.CORPUS_READBACK_URI;
 const gate = URI ? describe : describe.skip;
-
-/** JS recompute of fitted_core.seed.candidate_cache_key — the read-back truth check that the
- *  stored key really is the sha256 of the row's OWN Lens-chain fields (verified byte-equal
- *  against seed.py on the live corpus, 2026-07-16). `_frame` = utf8-byte-length prefix; None → "-:". */
-function recomputeCandidateCacheKey(doc: Any): string {
-  const frame = (v: string | number | null | undefined): string => {
-    if (v == null) return "-:";
-    const s = String(v);
-    return `${Buffer.byteLength(s, "utf8")}:${s}`;
-  };
-  const canonical = [
-    frame(doc.sessionId),
-    frame(doc.wardrobeVersion),
-    frame(doc.occasion),
-    frame(doc.weather),
-    frame(doc.intent),
-    frame(doc.forcedItemId ?? null),
-    frame(doc.seedDate ?? null),
-  ].join("");
-  return createHash("sha256").update(canonical, "utf8").digest("hex");
-}
 
 const GENERATOR_REQUIRED_KEYS = [
   "provider",

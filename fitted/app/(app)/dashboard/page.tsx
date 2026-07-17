@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { resolveImageSrc } from "@/lib/imageUrl";
 import { clearSessionCookie } from "@/lib/sessionCookie";
 import { MAX_OCCASION_CHARS } from "@/lib/mlRequestAdapter";
+import { isEmptyDegradedRender } from "@/lib/renderResultGuards";
 
 // ============================================================================
 // M5 §6.5 browser contract (the G15 allowlist the /api/recommend route returns).
@@ -734,7 +735,7 @@ function DashboardInner() {
       void runRender(user, envelope, body, (r) => {
         // Same no-wipe rule as submitRegenerate: a resumed RE-ROLL that comes back degraded/empty
         // must not replace (or overwrite the persisted copy of) the outfits restored on reload.
-        if (envelope.parentSnapshotId != null && !r.bindable && (r.shown?.length ?? 0) === 0) {
+        if (envelope.parentSnapshotId != null && isEmptyDegradedRender(r)) {
           setError(emptyStateMessage(r));
           return false;
         }
@@ -807,7 +808,7 @@ function DashboardInner() {
           // A degraded/empty re-roll (rate-limited, outage, nothing buildable under the locks)
           // must NOT wipe the outfits the user is looking at — keep the current result and show
           // the reason in the modal instead. The modal stays open so they can adjust and retry.
-          if (!r.bindable && (r.shown?.length ?? 0) === 0) {
+          if (isEmptyDegradedRender(r)) {
             setError(emptyStateMessage(r));
             return false; // reject: state + persisted copy keep the previous render
           }

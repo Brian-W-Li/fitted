@@ -14,6 +14,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { recomputeCandidateCacheKey } from "./helpers/candidateCacheKey";
 import {
   MAX_OCCASION_CHARS,
   MAX_WEATHER_RAW_CHARS,
@@ -178,4 +179,39 @@ describe("cross-runtime id/format regexes (behavioral vectors)", () => {
       it(`${name} rejects ${JSON.stringify(v)}`, () => expect(test(v)).toBe(false));
     }
   }
+});
+
+describe("candidateCacheKey recompute — the JS mirror pinned to fitted_core.seed.candidate_cache_key", () => {
+  // Known-answer vectors computed by the REAL Python unit:
+  //   python3 -c "from fitted_core.seed import candidate_cache_key; print(candidate_cache_key(...))"
+  // (re-verified against seed.py at landing). Covers multi-byte UTF-8 framing and the
+  // None-vs-empty-string sentinel distinction ("-:" vs "0:"). The mirror itself lives in
+  // tests/helpers/candidateCacheKey.ts and is consumed by the gated corpusReadback verifier —
+  // this pin is what keeps that idle verifier from rotting when either runtime's framing moves.
+  it("multi-byte occasion, null forcedItemId, dated seed", () => {
+    expect(
+      recomputeCandidateCacheKey({
+        sessionId: "665f00000000000000000001",
+        wardrobeVersion: 3,
+        occasion: "weekend brunch — café ☕",
+        weather: "mild",
+        intent: "daily",
+        forcedItemId: null,
+        seedDate: "2026-07-16",
+      }),
+    ).toBe("9a8cf186e14025c3e08927a7d300edc42c3940491fd7dae64104b43ed4931c0f");
+  });
+  it("empty occasion ('0:' framing, NOT the '-:' null sentinel), forced item, null seedDate", () => {
+    expect(
+      recomputeCandidateCacheKey({
+        sessionId: "665f00000000000000000001",
+        wardrobeVersion: 0,
+        occasion: "",
+        weather: "mild",
+        intent: "rescue_item",
+        forcedItemId: "665f000000000000000000aa",
+        seedDate: null,
+      }),
+    ).toBe("8c8bc8ad077b75464c5d636bde899ce75b1ed6784f6a4f4b69c51481eb9b5b11");
+  });
 });

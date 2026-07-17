@@ -199,4 +199,20 @@ describe("PATCH /api/wardrobe/[id] — M4 ingestion edit round-trip (behavioral,
     expect(res.status).toBe(400);
     expect((await readItem(id)).name).toBe("Keep me");
   });
+
+  it('an explicit "" clears a stored optional field (the edit modal\'s clear semantics)', async () => {
+    // The modal sends "" (not undefined) to clear pattern/layerRole — the round-trip proof that
+    // "" survives validation, lands in $set, and reads back cleared.
+    const id = await seedItem({ pattern: "striped" });
+    const res = await patch(id, { pattern: "" });
+    expect(res.status).toBe(200);
+    expect((await readItem(id)).pattern ?? "").toBe("");
+  });
+
+  it("rejects an over-cap string on edit (row unchanged — storage bounds hold on PATCH too)", async () => {
+    const id = await seedItem({ name: "Keep me" });
+    const res = await patch(id, { name: "x".repeat(201) });
+    expect(res.status).toBe(400);
+    expect((await readItem(id)).name).toBe("Keep me");
+  });
 });

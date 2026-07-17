@@ -163,4 +163,28 @@ describe("/api/cv/infer route (behavioral auth, real Mongo)", () => {
     expect(body.error).toBe("IMAGE_TOO_LARGE");
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
+
+  // LAST test in the file by design: CV_SERVICE_URL is captured at the route's first import, so
+  // exercising the unconfigured branch needs jest.resetModules() + a fresh import — the reset
+  // replaces the mock-registry instances, so the mocks are re-armed inside the test and no later
+  // test may rely on the pre-reset module graph.
+  it("unconfigured CV (no CV_SERVICE_URL) → 503 with the manual-entry fallback copy, no upstream call", async () => {
+    jest.resetModules();
+    const prev = process.env.CV_SERVICE_URL;
+    delete process.env.CV_SERVICE_URL;
+    try {
+      mockDb(); // re-arm the fresh post-reset mock instances
+      setToken("firebase-uid");
+      const { POST } = await import("@/app/api/cv/infer/route");
+      const res = await POST(makeRequest(makeFile()));
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.error).toBe("CV_SERVICE_UNAVAILABLE");
+      expect(body.message).toContain("manually"); // the prod (CV off) friend-facing copy
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    } finally {
+      process.env.CV_SERVICE_URL = prev;
+    }
+  });
 });

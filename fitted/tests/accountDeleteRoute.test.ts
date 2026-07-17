@@ -251,4 +251,26 @@ describe("DELETE /api/account — cascade erasure + auth removal", () => {
     expect(res.status).toBe(200);
     expect(await User.findById(a.userId)).toBeNull(); // the data deletion still happened
   });
+
+  it("500s when the user delete fails midway — leaving the phase-1 redaction fail-safe in place and NOT touching Firebase", async () => {
+    // The partial-failure branch: the phase-1 updateMany has run, then deleteUserWithData reports
+    // no row deleted (cascade/delete died). The route must 500; the snapshots must sit in the
+    // marked state the corpusReadback verifier's "cascade died midway" check looks for
+    // ({redacted:true, redactionReason:"account_deleted"} with a surviving user); and the
+    // Firebase binding must NOT be deleted while the Mongo erasure is incomplete.
+    const a = await seedUser("uid-a", "a@example.com");
+    setToken("uid-a");
+    const { deleteUserWithData } = jest.requireMock("@/lib/db") as { deleteUserWithData: jest.Mock };
+    deleteUserWithData.mockImplementationOnce(async () => false);
+
+    const res = await DELETE(makeRequest());
+    expect(res.status).toBe(500);
+
+    expect(await User.findById(a.userId)).not.toBeNull(); // the user row survived the failure
+    const snap = (await GenerationSnapshot.findById(a.snapshotId).lean()) as Any;
+    expect(snap.redacted).toBe(true); // phase-1 ran BEFORE the delete — the fail-safe held
+    expect(snap.redactionReason).toBe("account_deleted");
+    expect(snap.redactedAt).toBeTruthy();
+    expect(mockedAdminAuth().deleteUser).not.toHaveBeenCalled(); // never orphan auth before data
+  });
 });
