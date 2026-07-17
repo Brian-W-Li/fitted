@@ -1,5 +1,10 @@
 # Track 2 pre-push audit campaign
 
+> **CONVERGED 2026-07-17.** All lanes run and landed; the final regression rounds returned zero
+> load-bearing on the closing tree. The stack is push-ready pending Brian's manual push +
+> Vercel redeploy (the runbook §8 ops precondition — required BEFORE the first friend signs up).
+> Residuals + follow-ups below are the honest remainder, all judged non-blocking by Lane F.
+
 > Status tracker for the pre-push audit of the Track 2 deployment work. Goal: converge
 > `git diff 2df4ea75..HEAD` to a stable, push-safe state for friend use. Brian pushes
 > manually after all lanes converge. Everything before 2df4ea75 was certified by earlier
@@ -29,7 +34,7 @@
 | D | Test quality / mutation / coverage of the new Track 2 code paths | DONE — 9452af5e (2 load-bearing holes guarded, mutants killed at landing; verifier mirror pinned) |
 | E | Documentation consistency + spec↔code fidelity (runbook §8 claims, CLAUDE.md, single-home) | DONE — this commit (§19/§20/H13/H28 reconciled; floors run-verified) |
 | F | Fable seat: ambition-merit (do 3–5 closets power the H26 re-measure?) + the privacy and ship-readiness policy calls | DONE — this commit (all four verdicts GO/GO-WITH-CONDITIONS; data-shaped onboarding ask + §H43 scope note landed) |
-| Final | Fresh-context regression round on the post-fix diff; converged only at zero load-bearing | pending |
+| Final | Fresh-context regression round on the post-fix diff; converged only at zero load-bearing | CONVERGED 2026-07-17 — round 1 (828f320d): 0 blockers, 1 test-shaped load-bearing fixed + mutant-killed; round 2 on the fix diff: 0 load-bearing, verdict CONVERGED; the round-2 replace-edge minor fixed + pinned in the closing commit |
 
 ## Lane F verdicts (2026-07-17, Fable seat)
 
@@ -67,7 +72,7 @@
 Lanes B–F fan out as parallel fresh-context **report-only** auditors. The coordinator
 verifies every finding against source before acting, lands fixes serially (one commit per
 lane), runs tsc + jest + build per landing, and keeps docs reconciled in the same pass.
-Floors (run-verified 2026-07-17): jest ≥641, pytest ≥1091 — green and may grow, never shrink.
+Floors (run-verified 2026-07-17): jest ≥643, pytest ≥1091 — green and may grow, never shrink.
 
 ## Residuals ledger (from 46e6c2c6, updated by the lane landings)
 

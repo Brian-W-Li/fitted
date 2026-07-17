@@ -191,6 +191,52 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     expect(await WardrobeImage.countDocuments({ wardrobeItem: id })).toBe(0);
   });
 
+  it("a same-item replace credits the old image's bytes (no false-reject at the margin)", async () => {
+    // The user is at the cap ONLY because of this item's own image — replacing it with a
+    // same-size file must succeed (net change ≈ 0), and the old image doc must be gone after.
+    const { MAX_USER_IMAGE_BYTES } = await import("@/app/api/wardrobe/[id]/image/route");
+    const id = await seedItem();
+    const first = await WardrobeImage.create({
+      user: userId,
+      wardrobeItem: id,
+      base64: "aGk=",
+      contentType: "image/jpeg",
+      sizeBytes: MAX_USER_IMAGE_BYTES - 4,
+    });
+    await WardrobeItem.updateOne({ _id: id }, { $set: { imagePath: `mongo:${first._id}` } });
+    const res = await post(id, makeRequest({ file: makeFile(8) }));
+    expect(res.status).toBe(200);
+    expect(await WardrobeImage.findById(first._id)).toBeNull(); // old image replaced, not orphaned
+  });
+
+  it("a replace REJECTED by the budget keeps the old image intact (no dangling imagePath)", async () => {
+    // The user is at the cap from OTHER items; replacing this item's small image with a larger
+    // file must 413 WITHOUT deleting the old photo — delete-then-reject would destroy data and
+    // leave imagePath pointing at nothing.
+    const { MAX_USER_IMAGE_BYTES } = await import("@/app/api/wardrobe/[id]/image/route");
+    const otherItem = await seedItem();
+    await WardrobeImage.create({
+      user: userId,
+      wardrobeItem: otherItem,
+      base64: "aGk=",
+      contentType: "image/jpeg",
+      sizeBytes: MAX_USER_IMAGE_BYTES - 4,
+    });
+    const id = await seedItem();
+    const old = await WardrobeImage.create({
+      user: userId,
+      wardrobeItem: id,
+      base64: "aGk=",
+      contentType: "image/jpeg",
+      sizeBytes: 2,
+    });
+    await WardrobeItem.updateOne({ _id: id }, { $set: { imagePath: `mongo:${old._id}` } });
+    const res = await post(id, makeRequest({ file: makeFile(64) }));
+    expect(res.status).toBe(413);
+    expect(await WardrobeImage.findById(old._id)).not.toBeNull(); // the old photo survived
+    expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBe(`mongo:${old._id}`);
+  });
+
   it("does NOT count another user's stored bytes against the budget", async () => {
     // The $match user-scope is the load-bearing line — an unscoped aggregate would let one heavy
     // user brick everyone's uploads (and the reverse cast bug would enforce nothing, caught above).

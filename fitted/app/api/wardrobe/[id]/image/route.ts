@@ -108,29 +108,40 @@ export async function POST(
       );
     }
 
-    // 2) If it already has an image, delete the old WardrobeImage doc
+    // 2) If it already has an image, note it: the budget below CREDITS it (a same-item replace
+    // must not false-reject at the margin), and it is deleted only AFTER the budget admits the
+    // new image — delete-then-reject would destroy the old photo and leave a dangling imagePath.
     const oldPath = (existingItem as { imagePath?: unknown } | null)?.imagePath;
     const oldPathStr = typeof oldPath === "string" ? oldPath : undefined;
+    let oldImageId: string | undefined;
+    let oldImageBytes = 0;
     if (oldPathStr?.startsWith("mongo:")) {
-      const oldImageId = oldPathStr.slice("mongo:".length);
-      await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
+      oldImageId = oldPathStr.slice("mongo:".length);
+      const oldDoc = (await WardrobeImage.findOne({ _id: oldImageId, user: userId })
+        .select("sizeBytes")
+        .lean()) as { sizeBytes?: number } | null;
+      oldImageBytes = oldDoc?.sizeBytes ?? 0;
     }
 
-    // 3) Per-user byte budget — after the old-image delete so a same-item replace never
-    // false-rejects at the margin.
+    // 3) Per-user byte budget, net of the image being replaced.
     const totals = (await WardrobeImage.aggregate([
       { $match: { user: new Types.ObjectId(userId) } },
       { $group: { _id: null, total: { $sum: "$sizeBytes" } } },
     ]).exec()) as { total?: number }[];
     const storedBytes = totals[0]?.total ?? 0;
-    if (storedBytes + bytes.length > MAX_USER_IMAGE_BYTES) {
+    if (storedBytes - oldImageBytes + bytes.length > MAX_USER_IMAGE_BYTES) {
       return NextResponse.json(
         { error: "Image storage limit reached — delete some photos to add more" },
         { status: 413 }
       );
     }
 
-    // 4) Store new image
+    // 4) Budget admitted — now the old image can go.
+    if (oldImageId) {
+      await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
+    }
+
+    // 5) Store new image
     const { imagePath } = await uploadWardrobeImage({
       userId,
       wardrobeItemId,
@@ -138,7 +149,7 @@ export async function POST(
       contentType,
     });
 
-    // 5) Update wardrobe item with new pointer
+    // 6) Update wardrobe item with new pointer
     await WardrobeItem.updateOne(
       { _id: wardrobeItemId, user: userId },
       { $set: { imagePath } }
