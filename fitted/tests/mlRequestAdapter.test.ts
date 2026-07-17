@@ -224,6 +224,23 @@ describe("item map (§15.2) + control caps", () => {
     expect(projected.isWellFormed()).toBe(true);
   });
 
+  it("drops a row whose STORED name is already ill-formed (curl-era lone surrogate — one bad row must not sink the closet)", () => {
+    // Under the name cap, so the truncation guard never runs — this is the stored-data arm:
+    // without the drop, the service 400s the whole render on every request until the item is edited.
+    const { wire, dropped } = projectWardrobe([
+      sampleItem,
+      { ...sampleItem, _id: oid("6a4eb442443135439ac080e9"), name: "bad \ud83d shirt" },
+    ]);
+    expect(wire).toHaveLength(1);
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0].reason).toContain("well-formed");
+  });
+
+  it("silently drops an ill-formed stored tag, keeping the item and its good tags", () => {
+    const projected = projectOne({ ...sampleItem, colors: ["navy", "bad\ud83d"] });
+    expect(projected.colorTags).toEqual(["navy"]);
+  });
+
   // --- A-cluster: per-item resilience. A malformed row is DROPPED (with a reason), not fatal, so
   // one corrupt garment never costs the user their whole closet. Coercion is prohibited (it would
   // fabricate signal the immutable M6 corpus trains on) — sanitize removes noise, never invents it.

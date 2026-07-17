@@ -192,3 +192,49 @@ describe("POST /api/wardrobe — M4 ingestion (behavioral, real Mongo)", () => {
     expect((await readBack()).isAvailable).toBe(false);
   });
 });
+
+describe("POST /api/wardrobe — storage bounds (§I, Track 2 Lane B)", () => {
+  it("rejects an over-cap name (201 chars) — nothing persisted", async () => {
+    const res = await post({ name: "x".repeat(201), category: "top" });
+    expect(res.status).toBe(400);
+    expect(await count()).toBe(0);
+  });
+
+  it("rejects an over-cap notes field (2001 chars) — nothing persisted", async () => {
+    const res = await post({ name: "Tee", category: "top", notes: "n".repeat(2001) });
+    expect(res.status).toBe(400);
+    expect(await count()).toBe(0);
+  });
+
+  it("rejects a lone-surrogate name (ill-formed UTF-16 must never reach storage)", async () => {
+    // "\ud83d" alone is half an astral pair — stored, it would 400 every future render
+    // service-side (`_require_utf8`) until the item is edited.
+    const res = await post({ name: "bad \ud83d shirt", category: "top" });
+    expect(res.status).toBe(400);
+    expect(await count()).toBe(0);
+  });
+
+  it("rejects an over-cap colors array (26 entries) and an over-long entry", async () => {
+    const many = await post({ name: "Tee", category: "top", colors: Array(26).fill("blue") });
+    expect(many.status).toBe(400);
+    const long = await post({ name: "Tee", category: "top", colors: ["c".repeat(61)] });
+    expect(long.status).toBe(400);
+    expect(await count()).toBe(0);
+  });
+
+  it("rejects a create once the per-user item ceiling is reached — existing items untouched", async () => {
+    const { MAX_ITEMS_PER_USER } = await import("@/app/api/wardrobe/route");
+    await WardrobeItem.insertMany(
+      Array.from({ length: MAX_ITEMS_PER_USER }, (_, i) => ({
+        user: userId,
+        name: `Item ${i}`,
+        category: "top",
+        clothingType: "top",
+        warmth: 5,
+      })),
+    );
+    const res = await post({ name: "One too many", category: "top" });
+    expect(res.status).toBe(400);
+    expect(await count()).toBe(MAX_ITEMS_PER_USER);
+  });
+});

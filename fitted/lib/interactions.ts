@@ -77,6 +77,8 @@ export interface InteractionModels {
   OutfitInteraction: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   GenerationSnapshot: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  User: any;
 }
 export interface InteractionDeps {
   verifyUser(request: NextRequest): Promise<AuthResult>;
@@ -86,8 +88,8 @@ export interface InteractionDeps {
 }
 
 export async function prodInteractionDeps(): Promise<InteractionDeps> {
-  const { OutfitInteraction, GenerationSnapshot } = await initDatabase();
-  return { verifyUser: verifyFirebaseUser, models: { OutfitInteraction, GenerationSnapshot } };
+  const { OutfitInteraction, GenerationSnapshot, User } = await initDatabase();
+  return { verifyUser: verifyFirebaseUser, models: { OutfitInteraction, GenerationSnapshot, User } };
 }
 
 function respondError(status: number, code: string, message: string): NextResponse {
@@ -244,6 +246,20 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
       ...(perItemFeedback ? { perItemFeedback } : {}),
       ...(feedbackReason ? { feedbackReason } : {}),
     });
+
+    // Erasure race (§23-H43 — the mirror of mlRecommend step 11.5): auth re-reads the User row,
+    // so only an ALREADY-authed request can interleave with DELETE /api/account. If the account
+    // died while this request was in flight, the row just written is an orphan that would survive
+    // the phase-3 sweep — "delete means delete", so self-erase via the native driver (the same
+    // sanctioned erasure door the User cascade uses; the append-only guard stays intact for every
+    // other path) and reject non-committally.
+    const userStillExists = await deps.models.User.exists({ _id: userObjectId });
+    if (!userStillExists) {
+      await OutfitInteraction.db
+        .collection("outfitinteractions")
+        .deleteMany({ user: userObjectId });
+      return respondError(401, "auth", "User not found");
+    }
 
     return NextResponse.json({
       success: true,

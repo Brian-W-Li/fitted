@@ -12,6 +12,7 @@ import { Types } from "mongoose";
 import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import OutfitInteraction from "@/models/OutfitInteraction";
+import User from "@/models/User";
 import {
   postInteraction,
   getInteractions,
@@ -49,8 +50,17 @@ function getReq(url = "http://localhost/api/interactions"): Any {
 function deps(userId: string): InteractionDeps {
   return {
     verifyUser: async () => ({ userId }),
-    models: { OutfitInteraction, GenerationSnapshot },
+    models: { OutfitInteraction, GenerationSnapshot, User },
   };
+}
+
+// The post-persist erasure-race check requires a live User row (§23-H43) — seed one per test user.
+async function seedUser(userId: string) {
+  await User.findOneAndUpdate(
+    { _id: userId },
+    { $setOnInsert: { authProvider: "firebase", authId: `auth-${userId}`, email: `${userId}@t.example` } },
+    { upsert: true },
+  ).exec();
 }
 
 // Build a valid snapshot owned by `userId` with one shown two-piece candidate.
@@ -58,6 +68,7 @@ async function makeSnapshot(
   userId: string,
   opts: { candidateId?: string; itemIds?: [string, string]; shown?: boolean; occasion?: string } = {},
 ) {
+  await seedUser(userId);
   const candidateId = opts.candidateId ?? "c0";
   const [topId, bottomId] = opts.itemIds ?? [oid(), oid()];
   const shown = opts.shown ?? true;
@@ -292,6 +303,20 @@ describe("POST /api/interactions — bind + append (§I)", () => {
       deps(userId),
     );
     expect(badRes.status).toBe(400);
+  });
+
+  it("account deleted mid-request (erasure race, §23-H43) → 401, no surviving row", async () => {
+    // The snapshot re-read passes (race window: the cascade hasn't swept yet) but the User row is
+    // gone by the time the write lands — the post-persist check must self-erase the orphan, or a
+    // row carrying the deleted friend's feedback survives "delete means delete".
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    // Native-driver delete: a Mongoose deleteOne would fire the cascade hook and sweep the
+    // snapshot too, turning this into a plain 404 — the race window is user-dead + snapshot-alive.
+    await User.db.collection("users").deleteOne({ _id: new Types.ObjectId(userId) });
+    const res = await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), deps(userId));
+    expect(res.status).toBe(401);
+    expect(await OutfitInteraction.countDocuments({ user: new Types.ObjectId(userId) })).toBe(0);
   });
 
   it("double-tap appends two rows (append-only — corrections are new events)", async () => {

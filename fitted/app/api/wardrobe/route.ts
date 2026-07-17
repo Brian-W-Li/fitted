@@ -4,6 +4,17 @@ import { adminAuth } from "@/lib/firebaseAdmin";
 import { type ClothingType, CLOTHING_TYPES, deriveClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
 import { validateWardrobeCreatePayload } from "@/lib/wardrobeRequestValidation";
+import { allowRequest } from "@/lib/rateLimit";
+
+// Per-user storage ceiling (§I): sign-up is open Google auth, so the shared Atlas M0 must be
+// bounded per account, not just per request. 300 is ~10× a real closet (friends run 15–50 items)
+// and, with the 5MB image cap, bounds one account's worst-case footprint. The render wire cap
+// (MAX_WARDROBE_ITEMS=2000) is an envelope bound, not a storage bound — this is the storage one.
+export const MAX_ITEMS_PER_USER = 300;
+// Courtesy pacing against a runaway client loop (same posture as the CV route's limiter —
+// per-instance, best-effort; the hard bound above is the real ceiling).
+const CREATE_RATE_MAX = 60;
+const CREATE_RATE_WINDOW_MS = 10 * 60 * 1000;
 
 /**
  * GET /api/wardrobe
@@ -163,7 +174,22 @@ export async function POST(request: NextRequest) {
       layerRole = "",
     } = validation.value;
 
+    if (!allowRequest(`wardrobe-create:${userId}`, CREATE_RATE_MAX, CREATE_RATE_WINDOW_MS)) {
+      return NextResponse.json(
+        { error: "Too many items added at once — wait a moment and try again" },
+        { status: 429 },
+      );
+    }
+
     const { WardrobeItem } = await initDatabase();
+    const itemCount = await WardrobeItem.countDocuments({ user: userId }).exec();
+    if (itemCount >= MAX_ITEMS_PER_USER) {
+      return NextResponse.json(
+        { error: `Wardrobe is full (${MAX_ITEMS_PER_USER} items max) — delete items to add more` },
+        { status: 400 },
+      );
+    }
+
     // Use the form-supplied clothingType when valid; otherwise classify from
     // category/name (the form does not supply it today — §10.3 ingestion classifier).
     const clothingTypeToSave: ClothingType =

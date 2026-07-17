@@ -40,6 +40,9 @@ export async function GET(
     status: 200,
     headers: {
       "Content-Type": doc.contentType,
+      // Upload allowlists jpeg/png/webp, so this is belt-and-braces against a stored
+      // contentType ever being sniffed into something executable.
+      "X-Content-Type-Options": "nosniff",
       "Cache-Control": "private, max-age=3600",
     },
   });

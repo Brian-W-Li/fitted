@@ -148,7 +148,10 @@ function sanitizeTags(tags: string[] | undefined): string[] {
   return tags
     .filter((t): t is string => typeof t === "string")
     .map((t) => t.trim())
-    .filter((t) => t.length > 0 && t.length <= MAX_ITEM_TAG_CHARS)
+    // isWellFormed: an ill-formed stored tag would 400 the whole render service-side
+    // (`_require_utf8` on colorTags/occasionTags) — dropping the tag is noise-removal, not
+    // data invention.
+    .filter((t) => t.length > 0 && t.length <= MAX_ITEM_TAG_CHARS && t.isWellFormed())
     .slice(0, MAX_ITEM_TAGS);
 }
 
@@ -209,6 +212,10 @@ function tryProjectWardrobeItem(
   if (typeof item.name !== "string") return { ok: false, id, reason: "non-string name" };
   const name = item.name.trim();
   if (!name) return { ok: false, id, reason: "blank name" };
+  // Ill-formed UTF-16 (a stored lone surrogate — curl-era rows predating the ingestion
+  // well-formedness gate): the service rejects the WHOLE render pre-spend (`_require_utf8`), so
+  // one bad row would sink the closet on every request. Drop-predicate ≡ accept-predicate.
+  if (!name.isWellFormed()) return { ok: false, id, reason: "name is not well-formed UTF-16" };
   // warmth is contractually an INTEGER 0..10 (§15.2; the service's `_non_bool_int` rejects a float
   // for the WHOLE render). Next's drop-predicate must match the service's accept-predicate exactly,
   // else a fractional row passes here and sinks the closet service-side. Number.isInteger also

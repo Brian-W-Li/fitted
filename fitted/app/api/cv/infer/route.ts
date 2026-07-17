@@ -272,8 +272,11 @@ export async function POST(request: NextRequest) {
       status: 500,
       totalMs: sinceStartMs(),
     });
-    const message =
-      e instanceof Error ? e.message : "Failed to run CV inference";
-    return NextResponse.json({ ok: false, error: "CV_INTERNAL_ERROR", message }, { status: 500 });
+    // Generic client copy — the real error detail is already in the cvLog line above; echoing
+    // e.message would leak internal detail (URLs, driver errors) to the browser.
+    return NextResponse.json(
+      { ok: false, error: "CV_INTERNAL_ERROR", message: "Failed to run CV inference" },
+      { status: 500 },
+    );
   }
 }

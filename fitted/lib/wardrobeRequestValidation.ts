@@ -2,6 +2,46 @@ export type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string };
 
+// Storage bounds (§I): the render adapter clamps what reaches the WIRE
+// (lib/mlRequestAdapter MAX_ITEM_NAME_CHARS / MAX_ITEM_TAGS / MAX_ITEM_TAG_CHARS), but nothing
+// bounded what Mongo STORES — an authenticated caller could persist ~4.5MB strings per request
+// against the shared 512MB Atlas M0. Caps align with the wire clamps where a wire clamp exists;
+// `notes` never reaches the wire and gets its own cap. Rejection (not truncation) — a cap hit is
+// user-visible and fixable, and silent truncation would store data the user never entered.
+export const MAX_NAME_CHARS = 200;
+export const MAX_FIELD_CHARS = 60;
+export const MAX_NOTES_CHARS = 2000;
+export const MAX_IMAGE_PATH_CHARS = 2048;
+export const MAX_ARRAY_ITEMS = 25;
+
+const FIELD_MAX_CHARS: Record<string, number> = {
+  name: MAX_NAME_CHARS,
+  category: MAX_FIELD_CHARS,
+  subCategory: MAX_FIELD_CHARS,
+  pattern: MAX_FIELD_CHARS,
+  fit: MAX_FIELD_CHARS,
+  size: MAX_FIELD_CHARS,
+  layerRole: MAX_FIELD_CHARS,
+  notes: MAX_NOTES_CHARS,
+  imagePath: MAX_IMAGE_PATH_CHARS,
+  clothingType: MAX_FIELD_CHARS,
+};
+
+// Reject ill-formed UTF-16 (a lone surrogate half) at the storage door. A stored lone surrogate
+// is a permanent render-sinker: it passes the adapter projection, then the service rejects the
+// WHOLE render pre-spend (`_require_utf8`, §F reject-not-coerce) on every request until the item
+// is edited. Error messages name the field only — never echo the value.
+function checkStringBounds(value: string, field: string): string | null {
+  const max = FIELD_MAX_CHARS[field];
+  if (max !== undefined && value.length > max) {
+    return `${field} must be at most ${max} characters`;
+  }
+  if (!value.isWellFormed()) {
+    return `${field} contains invalid characters`;
+  }
+  return null;
+}
+
 export type WardrobeCreatePayload = {
   name: string;
   clothingType?: string;
@@ -57,6 +97,11 @@ function requiredString(
     return { ok: false, error: `${label} is required` };
   }
 
+  const boundsError = checkStringBounds(trimmed, field);
+  if (boundsError) {
+    return { ok: false, error: boundsError };
+  }
+
   return { ok: true, value: trimmed };
 }
 
@@ -73,7 +118,13 @@ function optionalString(
     return { ok: false, error: `${field} must be a string` };
   }
 
-  return { ok: true, value: value.trim() };
+  const trimmed = value.trim();
+  const boundsError = checkStringBounds(trimmed, field);
+  if (boundsError) {
+    return { ok: false, error: boundsError };
+  }
+
+  return { ok: true, value: trimmed };
 }
 
 function optionalStringArray(
@@ -87,6 +138,18 @@ function optionalStringArray(
   const value = body[field];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
     return { ok: false, error: `${field} must be an array of strings` };
+  }
+
+  if (value.length > MAX_ARRAY_ITEMS) {
+    return { ok: false, error: `${field} must have at most ${MAX_ARRAY_ITEMS} entries` };
+  }
+  for (const item of value as string[]) {
+    if (item.length > MAX_FIELD_CHARS) {
+      return { ok: false, error: `${field} entries must be at most ${MAX_FIELD_CHARS} characters` };
+    }
+    if (!item.isWellFormed()) {
+      return { ok: false, error: `${field} contains invalid characters` };
+    }
   }
 
   return { ok: true, value };

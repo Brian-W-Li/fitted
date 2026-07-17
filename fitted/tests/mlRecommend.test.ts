@@ -615,6 +615,27 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0); // delete means delete
   });
 
+  it("per-user render ceiling tripped → 200 rate_limited degraded, no Mongo work, no snapshot", async () => {
+    // allowRender is the per-user bound over the service's GLOBAL bucket; a denied render must
+    // degrade (the dashboard keeps current outfits + shows try-again copy), never 5xx or spend.
+    let serviceCalled = false;
+    const deps = makeDeps({
+      allowRender: () => false,
+      callService: async (body) => {
+        serviceCalled = true;
+        return fakeService()(body);
+      },
+    });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);
+    const { status, body } = await json(res);
+    expect(status).toBe(200);
+    expect(body.bindable).toBe(false);
+    expect(body.shown).toEqual([]);
+    expect(body.flags.reasonHint).toBe("rate_limited");
+    expect(serviceCalled).toBe(false); // denied BEFORE the service call — no spend
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
   it("a service failure → 200 degraded empty state, no snapshot", async () => {
     const deps = makeDeps({ callService: fakeService({ fail: { ok: false, reasonHint: "service_unavailable" } }) });
     const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);

@@ -82,7 +82,7 @@ gate("LOCAL service smoke — real Next core ↔ real service ↔ real gpt-5.4-m
   function interactionDeps(): InteractionDeps {
     return {
       verifyUser: async () => ({ userId }) as Any,
-      models: { OutfitInteraction, GenerationSnapshot },
+      models: { OutfitInteraction, GenerationSnapshot, User },
     };
   }
 

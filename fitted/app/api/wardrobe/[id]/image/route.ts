@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Types } from "mongoose";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { MAX_WARDROBE_IMAGE_BYTES, uploadWardrobeImage } from "@/lib/imageStorage";
+import { allowRequest } from "@/lib/rateLimit";
 
 const MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const MAX_WARDROBE_IMAGE_REQUEST_BYTES =
   MAX_WARDROBE_IMAGE_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
+
+// Per-user image-storage budget (§I): sign-up is open Google auth and the shared Atlas M0 is
+// 512MB, so per-image caps alone don't bound an account (300 items × 5MB ≫ the cluster). 80MB
+// is ~6× a real closet fully photographed through the client downscale (~15–50 images × ≤1MB).
+// Summed over the stored `sizeBytes` column at upload time — cheap at friends scale.
+export const MAX_USER_IMAGE_BYTES = 80 * 1024 * 1024;
+// Courtesy pacing against a runaway upload loop (per-instance, best-effort — same posture as the
+// CV route's limiter; the byte budget above is the hard bound).
+const UPLOAD_RATE_MAX = 30;
+const UPLOAD_RATE_WINDOW_MS = 10 * 60 * 1000;
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -45,6 +57,13 @@ export async function POST(
 
     const { id: wardrobeItemId } = await params;
     const userId = userResult.userId;
+
+    if (!allowRequest(`wardrobe-image:${userId}`, UPLOAD_RATE_MAX, UPLOAD_RATE_WINDOW_MS)) {
+      return NextResponse.json(
+        { error: "Too many photo uploads at once — wait a moment and try again" },
+        { status: 429 }
+      );
+    }
 
     const contentLength = request.headers.get("content-length");
     const parsedContentLength =
@@ -97,7 +116,21 @@ export async function POST(
       await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
     }
 
-    // 3) Store new image
+    // 3) Per-user byte budget — after the old-image delete so a same-item replace never
+    // false-rejects at the margin.
+    const totals = (await WardrobeImage.aggregate([
+      { $match: { user: new Types.ObjectId(userId) } },
+      { $group: { _id: null, total: { $sum: "$sizeBytes" } } },
+    ]).exec()) as { total?: number }[];
+    const storedBytes = totals[0]?.total ?? 0;
+    if (storedBytes + bytes.length > MAX_USER_IMAGE_BYTES) {
+      return NextResponse.json(
+        { error: "Image storage limit reached — delete some photos to add more" },
+        { status: 413 }
+      );
+    }
+
+    // 4) Store new image
     const { imagePath } = await uploadWardrobeImage({
       userId,
       wardrobeItemId,
@@ -105,7 +138,7 @@ export async function POST(
       contentType,
     });
 
-    // 4) Update wardrobe item with new pointer
+    // 5) Update wardrobe item with new pointer
     await WardrobeItem.updateOne(
       { _id: wardrobeItemId, user: userId },
       { $set: { imagePath } }

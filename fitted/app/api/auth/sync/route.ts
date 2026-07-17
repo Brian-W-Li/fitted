@@ -31,6 +31,15 @@ export async function POST(request: NextRequest) {
       displayName?: string;
       photoURL?: string;
     };
+    // Bound what the body can store (the only two body-sourced fields): unbounded strings here
+    // would persist ~4.5MB per field into the users collection, and photoURL is later echoed to
+    // the account UI as an <img src> — require an http(s) URL, not an arbitrary string.
+    const displayName =
+      typeof body.displayName === "string" ? body.displayName.slice(0, 200) : undefined;
+    const photoURL =
+      typeof body.photoURL === "string" && /^https?:\/\//.test(body.photoURL)
+        ? body.photoURL.slice(0, 2048)
+        : undefined;
     // Email comes ONLY from the verified token — NEVER the body. `User.email` is a unique index, so a
     // body-supplied email would let a caller with a valid (email-less) token squat/collide on another
     // user's email. Google sign-in always carries `email`; a token without it is rejected (400).
@@ -58,8 +67,8 @@ export async function POST(request: NextRequest) {
           authProvider: "firebase",
           authId: firebaseUid,
           email,
-          displayName: body.displayName || undefined,
-          photoURL: body.photoURL || undefined,
+          displayName: displayName || undefined,
+          photoURL: photoURL || undefined,
         });
       } catch (err) {
         // First sign-in fires sync TWICE concurrently (the page click-handler + the auth-state

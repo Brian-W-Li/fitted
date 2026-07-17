@@ -34,6 +34,7 @@ import {
   type RenderBody,
 } from "@/lib/mlRequestAdapter";
 import { isValidRequestId } from "@/lib/formats";
+import { allowRequest } from "@/lib/rateLimit";
 import {
   callRenderService,
   buildDegradedResponse,
@@ -100,6 +101,11 @@ export interface WeatherInput {
 
 export interface MlRecommendDeps {
   verifyUser(request: NextRequest): Promise<VerifyResult>;
+  /** Per-user render ceiling (§A) — the service token bucket is GLOBAL (12/min across all
+   *  users), so one looping account would starve every other user's renders; this bounds each
+   *  account before the shared bucket. Optional so direct-deps tests can run unmetered; prodDeps
+   *  always binds it. */
+  allowRender?(userId: string): boolean;
   models: MlModels;
   callService(body: RenderBody): Promise<RenderServiceResult>;
   /** UTC YYYY-MM-DD (H8) — injected for determinism; the service never reads a clock. */
@@ -168,9 +174,14 @@ export function bucketFromSummary(text: string): WeatherBucket {
   return "mild";
 }
 
+// Per-user render pacing: well under the service's global 12/min so one account can't own the
+// shared bucket, well over any real friend's clicking rate. Per-instance best-effort (rateLimit.ts).
+const RENDER_RATE_MAX_PER_MIN = 6;
+
 export function prodDeps(): MlRecommendDeps {
   return {
     verifyUser: verifyUserProd,
+    allowRender: (userId) => allowRequest(`render:${userId}`, RENDER_RATE_MAX_PER_MIN, 60_000),
     // Lazily resolved via initDatabase so a cold serverless invocation connects once.
     models: {
       get GenerationSnapshot() {
@@ -251,6 +262,13 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     if ("error" in auth) return respondError(auth.status, "auth", auth.error);
     const userId = auth.userId;
     const userObjectId = new mongoose.Types.ObjectId(userId);
+
+    // 1.5 Per-user render ceiling — before any Mongo read or service call. Degraded (200,
+    // rate_limited), never a 5xx: the dashboard keeps the current outfits and shows the
+    // try-again-shortly copy.
+    if (deps.allowRender && !deps.allowRender(userId)) {
+      return respondDegraded("rate_limited");
+    }
 
     // 2. Parse + validate the idempotency token BEFORE any work (§C.4).
     const body = (await request.json().catch(() => null)) as Any;
