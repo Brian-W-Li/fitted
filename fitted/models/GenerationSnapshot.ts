@@ -1,4 +1,6 @@
 import { Schema, model, models, type InferSchemaType } from "mongoose";
+import { isValidRequestId } from "@/lib/formats";
+import { CLOTHING_TYPES } from "@/lib/clothingType";
 
 /**
  * GenerationSnapshot — the immutable training-truth record (M4b C5).
@@ -215,7 +217,7 @@ const ItemSnapshotSchema = new Schema(
       type: new Schema(
         {
           name: { type: String },
-          clothingType: { type: String, enum: ["top", "bottom", "dress", "outer_layer", "shoes"] },
+          clothingType: { type: String, enum: [...CLOTHING_TYPES] }, // single-homed in lib/clothingType
           warmth: { type: Number, required: true }, // engine-required; keyword-derived at ingestion
           styleTags: { type: [String], default: [] },
           colorTags: { type: [String], default: [] },
@@ -310,10 +312,9 @@ const GenerationSnapshotSchema = new Schema(
       type: String,
       required: true,
       validate: {
-        validator: (v: string) =>
-          v.length <= 64 &&
-          (/^[0-9A-HJKMNP-TV-Z]{26}$/.test(v) ||
-            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)),
+        // Single-homed in lib/formats (mirrors app.py + the route). The ULID alternative is
+        // uppercase-only, so a lowercase-ULID requestId is rejected here too (cross-runtime parity).
+        validator: (v: string) => v.length <= 64 && isValidRequestId(v),
         message: "requestId must be a UUIDv4 or ULID",
       },
     },

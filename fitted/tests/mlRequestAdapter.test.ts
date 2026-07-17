@@ -52,6 +52,9 @@ const sampleItem: WardrobeItemSource = {
   imageUrl: "https://img/x.jpg",
 };
 
+/** Project a single item and return its wire projection (undefined if it was dropped). */
+const projectOne = (item: WardrobeItemSource) => projectWardrobe([item]).wire[0];
+
 const dailyLens = () =>
   buildLens(
     {
@@ -74,7 +77,7 @@ const fullBody = () =>
     parentSnapshotId: null,
     controls: { lockedItemIds: [], dislikedItemIds: [] },
     lens: dailyLens(),
-    wardrobe: projectWardrobe([sampleItem]),
+    wardrobe: projectWardrobe([sampleItem]).wire,
     wardrobeVersion: 0,
     interactionCountAtRequest: 0,
     behavioralRows: { recentSnapshots: [], interactionRows: [] },
@@ -158,8 +161,7 @@ describe("Lens adapter (§F) — trust-boundary rejections through the one error
 // ---------------------------------------------------------------------------
 describe("item map (§15.2) + control caps", () => {
   it("maps deployed columns to the wire projection (renames + W-track placeholders)", () => {
-    const [wire] = projectWardrobe([sampleItem]);
-    expect(wire).toEqual({
+    expect(projectOne(sampleItem)).toEqual({
       id: "6a4eb442443135439ac080d2",
       name: "Oxford shirt",
       clothingType: "top",
@@ -174,68 +176,88 @@ describe("item map (§15.2) + control caps", () => {
   });
 
   it("resolves imagePath (mongo:<id>) when imageUrl is absent (§15.2 fallback, the common deployed case)", () => {
-    const [wire] = projectWardrobe([
-      { ...sampleItem, imageUrl: undefined, imagePath: "mongo:6a4eb442443135439ac080d9" },
-    ]);
-    expect(wire.imageUrl).toBe("/api/images/6a4eb442443135439ac080d9");
+    expect(
+      projectOne({ ...sampleItem, imageUrl: undefined, imagePath: "mongo:6a4eb442443135439ac080d9" }).imageUrl,
+    ).toBe("/api/images/6a4eb442443135439ac080d9");
     // imageUrl wins when present.
-    const [withUrl] = projectWardrobe([{ ...sampleItem, imagePath: "mongo:x" }]);
-    expect(withUrl.imageUrl).toBe("https://img/x.jpg");
+    expect(projectOne({ ...sampleItem, imagePath: "mongo:x" }).imageUrl).toBe("https://img/x.jpg");
     // neither → "" (a no-image item is legitimate; the service accepts a blank imageUrl).
-    const [none] = projectWardrobe([{ ...sampleItem, imageUrl: undefined, imagePath: undefined }]);
-    expect(none.imageUrl).toBe("");
+    expect(projectOne({ ...sampleItem, imageUrl: undefined, imagePath: undefined }).imageUrl).toBe("");
   });
 
   it('drops an over-cap imageUrl to "" so one bad-URL item cannot make the closet unrenderable', () => {
     // The service rejects an over-MAX_IMAGE_URL_CHARS imageUrl for the WHOLE render (⚠ mirror obligation).
-    const [over] = projectWardrobe([{ ...sampleItem, imageUrl: "u".repeat(MAX_IMAGE_URL_CHARS + 1) }]);
-    expect(over.imageUrl).toBe(""); // over cap → blank (legitimate §15.2), never emitted over-cap
+    expect(projectOne({ ...sampleItem, imageUrl: "u".repeat(MAX_IMAGE_URL_CHARS + 1) }).imageUrl).toBe("");
     // exactly-at-cap passes through unchanged (pins the boundary is `>`, not `>=`)
     const atCap = "h".repeat(MAX_IMAGE_URL_CHARS);
-    const [ok] = projectWardrobe([{ ...sampleItem, imageUrl: atCap }]);
-    expect(ok.imageUrl).toBe(atCap);
+    expect(projectOne({ ...sampleItem, imageUrl: atCap }).imageUrl).toBe(atCap);
   });
 
   it("sanitizes tags so one bad tag never makes a closet unrenderable (⚠ mirror obligation)", () => {
     // The service _string_list rejects a blank/whitespace or over-60-char tag for the WHOLE render.
-    const [wire] = projectWardrobe([
-      {
-        ...sampleItem,
-        colors: ["  navy  ", "", "   ", "x".repeat(61), "red"], // trim; drop blanks + over-long
-        occasions: Array.from({ length: 30 }, (_, i) => `occ${i}`), // cap to 25
-      },
-    ]);
+    const wire = projectOne({
+      ...sampleItem,
+      colors: ["  navy  ", "", "   ", "x".repeat(61), "red"], // trim; drop blanks + over-long
+      occasions: Array.from({ length: 30 }, (_, i) => `occ${i}`), // cap to 25
+    });
     expect(wire.colorTags).toEqual(["navy", "red"]);
     expect(wire.occasionTags).toHaveLength(25);
   });
 
-  it("rejects dirty Mongo wardrobe scalar/container types through RequestContractError", () => {
-    expect(() => projectWardrobe([{ ...sampleItem, name: 123 as unknown as string }])).toThrow(
-      RequestContractError,
-    );
-    expect(() => projectWardrobe([{ ...sampleItem, colors: "navy" as unknown as string[] }])).toThrow(
-      RequestContractError,
-    );
-  });
-
   it("treats a non-string imagePath as no-image instead of throwing TypeError", () => {
-    const [wire] = projectWardrobe([
-      { ...sampleItem, imageUrl: undefined, imagePath: { bad: true } as unknown as string },
-    ]);
-    expect(wire.imageUrl).toBe("");
+    expect(
+      projectOne({ ...sampleItem, imageUrl: undefined, imagePath: { bad: true } as unknown as string }).imageUrl,
+    ).toBe("");
   });
 
   it("caps an over-long item name rather than rejecting the render", () => {
-    const [wire] = projectWardrobe([{ ...sampleItem, name: "n".repeat(250) }]);
-    expect(wire.name).toHaveLength(200);
+    expect(projectOne({ ...sampleItem, name: "n".repeat(250) }).name).toHaveLength(200);
   });
 
-  it("rejects an out-of-range warmth rather than coercing it", () => {
-    expect(() => projectWardrobe([{ ...sampleItem, warmth: 11 }])).toThrow(RequestContractError);
-    expect(() => projectWardrobe([{ ...sampleItem, warmth: NaN }])).toThrow(RequestContractError);
+  // --- A-cluster: per-item resilience. A malformed row is DROPPED (with a reason), not fatal, so
+  // one corrupt garment never costs the user their whole closet. Coercion is prohibited (it would
+  // fabricate signal the immutable M6 corpus trains on) — sanitize removes noise, never invents it.
+  it("drops a row whose data is unusable, keeping the good items (never sinks the closet)", () => {
+    const good2 = { ...sampleItem, _id: oid("6a4eb442443135439ac080e0"), name: "Chinos", clothingType: "bottom" };
+    const { wire, dropped } = projectWardrobe([
+      sampleItem, // good
+      { ...sampleItem, _id: oid("6a4eb442443135439ac080e1"), warmth: 11 }, // out-of-range warmth
+      { ...sampleItem, _id: oid("6a4eb442443135439ac080e2"), warmth: NaN }, // non-finite warmth
+      { ...sampleItem, _id: oid("6a4eb442443135439ac080e3"), clothingType: "trousers" }, // not in 5-set
+      { ...sampleItem, _id: oid("6a4eb442443135439ac080e4"), name: 123 as unknown as string }, // non-string name
+      { ...sampleItem, _id: oid("6a4eb442443135439ac080e5"), colors: "navy" as unknown as string[] }, // scalar container
+      { ...sampleItem, _id: oid("6a4eb442443135439ac080e6"), warmth: 5.5 }, // fractional — service wants an int
+      good2, // good
+    ]);
+    // The two good items survive; the six bad rows are dropped, not thrown.
+    expect(wire.map((w) => w.id)).toEqual(["6a4eb442443135439ac080d2", "6a4eb442443135439ac080e0"]);
+    expect(dropped.map((d) => d.id).sort()).toEqual([
+      "6a4eb442443135439ac080e1",
+      "6a4eb442443135439ac080e2",
+      "6a4eb442443135439ac080e3",
+      "6a4eb442443135439ac080e4",
+      "6a4eb442443135439ac080e5",
+      "6a4eb442443135439ac080e6",
+    ]);
+    // Each drop carries a legible, field-specific reason (the observability the degrade rests on).
+    const reasonById = new Map(dropped.map((d) => [d.id, d.reason]));
+    expect(reasonById.get("6a4eb442443135439ac080e1")).toMatch(/warmth/);
+    expect(reasonById.get("6a4eb442443135439ac080e3")).toMatch(/clothingType/);
+    expect(reasonById.get("6a4eb442443135439ac080e4")).toMatch(/name/);
+    expect(reasonById.get("6a4eb442443135439ac080e5")).toMatch(/colors/);
   });
 
-  it("rejects a wardrobe over the request cap", () => {
+  it("accepts every value of the 5-value clothingType ontology, drops anything else", () => {
+    for (const ct of ["top", "bottom", "dress", "outer_layer", "shoes"]) {
+      expect(projectOne({ ...sampleItem, clothingType: ct })?.clothingType).toBe(ct);
+    }
+    // Legacy 4-value category labels + undefined are NOT wire clothingTypes → dropped.
+    for (const bad of ["one piece", "footwear", "", undefined as unknown as string]) {
+      expect(projectWardrobe([{ ...sampleItem, clothingType: bad }]).wire).toHaveLength(0);
+    }
+  });
+
+  it("throws (ENVELOPE fault) only for a wardrobe over the request cap — not per-item", () => {
     const many = Array.from({ length: 2001 }, (_, i) => ({ ...sampleItem, _id: oid(`id-${i}`) }));
     expect(() => projectWardrobe(many)).toThrow(RequestContractError);
   });

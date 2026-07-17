@@ -8,6 +8,7 @@ import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobe
 import { AddItemUploadStepActions } from "@/lib/addItemUploadStepActions";
 import { validateWardrobeForm } from "@/lib/wardrobeValidation";
 import { type ClothingType } from "@/lib/clothingType";
+import { applyWardrobePipeline } from "@/lib/wardrobeDisplayPipeline";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 
 type WardrobeItem = {
@@ -1266,25 +1267,9 @@ export default function WardrobePage() {
       )}
 
       {(() => {
-        // Pipeline: type filter → name search → sort → render
+        // Pipeline: type filter → name search → sort → render (lib/wardrobeDisplayPipeline).
         // None of these touch backend state or recommendation APIs.
-        let display = activeFilter === "all"
-          ? items
-          : items.filter((it) => it.category === activeFilter);
-
-        if (searchQuery.trim()) {
-          const q = searchQuery.trim().toLowerCase();
-          display = display.filter((it) => it.name.toLowerCase().includes(q));
-        }
-
-        display = [...display].sort((a, b) => {
-          if (sortOrder === "name") {
-            return a.name.localeCompare(b.name);
-          }
-          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return sortOrder === "newest" ? tb - ta : ta - tb;
-        });
+        const display = applyWardrobePipeline(items, activeFilter, searchQuery, sortOrder);
 
         if (loading) {
           return <p className="text-sm text-slate-500">Loading wardrobe…</p>;

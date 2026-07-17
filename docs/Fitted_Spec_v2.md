@@ -900,13 +900,20 @@ optional in `models.py`). Raw deployed inputs are preserved verbatim in the snap
 | `formality` (Optional) | — (no column until W-track) | emit `null` |
 | `image_url` | `imageUrl` | else resolve `imagePath` → `WardrobeImage`; else `""` |
 
-**Wire-validation (R12 part 2)** is unchanged: this adapter is the trust boundary (non-empty ids/strings,
-tag-container shape, one predictable error channel); the dataclass keeps only its two backstop guards
-(enum coercion, `warmth ∈ 0..10`) — §15 adapter bullet. Because warmth is keyword-derived at ingestion
-(never null on the column), the adapter never has to fabricate a band; a row that somehow reaches the
-adapter without a valid warmth is rejected through the wire-validation error channel, not coerced. When the
-W-track adds the `material`/`formality`/`styleTags` columns + CV, the three `— ` rows above become direct
-pass-throughs (additive; no adapter redesign).
+**Wire-validation (R12 part 2)** splits faults by scope (the A-cluster resilience rule). An **envelope**
+fault — wardrobe over the request cap, a bad Lens, a control-id array over cap — is rejected through the one
+predictable error channel (`contract_invalid`). A per-**item** fault — a non-integer/out-of-range `warmth`
+(the service requires int 0..10), a `clothingType` outside the 5-value set, a scalar tag container, a
+missing id / blank name — **DROPS that one row, never sinks the render**: one corrupt garment must not cost
+the user their whole closet (the render is well-defined without it, and the engine reports `notEnoughItems`
+itself if too few survive). Values are **never coerced** (clamping warmth or guessing a clothingType would
+fabricate signal the immutable M6 corpus trains on — sanitize removes noise, it does not invent it). A
+dropped row that a control explicitly references (`forcedItemId` / locked / disliked) **escalates back to a
+hard reject** (the user pointed at that item, and the service rejects a control id absent from the wire
+wardrobe). Drops are latent on a clean M4 DB (warmth is keyword-derived at ingestion) but load-bearing for
+the messy CV-derived / legacy / hand-edited rows the W-track ingests. When the W-track adds
+`material`/`formality`/`styleTags` columns + CV, the three `— ` rows above become direct pass-throughs and
+each new per-item column follows the same **drop-not-sink** rule (additive; no adapter redesign).
 
 ---
 

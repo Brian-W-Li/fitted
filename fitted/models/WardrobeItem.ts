@@ -1,4 +1,5 @@
 import { Schema, model, models, type InferSchemaType } from "mongoose";
+import { CLOTHING_TYPES } from "@/lib/clothingType";
 
 const WardrobeItemSchema = new Schema(
   {
@@ -6,7 +7,7 @@ const WardrobeItemSchema = new Schema(
     name: { type: String, required: true, trim: true },
     clothingType: {
       type: String,
-      enum: ["top", "bottom", "dress", "outer_layer", "shoes"],
+      enum: [...CLOTHING_TYPES], // single-homed in lib/clothingType (cross-runtime == ItemType)
       default: "top",
       index: true,
     },

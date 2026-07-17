@@ -657,11 +657,46 @@ def test_contract_json_mirror_matches_the_module():
         "engineFailureVocab": {
             name: sorted(fields) for name, fields in contract.ENGINE_FAILURE_VOCAB.items()
         },
+        "crossRuntime": contract.cross_runtime_mirror(),
     }
     assert mirror == expected, (
         "contract_fields.json drifted from service.contract — regenerate it (json.dump of "
-        "BOUNDARIES + REDUCER_ROW_READS) so the cross-runtime mirror stays truthful"
+        "BOUNDARIES + REDUCER_ROW_READS + cross_runtime_mirror()) so the cross-runtime mirror stays truthful"
     )
+
+
+def test_cross_runtime_clamps_derive_from_live_config():
+    """The mirrored clamp VALUES are read from `cfg` by cross_runtime_mirror(), so this pins that the
+    named config attributes still exist (a rename would AttributeError here) and that the service-only
+    list names real config attributes — the TS side asserts equality against the resulting JSON."""
+    for name in contract.CROSS_RUNTIME_CLAMPS:
+        assert hasattr(cfg, name), f"mirrored clamp {name} is not a config attribute"
+        assert contract.CROSS_RUNTIME_CLAMPS[name] == getattr(cfg, name)
+    for name in contract.CROSS_RUNTIME_SERVICE_ONLY_CLAMPS:
+        assert hasattr(cfg, name), f"service-only clamp {name} is not a config attribute"
+
+
+def test_cross_runtime_format_vectors_match_service_regexes():
+    """The service's id/format regexes accept every `valid` vector and reject every `invalid` one.
+    The same vectors pin the TS regexes (crossRuntimeContract.test.ts), so the two runtimes are proven
+    to agree on behavior even though their patterns differ syntactically."""
+    from service import app
+
+    def request_id_ok(v: str) -> bool:
+        return bool(app._UUID_V4_RE.fullmatch(v) or app._ULID_RE.fullmatch(v))
+
+    matchers = {
+        "objectId": lambda v: bool(app._OBJECT_ID_RE.fullmatch(v)),
+        "seedDate": lambda v: bool(app._SEED_DATE_RE.fullmatch(v)),
+        "requestId": request_id_ok,
+    }
+    formats = contract.cross_runtime_mirror()["formats"]
+    for name, matcher in matchers.items():
+        vec = formats[name]
+        for good in vec["valid"]:
+            assert matcher(good) is True, f"{name} should accept {good!r}"
+        for bad in vec["invalid"]:
+            assert matcher(bad) is False, f"{name} should reject {bad!r}"
 
 
 def test_canonical_render_body_fixture_matches_the_contract():

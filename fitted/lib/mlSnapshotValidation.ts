@@ -36,6 +36,7 @@ import {
   ENGINE_FAILURE_CODES,
   ENGINE_FAILURE_MESSAGE_MAX_CHARS,
 } from "@/models/GenerationSnapshot";
+import { OBJECT_ID_RE } from "@/lib/formats";
 
 /** The one error channel for a payload that would persist a corrupt/lying corpus row. */
 export class PayloadContractError extends Error {
@@ -48,7 +49,6 @@ export class PayloadContractError extends Error {
 
 const SUM_EPSILON = 1e-6;
 const SCORE_TERMS = ["base", "combo", "item", "dislike", "overuse", "repetition", "cooldown"] as const;
-const OBJECT_ID_RE = /^[0-9a-f]{24}$/i;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;

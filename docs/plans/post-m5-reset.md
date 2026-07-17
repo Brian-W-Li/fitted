@@ -164,9 +164,9 @@ Code-first fault-injection on the M5 trust boundary + data-integrity + reducer p
 - **[important] B3 — `scoreTrace.signalScore` is validated on no path at all** (`:117-138`) — and it's the
   reserved slot for the M6 scorer's output (the literal label M6 consumes). `Infinity` persists unguarded on
   both sides. → add a finite check.
-- **[important] A-cluster — one malformed wardrobe row makes the WHOLE closet unrenderable.** The adapter's
-  stated intent ("sanitize so one bad row can't break the render") is only half-applied: `clothingType` is
-  passed through raw (`mlRequestAdapter.ts:179` → the service rejects the whole render on a stale/undefined
+- **[important] A-cluster — one malformed wardrobe row makes the WHOLE closet unrenderable. [FIXED §4.7]** The
+  adapter's stated intent ("sanitize so one bad row can't break the render") is only half-applied: `clothingType`
+  is passed through raw (`mlRequestAdapter.ts:179` → the service rejects the whole render on a stale/undefined
   value), while a bad `warmth` (`:170-172`) or a scalar `colors` (`sanitizeTags:138`) *throws* — and
   `projectWardrobe:198` is a plain `.map`, so any one throw kills all items. All three are plausible on
   CV-derived / legacy / user-edited data. → per-item resilience (fail or drop only the bad row, not the
@@ -231,10 +231,10 @@ feedback→output proven). **Collapse five sessions to two, and cut the rest:**
 - **Session A (short; do first — merge gate already satisfied):** D1 CLAUDE.md rewrite + D2 §23 status flips +
   D4 narrative trim + D3 m5-cutover banner/clause + D5 banner + the P1–P3 process edits. Cheap, top-of-
   hierarchy, load-bearing for everything downstream — doc-truth first.
-- **Session B:** the code/test residuals NOT already fixed in R0 (§4.6) — the **A-cluster** per-item
-  resilience (after its Fable read), **W2-4a** interactions rate limit, and the test-hardening batch (T1
-  wardrobeFilter + C1/C2/C4 equality tests + C3 full-body round-trip). The blockers (B1/B2/B3, W2-2a/2b,
-  W2-3a) + W2-1a + C1-reducer are already fixed (§4.5).
+- **Session B: EXECUTED 2026-07-16 — see §4.7.** The code/test residuals NOT already fixed in R0 (§4.6) — the
+  **A-cluster** per-item resilience (after its Fable read), **W2-4a** interactions rate limit, and the
+  test-hardening batch (T1 wardrobeFilter + C1/C2/C4 equality tests + C3 full-body round-trip). The blockers
+  (B1/B2/B3, W2-2a/2b, W2-3a) + W2-1a + C1-reducer were already fixed (§4.5).
 - **CUT — R1 (standalone legibility map):** a map that lives anywhere is a new doc in disguise (violates the
   hard constraint) and goes stale. Legibility is delivered *as* the CLAUDE.md hierarchy fix (Session A).
 - **CUT — R3 as a session:** cross-runtime facts mostly can't cheaply share a source; equality tests are the
@@ -264,23 +264,51 @@ All landed on `main` with a behavioral test and a 0-finding fresh-eyes review of
   CLAUDE.md's build-and-audit loop (decision-status closure grep step; cross-runtime-fact-needs-a-test;
   test-imports-the-real-unit).
 
-### 4.6 Registered (not fixed) — with disposition
-- **A-cluster (important) — DESIGN CALL, needs a Fable read.** One malformed wardrobe row still degrades the
-  whole closet (clothingType passed raw → service reject; bad warmth / scalar colors → throw in `projectWardrobe`'s
-  plain `.map`). The fix (per-item resilience: drop/skip the bad row, don't sink the batch) is a fail-loud-vs-
-  degrade trust-boundary decision, not a mechanical fix — reason from the promise + Fable-review before cutting.
-  Mitigant: a clean M4 DB makes it latent (ingestion guarantees valid clothingType/warmth).
-- **W2-4a (important) — interactions write is unbounded** (no rate limit / no dedup; own-account-only). Fix:
-  `allowRequest(userId, ~60/min)` in `postInteraction` + `__resetRateLimit()` in the binding tests' setup.
-- **W2-1b — reviewed, likely correct-as-is, NOT a bug.** A Mongo read blip → 500 is defensible; the
-  never-5xx contract is about the *Python service* path — degrading a DB outage to an empty state would render
-  a fake-empty closet. Left as-is by decision.
-- **Test-hardening (the R2 batch):** T1 (`wardrobeFilter.test.ts` fake inline-mirror → extract the pipeline +
-  import), C1/C2/C4 (cross-runtime equality tests for clamps/regexes/enums), C3 (full-body round-trip
-  assertion, not just the generator block).
-- **Minors:** W2-1c/1d (uppercase forced/control id wrong-error; missing-vs-empty occasion 400/200 split),
-  W2-3b (dotted/`$` Map-key guard, latent on hex ids), W2-4b/c/d (cookie revocation, CV MIME trust, sync 500),
-  C5 (generator timeout omit-when-None), D4 (§23 review-history trim), D5 (post-m4-readiness COMPLETED banner).
+### 4.6 Registered (still deferred after Session B) — with disposition
+- **W2-1b — reviewed, correct-as-is, NOT a bug.** A Mongo read blip → 500 is defensible; the never-5xx
+  contract is about the *Python service* path — degrading a DB outage to an empty state would render a
+  fake-empty closet. Left as-is by decision.
+- **[minor, cosmetic] structuralLockError preempts the drop-escalation for a MULTI-invalid-clothingType pin
+  set.** Two+ locked/forced pins all stored with an empty/invalid `clothingType` collide on the `""` slot in
+  `structuralLockError` (`mlRecommend.ts`) → `400 controls_structurally_infeasible` with a confusing empty-slot
+  message, instead of the design-intended `422 control_item_unusable`/`forced_item_unusable`. Both are hard
+  rejects (no spend, no write) — legibility only, not a resilience/data hole. A single invalid-clothingType pin
+  is handled correctly. (Found in the Session-B A-cluster audit.)
+- **[minor, latent] Mongoose role/candidate enums are cross-runtime-unpinned.** `GenerationSnapshot.ts`'s
+  `role` (base_top/…), candidate `status`/`optionPath`/`risk`/`template` enums mirror `fitted_core` vocab
+  (OutfitRole etc.) and are Mongoose-validated on values the Python service emits, but nothing asserts
+  TS==Python for them (weather + clothingType were pinned in Session B; these are the remaining copies). A
+  drift would write-reject a valid service candidate. Pre-existing; latent (the vocab is stable).
+- **Minors (unchanged):** W2-1c/1d (uppercase forced/control id wrong-error; missing-vs-empty occasion 400/200
+  split), W2-3b (dotted/`$` Map-key guard, latent on hex ids), W2-4b/c/d (cookie revocation, CV MIME trust,
+  sync 500), C5 (generator timeout omit-when-None), D4 (§23 review-history trim), D5 (post-m4-readiness
+  COMPLETED banner).
+
+### 4.7 Session B (2026-07-16) — EXECUTED
+Built behavior-first, heavy-audited (4 parallel lanes + a regression-of-fixes pass), full suites green.
+Floors grew: **jest 522→577, pytest 1072→1074**.
+- **A-cluster — DONE (degrade, Fable-ruled).** Per-item drop for per-garment faults, envelope faults still
+  reject, a control-referenced dropped row escalates to `422 forced_item_unusable`/`control_item_unusable`
+  (`mlRequestAdapter.ts` `tryProjectWardrobeItem`/`projectWardrobe`→`{wire,dropped}`; `mlRecommend.ts`
+  escalation). No coercion; the engine's `notEnoughItems` is the floor. Spec §15.2 reconciled to drop-not-sink.
+- **T1 — DONE.** Pipeline extracted to `lib/wardrobeDisplayPipeline.ts`; `wardrobe/page.tsx` calls it;
+  `wardrobeFilter.test.ts` imports the real unit (fake mirror killed).
+- **C3 — DONE.** `generationSnapshotRoundTrip.test.ts` now fences the full candidate/itemSnapshots/diagnostics
+  body + a non-empty `ranker.itemAffinity` survival proof (Mongoose `minimize` of empty objects is benign).
+- **C1/C2/C4 — DONE.** `contract.py cross_runtime_mirror()` generates the `crossRuntime` block of
+  `contract_fields.json` (clamps/enums DERIVED from config/ItemType, format vectors literal); TS
+  `crossRuntimeContract.test.ts` + Python `test_cross_runtime_*` pin both sides; TS id/format regexes
+  single-homed in `lib/formats.ts`; clothingType single-homed into the Mongoose schemas; service-only clamps
+  documented.
+- **W2-4a — DONE.** Per-user token bucket in `interactions.ts` (`INTERACTION_RATE_LIMIT_CAPACITY`, injectable
+  clock, `__resetInteractionRateLimit`), 429 before any DB work.
+- **Audit-found + fixed (drift the punch-list didn't name):** (a) `warmth` must be an INTEGER 0..10 — Next
+  accepted a fractional row the service rejects → whole-closet sink; predicate now matches the service. (b)
+  requestId `REQUEST_ID_RE` had a blanket `/i` that accepted a LOWERCASE ULID the service/Mongoose reject
+  (route-accepted-then-storage-rejected) → split, ULID uppercase-only. (c) Python format regexes `.match`→
+  `.fullmatch` so a trailing `\n` (which `$` allowed) is rejected, matching JS `$`. (d) weather/clothingType
+  Mongoose schema enums pinned to the mirror. (e) `MAX_ID_CHARS` mislabel corrected (it IS re-declared
+  Next-side, regex-redundant).
 
 **Why the campaign is worth it (the real justification):** not portfolio ROI — **trust in the process holding
 long-term.** The recurrence mechanism in §4.3 is what erodes it: every "found another one" commit is a small

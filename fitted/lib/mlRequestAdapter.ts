@@ -11,9 +11,16 @@
  *   - `buildRenderBody`  assembles the full wire body from the identity/lineage/behavioral parts
  *                        the route + later seams supply
  *
- * This adapter REJECTS invalid Lens/request fields before any service call or write — Mongoose must
- * never be the first validator mid-write (§F wire-validation / R12). Rejections throw
- * RequestContractError, which the route maps to the §A `contract_invalid` degraded state.
+ * This adapter REJECTS invalid *envelope* fields before any service call or write — Mongoose must
+ * never be the first validator mid-write (§F wire-validation / R12). Envelope rejections (a bad
+ * Lens, a control-id array over cap, a wardrobe over the request cap) throw RequestContractError,
+ * which the route maps to the §A `contract_invalid` degraded state.
+ *
+ * Per-ITEM faults are handled differently: a single malformed wardrobe row is DROPPED (with a
+ * reason), never fatal — one stored-but-corrupt garment must not cost the user their other items
+ * (the green-shirt resilience promise; the render is well-defined without the bad row). See
+ * `projectWardrobe`. The route re-escalates a drop that a control explicitly references
+ * (forcedItemId / locked / disliked) back to a hard reject, since the user pointed at that item.
  *
  * The membership of every wire object is owned cross-runtime by `ml-system/service/contract.py` +
  * its mirror `contract_fields.json`; the C5 acceptance gate asserts this adapter's emitted keys
@@ -22,6 +29,8 @@
  *
  * Reference: docs/plans/m5-cutover.md §A/§F, docs/Fitted_Spec_v2.md §15.2.
  */
+import { CLOTHING_TYPES, type ClothingType } from "@/lib/clothingType";
+import { SEED_DATE_RE } from "@/lib/formats";
 
 // ---------------------------------------------------------------------------
 // Next-side mirror of ml-system/service/config.py (§A "one home service-side + mirrored
@@ -132,10 +141,10 @@ function resolveRawImageUrl(item: WardrobeItemSource): string {
 
 /** Trim, drop blank + over-length elements, and cap the count — mirrors the service _string_list so
  *  a stored-but-untrimmed tag never rejects the whole render. Blank/over-long tags are noise
- *  (dropped, not truncated — truncating would fabricate a corrupt tag). */
+ *  (dropped, not truncated — truncating would fabricate a corrupt tag). Callers guarantee an
+ *  array-or-nil (a scalar container is a per-item drop, decided in `tryProjectWardrobeItem`). */
 function sanitizeTags(tags: string[] | undefined): string[] {
   if (tags == null) return [];
-  if (!Array.isArray(tags)) throw new RequestContractError("wardrobe tag container is not an array");
   return tags
     .filter((t): t is string => typeof t === "string")
     .map((t) => t.trim())
@@ -157,45 +166,93 @@ export interface WardrobeItemWire {
   imageUrl: string;
 }
 
-function projectWardrobeItem(item: WardrobeItemSource): WardrobeItemWire {
-  const id = item._id.toString();
-  // Trust-boundary backstops (R12): non-empty id + name, valid warmth. A row that reaches the
-  // adapter without a valid warmth is REJECTED through the one error channel, never coerced
-  // (warmth is keyword-derived at ingestion, so this should never fire — but Mongoose must not be
-  // the first validator mid-write).
-  if (!id) throw new RequestContractError("wardrobe item is missing an id");
-  if (typeof item.name !== "string") throw new RequestContractError(`wardrobe item ${id} has a non-string name`);
+/** A wardrobe row excluded from a render because its stored data is unusable. `id` is the item's
+ *  ObjectId (or a placeholder when the row has none); `reason` is a short, non-sensitive tag. */
+export interface DroppedWardrobeItem {
+  id: string;
+  reason: string;
+}
+
+/** The result of projecting a wardrobe: the good wire items + the rows that were dropped. */
+export interface WardrobeProjection {
+  wire: WardrobeItemWire[];
+  dropped: DroppedWardrobeItem[];
+}
+
+function isStringArrayOrNil(v: unknown): v is string[] | undefined {
+  return v == null || Array.isArray(v);
+}
+
+/** Project ONE wardrobe row, or report it as a per-item drop. A per-garment fault (bad/absent id,
+ *  non-string/blank name, out-of-range warmth, a clothingType outside the 5-value set, a scalar
+ *  tag container) means the row is unusable — the render is still well-defined without it, so it is
+ *  DROPPED, never thrown. We never coerce a bad value (clamping warmth or guessing a clothingType
+ *  would fabricate signal the user never entered, poisoning the immutable M6 corpus); sanitize
+ *  removes noise, it does not invent data. Clean-DB ingestion keeps these latent today, but the
+ *  resilience promise is about messy CV-derived / legacy / hand-edited rows — the data M6 needs. */
+function tryProjectWardrobeItem(
+  item: WardrobeItemSource,
+): { ok: true; wire: WardrobeItemWire } | { ok: false; id: string; reason: string } {
+  const id = item?._id?.toString?.() ?? "";
+  if (!id) return { ok: false, id: "(no id)", reason: "missing id" };
+  if (typeof item.name !== "string") return { ok: false, id, reason: "non-string name" };
   const name = item.name.trim();
-  if (!name) throw new RequestContractError(`wardrobe item ${id} is missing a name`);
-  if (typeof item.warmth !== "number" || !Number.isFinite(item.warmth) || item.warmth < 0 || item.warmth > 10) {
-    throw new RequestContractError(`wardrobe item ${id} has an out-of-range warmth`);
+  if (!name) return { ok: false, id, reason: "blank name" };
+  // warmth is contractually an INTEGER 0..10 (§15.2; the service's `_non_bool_int` rejects a float
+  // for the WHOLE render). Next's drop-predicate must match the service's accept-predicate exactly,
+  // else a fractional row passes here and sinks the closet service-side. Number.isInteger also
+  // rejects NaN/±Infinity.
+  if (typeof item.warmth !== "number" || !Number.isInteger(item.warmth) || item.warmth < 0 || item.warmth > 10) {
+    return { ok: false, id, reason: "warmth not an integer in [0,10]" };
   }
+  // clothingType must be in the 5-value ontology (single-homed in lib/clothingType; the service
+  // independently rejects an unknown clothingType for the WHOLE render, so a stale/undefined value
+  // reaching the wire would sink every item — drop the one bad row instead).
+  if (!CLOTHING_TYPES.includes(item.clothingType as ClothingType)) {
+    return { ok: false, id, reason: "clothingType not in the 5-value set" };
+  }
+  if (!isStringArrayOrNil(item.colors)) return { ok: false, id, reason: "colors is not an array" };
+  if (!isStringArrayOrNil(item.occasions)) return { ok: false, id, reason: "occasions is not an array" };
   return {
-    id,
-    // Cap the name to the service limit (⚠ mirror obligation — an over-long name would reject the
-    // whole render). The untrimmed/untruncated original is preserved verbatim in the snapshot's
-    // evidence{} block server-side (§15.1); engineVisible carries the bounded projection.
-    name: name.length > MAX_ITEM_NAME_CHARS ? name.slice(0, MAX_ITEM_NAME_CHARS) : name,
-    clothingType: item.clothingType,
-    warmth: item.warmth,
-    colorTags: sanitizeTags(item.colors),
-    occasionTags: sanitizeTags(item.occasions),
-    styleTags: [],
-    material: null,
-    formality: null,
-    imageUrl: resolveImageUrl(item),
+    ok: true,
+    wire: {
+      id,
+      // Cap the name to the service limit (⚠ mirror obligation — an over-long name would reject the
+      // whole render). The untrimmed/untruncated original is preserved verbatim in the snapshot's
+      // evidence{} block server-side (§15.1); engineVisible carries the bounded projection.
+      name: name.length > MAX_ITEM_NAME_CHARS ? name.slice(0, MAX_ITEM_NAME_CHARS) : name,
+      clothingType: item.clothingType,
+      warmth: item.warmth,
+      colorTags: sanitizeTags(item.colors),
+      occasionTags: sanitizeTags(item.occasions),
+      styleTags: [],
+      material: null,
+      formality: null,
+      imageUrl: resolveImageUrl(item),
+    },
   };
 }
 
-/** Project a wardrobe, enforcing the §A `MAX_WARDROBE_ITEMS` request bound (the engine still
- *  per-type-caps to 135; this bounds the request). */
-export function projectWardrobe(items: WardrobeItemSource[]): WardrobeItemWire[] {
+/** Project a wardrobe into wire items, partitioning off any unusable rows (see
+ *  `tryProjectWardrobeItem`). The `MAX_WARDROBE_ITEMS` request bound is an ENVELOPE fault (the whole
+ *  request is malformed) and still throws; per-item faults become `dropped` entries. The route
+ *  re-escalates a dropped row that a control references (forcedItemId / locked / disliked) to a hard
+ *  reject; other drops are logged, and the render proceeds on the good items (the engine reports
+ *  `notEnoughItems` itself if too few remain). The engine still per-type-caps to 135. */
+export function projectWardrobe(items: WardrobeItemSource[]): WardrobeProjection {
   if (items.length > MAX_WARDROBE_ITEMS) {
     throw new RequestContractError(
       `wardrobe has ${items.length} items, over the ${MAX_WARDROBE_ITEMS} request cap`,
     );
   }
-  return items.map(projectWardrobeItem);
+  const wire: WardrobeItemWire[] = [];
+  const dropped: DroppedWardrobeItem[] = [];
+  for (const item of items) {
+    const result = tryProjectWardrobeItem(item);
+    if (result.ok) wire.push(result.wire);
+    else dropped.push({ id: result.id, reason: result.reason });
+  }
+  return { wire, dropped };
 }
 
 // ---------------------------------------------------------------------------
@@ -225,8 +282,6 @@ export interface LensWire {
   seedDate: string;
   constraints: Record<string, never>;
 }
-
-const SEED_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function buildLens(input: LensAdapterInput, intent: Intent): LensWire {
   // occasion — trim-check REJECT (whitespace-only passes Mongoose required; a trimmed-blank occasion

@@ -338,6 +338,87 @@ describe("daily + rescue first render", () => {
   });
 });
 
+describe("A-cluster — per-item wardrobe resilience (a malformed row never sinks the closet)", () => {
+  // Raw-insert bypasses Mongoose validation to simulate a messy DB row (CV-derived / legacy /
+  // hand-edited) — the data the resilience promise is actually about. clothingType stays valid so
+  // the row survives the structural-lock preflight and is isolated to the per-item drop path.
+  async function insertMalformed(over: Record<string, unknown>): Promise<string> {
+    const res = await WardrobeItem.collection.insertOne({
+      user: new mongoose.Types.ObjectId(userId),
+      name: "Mystery item",
+      clothingType: "top",
+      warmth: 5,
+      category: "top",
+      colors: ["black"],
+      occasions: ["casual"],
+      isAvailable: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...over,
+    });
+    return res.insertedId.toString();
+  }
+
+  it("drops a malformed row and still renders from the good items (service sees only the good wire)", async () => {
+    await insertMalformed({ warmth: 11 }); // out-of-range warmth → unusable, but not fatal
+    let wireIds: string[] = [];
+    const deps = makeDeps({
+      callService: async (b: RenderBody) => {
+        wireIds = b.wardrobe.map((w) => w.id);
+        return fakeService()(b);
+      },
+    });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);
+    expect(res.status).toBe(200);
+    // The four good items reach the wire; the malformed row is excluded (never fatal).
+    expect([...wireIds].sort()).toEqual([itemIds.b1, itemIds.b2, itemIds.shoes, itemIds.top].sort());
+    // A snapshot still persists — the render succeeded DESPITE the bad row.
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("escalates to 422 forced_item_unusable when the rescue anchor itself is malformed (no spend, no write)", async () => {
+    const badId = await insertMalformed({ warmth: 11 });
+    let called = false;
+    const deps = makeDeps({ callService: async (b: RenderBody) => { called = true; return fakeService()(b); } });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "class", forcedItemId: badId }), deps);
+    const { status, body } = await json(res);
+    expect(status).toBe(422);
+    expect(body.error.code).toBe("forced_item_unusable");
+    expect(called).toBe(false); // the user pointed at an unusable item — reject before any LLM spend
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("escalates to 422 control_item_unusable when a locked item is malformed (re-roll; no spend, no write)", async () => {
+    const badId = await insertMalformed({ warmth: 11 });
+    const first = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    expect(first.status).toBe(200); // the root render drops the bad row harmlessly
+    const parent = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+    let called = false;
+    const deps = makeDeps({ callService: async (b: RenderBody) => { called = true; return fakeService()(b); } });
+    const res = await mlRecommend(
+      req({ requestId: uuid(), parentSnapshotId: parent._id.toString(), controls: { lockedItemIds: [badId], dislikedItemIds: [] } }),
+      deps,
+    );
+    const { status, body } = await json(res);
+    expect(status).toBe(422);
+    expect(body.error.code).toBe("control_item_unusable");
+    expect(called).toBe(false);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1); // only the parent
+  });
+
+  it("escalates a malformed DISLIKED item too (the service rejects an unknown control id, so silent-drop isn't free)", async () => {
+    const badId = await insertMalformed({ warmth: 11 });
+    await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    const parent = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+    const res = await mlRecommend(
+      req({ requestId: uuid(), parentSnapshotId: parent._id.toString(), controls: { lockedItemIds: [], dislikedItemIds: [badId] } }),
+      makeDeps(),
+    );
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.code).toBe("control_item_unusable");
+  });
+});
+
 describe("§C.1 lineage (re-roll)", () => {
   async function firstRender(occasion = "brunch", forcedItemId?: string) {
     const res = await mlRecommend(req({ requestId: uuid(), occasion, forcedItemId }), makeDeps());

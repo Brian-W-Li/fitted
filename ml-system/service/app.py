@@ -527,11 +527,11 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     )
 
     snapshot_id = _string(body["snapshotId"], "snapshotId", max_chars=cfg.MAX_ID_CHARS)
-    if not _OBJECT_ID_RE.match(snapshot_id):
+    if not _OBJECT_ID_RE.fullmatch(snapshot_id):
         raise ContractInvalid("snapshotId must be a 24-hex ObjectId string")
 
     request_id = _string(body["requestId"], "requestId", max_chars=cfg.MAX_ID_CHARS)
-    if not (_UUID_V4_RE.match(request_id) or _ULID_RE.match(request_id)):
+    if not (_UUID_V4_RE.fullmatch(request_id) or _ULID_RE.fullmatch(request_id)):
         raise ContractInvalid("requestId must be a UUIDv4 or ULID (§C.4)")
 
     session_id = _string(body["sessionId"], "sessionId", max_chars=cfg.MAX_SESSION_ID_CHARS)
@@ -544,7 +544,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     parent_snapshot_id = body["parentSnapshotId"]
     if parent_snapshot_id is not None:
         parent_snapshot_id = _string(parent_snapshot_id, "parentSnapshotId", max_chars=cfg.MAX_ID_CHARS)
-        if not _OBJECT_ID_RE.match(parent_snapshot_id):
+        if not _OBJECT_ID_RE.fullmatch(parent_snapshot_id):
             raise ContractInvalid("parentSnapshotId must be a 24-hex ObjectId string or null")
     # §C.1 lineage consistency: a root render is exactly index 0 with no parent.
     if (parent_snapshot_id is None) != (generation_index == 0):
@@ -588,7 +588,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     if (intent == "rescue_item") != (forced_item_id is not None):
         raise ContractInvalid("lens.forcedItemId is required iff intent is rescue_item")
     seed_date = lens.get("seedDate")
-    if not isinstance(seed_date, str) or not _SEED_DATE_RE.match(seed_date):
+    if not isinstance(seed_date, str) or not _SEED_DATE_RE.fullmatch(seed_date):
         raise ContractInvalid("lens.seedDate must be a required YYYY-MM-DD string (H8, UTC)")
     try:
         date.fromisoformat(seed_date)  # shape-valid but non-calendar (2026-13-99) rejects too

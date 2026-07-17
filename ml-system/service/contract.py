@@ -35,7 +35,9 @@ See ``docs/plans/m5-cutover.md`` §"Wire contract".
 
 from __future__ import annotations
 
+from fitted_core.models import ItemType
 from fitted_core.snapshot import ENGINE_FAILURE_CODES, ENGINE_FAILURE_STAGES
+from service import config as cfg
 
 # --- POST /render top-level body (§A) -------------------------------------------------
 RENDER_BODY_REQUIRED = frozenset({
@@ -152,3 +154,118 @@ ENGINE_FAILURE_VOCAB: dict[str, frozenset[str]] = {
     "stages": ENGINE_FAILURE_STAGES,
     "codes": ENGINE_FAILURE_CODES,
 }
+
+# --- Cross-runtime mirror (§4.1 C1/C2/C4) — clamps / enums / id-formats hand-copied Next-side --------
+# A fourth mirror kind: values/behaviors the Next app re-declares (adapter clamps, enum value-sets,
+# id/format regexes). Clamps + enums are DERIVED from the live config/ontology here (never a second
+# literal that could drift); the TS side asserts equality against the JSON mirror, and a Python-side
+# change flows into the JSON automatically. The format entries are behavioral accept/reject vectors,
+# not pattern strings — the two runtimes' regexes differ syntactically (`/i` vs explicit `A-F`) but
+# must agree on behavior, so each runtime asserts its regex matches the vectors (test_render_contract
+# `test_cross_runtime_*`; the TS crossRuntimeContract.test.ts).
+
+# Clamps the Next adapter/feedback route re-declares — value derived from config so it cannot drift.
+CROSS_RUNTIME_CLAMPS: dict[str, int] = {
+    "MAX_OCCASION_CHARS": cfg.MAX_OCCASION_CHARS,
+    "MAX_WEATHER_RAW_CHARS": cfg.MAX_WEATHER_RAW_CHARS,
+    "MAX_LOCATION_CHARS": cfg.MAX_LOCATION_CHARS,
+    "MAX_WARDROBE_ITEMS": cfg.MAX_WARDROBE_ITEMS,
+    "MAX_CONTROL_IDS": cfg.MAX_CONTROL_IDS,
+    "MAX_ITEM_NAME_CHARS": cfg.MAX_ITEM_NAME_CHARS,
+    "MAX_ITEM_TAG_CHARS": cfg.MAX_ITEM_TAG_CHARS,
+    "MAX_ITEM_TAGS": cfg.MAX_ITEM_TAGS,
+    "MAX_IMAGE_URL_CHARS": cfg.MAX_IMAGE_URL_CHARS,
+    "MAX_PER_ITEM_FEEDBACK": cfg.MAX_PER_ITEM_FEEDBACK,
+    "FEEDBACK_REASON_RAW_TEXT_MAX_CHARS": cfg.FEEDBACK_REASON_RAW_TEXT_MAX_CHARS,
+}
+
+# Clamps the SERVICE alone enforces — intentionally NOT mirrored Next-side (documented so the
+# boundary reads as deliberate, not an omission). A name here must exist in config.
+# NOTE: MAX_ID_CHARS (the ≤64 id cap) is deliberately absent — it IS re-declared Next-side (a bare
+# literal `64` in mlRecommend + the GenerationSnapshot validator), so it is not "service-only"; it is
+# left unpinned because the ULID(26)/UUIDv4(36)/ObjectId(24) regexes bound id length far tighter, so
+# the 64 cap is defensive-redundant and a drift in it cannot change accept behavior.
+CROSS_RUNTIME_SERVICE_ONLY_CLAMPS: tuple[str, ...] = (
+    "MAX_SESSION_ID_CHARS",
+    "MAX_ITEM_ATTR_CHARS",
+    "MAX_WIRE_INT",
+    "MAX_JSON_NESTING_DEPTH",
+    "MAX_REQUEST_BODY_BYTES",
+    "RATE_LIMIT_BURST",
+    "RATE_LIMIT_REFILL_PER_SECOND",
+    "DEFAULT_MAX_COMPLETION_TOKENS",
+    "MAX_COMPLETION_TOKENS_CEILING",
+    "MIN_COMPLETION_TOKENS_FLOOR",
+)
+
+# Enum value-sets both runtimes gate on — derived from the live config/ontology.
+CROSS_RUNTIME_ENUMS: dict[str, list[str]] = {
+    "weather": sorted(cfg.WEATHER_BUCKETS),
+    "intent": sorted(cfg.SUPPORTED_INTENTS),
+    "clothingType": sorted(t.value for t in ItemType),
+}
+
+# Behavioral accept/reject vectors for the id/format regexes (see the note above).
+CROSS_RUNTIME_FORMATS: dict[str, object] = {
+    "_comment": (
+        "Behavioral vectors, not pattern strings — the two runtimes' regexes differ syntactically "
+        "but MUST agree on accept/reject. Each runtime asserts its regex accepts every `valid` and "
+        "rejects every `invalid`."
+    ),
+    "objectId": {
+        "valid": ["6a4eb442443135439ac080d2", "AABBCCDDEEFF001122334455"],
+        "invalid": [
+            "",
+            "6a4eb442443135439ac080d",
+            "6a4eb442443135439ac080d2a",
+            "6a4eb442443135439ac080dg",
+            " 6a4eb442443135439ac080d2",
+            # trailing newline — the one input class where Python `$` and JS `$` differ; both must
+            # reject it (Python via re.fullmatch, JS via end-of-string `$`).
+            "6a4eb442443135439ac080d2\n",
+        ],
+    },
+    "seedDate": {
+        "valid": ["2026-07-16", "0000-00-00"],
+        "invalid": ["", "2026-7-16", "07/16/2026", "2026-07-16 ", "2026-07-16T00:00:00Z", "2026-07-16\n"],
+    },
+    "requestId": {
+        "_comment": (
+            "UUIDv4 (case-insensitive hex) OR an UPPERCASE Crockford-base32 ULID. A LOWERCASE ULID is "
+            "invalid on both sides — the drift this pins (a TS route regex once accepted it while "
+            "Python/Mongoose rejected it)."
+        ),
+        "valid": ["0192f1a0-1c1a-4c3e-9b2a-1a2b3c4d5e6f", "01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+        "invalid": [
+            "",
+            "0192f1a0-1c1a-7c3e-9b2a-1a2b3c4d5e6f",
+            "01arz3ndektsv4rrffq69g5fav",
+            "0192f1a0-1c1a-4c3e-cb2a-1a2b3c4d5e6f",
+            "01ARZ3NDEKTSV4RRFFQ69G5FA",
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV\n",
+        ],
+    },
+}
+
+
+def cross_runtime_mirror() -> dict:
+    """The `crossRuntime` block of the JSON mirror — clamps/enums derived from config, formats literal."""
+    return {
+        "_comment": (
+            "Values/behaviors hand-mirrored across the Next app (TS/Mongoose) and this service "
+            "(Python). This file is the single source; a TS test and a Python test each assert their "
+            "runtime matches these, so a one-sided edit reddens a suite instead of drifting silently "
+            "(post-m5-reset §4.1 C1/C2/C4)."
+        ),
+        "clamps": dict(CROSS_RUNTIME_CLAMPS),
+        "serviceOnlyClamps": {
+            "_comment": (
+                "Constants enforced ONLY by the service (ml-system/service/config.py) and "
+                "intentionally NOT mirrored Next-side — the service is the sole enforcer, so there is "
+                "no second copy to drift. Listed so the boundary reads as deliberate, not an omission."
+            ),
+            "names": list(CROSS_RUNTIME_SERVICE_ONLY_CLAMPS),
+        },
+        "enums": {name: list(values) for name, values in CROSS_RUNTIME_ENUMS.items()},
+        "formats": CROSS_RUNTIME_FORMATS,
+    }

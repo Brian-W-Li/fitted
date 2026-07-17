@@ -34,17 +34,38 @@ import {
   FEEDBACK_REASON_RAW_TEXT_MAX_CHARS,
   type FeedbackReasonCode,
 } from "@/models/OutfitInteraction";
+import { OBJECT_ID_RE } from "@/lib/formats";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
-const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 const ALLOWED_ACTIONS = new Set(["accepted", "rejected"]);
-const MAX_PER_ITEM_FEEDBACK = 20; // §A clamp table
+export const MAX_PER_ITEM_FEEDBACK = 20; // §A clamp table (mirror of config.MAX_PER_ITEM_FEEDBACK)
 const NOTES_MAX_CHARS = FEEDBACK_REASON_RAW_TEXT_MAX_CHARS; // 500 — same route cap
 const HISTORY_LIMIT = 50;
 
 const REASON_CODE_SET = new Set<string>(FEEDBACK_REASON_CODES);
+
+// --- Per-user rate limit (§A) — a token bucket bounding the append-only write path so one account
+// cannot flood its OWN feedback corpus (this route is own-account-only; not a cross-user threat).
+// Serverless ⇒ per-instance, exactly like the Python service's RATE_LIMIT_* bound; the intent is a
+// sane ceiling, not a global quota. ~60 writes/minute sustained, full 60-token burst.
+export const INTERACTION_RATE_LIMIT_CAPACITY = 60;
+const RATE_LIMIT_REFILL_PER_MS = INTERACTION_RATE_LIMIT_CAPACITY / 60_000; // full refill in 60s
+const rateBuckets = new Map<string, { tokens: number; last: number }>();
+function allowInteraction(userId: string, now: number): boolean {
+  const b = rateBuckets.get(userId) ?? { tokens: INTERACTION_RATE_LIMIT_CAPACITY, last: now };
+  b.tokens = Math.min(INTERACTION_RATE_LIMIT_CAPACITY, b.tokens + (now - b.last) * RATE_LIMIT_REFILL_PER_MS);
+  b.last = now;
+  rateBuckets.set(userId, b);
+  if (b.tokens < 1) return false;
+  b.tokens -= 1;
+  return true;
+}
+/** Test seam: clear all buckets so the module-level limit never bleeds across cases. */
+export function __resetInteractionRateLimit(): void {
+  rateBuckets.clear();
+}
 
 // ---------------------------------------------------------------------------
 // Injectable dependencies.
@@ -58,6 +79,8 @@ export interface InteractionModels {
 export interface InteractionDeps {
   verifyUser(request: NextRequest): Promise<AuthResult>;
   models: InteractionModels;
+  /** Injectable clock (ms) for the rate limiter — defaults to Date.now; tests freeze it. */
+  now?: () => number;
 }
 
 export async function prodInteractionDeps(): Promise<InteractionDeps> {
@@ -113,6 +136,10 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
   try {
     const auth = await deps.verifyUser(request);
     if ("error" in auth) return respondError(auth.status, "auth", auth.error);
+    // Rate-limit BEFORE any body parse or DB work — a flooded caller is rejected cheaply, no write.
+    if (!allowInteraction(auth.userId, (deps.now ?? Date.now)())) {
+      return respondError(429, "rate_limited", "too many interactions — please slow down");
+    }
     const userObjectId = new mongoose.Types.ObjectId(auth.userId);
 
     const body = (await request.json().catch(() => null)) as Any;

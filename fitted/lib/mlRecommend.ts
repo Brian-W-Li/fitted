@@ -29,8 +29,11 @@ import {
   type LensWire,
   type WeatherBucket,
   type WardrobeItemSource,
+  type WardrobeItemWire,
+  type DroppedWardrobeItem,
   type RenderBody,
 } from "@/lib/mlRequestAdapter";
+import { isValidRequestId } from "@/lib/formats";
 import {
   callRenderService,
   buildDegradedResponse,
@@ -58,8 +61,6 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
-const REQUEST_ID_RE =
-  /^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
 
 // ---------------------------------------------------------------------------
 // Injectable dependencies — the seam the behavior-first test drives.
@@ -250,7 +251,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     const body = (await request.json().catch(() => null)) as Any;
     if (!body || typeof body !== "object") return respondError(400, "contract_invalid", "malformed body");
     const rawRequestId: unknown = body.requestId;
-    if (typeof rawRequestId !== "string" || rawRequestId.length > 64 || !REQUEST_ID_RE.test(rawRequestId)) {
+    if (typeof rawRequestId !== "string" || rawRequestId.length > 64 || !isValidRequestId(rawRequestId)) {
       return respondError(400, "contract_invalid", "requestId must be a UUIDv4 or ULID (<=64 chars)");
     }
     const requestId = canonicalRequestId(rawRequestId);
@@ -407,10 +408,40 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       GenerationSnapshot,
     });
 
-    // 7. §15.2 item map + assemble the wire body.
+    // 7. §15.2 item map — per-item resilience (A-cluster): a malformed wardrobe row is dropped, not
+    //    fatal, so one corrupt garment never costs the user their whole closet. An over-cap wardrobe
+    //    is an ENVELOPE fault and still degrades.
+    let wardrobe: WardrobeItemWire[];
+    let droppedWardrobe: DroppedWardrobeItem[];
+    try {
+      ({ wire: wardrobe, dropped: droppedWardrobe } = projectWardrobe(
+        wardrobeDocs as unknown as WardrobeItemSource[],
+      ));
+    } catch (err) {
+      if (err instanceof RequestContractError) return respondDegraded("contract_invalid");
+      throw err;
+    }
+    // A dropped row that a control explicitly references can't be silently discarded: the user
+    // pointed at that specific garment (forcedItemId / locked / disliked), and the service also
+    // rejects a control id absent from the wire wardrobe (app.py _preflight_controls). Escalate to a
+    // hard, legible reject rather than drop the control or empty-succeed. Other drops just proceed on
+    // the good items — the engine reports notEnoughItems itself if too few remain (app.py §C.3).
+    if (droppedWardrobe.length > 0) {
+      const droppedIds = new Set(droppedWardrobe.map((d) => d.id));
+      if (lens.forcedItemId && droppedIds.has(lens.forcedItemId)) {
+        return respondError(422, "forced_item_unusable", "the item you're building around has invalid data and can't be used");
+      }
+      const badControlId = [...controls.lockedItemIds, ...controls.dislikedItemIds].find((id) => droppedIds.has(id));
+      if (badControlId) {
+        return respondError(422, "control_item_unusable", "a locked or disliked item has invalid data and can't be used");
+      }
+      console.warn(
+        `recommend: dropped ${droppedWardrobe.length} malformed wardrobe item(s): ` +
+          droppedWardrobe.map((d) => `${d.id}(${d.reason})`).join(", "),
+      );
+    }
     let renderBody: RenderBody;
     try {
-      const wardrobe = projectWardrobe(wardrobeDocs as unknown as WardrobeItemSource[]);
       renderBody = buildRenderBody({
         snapshotId,
         requestId,

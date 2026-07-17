@@ -1,22 +1,16 @@
 /**
  * Tests for the display-only wardrobe filter, search, and sort pipeline.
  *
- * Pipeline: type filter → name search → sort → render
+ * These import and exercise the REAL unit (`applyWardrobePipeline`, extracted from
+ * wardrobe/page.tsx) — not a local reimplementation. A local mirror can never redden on a
+ * regression in the page; importing the real function means a change to the page's display logic
+ * that breaks these expectations fails the suite.
  *
- * None of this touches backend state or recommendation APIs.
- * The `items` array in the component is never mutated — all operations
- * produce a new derived `display` array used only for rendering.
- *
- * Type mapping (matches page.tsx):
- *   "all"       → all items
- *   "top"       → category === "top"
- *   "bottom"    → category === "bottom"
- *   "one piece" → category === "one piece"
- *
- * Timestamps (top-level, forwarded from MongoDB via GET /api/wardrobe):
- *   createdAt  — ISO string, used for Newest / Oldest sort
- *   updatedAt  — ISO string (present but not used for sorting)
+ * Pipeline: type filter (by `category`) → name search → sort. Touches no backend/recommendation
+ * state; the source array is never mutated. `createdAt` (ISO string, forwarded from GET
+ * /api/wardrobe) drives Newest/Oldest; a missing `createdAt` sorts to the end for Newest.
  */
+import { applyWardrobePipeline } from "@/lib/wardrobeDisplayPipeline";
 
 type WardrobeItem = {
   id: string;
@@ -31,33 +25,8 @@ type WardrobeItem = {
   updatedAt?: string;
 };
 
-type FilterValue = "all" | "top" | "bottom" | "one piece";
-type SortOrder = "newest" | "oldest" | "name";
-
-/** Mirrors the full pipeline in wardrobe/page.tsx exactly. */
-function applyPipeline(
-  items: WardrobeItem[],
-  filter: FilterValue,
-  searchQuery: string,
-  sortOrder: SortOrder,
-): WardrobeItem[] {
-  let display =
-    filter === "all" ? items : items.filter((it) => it.category === filter);
-
-  if (searchQuery.trim()) {
-    const q = searchQuery.trim().toLowerCase();
-    display = display.filter((it) => it.name.toLowerCase().includes(q));
-  }
-
-  display = [...display].sort((a, b) => {
-    if (sortOrder === "name") return a.name.localeCompare(b.name);
-    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return sortOrder === "newest" ? tb - ta : ta - tb;
-  });
-
-  return display;
-}
+// Exercise the real extracted pipeline under the test's local alias.
+const applyPipeline = applyWardrobePipeline;
 
 const base = { colors: ["#000"], fit: "Regular", size: "M", seasons: [], occasions: [] };
 

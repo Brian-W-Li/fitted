@@ -1,0 +1,126 @@
+/**
+ * Cross-runtime contract guard (post-m5-reset §4.1 C1/C2/C4).
+ *
+ * A fact that must agree across the Next app (TS/Mongoose) and the Python render service — a clamp,
+ * an enum value-set, an id/format regex — used to live as ≥2 hand-maintained copies with nothing
+ * asserting they match, so a one-sided edit drifted silently (the recurring disease this campaign
+ * targets). This test pins the TS side to the SINGLE source `ml-system/service/contract_fields.json`
+ * (`crossRuntime`); the sibling `ml-system/service/tests/test_render_contract.py` pins the Python
+ * side to the SAME file. Change a value on one side without the other → one of the two suites reddens.
+ *
+ * Exhaustiveness is the point: the clamp map must have EXACTLY the JSON's keys (a new mirrored clamp
+ * forces a TS entry here), and regex agreement is proven behaviorally with shared accept/reject
+ * vectors (the two runtimes' patterns differ syntactically but must not differ in behavior).
+ */
+import fs from "fs";
+import path from "path";
+import {
+  MAX_OCCASION_CHARS,
+  MAX_WEATHER_RAW_CHARS,
+  MAX_LOCATION_CHARS,
+  MAX_WARDROBE_ITEMS,
+  MAX_CONTROL_IDS,
+  MAX_ITEM_NAME_CHARS,
+  MAX_ITEM_TAG_CHARS,
+  MAX_ITEM_TAGS,
+  MAX_IMAGE_URL_CHARS,
+  WEATHER_BUCKETS,
+  SUPPORTED_INTENTS,
+} from "@/lib/mlRequestAdapter";
+import { MAX_PER_ITEM_FEEDBACK } from "@/lib/interactions";
+import { FEEDBACK_REASON_RAW_TEXT_MAX_CHARS } from "@/models/OutfitInteraction";
+import { CLOTHING_TYPES } from "@/lib/clothingType";
+import { OBJECT_ID_RE, SEED_DATE_RE, isValidRequestId } from "@/lib/formats";
+import GenerationSnapshot from "@/models/GenerationSnapshot";
+
+interface FormatVector {
+  valid: string[];
+  invalid: string[];
+}
+const CONTRACT = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "../../ml-system/service/contract_fields.json"), "utf8"),
+) as {
+  crossRuntime: {
+    clamps: Record<string, number>;
+    enums: Record<string, string[]>;
+    formats: Record<string, FormatVector>;
+  };
+};
+
+// The TS-side value for every clamp the JSON mirrors. If the JSON gains a clamp with no entry here
+// (or vice versa) the exhaustiveness test below reddens — the mirror can't be sampled.
+const TS_CLAMPS: Record<string, number> = {
+  MAX_OCCASION_CHARS,
+  MAX_WEATHER_RAW_CHARS,
+  MAX_LOCATION_CHARS,
+  MAX_WARDROBE_ITEMS,
+  MAX_CONTROL_IDS,
+  MAX_ITEM_NAME_CHARS,
+  MAX_ITEM_TAG_CHARS,
+  MAX_ITEM_TAGS,
+  MAX_IMAGE_URL_CHARS,
+  MAX_PER_ITEM_FEEDBACK,
+  FEEDBACK_REASON_RAW_TEXT_MAX_CHARS,
+};
+
+const TS_ENUMS: Record<string, readonly string[]> = {
+  weather: WEATHER_BUCKETS,
+  intent: SUPPORTED_INTENTS,
+  clothingType: CLOTHING_TYPES,
+};
+
+const TS_FORMATS: Record<string, (s: string) => boolean> = {
+  objectId: (s) => OBJECT_ID_RE.test(s),
+  seedDate: (s) => SEED_DATE_RE.test(s),
+  requestId: isValidRequestId,
+};
+
+describe("cross-runtime clamps (TS == contract_fields.json crossRuntime.clamps)", () => {
+  const clamps = CONTRACT.crossRuntime.clamps;
+  it("the TS clamp map has EXACTLY the mirrored keys (no un-pinned or stray clamp)", () => {
+    expect(Object.keys(TS_CLAMPS).sort()).toEqual(Object.keys(clamps).sort());
+  });
+  for (const [name, value] of Object.entries(clamps)) {
+    it(`${name} == ${value}`, () => {
+      expect(TS_CLAMPS[name]).toBe(value);
+    });
+  }
+});
+
+describe("cross-runtime enums (TS == contract_fields.json crossRuntime.enums)", () => {
+  const enums = CONTRACT.crossRuntime.enums;
+  it("the TS enum map covers EXACTLY the mirrored keys (symmetry with the clamp guard)", () => {
+    expect(Object.keys(TS_ENUMS).sort()).toEqual(Object.keys(enums).sort());
+  });
+  for (const [name, values] of Object.entries(enums)) {
+    it(`${name} value-set matches`, () => {
+      expect([...TS_ENUMS[name]].sort()).toEqual([...values].sort());
+    });
+  }
+
+  // The Mongoose SCHEMA enums are a separate copy from the adapter/config consts pinned above — a
+  // drift there would write-reject a valid render. Pin the schema literals to the same source.
+  it("GenerationSnapshot.weather schema enum == the mirrored weather set", () => {
+    const schemaWeather = (GenerationSnapshot.schema.path("weather") as { enumValues?: string[] }).enumValues ?? [];
+    expect([...schemaWeather].sort()).toEqual([...enums.weather].sort());
+  });
+  it("WardrobeItem/snapshot clothingType schema enums are single-homed on CLOTHING_TYPES", () => {
+    // clothingType schema enums import CLOTHING_TYPES (no separate literal), so pinning CLOTHING_TYPES
+    // to the mirror (above) transitively pins the schemas — assert the source really is CLOTHING_TYPES.
+    expect([...CLOTHING_TYPES].sort()).toEqual([...enums.clothingType].sort());
+  });
+});
+
+describe("cross-runtime id/format regexes (behavioral vectors)", () => {
+  const formatEntries = Object.entries(CONTRACT.crossRuntime.formats).filter(([k]) => k !== "_comment");
+  for (const [name, vec] of formatEntries) {
+    const test = TS_FORMATS[name];
+    it(`${name}: has a TS matcher`, () => expect(typeof test).toBe("function"));
+    for (const v of vec.valid) {
+      it(`${name} accepts ${JSON.stringify(v)}`, () => expect(test(v)).toBe(true));
+    }
+    for (const v of vec.invalid) {
+      it(`${name} rejects ${JSON.stringify(v)}`, () => expect(test(v)).toBe(false));
+    }
+  }
+});

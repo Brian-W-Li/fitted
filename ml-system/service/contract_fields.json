@@ -1,4 +1,101 @@
 {
+  "crossRuntime": {
+    "_comment": "Values/behaviors hand-mirrored across the Next app (TS/Mongoose) and this service (Python). This file is the single source; a TS test and a Python test each assert their runtime matches these, so a one-sided edit reddens a suite instead of drifting silently (post-m5-reset \u00a74.1 C1/C2/C4).",
+    "clamps": {
+      "FEEDBACK_REASON_RAW_TEXT_MAX_CHARS": 500,
+      "MAX_CONTROL_IDS": 50,
+      "MAX_IMAGE_URL_CHARS": 2048,
+      "MAX_ITEM_NAME_CHARS": 200,
+      "MAX_ITEM_TAGS": 25,
+      "MAX_ITEM_TAG_CHARS": 60,
+      "MAX_LOCATION_CHARS": 120,
+      "MAX_OCCASION_CHARS": 200,
+      "MAX_PER_ITEM_FEEDBACK": 20,
+      "MAX_WARDROBE_ITEMS": 2000,
+      "MAX_WEATHER_RAW_CHARS": 120
+    },
+    "enums": {
+      "clothingType": [
+        "bottom",
+        "dress",
+        "outer_layer",
+        "shoes",
+        "top"
+      ],
+      "intent": [
+        "daily",
+        "rescue_item"
+      ],
+      "weather": [
+        "cold",
+        "hot",
+        "indoor",
+        "mild",
+        "outdoor"
+      ]
+    },
+    "formats": {
+      "_comment": "Behavioral vectors, not pattern strings \u2014 the two runtimes' regexes differ syntactically but MUST agree on accept/reject. Each runtime asserts its regex accepts every `valid` and rejects every `invalid`.",
+      "objectId": {
+        "invalid": [
+          "",
+          "6a4eb442443135439ac080d",
+          "6a4eb442443135439ac080d2a",
+          "6a4eb442443135439ac080dg",
+          " 6a4eb442443135439ac080d2",
+          "6a4eb442443135439ac080d2\n"
+        ],
+        "valid": [
+          "6a4eb442443135439ac080d2",
+          "AABBCCDDEEFF001122334455"
+        ]
+      },
+      "requestId": {
+        "_comment": "UUIDv4 (case-insensitive hex) OR an UPPERCASE Crockford-base32 ULID. A LOWERCASE ULID is invalid on both sides \u2014 the drift this pins (a TS route regex once accepted it while Python/Mongoose rejected it).",
+        "invalid": [
+          "",
+          "0192f1a0-1c1a-7c3e-9b2a-1a2b3c4d5e6f",
+          "01arz3ndektsv4rrffq69g5fav",
+          "0192f1a0-1c1a-4c3e-cb2a-1a2b3c4d5e6f",
+          "01ARZ3NDEKTSV4RRFFQ69G5FA",
+          "01ARZ3NDEKTSV4RRFFQ69G5FAV\n"
+        ],
+        "valid": [
+          "0192f1a0-1c1a-4c3e-9b2a-1a2b3c4d5e6f",
+          "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        ]
+      },
+      "seedDate": {
+        "invalid": [
+          "",
+          "2026-7-16",
+          "07/16/2026",
+          "2026-07-16 ",
+          "2026-07-16T00:00:00Z",
+          "2026-07-16\n"
+        ],
+        "valid": [
+          "2026-07-16",
+          "0000-00-00"
+        ]
+      }
+    },
+    "serviceOnlyClamps": {
+      "_comment": "Constants enforced ONLY by the service (ml-system/service/config.py) and intentionally NOT mirrored Next-side \u2014 the service is the sole enforcer, so there is no second copy to drift. Listed so the boundary reads as deliberate, not an omission.",
+      "names": [
+        "MAX_SESSION_ID_CHARS",
+        "MAX_ITEM_ATTR_CHARS",
+        "MAX_WIRE_INT",
+        "MAX_JSON_NESTING_DEPTH",
+        "MAX_REQUEST_BODY_BYTES",
+        "RATE_LIMIT_BURST",
+        "RATE_LIMIT_REFILL_PER_SECOND",
+        "DEFAULT_MAX_COMPLETION_TOKENS",
+        "MAX_COMPLETION_TOKENS_CEILING",
+        "MIN_COMPLETION_TOKENS_FLOOR"
+      ]
+    }
+  },
   "engineFailureVocab": {
     "codes": [
       "empty_valid_set",

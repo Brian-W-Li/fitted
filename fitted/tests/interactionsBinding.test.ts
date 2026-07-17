@@ -15,6 +15,8 @@ import OutfitInteraction from "@/models/OutfitInteraction";
 import {
   postInteraction,
   getInteractions,
+  __resetInteractionRateLimit,
+  INTERACTION_RATE_LIMIT_CAPACITY,
   type InteractionDeps,
 } from "@/lib/interactions";
 
@@ -31,6 +33,7 @@ afterAll(async () => {
 });
 afterEach(async () => {
   await harness.clear();
+  __resetInteractionRateLimit(); // the module-level bucket must not bleed across cases
 });
 
 const oid = () => new Types.ObjectId().toHexString();
@@ -297,6 +300,40 @@ describe("POST /api/interactions — bind + append (§I)", () => {
     await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), deps(userId));
     await postInteraction(postReq({ snapshotId, candidateId, action: "rejected" }), deps(userId));
     expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(2);
+  });
+});
+
+describe("POST /api/interactions — per-user rate limit (W2-4a)", () => {
+  // Freeze the clock so the CAPACITY in-memory writes can't refill a token mid-loop (else a slow CI
+  // run > 1s would let the (CAPACITY+1)th call succeed — a wall-clock flake). Deterministic depletion.
+  const frozen = (userId: string): InteractionDeps => ({ ...deps(userId), now: () => 1_000_000 });
+
+  it("rejects with 429 once a user exceeds the capacity, and does NOT write the rejected row", async () => {
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    // Exhaust the bucket (appends to the same candidate are append-only-legal).
+    for (let i = 0; i < INTERACTION_RATE_LIMIT_CAPACITY; i++) {
+      const res = await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), frozen(userId));
+      expect(res.status).toBe(200);
+    }
+    const over = await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), frozen(userId));
+    expect(over.status).toBe(429);
+    expect((await over.json()).code).toBe("rate_limited");
+    // The 429 wrote nothing — exactly CAPACITY rows persisted, not CAPACITY+1.
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(INTERACTION_RATE_LIMIT_CAPACITY);
+  });
+
+  it("limits per-user — a second user is unaffected by the first's flood", async () => {
+    const userA = oid();
+    const userB = oid();
+    const a = await makeSnapshot(userA);
+    const b = await makeSnapshot(userB);
+    for (let i = 0; i < INTERACTION_RATE_LIMIT_CAPACITY; i++) {
+      await postInteraction(postReq({ snapshotId: a.snapshotId, candidateId: a.candidateId, action: "accepted" }), frozen(userA));
+    }
+    // userA is now exhausted; userB's independent bucket is full.
+    expect((await postInteraction(postReq({ snapshotId: a.snapshotId, candidateId: a.candidateId, action: "accepted" }), frozen(userA))).status).toBe(429);
+    expect((await postInteraction(postReq({ snapshotId: b.snapshotId, candidateId: b.candidateId, action: "accepted" }), frozen(userB))).status).toBe(200);
   });
 });
 

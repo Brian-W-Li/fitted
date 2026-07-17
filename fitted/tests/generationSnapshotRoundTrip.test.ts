@@ -247,3 +247,70 @@ describe("generator provenance round-trip (§G item 6)", () => {
     expect(readBack!.generationAttempts[0].finishStatus?.refusal).toBe("I can't help with that");
   });
 });
+
+// ---------------------------------------------------------------------------
+// C3 — the FULL corpus body round-trip (not just the generator block). The D-1/D-2 silent-strip
+// class isn't specific to diagnostics/controls: ANY sub-schema field the Python producer emits but
+// the Mongoose schema lacks is stripped at .create() under strict:true. This asserts the whole
+// candidate / itemSnapshots / diagnostics body of the committed cross-runtime fixture survives a
+// real write→read — a class fence, so a future stripped candidate/engineVisible field reddens here
+// instead of silently dropping content M6 trains on. (Reference: m5-cutover.md §G / §J.)
+// ---------------------------------------------------------------------------
+describe("full corpus body round-trip (§C3 — candidates / itemSnapshots / diagnostics)", () => {
+  it("every candidate of the committed fixture survives write→read (no stripped candidate field)", async () => {
+    const wire = loadFixture();
+    const created = await GenerationSnapshot.create(withM5Merge(wire));
+    const readBack = await GenerationSnapshot.findById(created._id).lean<GenerationSnapshotDocument>();
+    const wireCandidates = wire.candidates as Record<string, unknown>[];
+    // Length AND per-candidate content: toMatchObject reddens if ANY field the fixture carries
+    // (candidateId/baseKey/fullSignature/items[].role/slotMap/template/optionPath/risk/styleMove/
+    // scoreTrace/rawEmitted/rejectionCodes/dropReason/…) is missing from the persisted row.
+    expect(readBack!.candidates).toHaveLength(wireCandidates.length);
+    expect(readBack!.candidates).toMatchObject(wireCandidates);
+  });
+
+  it("every itemSnapshots engineVisible body survives (incl. warmth — the ranker/M6 feature)", async () => {
+    const wire = loadFixture();
+    const created = await GenerationSnapshot.create(withM5Merge(wire));
+    const readBack = await GenerationSnapshot.findById(created._id).lean<GenerationSnapshotDocument>();
+    const wireSnaps = wire.itemSnapshots as Record<string, unknown>[];
+    expect(readBack!.itemSnapshots).toHaveLength(wireSnaps.length);
+    expect(readBack!.itemSnapshots).toMatchObject(wireSnaps);
+  });
+
+  it("the diagnostics body survives beyond engineFailure (typed fields + Mixed ranker/rescue content)", async () => {
+    const wire = loadFixture();
+    const created = await GenerationSnapshot.create(withM5Merge(wire));
+    const readBack = await GenerationSnapshot.findById(created._id).lean<GenerationSnapshotDocument>();
+    const wireDiag = wire.diagnostics as Record<string, Any>;
+    // Typed diagnostics fields — strict-strippable if the schema drifts; the load-bearing signal.
+    expect(readBack!.diagnostics).toMatchObject({
+      notEnoughItems: wireDiag.notEnoughItems,
+      scorerAvailable: wireDiag.scorerAvailable,
+      candidateRequested: wireDiag.candidateRequested,
+      promptItemCount: wireDiag.promptItemCount,
+      parse: wireDiag.parse,
+      samplerPerType: wireDiag.samplerPerType,
+      rejectionHistogram: wireDiag.rejectionHistogram,
+    });
+    // The Mixed ranker/rescue blocks round-trip their NON-empty content. Mongoose `minimize` (default)
+    // drops empty-object leaves (ranker.itemAffinity:{} / warningHistogram:{}); that is benign — an
+    // empty map carries no signal, and a NON-EMPTY value survives (proven by the next test).
+    const { itemAffinity: _omitEmpty, ...rankerNonEmpty } = wireDiag.ranker;
+    void _omitEmpty;
+    expect(readBack!.diagnostics!.ranker).toMatchObject(rankerNonEmpty);
+    expect(readBack!.diagnostics!.rescue).toMatchObject(wireDiag.rescue);
+  });
+
+  it("a NON-EMPTY ranker.itemAffinity round-trips (the affinity signal M6 conditions on is not lost)", async () => {
+    // The fixture's itemAffinity is empty (minimized away, harmlessly). This proves the load-bearing
+    // property directly: real per-item affinity persists through write→read via the Mixed block.
+    const affinity = { [oid().toHexString()]: 0.8, [oid().toHexString()]: -0.4 };
+    const created = await GenerationSnapshot.create({
+      ...validBase(),
+      diagnostics: { notEnoughItems: false, ranker: { itemAffinity: affinity, reducerConfigVersion: "rk1" } },
+    });
+    const readBack = await GenerationSnapshot.findById(created._id).lean<GenerationSnapshotDocument>();
+    expect(readBack!.diagnostics!.ranker.itemAffinity).toEqual(affinity);
+  });
+});
