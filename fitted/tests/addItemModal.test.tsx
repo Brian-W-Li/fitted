@@ -86,6 +86,64 @@ describe("AddItemModal — double-submit re-entrancy latch (no duplicate item)",
   });
 });
 
+describe("AddItemModal — Save & add another (B1 yield-friction removal)", () => {
+  const withPhoto = () => new File(["x"], "tee.jpg", { type: "image/jpeg" });
+
+  it("offers 'Save & add another' only in ADD mode with a photo — never in edit", () => {
+    // add + photo → present
+    const { unmount } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} pendingAddFile={withPhoto()} addStep="form" />,
+    );
+    expect(screen.getByRole("button", { name: /save & add another/i })).toBeInTheDocument();
+    unmount();
+    // edit (existingImagePath) → absent, even though a photo is present
+    render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} existingImagePath="mongo:abc" />,
+    );
+    expect(screen.queryByRole("button", { name: /save & add another/i })).not.toBeInTheDocument();
+  });
+
+  it("saves, keeps the modal open, and RESETS the form (name cleared, back to photo-first) — onClose NOT called", async () => {
+    const onSave = jest.fn((_item: unknown, _file: File | null) => true);
+    const onClose = jest.fn();
+    render(
+      <AddItemModal onClose={onClose} onSave={onSave} initialItem={validItem} pendingAddFile={withPhoto()} addStep="form" />,
+    );
+    // pre-condition: the name field carries the item name, photo path is active
+    const nameInput = screen.getByPlaceholderText(/blue denim jacket/i) as HTMLInputElement;
+    expect(nameInput.value).toBe("Blue tee");
+
+    await userEvent.click(screen.getByRole("button", { name: /save & add another/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    // modal stays open (onClose never fired) …
+    expect(onClose).not.toHaveBeenCalled();
+    // … the form is blanked for the next item …
+    expect((screen.getByPlaceholderText(/blue denim jacket/i) as HTMLInputElement).value).toBe("");
+    // … and the photo is cleared, so the next item starts on the photo-first path (D1).
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /save without a photo/i })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button", { name: /^save item$/i })).not.toBeInTheDocument();
+  });
+
+  it("rapid double-tap of 'Save & add another' saves exactly once (latch holds on the new path)", async () => {
+    // The add-another button reopens the exact form that has NO server idempotency; a sub-frame
+    // double-tap must not POST twice. Reuse the savingRef latch: a deferred onSave keeps the first
+    // call in flight while the second tap fires.
+    let resolveSave: ((v: boolean) => void) | undefined;
+    const onSave = jest.fn(() => new Promise<boolean>((r) => { resolveSave = r; }));
+    render(
+      <AddItemModal onClose={() => {}} onSave={onSave} initialItem={validItem} pendingAddFile={withPhoto()} addStep="form" />,
+    );
+    const btn = screen.getByRole("button", { name: /save & add another/i });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    resolveSave?.(true);
+  });
+});
+
 describe("AddItemModal — collapsed 'More details' still submit (D2)", () => {
   it("Pattern + Fit (in the optional disclosure) still reach the onSave payload — collapse doesn't drop data", async () => {
     const onSave = jest.fn((_item: unknown, _file: File | null) => true);

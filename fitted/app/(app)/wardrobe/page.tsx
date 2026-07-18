@@ -464,12 +464,35 @@ export function AddItemModal({
     await submitForm();
   }
 
+  /** Reset the confirm-form back to a blank add state — used by "Save & add another" so a friend can
+   *  enter their next item without re-opening the modal (the #1 yield-friction removal: 15 items no
+   *  longer means 15 modal open/close cycles). Clears every field INCLUDING the photo, so the next
+   *  item starts on the photo-first path (D1). The re-entrancy latch (savingRef) is released by
+   *  submitForm's finally BEFORE this runs, so the reset can't strand the latch. */
+  function resetFormForAddAnother() {
+    setName("");
+    setCategory("top");
+    setSubCategory("");
+    setColors([]);
+    setColorsInput("");
+    setColorError(null);
+    setPattern("");
+    setLayerRole("");
+    setSeasons([]);
+    setOccasions([]);
+    setOccasionsInput("");
+    setFit("");
+    setImageFile(null);
+    setImageError(null);
+    setFormError(null);
+  }
+
   // Shared by the form's submit ("Save item", the primary button rendered ONLY when a photo is
   // attached) and the deliberate "Save without a photo" button. The D1 photo strong-nudge is
   // enforced by the FOOTER rendering — a photo-less save is reachable only via the honestly-labeled
   // secondary button (the no-photo footer has no submit button, so an Enter keypress can't slip a
   // photo-less item through) — so this just saves whatever state is present.
-  async function submitForm() {
+  async function submitForm(addAnother = false) {
     if (savingRef.current) return; // re-entrancy latch (see savingRef declaration) — no duplicate item
     setFormError(null);
 
@@ -550,7 +573,13 @@ export function AddItemModal({
         setFormError(result);
         return;
       }
-      if (result !== false) onClose();
+      // Success. "Save & add another" clears the form and keeps the modal open; a normal save closes.
+      // After the reset the name is empty, so a rapid second add-another tap is validation-blocked
+      // (never a dup); an in-flight second tap was already a no-op via savingRef above.
+      if (result !== false) {
+        if (addAnother) resetFormForAddAnother();
+        else onClose();
+      }
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -1101,16 +1130,31 @@ export function AddItemModal({
                 Cancel
               </button>
               {willHavePhoto ? (
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {saving && (
-                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                <>
+                  {/* Add-flow only (never edit): save this item and reset to a blank form WITHOUT
+                      re-opening the modal — the #1 yield-friction removal for a 15-item closet. Only
+                      on the photo-first path, so the streamlined loop keeps photos the default. */}
+                  {!isEdit && (
+                    <button
+                      type="button"
+                      onClick={() => submitForm(true)}
+                      disabled={saving}
+                      className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? "Saving…" : "Save & add another"}
+                    </button>
                   )}
-                  {saving ? "Saving…" : "Save item"}
-                </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {saving && (
+                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    )}
+                    {saving ? "Saving…" : "Save item"}
+                  </button>
+                </>
               ) : (
                 <>
                   {/* D1: the photo-less save is the low-emphasis, honestly-labeled path; "Add a photo"
