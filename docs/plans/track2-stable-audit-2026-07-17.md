@@ -10,7 +10,7 @@
   push `af836070` (13 commits). Tree at start: `372707af`, clean, `main`.
 
 ## Green floors (run-verified this session)
-- jest **674 passed** + 10 skipped (grew 649→674). pytest **1091 passed**. `npm run build` ✓. `tsc` ✓.
+- jest **675 passed** + 10 skipped (grew 649→675). pytest **1091 passed**. `npm run build` ✓. `tsc` ✓.
 - 10 skips = 2 env-gated integration suites (`corpusReadback` ×8 needs live Atlas URI;
   `localServiceSmoke` ×2 needs the deployed Fly URL+key). No `it.skip`/`xit` anywhere — nothing
   surgically disabled.
@@ -105,11 +105,12 @@ final tree `dfa82490` incl. D1+D2 (CONVERGED — both re-audited sound; gates re
 clean / build ✓; imageRef path, erasure-intact, H61 collapse, mutation-meaningful tests all verified).
 
 ### Residuals from the final round (non-blocking)
-- **REPLACE-1 (same class as D2, NOT in the delete-scoped decision).** Photo *replace*
-  (`wardrobe/[id]/image/route.ts` deletes the old image before upload) still strips a
-  snapshot-referenced OLD image — the same leak D2 closed for delete/clear. One-line fix available
-  (guard the old-image delete with `isImagePathReferenced`). Surfaced to Brian; not landed without a
-  scope decision. Smaller surface than delete (replacing a photo mid-study is rarer).
+- **REPLACE-1 — RESOLVED `3eb05cf7`** (Brian approved closing it). Photo *replace* now keeps a
+  snapshot-referenced old image via `isImagePathReferenced`, and the byte budget credits the old
+  image only when it's actually freed (a kept image counts, so a closet can't exceed the M0 budget).
+  Mutation-verified behavioral test. jest 674→675.
+- **OPS-2 — RESOLVED (Brian).** The OpenAI $10 is confirmed a HARD spend cap (not a soft alert);
+  Brian is fine lifting it toward ~$20 if needed. The one backstop everything leans on is genuinely hard.
 - **READOUT-MINOR.** The corpus-yield readout's ascending sort has no `_id` tiebreak (the production
   reducer uses `{createdAt:-1,_id:-1}`). Harmless — same-`createdAt` collisions are same-action so the
   count is identical; read-only diagnostic, not the training path.
