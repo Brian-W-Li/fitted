@@ -1653,7 +1653,12 @@ export default function WardrobePage() {
               if (typeof saved === "string") return saved;
               if (firebaseUser) {
                 try {
-                  if (addInferredCroppedImage) {
+                  // Use the CV-cropped image ONLY when the friend kept the original photo. If they
+                  // Removed it (imageFile null) or Changed it in the confirm form (a different File),
+                  // the crop is stale and honoring it would override a deliberate choice — save what
+                  // they actually chose instead. (Dormant today: CV is off, so no crop; guards the
+                  // W-track future where /api/cv/infer returns crops.)
+                  if (addInferredCroppedImage && imageFile === addPendingFile) {
                     // Use CV-cropped, background-removed image returned by the CV service
                     const base64 = addInferredCroppedImage;
                     const binary = atob(base64);
