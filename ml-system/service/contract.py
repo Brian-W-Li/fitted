@@ -36,7 +36,12 @@ See ``docs/plans/m5-cutover.md`` §"Wire contract".
 from __future__ import annotations
 
 from fitted_core.models import ItemType, Role, Template
-from fitted_core.reducers import COUNTED_ACTIONS, REJECTED_ACTION
+from fitted_core.reducers import (
+    COUNTED_ACTIONS,
+    INTERACTION_ROWS_SCAN_LIMIT,
+    REJECTED_ACTION,
+    REPETITION_WINDOW_SNAPSHOTS,
+)
 from fitted_core.response import OptionPath, Risk
 from fitted_core.snapshot import CANDIDATE_STAGES, ENGINE_FAILURE_CODES, ENGINE_FAILURE_STAGES
 from service import config as cfg
@@ -203,6 +208,15 @@ CROSS_RUNTIME_SERVICE_ONLY_CLAMPS: tuple[str, ...] = (
     "MIN_COMPLETION_TOKENS_FLOOR",
 )
 
+# Reducer scan bounds (§H) — the DB-read caps the Next behavioral-rows projection re-declares
+# (lib/mlBehavioralRows.ts) and fitted_core.reducers owns. A TS drift *down* would silently starve
+# personalization (fewer rows read → weaker affinity/repetition signal) with a green suite, so the
+# values are sourced from the live reducers constants here and the TS side asserts equality.
+CROSS_RUNTIME_REDUCER_SCAN_BOUNDS: dict[str, int] = {
+    "INTERACTION_ROWS_SCAN_LIMIT": INTERACTION_ROWS_SCAN_LIMIT,
+    "REPETITION_WINDOW_SNAPSHOTS": REPETITION_WINDOW_SNAPSHOTS,
+}
+
 # Enum value-sets both runtimes gate on — derived from the live config/ontology.
 CROSS_RUNTIME_ENUMS: dict[str, list[str]] = {
     "weather": sorted(cfg.WEATHER_BUCKETS),
@@ -282,6 +296,7 @@ def cross_runtime_mirror() -> dict:
             "(post-m5-reset §4.1 C1/C2/C4)."
         ),
         "clamps": dict(CROSS_RUNTIME_CLAMPS),
+        "reducerScanBounds": dict(CROSS_RUNTIME_REDUCER_SCAN_BOUNDS),
         "serviceOnlyClamps": {
             "_comment": (
                 "Constants enforced ONLY by the service (ml-system/service/config.py) and "

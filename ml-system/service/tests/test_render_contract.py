@@ -676,6 +676,20 @@ def test_cross_runtime_clamps_derive_from_live_config():
         assert hasattr(cfg, name), f"service-only clamp {name} is not a config attribute"
 
 
+def test_cross_runtime_reducer_scan_bounds_derive_from_reducers():
+    """The mirrored §H scan bounds are sourced from the live fitted_core.reducers constants by
+    cross_runtime_mirror(), so a change to reducers.py flows into the JSON the TS side pins. Asserts the
+    mirror equals the live constants (a one-sided edit reddens); the TS crossRuntimeContract test asserts
+    lib/mlBehavioralRows.ts equals the same JSON, so a TS drift-down that starves personalization reddens."""
+    from fitted_core.reducers import INTERACTION_ROWS_SCAN_LIMIT, REPETITION_WINDOW_SNAPSHOTS
+
+    bounds = contract.cross_runtime_mirror()["reducerScanBounds"]
+    assert bounds == {
+        "INTERACTION_ROWS_SCAN_LIMIT": INTERACTION_ROWS_SCAN_LIMIT,
+        "REPETITION_WINDOW_SNAPSHOTS": REPETITION_WINDOW_SNAPSHOTS,
+    }
+
+
 def test_cross_runtime_schema_enums_derive_from_fitted_core():
     """The candidate/role enums the GenerationSnapshot Mongoose schema re-declares are mirrored FROM the
     fitted_core ontology by cross_runtime_mirror(), so a member added to Role/Template/OptionPath/Risk/

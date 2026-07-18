@@ -85,6 +85,10 @@
         ]
       }
     },
+    "reducerScanBounds": {
+      "INTERACTION_ROWS_SCAN_LIMIT": 500,
+      "REPETITION_WINDOW_SNAPSHOTS": 50
+    },
     "schemaEnums": {
       "optionPath": [
         "bridge",

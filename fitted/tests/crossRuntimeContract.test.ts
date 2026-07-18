@@ -29,6 +29,7 @@ import {
   SUPPORTED_INTENTS,
 } from "@/lib/mlRequestAdapter";
 import { ALLOWED_ACTIONS, MAX_PER_ITEM_FEEDBACK } from "@/lib/interactions";
+import { INTERACTION_ROWS_SCAN_LIMIT, REPETITION_WINDOW_SNAPSHOTS } from "@/lib/mlBehavioralRows";
 import OutfitInteraction, { FEEDBACK_REASON_RAW_TEXT_MAX_CHARS } from "@/models/OutfitInteraction";
 import { CLOTHING_TYPES } from "@/lib/clothingType";
 import { OBJECT_ID_RE, SEED_DATE_RE, isValidRequestId } from "@/lib/formats";
@@ -43,6 +44,7 @@ const CONTRACT = JSON.parse(
 ) as {
   crossRuntime: {
     clamps: Record<string, number>;
+    reducerScanBounds: Record<string, number>;
     enums: Record<string, string[]>;
     schemaEnums: Record<string, string[]>;
     formats: Record<string, FormatVector>;
@@ -86,6 +88,13 @@ const TS_CLAMPS: Record<string, number> = {
   ENGINE_FAILURE_MESSAGE_MAX_CHARS,
 };
 
+// The §H reducer scan bounds the Next behavioral-rows projection re-declares (lib/mlBehavioralRows.ts).
+// Exhaustively pinned to the mirror so a TS drift DOWN — which silently starves personalization — reddens.
+const TS_REDUCER_SCAN_BOUNDS: Record<string, number> = {
+  INTERACTION_ROWS_SCAN_LIMIT,
+  REPETITION_WINDOW_SNAPSHOTS,
+};
+
 const TS_ENUMS: Record<string, readonly string[]> = {
   weather: WEATHER_BUCKETS,
   intent: SUPPORTED_INTENTS,
@@ -109,6 +118,18 @@ describe("cross-runtime clamps (TS == contract_fields.json crossRuntime.clamps)"
   for (const [name, value] of Object.entries(clamps)) {
     it(`${name} == ${value}`, () => {
       expect(TS_CLAMPS[name]).toBe(value);
+    });
+  }
+});
+
+describe("cross-runtime reducer scan bounds (TS == contract_fields.json crossRuntime.reducerScanBounds)", () => {
+  const bounds = CONTRACT.crossRuntime.reducerScanBounds;
+  it("the TS scan-bound map has EXACTLY the mirrored keys (no un-pinned or stray bound)", () => {
+    expect(Object.keys(TS_REDUCER_SCAN_BOUNDS).sort()).toEqual(Object.keys(bounds).sort());
+  });
+  for (const [name, value] of Object.entries(bounds)) {
+    it(`${name} == ${value}`, () => {
+      expect(TS_REDUCER_SCAN_BOUNDS[name]).toBe(value);
     });
   }
 });
