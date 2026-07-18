@@ -845,12 +845,11 @@ export function AddItemModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Type *</label>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
                   <select
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
                     value={subCategory}
                     onChange={(e) => setSubCategory(e.target.value)}
-                    required
                   >
                     <option value="">Select…</option>
                     {TYPE_OPTIONS.map((t) => (
@@ -863,7 +862,9 @@ export function AddItemModal({
 
             {/* Colors */}
             <section className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Colors *</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Colors <span className="normal-case tracking-normal font-normal text-slate-400">— optional, helps the stylist explain outfits</span>
+              </h3>
               {colors.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {colors.map((c: string) => {

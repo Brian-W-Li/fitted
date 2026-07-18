@@ -60,38 +60,22 @@ describe("validateWardrobeForm", () => {
     expect(result.valid).toBe(false);
   });
 
-  it("rejects empty type (subCategory)", () => {
-    const result = validateWardrobeForm({
-      ...validPayload,
-      subCategory: "",
-    });
-    expect(result.valid).toBe(false);
-    expect((result as { error: string }).error).toBe("Type is required.");
+  // REQFIELDS-1 (Track 2, Fable-decided 2026-07-18): subCategory + colors are OPTIONAL — required is
+  // {name, category} only. The engine derives a valid clothingType from category alone and the server
+  // accepts item with neither, so gating on them was a client-only yield tax. They stay encouraged.
+  it("ACCEPTS an item with only name + category (Type + colors optional)", () => {
+    const result = validateWardrobeForm({ name: "Shirt", category: "top" });
+    expect(result.valid).toBe(true);
   });
 
-  it("rejects missing type (subCategory)", () => {
-    const result = validateWardrobeForm({
-      ...validPayload,
-      subCategory: undefined,
-    });
-    expect(result.valid).toBe(false);
+  it("accepts empty/missing type (subCategory)", () => {
+    expect(validateWardrobeForm({ ...validPayload, subCategory: "" }).valid).toBe(true);
+    expect(validateWardrobeForm({ ...validPayload, subCategory: undefined }).valid).toBe(true);
   });
 
-  it("rejects empty colors array", () => {
-    const result = validateWardrobeForm({
-      ...validPayload,
-      colors: [],
-    });
-    expect(result.valid).toBe(false);
-    expect((result as { error: string }).error).toBe("Add at least one color.");
-  });
-
-  it("rejects missing colors", () => {
-    const result = validateWardrobeForm({
-      ...validPayload,
-      colors: undefined,
-    });
-    expect(result.valid).toBe(false);
+  it("accepts empty/missing colors", () => {
+    expect(validateWardrobeForm({ ...validPayload, colors: [] }).valid).toBe(true);
+    expect(validateWardrobeForm({ ...validPayload, colors: undefined }).valid).toBe(true);
   });
 
   it("accepts multiple colors", () => {

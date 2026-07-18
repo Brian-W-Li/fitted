@@ -50,13 +50,13 @@ export function validateWardrobeForm(data: WardrobeFormPayload): ValidationResul
   if (!category) {
     return { valid: false, error: "Category is required." };
   }
-  const subCategory = typeof data.subCategory === "string" ? data.subCategory.trim() : "";
-  if (!subCategory) {
-    return { valid: false, error: "Type is required." };
-  }
-  const colors = Array.isArray(data.colors) ? data.colors : [];
-  if (colors.length === 0) {
-    return { valid: false, error: "Add at least one color." };
-  }
+  // REQFIELDS-1 (Track 2, Fable-decided 2026-07-18): required = {name, category} only. The engine
+  // derives a valid clothingType from category alone, and the server accepts items with no
+  // subCategory and no colors (proven live: a text-sparse closet renders sane outfits). Requiring
+  // Type + ≥1 color was a CLIENT-ONLY tax the engine doesn't need — 2 extra required fields × a
+  // 15-item closet is real dropout risk (an abandoned closet is total loss; a sparse closet still
+  // contributes photos + labels). subCategory + colors stay VISIBLE + encouraged (they enrich the
+  // stylist prompt), just not gated. Do NOT re-tighten this without the same promise weighing —
+  // if sparse closets depress like-rate, the fix is asking that friend to backfill via edit.
   return { valid: true };
 }

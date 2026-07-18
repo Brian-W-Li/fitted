@@ -30,7 +30,7 @@ const validItem = {
 describe("AddItemModal — harness smoke", () => {
   it("renders the confirm/save form with the required-field sections", () => {
     render(<AddItemModal onClose={() => {}} onSave={() => true} title="Add item" />);
-    expect(screen.getByText(/Colors \*/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Colors/i)).toBeInTheDocument();
     expect(screen.getByText(/Category \*/i)).toBeInTheDocument();
   });
 });
