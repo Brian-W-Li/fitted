@@ -5,6 +5,7 @@ import { adminAuth } from "@/lib/firebaseAdmin";
 import { MAX_WARDROBE_IMAGE_BYTES, uploadWardrobeImage } from "@/lib/imageStorage";
 import { allowRequest } from "@/lib/rateLimit";
 import { OBJECT_ID_RE } from "@/lib/formats";
+import { isImagePathReferenced } from "@/lib/imageReferences";
 
 const MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const MAX_WARDROBE_IMAGE_REQUEST_BYTES =
@@ -94,7 +95,7 @@ export async function POST(
     const bytes = Buffer.from(await file.arrayBuffer());
 
     // attach pointer on WardrobeItem (user-scoped)
-    const { WardrobeItem, WardrobeImage } = await initDatabase();
+    const { WardrobeItem, WardrobeImage, GenerationSnapshot } = await initDatabase();
 
     // 1) Load current item so we can see its existing imagePath
     const existingItem = await WardrobeItem.findOne({
@@ -109,13 +110,18 @@ export async function POST(
       );
     }
 
-    // 2) If it already has an image, note it: the budget below CREDITS it (a same-item replace
-    // must not false-reject at the margin), and it is deleted only AFTER the budget admits the
-    // new image — delete-then-reject would destroy the old photo and leave a dangling imagePath.
+    // 2) If it already has an image, note it: the budget below credits it ONLY when it will actually
+    // be freed (a same-item replace must not false-reject at the margin), and it is deleted only
+    // AFTER the budget admits the new image — delete-then-reject would destroy the old photo and
+    // leave a dangling imagePath. EXCEPTION (§D2/REPLACE-1, lib/imageReferences): if a
+    // GenerationSnapshot references the old image, it is KEPT (corpus provenance for the M6
+    // image-embedding re-measure), so it is NOT deleted AND its bytes are NOT credited — old + new
+    // both consume space in that case.
     const oldPath = (existingItem as { imagePath?: unknown } | null)?.imagePath;
     const oldPathStr = typeof oldPath === "string" ? oldPath : undefined;
     let oldImageId: string | undefined;
     let oldImageBytes = 0;
+    let oldImageReferenced = false;
     if (oldPathStr?.startsWith("mongo:")) {
       const sliced = oldPathStr.slice("mongo:".length);
       // imagePath is PATCH-able as a plain string, so a garbage "mongo:notanid" is reachable —
@@ -127,24 +133,27 @@ export async function POST(
           .select("sizeBytes")
           .lean()) as { sizeBytes?: number } | null;
         oldImageBytes = oldDoc?.sizeBytes ?? 0;
+        oldImageReferenced = await isImagePathReferenced(GenerationSnapshot, userId, oldPathStr);
       }
     }
 
-    // 3) Per-user byte budget, net of the image being replaced.
+    // 3) Per-user byte budget. Credit the old image's bytes only if it will be freed (unreferenced);
+    // a kept, snapshot-referenced old image stays, so both it and the new image count.
     const totals = (await WardrobeImage.aggregate([
       { $match: { user: new Types.ObjectId(userId) } },
       { $group: { _id: null, total: { $sum: "$sizeBytes" } } },
     ]).exec()) as { total?: number }[];
     const storedBytes = totals[0]?.total ?? 0;
-    if (storedBytes - oldImageBytes + bytes.length > MAX_USER_IMAGE_BYTES) {
+    const creditBytes = oldImageReferenced ? 0 : oldImageBytes;
+    if (storedBytes - creditBytes + bytes.length > MAX_USER_IMAGE_BYTES) {
       return NextResponse.json(
         { error: "Image storage limit reached — delete some photos to add more" },
         { status: 413 }
       );
     }
 
-    // 4) Budget admitted — now the old image can go.
-    if (oldImageId) {
+    // 4) Budget admitted — delete the old image UNLESS a snapshot references it (then keep it).
+    if (oldImageId && !oldImageReferenced) {
       await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
     }
 

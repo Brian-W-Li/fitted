@@ -11,7 +11,9 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import User from "@/models/User";
 import WardrobeItem from "@/models/WardrobeItem";
 import WardrobeImage from "@/models/WardrobeImage";
+import GenerationSnapshot from "@/models/GenerationSnapshot";
 import { MAX_WARDROBE_IMAGE_BYTES } from "@/lib/imageStorage";
+import { Types } from "mongoose";
 
 jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
 jest.mock("@/lib/firebaseAdmin", () => ({ adminAuth: { verifyIdToken: jest.fn() } }));
@@ -25,7 +27,7 @@ let userId: string;
 function mockDb() {
   const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
   // The real route AND the real uploadWardrobeImage both call initDatabase() — same real models.
-  initDatabase.mockResolvedValue({ User, WardrobeItem, WardrobeImage });
+  initDatabase.mockResolvedValue({ User, WardrobeItem, WardrobeImage, GenerationSnapshot });
 }
 function setToken(uid: string) {
   const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
@@ -35,7 +37,7 @@ function setToken(uid: string) {
 }
 
 beforeAll(async () => {
-  harness = await startMemoryMongo([User, WardrobeItem, WardrobeImage]);
+  harness = await startMemoryMongo([User, WardrobeItem, WardrobeImage, GenerationSnapshot]);
 }, 120_000);
 afterAll(async () => {
   await harness.stop();
@@ -136,6 +138,26 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     expect(await WardrobeImage.findById(oldImageId).lean<Any>()).toBeNull(); // old cleaned up
     expect(await WardrobeImage.findById(newImageId).lean<Any>()).not.toBeNull(); // new present
     expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBe(second.imagePath);
+  });
+
+  it("KEEPS the old image on replace when a GenerationSnapshot references it (§D2 / REPLACE-1)", async () => {
+    const id = await seedItem();
+    const first = await (await post(id, makeRequest({ file: makeFile(8) }))).json();
+    const oldImageId = first.imagePath.slice("mongo:".length);
+    // A snapshot references the old image — replacing the photo must NOT strip the pixels an
+    // already-labeled outfit was built from (M6 image-embedding provenance).
+    await GenerationSnapshot.collection.insertOne({
+      user: new Types.ObjectId(userId),
+      itemSnapshots: [{ evidence: { image: { imageRef: first.imagePath } } }],
+    });
+
+    const second = await (await post(id, makeRequest({ file: makeFile(16) }))).json();
+    const newImageId = second.imagePath.slice("mongo:".length);
+
+    expect(newImageId).not.toBe(oldImageId);
+    expect(await WardrobeImage.findById(oldImageId).lean<Any>()).not.toBeNull(); // old KEPT (referenced)
+    expect(await WardrobeImage.findById(newImageId).lean<Any>()).not.toBeNull(); // new present
+    expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBe(second.imagePath); // item repointed
   });
 
   it("404s (no image written) when the item is owned by another user", async () => {
