@@ -87,11 +87,11 @@ returns zero" to a finite friend gauntlet, and **built the two genuinely-open it
 another" (yield-friction) + `scripts/export_track2.mjs` (the M6 training export, round-trip-proven live
 incl. the D2-retained-photo seam) + `lib/outfitLint.ts` (content monitor) + REQFIELDS-1 (required set
 relaxed to {name, category}, Fable-decided). The **throwaway-account erasure check PASSED live** (22 rows
-→ 0). **The 2026-07-18 web work (add-another, REQFIELDS-1) is committed but NOT pushed/redeployed — the
-live Vercel app still runs the 2026-07-17 build.** Remaining, in order: **push `origin main` + redeploy the
-web half (`cd fitted && npx vercel --prod`)** so the friend-ready code is live, THEN Brian runs the
-friend-#0 phone gauntlet (it must test the deployed build) + finalizes onboarding copy, then recruits 3–5
-friend closets (out-of-session) toward the M6/H26 re-measure entry conditions (Spec §20/§23-H26).
+→ 0). **The 2026-07-18 friend-ready web work (add-another, REQFIELDS-1) was pushed + web-redeployed
+2026-07-18** (`origin/main` `78e5556a`; Vercel `fitted-three.vercel.app` serving the new build, verified
+200; Fly untouched → still 1 machine). Remaining: Brian runs the friend-#0 phone gauntlet (now testable on
+the live friend-ready build) + finalizes onboarding copy, then recruits 3–5 friend closets (out-of-session)
+toward the M6/H26 re-measure entry conditions (Spec §20/§23-H26).
 Sequence: consolidation → H26 ✅ → M5 ✅ → reset ✅ → Track 2 (deployed + audited + friend-ready; recruit).
 
 Maps to team issues **#84** (Brian's own: *"LLM prompts make it better"*) and **#112** (*"Shortlisting strategy for LLM context"*). The team's brainstorm in `ml-system/mlWhatWeAreGoingTodo` essentially specced it.

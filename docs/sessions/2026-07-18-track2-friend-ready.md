@@ -178,10 +178,11 @@ COSMETIC: stale comment `wardrobe/page.tsx:1291` (predates D2) → ops card back
 - **COSMETIC (log only):** COMMENT-1 stale comment; SEAM-1/2. All on the ops card.
 - **Observation channel + latency:** the ops-card daily/2-day command (yield readout + log skim);
   unknown defects surface within ~1–2 days. **Friend #1's first week IS the final audit round.**
-- **The pieces requiring Brian (not code), IN ORDER:** (1) **push + redeploy the web half** — the
-  add-another + REQFIELDS-1 web work is committed but unpushed, so the live app still runs the 2026-07-17
-  build; (2) run the friend-#0 phone gauntlet (Track V, visual layer curl can't see) **against the
-  redeployed build**; (3) finalize onboarding copy; (4) recruit. This session never pushed.
+- **Push + web redeploy DONE 2026-07-18** (Brian authorized mid-session): `origin/main` `78e5556a`;
+  `npx vercel --prod` from `fitted/` → `fitted-three.vercel.app` serving the friend-ready build (verified
+  200); Fly untouched (web-only, 1 machine). **Remaining, requiring Brian (not code):** (1) friend-#0
+  phone gauntlet on the now-live build (Track V — the visual layer curl can't see); (2) finalize onboarding
+  copy; (3) recruit.
 
 ### Green floors (run-verified this session)
 - jest **690 passed** + 10 skipped (grew 675→690: +12 outfitLint, +3 add-another, +4 REQFIELDS net,

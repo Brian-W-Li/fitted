@@ -218,9 +218,9 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **✅ Pushed + BOTH halves redeployed 2026-07-17 (post ingestion honesty pass + stable audit) — NOTE:
-  this covers ONLY the 2026-07-17 stack; the later 2026-07-18 friend-ready web work is unpushed (see the
-  remaining-steps note above).**
+- **✅ Pushed + web-redeployed twice: the 2026-07-17 stack (post ingestion honesty pass + stable audit)
+  AND the 2026-07-18 friend-ready stack (add-another + REQFIELDS-1 + M6 export/outfit-lint + doc fixes;
+  `origin/main` `78e5556a`, Vercel new build live). Fly last deployed 2026-07-17 (unchanged since).**
   `main` (`d71e9f06`) pushed to `origin`; the stack = the wardrobe ingestion honesty pass + this
   audit's honesty-copy / double-tap-latch / yield-readout / D1 one-tap-dislike / D2+REPLACE-1
   keep-referenced-image fixes. **Vercel web** redeployed via `npx vercel --prod` from `fitted/` →
@@ -230,11 +230,12 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
   a no-op, but refreshed on request); rolling update on the existing machine, **G1 pin held — verified
   exactly 1 machine**, `/readyz` green (fittedCore 0.5.0, prompt m5-c1.v1). The throwaway-account
   **erasure loop PASSED live 2026-07-18** (22 rows → 0 across all 5 owned collections + Firebase auth
-  gone; `scripts/track2-erasure-check.mjs`). **Remaining pre-recruiting steps (in order): (1) the
-  2026-07-18 friend-ready web work — "Save & add another" + REQFIELDS-1 — is committed but NOT yet
-  pushed/redeployed, so `git push origin main` + `cd fitted && npx vercel --prod` to make it live;
-  (2) Brian's friend-#0 phone gauntlet (must run against the redeployed build); (3) finalize onboarding
-  copy; (4) recruit.** Deploys are CLI-driven (not on
+  gone; `scripts/track2-erasure-check.mjs`). **The 2026-07-18 friend-ready web work — "Save & add another"
+  + REQFIELDS-1 — was pushed (`origin/main` `78e5556a`) + web-redeployed 2026-07-18** (`npx vercel --prod`
+  from `fitted/` → `fitted-three.vercel.app`, verified 200; **Fly NOT redeployed — web-only change, so the
+  1-machine pin is unaffected**). **Remaining pre-recruiting steps: (1) Brian's friend-#0 phone gauntlet
+  (now testable on the live friend-ready build); (2) finalize onboarding copy; (3) recruit.** Deploys are
+  CLI-driven (not on
   git push): web from
   `fitted/` via `npx vercel --prod`, service from `ml-system/` via `fly deploy` — and the repo ROOT
   must never be vercel-deployed (the root/app folders are both named `fitted`; a root deploy
