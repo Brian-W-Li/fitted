@@ -652,7 +652,7 @@ export function AddItemModal({
             </div>
             <ul className="space-y-2 text-xs leading-5 text-slate-700">
               <li>
-                <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> a clear photo and the real colors are what power the recommendations — and the experiment.
+                <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> a clear photo is what the style-matching experiment measures, and the real colors (with the name and type) power the recommendations.
               </li>
               <li>
                 <span className="font-semibold text-slate-900">Category &amp; type:</span> pick the closest match — it sets how outfits are built. For a jacket or coat, set Layer role to Outer.
@@ -751,7 +751,7 @@ export function AddItemModal({
                 </div>
                 <ul className="space-y-2 text-xs leading-5 text-slate-700">
                   <li>
-                    <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> a clear photo and the real colors are what power the recommendations — and the experiment.
+                    <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> a clear photo is what the style-matching experiment measures, and the real colors (with the name and type) power the recommendations.
                   </li>
                   <li>
                     <span className="font-semibold text-slate-900">Category &amp; type:</span> pick the closest match — it sets how outfits are built. For a jacket or coat, set Layer role to Outer.
@@ -1058,8 +1058,9 @@ export function AddItemModal({
                 >
                   <span className="block text-sm font-medium text-slate-800">+ Add a photo</span>
                   <span className="mt-1 block text-xs text-slate-500">
-                    This is what powers the recommendations — and the style-matching experiment. Items
-                    without a photo still work, but won&apos;t count toward it.
+                    A photo is what the style-matching experiment measures — the whole point.
+                    Recommendations run on the details you enter, so an item without a photo still
+                    works, but won&apos;t count toward the experiment.
                   </span>
                 </button>
               )}

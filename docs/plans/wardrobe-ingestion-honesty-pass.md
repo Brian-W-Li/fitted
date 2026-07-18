@@ -104,8 +104,11 @@ your strings for now") — provisional, may be refined later, but NOT a blocker 
 here as the single home for the friend-facing copy.
 
 **Photo (C2):**
-- No-photo prompt (dashed box): "+ Add a photo" / "This is what powers the recommendations — and the
-  style-matching experiment. Items without a photo still work, but won't count toward it."
+- No-photo prompt (dashed box): "+ Add a photo" / "A photo is what the style-matching experiment
+  measures — the whole point. Recommendations run on the details you enter, so an item without a
+  photo still works, but won't count toward the experiment." (Corrected 2026-07-17: the photo does
+  NOT feed the stylist prompt — H33, `mlRequestAdapter.ts` — so it must not claim to "power the
+  recommendations"; it powers the experiment. Trap-guard: keep this distinction in any future copy.)
 - Photo-less save button: "Save without a photo" (tooltip: "This item won't count toward the
   style-matching experiment").
 - Preview controls: "Change photo" / "Remove" / "Tap the photo to enlarge".
@@ -121,7 +124,8 @@ here as the single home for the friend-facing copy.
 **Confirm form (C3):**
 - Layer-role coaching: "Jacket, coat, or blazer? Set this to Outer layer so it's matched as outerwear."
 - Disclosure summary: "More details (optional)".
-- Quick guide (3 tips): "Photo & colors matter most: a clear photo and the real colors are what power
-  the recommendations — and the experiment." / "Category & type: pick the closest match — it sets how
+- Quick guide (3 tips): "Photo & colors matter most: a clear photo is what the style-matching
+  experiment measures, and the real colors (with the name and type) power the recommendations." /
+  "Category & type: pick the closest match — it sets how
   outfits are built. For a jacket or coat, set Layer role to Outer." / "Occasions / contexts: add how
   you actually wear it (e.g. gym, office, date night) to sharpen recommendations."

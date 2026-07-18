@@ -112,13 +112,15 @@ vague sweep in this project). Seed angles:
   C. CONFUSED-CHAOTIC-FRIEND INPUT — 12MB HEIC, screenshot, renamed-PDF `.jpg`, emoji in a color
      field, double-tap save, backgrounded tab mid-render, 200 items, denied camera, near-45s-timeout
      wifi, no-photo saves. Each must degrade LEGIBLY and never corrupt the corpus.
-  D. HONESTY-OF-THE-HONESTY-PASS (recursive) — audit every NEW copy string against what the code
-     LITERALLY does. KNOWN PRIME SUSPECT (already caught, confirm + rule on the fix): the photo copy
-     says the photo "powers the recommendations," but H33 (mlRequestAdapter.ts) says imageUrl NEVER
-     reaches the stylist prompt — the photo powers the EXPERIMENT, not today's recommendations. Also
-     check "won't count toward the experiment" vs whether a photo-less item is actually excluded or
-     just silently contributes zero while still generating snapshots. A false claim in an honesty
-     pass is the sharpest possible finding — Fable-seat it.
+  D. HONESTY-OF-THE-HONESTY-PASS (recursive) — audit every user-facing copy string against what the
+     code LITERALLY does. One already-caught claim was fixed (the photo copy no longer says the photo
+     "powers the recommendations" — H33/mlRequestAdapter.ts: imageUrl never reaches the stylist
+     prompt; the photo powers the EXPERIMENT); VERIFY that fix is complete and consistent everywhere,
+     then hunt for OTHER gaps. Prime remaining suspects: does "won't count toward the experiment"
+     match reality — is a photo-less item actually excluded from the M6 measure, or does it silently
+     contribute zero while still generating snapshots (and is that distinction honest to the friend)?
+     Does any string imply learning/memory/"your style graph" the current rung can't cash? A false
+     claim in an honesty pass is the sharpest possible finding — Fable-seat it.
   E. SILENT-FAILURE / DEGRADED-STATE LEGIBILITY (Brian-not-in-the-room) — render timeout, 500,
      rate-limit, cold start, M0 connection cap, and the two experiment-enders: OpenAI $10 cap hit
      mid-collection, M0 storage filling. Does each fail loud-and-honest to the FRIEND, and does
