@@ -1,10 +1,10 @@
 # Track 2 pre-push audit campaign
 
-> **CONVERGED 2026-07-17** (initial convergence, then re-opened for the Brian-requested round-3
-> push-gate review below and re-converged the same day). The stack is push-ready pending Brian's
-> manual push + redeploy of BOTH halves — `npx vercel --prod` AND `fly deploy` (the runbook §8
-> ops precondition — required BEFORE the first friend signs up). Residuals + follow-ups below
-> are the honest remainder, all judged non-blocking.
+> **CONVERGED + SHIPPED 2026-07-17.** Re-converged after the Brian-requested round-3 push-gate
+> review; then pushed (`af836070`) and BOTH halves redeployed the same day (Vercel live-verified,
+> Fly release v2 at 1 machine, `/readyz` 200). Remaining pre-recruiting step: Brian's
+> throwaway-account erasure check (runbook §8). Residuals + follow-ups below are the honest
+> remainder, all judged non-blocking.
 
 > Status tracker for the pre-push audit of the Track 2 deployment work. Goal: converge
 > `git diff 2df4ea75..HEAD` to a stable, push-safe state for friend use. Brian pushes

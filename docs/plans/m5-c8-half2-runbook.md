@@ -218,12 +218,14 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **⚠ PRECONDITION for the first friend sign-up: push + redeploy BOTH halves.** The deployed apps run
-  the last-DEPLOYED trees (this fork deploys via CLI, not on git push) — until the audit stack is
-  deployed, the LIVE app still has the old redact-only deletion, so the privacy promise above is not
-  yet live, and the Fly service predates the Lane H surrogate fixes. Push main → `npx vercel --prod`
-  (from `fitted/`) **and** `fly deploy` (from `ml-system/`) → verify `/readyz` still 200s and DELETE
-  /api/account on a throwaway account BEFORE recruiting.
+- **✅ Precondition SATISFIED 2026-07-17: both halves redeployed at the audit-stack close** —
+  commit `af836070` pushed; Vercel production aliased + live-verified (the new landing copy is
+  serving); Fly release v2, still exactly 1 machine (G1 held), `/readyz` 200 with the expected
+  version pins. Remaining pre-recruiting check: the throwaway-account loop (add item → generate →
+  DELETE /api/account) to observe erasure live. Deploys are CLI-driven (not on git push): web from
+  `fitted/` via `npx vercel --prod`, service from `ml-system/` via `fly deploy` — and the repo ROOT
+  must never be vercel-deployed (the root/app folders are both named `fitted`; a root deploy
+  uploads the whole monorepo and fails the free-tier file quota).
 - **Corpus health:** re-certify the growing friend corpus any time with the gated read-back verifier
   (runs the real payload validator + lineage/join/orphan/degenerate checks over the live DB, read-only):
   `cd fitted && CORPUS_READBACK_URI="$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" npx jest corpusReadback --runInBand`
