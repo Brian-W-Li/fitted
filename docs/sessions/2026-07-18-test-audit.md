@@ -10,6 +10,36 @@ The real gaps are two: **the M6 training-export core has no automated test at al
 
 **Headline: 3 important, 3 minor. 0 history cover-ups.**
 
+## Resolution (2026-07-18)
+
+All findings actioned the same day (report → review → fix). Each cross-runtime fix follows the existing
+`service.contract` → `contract_fields.json` → dual-suite pattern and was **mutation-verified both drift
+directions**; the two new tests each got a fresh-eyes review round.
+
+- **#1 — FIXED** (`5c506e58`): extracted the export core to a CommonJS unit (`exportTrack2Core.cjs`) +
+  `exportTrack2.test.ts` (6 behavioral tests over in-memory Mongo — redacted exclusion, §H61 collapse +
+  tie-break, image resolution, training-truth-survives-deletion, per-user scoping). `.mjs` is now a thin
+  CLI wrapper.
+- **#2 — FIXED** (`706720bd`): `reducerScanBounds` block in `cross_runtime_mirror()` (sourced from
+  `reducers.py`) + TS assertion. TS drift to 400 reddens.
+- **#3 — FIXED** (`4cbc8ab0`): `generatorExpectation` block (10 static fields from `cfg`; `maxCompletionTokens`
+  excluded as env-driven) + TS assertion. Value drift reddens offline instead of only at runtime.
+- **#5 — FIXED** (`eccf149a`): `mlSnapshotMerge.test.ts` now derives expected hashes from the real
+  exported `capRawField` (no reimplemented sha256).
+- **#6 — FIXED** (`288bd578`): `roleToSlot` block (sourced from `slotmap._ROLE_TO_SLOT`) + exported
+  `ROLE_TO_SLOT` + TS assertion.
+- **#4 — ACCEPTED RESIDUAL (won't-fix).** The warmth-band boundary (3/6) is copied only into a **test
+  helper** (`deriveWarmth.test.ts` `band()`); Next never bins warmth in production (`deriveWarmth` emits
+  a 0–10 value — the binning is fitted_core-ranker-internal), so there is no production TS copy to drift.
+  A real guard would have to run Python's `_warmth_band` over `deriveWarmth`'s output centers — a
+  **cross-language function evaluation** the static `contract_fields.json` mirror structurally cannot
+  express (it holds shared static data, not one runtime calling the other's function). Folding a
+  ranker-internal bin into the service *wire*-contract would also be a category error. The constants are
+  spec-locked (§G) and currently agree (2→hot, 5→mild, 8→cold). Registered here rather than forced into
+  an ill-fitting mechanism.
+
+Floors after the cluster: **716 jest / 1094 pytest**.
+
 ---
 
 ## Findings (most severe first)
