@@ -615,9 +615,10 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0); // delete means delete
   });
 
-  it("per-user render ceiling tripped → 200 rate_limited degraded, no Mongo work, no snapshot", async () => {
+  it("per-user render ceiling tripped → 200 rate_limited degraded, no service call, no snapshot", async () => {
     // allowRender is the per-user bound over the service's GLOBAL bucket; a denied render must
     // degrade (the dashboard keeps current outfits + shows try-again copy), never 5xx or spend.
+    // It sits AFTER the §C.4 replay check, so a denied FRESH render reaches here but never spends.
     let serviceCalled = false;
     const deps = makeDeps({
       allowRender: () => false,
@@ -634,6 +635,24 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     expect(body.flags.reasonHint).toBe("rate_limited");
     expect(serviceCalled).toBe(false); // denied BEFORE the service call — no spend
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("a rate-limited RETRY of an already-persisted requestId still replays the winner (replay beats limiter)", async () => {
+    // The F10 resume re-sends the same requestId after a dropped response; the replay is one
+    // Mongo read and zero spend, so the per-user ceiling must not forfeit an already-paid render.
+    const requestId = uuid();
+    const first = await mlRecommend(req({ requestId, occasion: "brunch" }), makeDeps());
+    expect((await json(first)).body.bindable).toBe(true);
+
+    const retry = await mlRecommend(
+      req({ requestId, occasion: "brunch" }),
+      makeDeps({ allowRender: () => false }),
+    );
+    const { status, body } = await json(retry);
+    expect(status).toBe(200);
+    expect(body.bindable).toBe(true); // the replayed winner, NOT a rate_limited degrade
+    expect(body.shown.length).toBeGreaterThan(0);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1); // no second write
   });
 
   it("a service failure → 200 degraded empty state, no snapshot", async () => {

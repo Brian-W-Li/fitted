@@ -54,8 +54,17 @@ afterEach(async () => {
   jest.clearAllMocks();
 });
 
+// Real PNG magic bytes — the storage layer now sniffs the actual format (the declared
+// contentType is client-supplied and can lie), so fixtures must be sniffable.
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 function makeFile(sizeBytes = 8, type = "image/png") {
-  return new File([new Uint8Array(sizeBytes).fill(1)], "test.png", { type });
+  const bytes = new Uint8Array(Math.max(sizeBytes, PNG_MAGIC.length)).fill(1);
+  bytes.set(PNG_MAGIC, 0);
+  return new File([bytes], "test.png", { type });
+}
+/** Bytes that are NOT any allowed image format (e.g. a renamed HEIC) with a lying contentType. */
+function makeFakeImageFile(type = "image/jpeg") {
+  return new File([new Uint8Array(64).fill(1)], "renamed.jpg", { type });
 }
 function makeRequest({ file = makeFile(), contentLength }: { file?: File; contentLength?: string } = {}): Any {
   const fd = new FormData();
@@ -168,6 +177,36 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     expect(await WardrobeImage.countDocuments({})).toBe(0);
     // The oversized upload must not have repointed the item.
     expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBeUndefined();
+  });
+
+  it("415s bytes that aren't a real JPEG/PNG/WEBP even when the declared contentType lies — nothing stored", async () => {
+    // The renamed-HEIC hole: a .heic renamed .jpg carries browser type image/jpeg, fails the
+    // client decode, and the downscale fallback uploads the ORIGINAL bytes. Trusting the declared
+    // type stored a permanently broken tile with no error anywhere — the sniff is the hard bound.
+    const id = await seedItem();
+    const res = await post(id, makeRequest({ file: makeFakeImageFile("image/jpeg") }));
+    expect(res.status).toBe(415);
+    expect((await res.json()).error).toContain("JPEG");
+    expect(await WardrobeImage.countDocuments({})).toBe(0);
+    expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBeUndefined();
+  });
+
+  it("stores the SNIFFED contentType, not the declared one, when they disagree", async () => {
+    const id = await seedItem();
+    const res = await post(id, makeRequest({ file: makeFile(64, "image/jpeg") })); // PNG bytes, jpeg label
+    expect(res.status).toBe(200);
+    const { imagePath } = await res.json();
+    const img = await WardrobeImage.findById(imagePath.slice("mongo:".length)).lean<Any>();
+    expect(img.contentType).toBe("image/png"); // server-derived truth
+  });
+
+  it("a corrupt client-PATCHed imagePath ('mongo:garbage') does not brick the upload — replace succeeds and heals the pointer", async () => {
+    const id = await seedItem({ imagePath: "mongo:garbage" });
+    const res = await post(id, makeRequest({ file: makeFile(8) }));
+    expect(res.status).toBe(200);
+    const { imagePath } = await res.json();
+    expect(imagePath).toMatch(/^mongo:[a-f0-9]{24}$/);
+    expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBe(imagePath); // healed
   });
 
   it("413s when the per-user byte budget is exhausted (the hard storage bound, §I) — nothing written", async () => {

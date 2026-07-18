@@ -171,9 +171,11 @@ function sortDisplayItems(items: DisplayItem[]): DisplayItem[] {
 const MACHINE_REASON_COPY: Record<string, string> = {
   service_unavailable: "The stylist is temporarily unavailable. Please try again in a moment.",
   contract_invalid: "We couldn't build a request from that input. Try rephrasing the occasion.",
-  // The ceiling is GLOBAL across users (12 renders/min at one service machine) — often someone
-  // else's traffic, so never blame the user's pace.
-  rate_limited: "The stylist is busy right now — try again in a few seconds.",
+  // Two ceilings share this hint: the GLOBAL service bucket (12 renders/min at one machine —
+  // often someone else's traffic) and the per-user 6/min pacer (§A, mlRecommend 5.5). The copy
+  // must stay non-blaming (it can be either) and honest about the wait (the per-user sliding
+  // window can need up to a minute).
+  rate_limited: "The stylist is busy right now — try again in a minute.",
   // auth_failed here is the SERVICE key handshake failing (an ops misconfig), not the user's
   // session — "sign in again" would send users on a futile loop.
   auth_failed: "The stylist is temporarily unavailable. Please try again later.",
@@ -472,10 +474,18 @@ function RegenerateModal({
 // ============================================================================
 // One outfit card — StyleMove body from `candidates[candidateId]`, items from `displayItems`.
 // ============================================================================
+// §4 trust-lane labels — the felt form of the graph vocabulary (§6.5 optionPath), not "Outfit N".
+const OPTION_PATH_LABEL: Record<string, string> = {
+  reliable: "Reliable",
+  bridge: "Bridge",
+  stretch: "Stretch",
+};
+
 function OutfitCard({
   outfit,
   index,
   bindable,
+  forcedItemId,
   onLike,
   onDislike,
   onRegenerate,
@@ -483,6 +493,7 @@ function OutfitCard({
   outfit: ShownOutfit;
   index: number;
   bindable: boolean;
+  forcedItemId: string | null;
   onLike: () => void;
   onDislike: () => void;
   onRegenerate: () => void;
@@ -499,7 +510,9 @@ function OutfitCard({
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full">Outfit {index + 1}</span>
+          <span className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full">
+            {(outfit.optionPath && OPTION_PATH_LABEL[outfit.optionPath]) ?? `Outfit ${index + 1}`}
+          </span>
           {outfit.risk && (
             <span className={`px-2 py-1 text-xs font-semibold rounded-full ${RISK_BADGE[outfit.risk] ?? "bg-slate-100 text-slate-600"}`}>
               {outfit.risk}
@@ -534,9 +547,20 @@ function OutfitCard({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
         {sortDisplayItems(outfit.displayItems).map((item) => {
           const imgSrc = imageUrlFromPath(item.imageUrl);
+          const isForced = forcedItemId != null && item.itemId === forcedItemId;
           const isChanged = outfit.styleMove?.changedItemIds?.includes(item.itemId);
           return (
-            <div key={item.itemId} className={`bg-white rounded-lg border overflow-hidden ${isChanged ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-100"}`}>
+            <div
+              key={item.itemId}
+              title={isForced ? "The piece this outfit is built around" : undefined}
+              className={`bg-white rounded-lg border overflow-hidden ${
+                isForced
+                  ? "border-amber-300 ring-1 ring-amber-200"
+                  : isChanged
+                    ? "border-blue-300 ring-1 ring-blue-200"
+                    : "border-slate-100"
+              }`}
+            >
               {imgSrc ? (
                 <div className="h-40 w-full bg-slate-50 flex items-center justify-center p-2">
                   <img src={imgSrc} alt={item.name} className="max-h-full max-w-full object-contain" loading="lazy" />
@@ -913,8 +937,18 @@ function DashboardInner() {
       <div className="rounded-xl border border-slate-200 bg-white p-6">
         <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Our AI stylist uses your wardrobe, the occasion, and the weather to suggest outfits.
+          The stylist uses your wardrobe, the occasion, and the weather to suggest outfits.
         </p>
+
+        {!rescueItemId && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Got a piece you never quite know how to wear?{" "}
+            <a href="/wardrobe" className="font-medium underline hover:text-amber-900">
+              Pick it from your wardrobe
+            </a>{" "}
+            and the stylist will build every outfit around it.
+          </div>
+        )}
 
         {rescueItemId && (
           <div className="mt-4 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
@@ -945,7 +979,7 @@ function DashboardInner() {
               placeholder="e.g. Outdoor brunch with friends in early spring, smart casual but comfortable. Might get windy."
             />
             <div className="mt-1 flex justify-between text-[11px] text-slate-500">
-              <span>Tell the AI what the event is, the vibe, and any constraints.</span>
+              <span>Tell the stylist what the event is, the vibe, and any constraints.</span>
               <span>{occasion.length}/{MAX_OCCASION_CHARS}</span>
             </div>
           </div>
@@ -1003,6 +1037,7 @@ function DashboardInner() {
                 outfit={outfit}
                 index={index}
                 bindable={bindable}
+                forcedItemId={rescueItemId}
                 onLike={() => handleLike(index)}
                 onDislike={() => setFeedbackModal({ outfit, index })}
                 onRegenerate={() => {

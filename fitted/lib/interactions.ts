@@ -43,6 +43,7 @@ type Any = any;
 // (derived from the Python reducers' COUNTED_ACTIONS ∪ REJECTED_ACTION) by crossRuntimeContract.test.ts.
 export const ALLOWED_ACTIONS = new Set(["accepted", "rejected"]);
 export const MAX_PER_ITEM_FEEDBACK = 20; // §A clamp table (mirror of config.MAX_PER_ITEM_FEEDBACK)
+export const MAX_INTERACTIONS_PER_USER = 2000; // per-user storage ceiling (append-only rows only grow)
 const NOTES_MAX_CHARS = FEEDBACK_REASON_RAW_TEXT_MAX_CHARS; // 500 — same route cap
 const HISTORY_LIMIT = 50;
 
@@ -209,11 +210,16 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
         return respondError(400, "contract_invalid", `perItemFeedback exceeds ${MAX_PER_ITEM_FEEDBACK} entries`);
       }
       const out: Array<{ itemId: string; disliked: boolean; notes?: string }> = [];
+      const seenItemIds = new Set<string>();
       for (const f of body.perItemFeedback as Any[]) {
         if (!f || typeof f !== "object") return respondError(400, "contract_invalid", "malformed perItemFeedback entry");
         const itemId = typeof f.itemId === "string" ? f.itemId : "";
         if (!OBJECT_ID_RE.test(itemId)) return respondError(400, "invalid_binding", "perItemFeedback.itemId is not a 24-hex ObjectId");
         if (!candidateItemSet.has(itemId)) return respondError(400, "invalid_binding", "perItemFeedback.itemId is not in the outfit");
+        // Reject-not-coerce (§F doctrine): a duplicated itemId is a malformed request, and it
+        // would let one request carry MAX entries of repeated payload for a two-item outfit.
+        if (seenItemIds.has(itemId)) return respondError(400, "contract_invalid", "perItemFeedback has a duplicate itemId");
+        seenItemIds.add(itemId);
         out.push({
           itemId,
           disliked: Boolean(f.disliked),
@@ -230,6 +236,15 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
     } catch (err) {
       if (err instanceof FeedbackReasonError) return respondError(400, "invalid_feedback_reason", err.message);
       throw err;
+    }
+
+    // Per-user row ceiling (§I — the storage-bounds symmetry with wardrobe's 300-item cap and the
+    // image byte budget): the append-only design means rows only grow, and the in-process rate
+    // limiter above is per-instance, not a storage bound. 2000 rows is years of real feedback for
+    // one friend and bounds a scripted loop at ~20MB worst-case against the shared M0.
+    const interactionCount = await OutfitInteraction.countDocuments({ user: userObjectId });
+    if (interactionCount >= MAX_INTERACTIONS_PER_USER) {
+      return respondError(400, "storage_limit", "feedback storage limit reached");
     }
 
     // Append-only write via .create() so the co-presence pre('validate') guard fires. Everything the
@@ -365,7 +380,15 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
     ];
     const snapshotById = new Map<string, Any>();
     if (snapshotIds.length > 0) {
+      // Project ONLY what projectHistoryCard reads — a full snapshot carries generationAttempts
+      // rawText (up to 120KB each) + rawEmitted blobs, and the history page fires two of these
+      // ≤50-snapshot joins per view; unprojected, that's multi-MB reads growing with every week
+      // of real use.
       const snapshots = (await GenerationSnapshot.find({ _id: { $in: snapshotIds }, user: userObjectId })
+        .select(
+          "candidates.candidateId candidates.items candidates.styleMove candidates.optionPath " +
+            "candidates.risk candidates.template itemSnapshots.itemId itemSnapshots.engineVisible",
+        )
         .lean()
         .exec()) as Any[];
       for (const s of snapshots) snapshotById.set(s._id.toString(), s);

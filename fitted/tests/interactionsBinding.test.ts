@@ -305,6 +305,45 @@ describe("POST /api/interactions — bind + append (§I)", () => {
     expect(badRes.status).toBe(400);
   });
 
+  it("rejects a duplicate perItemFeedback.itemId → 400, no row (reject-not-coerce)", async () => {
+    const userId = oid();
+    const { snapshotId, candidateId, topId } = await makeSnapshot(userId);
+    const res = await postInteraction(
+      postReq({
+        snapshotId,
+        candidateId,
+        action: "rejected",
+        perItemFeedback: [
+          { itemId: topId, disliked: true },
+          { itemId: topId, disliked: false },
+        ],
+      }),
+      deps(userId),
+    );
+    expect(res.status).toBe(400);
+    expect(await OutfitInteraction.countDocuments({})).toBe(0);
+  });
+
+  it("rejects a write at the per-user storage ceiling — existing rows untouched", async () => {
+    // Append-only rows only grow, and the in-process rate limiter is per-instance — this DB-side
+    // ceiling is the real storage bound (the symmetry with the wardrobe/image caps).
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    const { MAX_INTERACTIONS_PER_USER } = await import("@/lib/interactions");
+    await OutfitInteraction.db.collection("outfitinteractions").insertMany(
+      Array.from({ length: MAX_INTERACTIONS_PER_USER }, () => ({
+        user: new Types.ObjectId(userId),
+        action: "accepted",
+      })),
+    );
+    const res = await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), deps(userId));
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("storage_limit");
+    expect(await OutfitInteraction.countDocuments({ user: new Types.ObjectId(userId) })).toBe(
+      MAX_INTERACTIONS_PER_USER,
+    );
+  });
+
   it("account deleted mid-request (erasure race, §23-H43) → 401, no surviving row", async () => {
     // The snapshot re-read passes (race window: the cascade hasn't swept yet) but the User row is
     // gone by the time the write lands — the post-persist check must self-erase the orphan, or a

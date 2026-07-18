@@ -4,6 +4,7 @@ import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { MAX_WARDROBE_IMAGE_BYTES, uploadWardrobeImage } from "@/lib/imageStorage";
 import { allowRequest } from "@/lib/rateLimit";
+import { OBJECT_ID_RE } from "@/lib/formats";
 
 const MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const MAX_WARDROBE_IMAGE_REQUEST_BYTES =
@@ -116,11 +117,17 @@ export async function POST(
     let oldImageId: string | undefined;
     let oldImageBytes = 0;
     if (oldPathStr?.startsWith("mongo:")) {
-      oldImageId = oldPathStr.slice("mongo:".length);
-      const oldDoc = (await WardrobeImage.findOne({ _id: oldImageId, user: userId })
-        .select("sizeBytes")
-        .lean()) as { sizeBytes?: number } | null;
-      oldImageBytes = oldDoc?.sizeBytes ?? 0;
+      const sliced = oldPathStr.slice("mongo:".length);
+      // imagePath is PATCH-able as a plain string, so a garbage "mongo:notanid" is reachable —
+      // an unguarded ObjectId cast here would 500 and brick this item's uploads until re-PATCHed.
+      // Non-hex ⇒ treat as no old image; the successful upload below overwrites the bad pointer.
+      if (OBJECT_ID_RE.test(sliced)) {
+        oldImageId = sliced;
+        const oldDoc = (await WardrobeImage.findOne({ _id: oldImageId, user: userId })
+          .select("sizeBytes")
+          .lean()) as { sizeBytes?: number } | null;
+        oldImageBytes = oldDoc?.sizeBytes ?? 0;
+      }
     }
 
     // 3) Per-user byte budget, net of the image being replaced.
@@ -158,8 +165,18 @@ export async function POST(
     return NextResponse.json({ imagePath });
   } catch (err) {
     console.error("wardrobe image upload error:", err);
-    const message = err instanceof Error ? err.message : "Upload failed";
-    const status = message.startsWith("Image too large") ? 413 : 500;
-    return NextResponse.json({ error: message }, { status });
+    // Known storage-layer rejections get their real status + copy; everything else is a generic
+    // 500 — the raw err.message (Mongoose/driver text) must never reach the browser.
+    const message = err instanceof Error ? err.message : "";
+    if (message.startsWith("Image too large")) {
+      return NextResponse.json({ error: message }, { status: 413 });
+    }
+    if (message === "Unsupported image type") {
+      return NextResponse.json(
+        { error: "That file isn't a usable JPEG, PNG, or WEBP — try exporting it as JPEG first" },
+        { status: 415 }
+      );
+    }
+    return NextResponse.json({ error: "Upload failed — try again" }, { status: 500 });
   }
 }

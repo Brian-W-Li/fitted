@@ -40,8 +40,8 @@ export default function LandingPage() {
             Plan better outfits from the clothes you already own
           </h1>
           <p className="mt-5 max-w-xl text-base text-slate-600">
-            Fitted helps you organize wardrobe items, auto-extract attributes from photos,
-            and get outfit recommendations you can improve with feedback
+            Fitted keeps your closet in one place — photos and details — and turns it into
+            outfit recommendations you improve with feedback
           </p>
         </div>
 
@@ -50,7 +50,7 @@ export default function LandingPage() {
           <div className="mt-4 space-y-4 text-sm text-slate-600">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <p className="font-medium text-slate-900">Build a smart digital wardrobe</p>
-              <p className="mt-1">Add items manually or upload photos to auto-fill attributes like type, colors, fit, and formality</p>
+              <p className="mt-1">Add each piece with a photo and its details — type, colors, fit — so the stylist works from your real closet</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <p className="font-medium text-slate-900">Personalized outfit recommendations</p>

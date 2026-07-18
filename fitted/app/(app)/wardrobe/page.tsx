@@ -394,6 +394,12 @@ function AddItemModal({
       return;
     }
     setColorError(null);
+    // Entry-time count cap — mirrors the server's 25-entry array bound so the reject happens at
+    // the chip, not at save time.
+    if (colors.length >= 25) {
+      setColorError("That's plenty of colors — 25 is the limit.");
+      return;
+    }
     // Case-insensitive dedupe — CV-prefilled hex may be uppercase while new entries are lowercased.
     if (!colors.some((c) => c.toLowerCase() === normalized)) {
       setColors((prev: string[]) => [...prev, normalized]);
@@ -406,6 +412,17 @@ function AddItemModal({
     if (!raw) return;
     // Normalize simple separators like commas or multiple spaces
     const normalized = raw.replace(/\s+/g, " ");
+    // Entry-time caps mirror the server's 60-char / 25-entry array bounds — reject at the chip
+    // (with which chip named), not as a vague 400 at save time.
+    if (normalized.length > 60) {
+      setFormError(`"${normalized.slice(0, 24)}…" is too long for an occasion tag (60 characters max).`);
+      return;
+    }
+    if (occasions.length >= 25) {
+      setFormError("That's plenty of occasion tags — 25 is the limit.");
+      return;
+    }
+    setFormError(null);
     if (!occasions.includes(normalized)) {
       setOccasions((prev: string[]) => [...prev, normalized]);
       setOccasionsInput("");
@@ -677,6 +694,7 @@ function AddItemModal({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Blue denim jacket"
+                  maxLength={200}
                   required
                 />
               </div>
@@ -1266,10 +1284,14 @@ export default function WardrobePage() {
               // fallback message immediately so users don't have to wait 15s.
               fetch("/api/cv/status")
                 .then((r) => r.json())
-                .then((data: { available?: boolean }) => {
+                .then((data: { available?: boolean; reason?: string }) => {
                   if (!data.available) {
+                    // Honest copy: "temporarily" was a false promise while CV is not configured
+                    // at all (the W-track replacement isn't built yet) — never fake a comeback.
                     setCvError(
-                      "Image analysis is temporarily unavailable. You can continue by filling the form manually."
+                      data.reason === "not_configured"
+                        ? "Photo analysis isn't set up yet — fill in the details yourself (about 30 seconds)."
+                        : "Image analysis is temporarily unavailable. You can continue by filling the form manually."
                     );
                   }
                 })
@@ -1351,7 +1373,8 @@ export default function WardrobePage() {
           return (
             <p className="text-sm text-slate-500">
               You don&apos;t have any items yet. Start by adding a few key pieces
-              you wear often (jeans, t‑shirts, jackets, shoes).
+              you wear often (jeans, t‑shirts, jackets, shoes) — and one piece you
+              never quite know how to wear.
             </p>
           );
         }
@@ -1442,7 +1465,9 @@ export default function WardrobePage() {
                     updated = { ...updated, imagePath: up.imagePath };
                   } catch (e) {
                     console.error(e);
-                    setError(e instanceof Error ? e.message : "Failed to upload image.");
+                    // The item edit itself succeeded — say so, or "try again" reads as re-do-the-edit.
+                    const msg = e instanceof Error ? e.message : "Failed to upload image.";
+                    setError(`${msg} — your item changes were saved; retry the photo from Edit.`);
                   }
                 }
                 setItems((prev) =>
@@ -1493,7 +1518,10 @@ export default function WardrobePage() {
                   }
                 } catch (e) {
                   console.error(e);
-                  setError(e instanceof Error ? e.message : "Failed to upload image.");
+                  // The item itself WAS created — without saying so, "try again" reads as re-add
+                  // the item, which mints a duplicate during exactly the batch-onboarding flow.
+                  const msg = e instanceof Error ? e.message : "Failed to upload image.";
+                  setError(`${msg} — the item itself was saved; add its photo from Edit.`);
                 }
               }
               setAddStep(null);

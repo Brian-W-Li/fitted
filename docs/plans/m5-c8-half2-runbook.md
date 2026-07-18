@@ -176,7 +176,7 @@ cd fitted && npm run build && npm run start     # or: npm run dev
 | Vercel env (production) | `NEXT_PUBLIC_FIREBASE_*` ×4, `FIREBASE_SERVICE_ACCOUNT_KEY`, `MONGODB_URI` (Atlas), `ML_SERVICE_URL`, `FITTED_SERVICE_KEY`, `USE_ML_SHORTLISTER=true` |
 | Database | Fresh Atlas **M0** cluster (project `fitted-3To5PeopleTest`, `cluster0.d3swzkg`), db **`fitted`**, network access 0.0.0.0/0 (Vercel egress is dynamic; the credential is the lock — dedicated least-privilege DB user). Local dev `.env.local` keeps `MONGODB_URI`=localhost; the Atlas URI lives Vercel-side (+ a `MONGODB_URI_ATLAS` convenience row locally). |
 | Firebase | Production domain `fitted-three.vercel.app` added to Auth authorized domains |
-| Spend envelope (all verified active) | OpenAI **$10/mo project cap** (re-confirmed at deploy); per-request `max_completion_tokens=2200`; service token bucket **12 renders/min global** (true only under the 1-machine pin); interactions limiter 60/min/user + `MAX_PER_ITEM_FEEDBACK=20`. Observed cost ~$0.002–0.004/render. |
+| Spend envelope (all verified active) | OpenAI **$10/mo project cap** (re-confirmed at deploy); per-request `max_completion_tokens=2200`; service token bucket **12 renders/min global** (true only under the 1-machine pin); interactions limiter 60/min/user (per-instance courtesy pacing; the storage bound is the 2000-row per-user ceiling) + `MAX_PER_ITEM_FEEDBACK=20`. Observed cost ~$0.002–0.004/render. |
 | CV | `CV_SERVICE_URL` unset → `/api/cv/status` returns `not_configured`; upload UI degrades to manual entry (verified live) |
 
 **E2E verification observed (2026-07-16):** cloud smoke (gated jest `localServiceSmoke` against the
@@ -218,11 +218,12 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **⚠ PRECONDITION for the first friend sign-up: push + redeploy.** The deployed Vercel app runs the
-  last-pushed code — until the Track 2 audit stack (erasure deletion, friend-readiness fixes, storage
-  bounds) is pushed and redeployed, the LIVE app still has the old redact-only deletion, so the
-  privacy promise above is not yet live. Push main → `npx vercel --prod` → verify DELETE /api/account
-  on a throwaway account BEFORE recruiting.
+- **⚠ PRECONDITION for the first friend sign-up: push + redeploy BOTH halves.** The deployed apps run
+  the last-DEPLOYED trees (this fork deploys via CLI, not on git push) — until the audit stack is
+  deployed, the LIVE app still has the old redact-only deletion, so the privacy promise above is not
+  yet live, and the Fly service predates the Lane H surrogate fixes. Push main → `npx vercel --prod`
+  (from `fitted/`) **and** `fly deploy` (from `ml-system/`) → verify `/readyz` still 200s and DELETE
+  /api/account on a throwaway account BEFORE recruiting.
 - **Corpus health:** re-certify the growing friend corpus any time with the gated read-back verifier
   (runs the real payload validator + lineage/join/orphan/degenerate checks over the live DB, read-only):
   `cd fitted && CORPUS_READBACK_URI="$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" npx jest corpusReadback --runInBand`

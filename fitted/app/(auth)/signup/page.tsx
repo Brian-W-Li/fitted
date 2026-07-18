@@ -3,6 +3,7 @@
 import { auth } from "@/lib/firebaseClient";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState } from "react";
 import RedirectIfAuthenticated from "@/app/(app)/RedirectIfAuthenticated";
 import { ensureSessionCookie } from "@/lib/sessionCookie";
@@ -127,6 +128,18 @@ export default function SignupPage() {
         {error && (
           <p className="mt-4 text-sm text-red-600 text-center">{error}</p>
         )}
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-slate-600">
+            Already have an account?{" "}
+            <Link
+              href="/signin"
+              className="font-semibold text-slate-900 hover:underline"
+            >
+              Sign In
+            </Link>
+          </p>
+        </div>
       </main>
     </div>
     </RedirectIfAuthenticated>

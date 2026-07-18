@@ -263,13 +263,6 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     const userId = auth.userId;
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    // 1.5 Per-user render ceiling — before any Mongo read or service call. Degraded (200,
-    // rate_limited), never a 5xx: the dashboard keeps the current outfits and shows the
-    // try-again-shortly copy.
-    if (deps.allowRender && !deps.allowRender(userId)) {
-      return respondDegraded("rate_limited");
-    }
-
     // 2. Parse + validate the idempotency token BEFORE any work (§C.4).
     const body = (await request.json().catch(() => null)) as Any;
     if (!body || typeof body !== "object") return respondError(400, "contract_invalid", "malformed body");
@@ -398,6 +391,15 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         return NextResponse.json(projectBrowserResponse(existing, existing._id.toString()));
       }
       return respondError(409, "request_id_conflict", "requestId reused for a different render");
+    }
+
+    // 5.5 Per-user render ceiling — AFTER the §C.4 replay (an idempotent replay is one Mongo read
+    // and zero service spend, so a rate-limited F10 resume must still return its already-paid
+    // render), BEFORE the wardrobe fetch and everything that leads to the service call. Degraded
+    // (200, rate_limited), never a 5xx: the dashboard keeps the current outfits and shows the
+    // try-again copy.
+    if (deps.allowRender && !deps.allowRender(userId)) {
+      return respondDegraded("rate_limited");
     }
 
     // 6. Fetch wardrobe (full docs — evidence source) + behavioral rows; preflight.

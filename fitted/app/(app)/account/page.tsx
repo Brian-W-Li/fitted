@@ -173,7 +173,8 @@ export default function AccountPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
-          appRatingScore10: ratingScore10Input,
+          // 0 means never-rated (a star tap minimum is 1) — don't store a phantom 0/10.
+          ...(ratingScore10Input > 0 ? { appRatingScore10: ratingScore10Input } : {}),
           appFeedbackComment: feedbackCommentInput,
         }),
       });
@@ -362,7 +363,7 @@ export default function AccountPage() {
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-lg font-medium text-slate-900">Rate the app</h3>
             <p className="mt-1 text-sm text-slate-600">
-              Rate from 0-10 with half-star support ({ratingScore10Input}/10)
+              Tap the stars — halves count ({ratingScore10Input}/10)
             </p>
 
             <div className="mt-4 flex items-center gap-2">

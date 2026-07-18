@@ -1,9 +1,10 @@
 # Track 2 pre-push audit campaign
 
-> **CONVERGED 2026-07-17.** All lanes run and landed; the final regression rounds returned zero
-> load-bearing on the closing tree. The stack is push-ready pending Brian's manual push +
-> Vercel redeploy (the runbook §8 ops precondition — required BEFORE the first friend signs up).
-> Residuals + follow-ups below are the honest remainder, all judged non-blocking by Lane F.
+> **CONVERGED 2026-07-17** (initial convergence, then re-opened for the Brian-requested round-3
+> push-gate review below and re-converged the same day). The stack is push-ready pending Brian's
+> manual push + redeploy of BOTH halves — `npx vercel --prod` AND `fly deploy` (the runbook §8
+> ops precondition — required BEFORE the first friend signs up). Residuals + follow-ups below
+> are the honest remainder, all judged non-blocking.
 
 > Status tracker for the pre-push audit of the Track 2 deployment work. Goal: converge
 > `git diff 2df4ea75..HEAD` to a stable, push-safe state for friend use. Brian pushes
@@ -53,7 +54,51 @@
 - **Fidelity — GO.** H28 rank hook still open; SignalScorer seam exercised; Lane G field-verified
   the corpus feeds the re-measure. The only drift found was the recruiting guidance itself (fixed).
 
+## Round 3 — final push-gate review (2026-07-17, Brian-requested; 70% campaign / 30% app+ambition)
+
+Four fresh lanes (UI↔bounds boundary, 12 suspicious areas, non-campaign M5 surfaces, a Fable
+ambition/taste seat) + a coordinator deep-read. Landed in the round-3 commit: the batch-onboarding
+duplicate-invite banner fix ("the item itself was saved"), entry-time chip caps (occasions 60/25,
+colors 25), name maxLength, magic-byte image sniffing (the renamed-HEIC silent-broken-tile hole;
+sniffed type is stored truth), the garbage-imagePath CastError guard + de-echoed upload 500s,
+per-user interactions ceiling (2000 rows) + perItemFeedback dupe rejection, the render limiter
+moved AFTER the §C.4 replay (an idempotent resume can't be rate-limited out of its paid render),
+history-join projection (multi-MB reads → slim fields), and the Fable-lane mechanical taste set
+(optionPath Reliable/Bridge/Stretch pills, rescue-item amber ring, dashboard rescue entry,
+honest CV not-configured copy, truthful landing cards, AI→stylist rename, star-copy fix,
+unrated-0 fix, signup sign-in link, rate-limited copy "in a minute").
+
+**Lane F(2) taste verdicts:** all five campaign decisions KEEP (6/min ceiling sized to the real
+Fly constraint with burst 6; 300/80MB derived from the M0; rejection-over-truncation; the 200-char
+occasion pattern; photos-required ask). Campaign copy matches the house voice throughout.
+
+## DRAFT-FOR-BRIAN (needs your voice — deliberately NOT AI-drafted)
+
+- The spoken friend pitch (runbook §8 stays your crib sheet; deliver it in your words).
+- The dashboard header/button ("Get Outfit Recommendations" / "Get Recommendations") — 2–3
+  options worth sketching, not landing one.
+- The landing identity line (the "Smart Wardrobe Assistant" badge + headline — "the green shirt
+  you never wear" belongs on this page, and it should be your sentence).
+- Any visible-personalization copy (e.g. "avoiding pieces you've disliked") — the wrong sentence
+  fakes more intelligence than exists; registered below as a chip instead.
+
 ## Registered follow-ups (explicitly out of this campaign)
+
+- **Repair-call timeout budget (service, pre-next-Fly-deploy-after-this-one):** the §12 parse-repair
+  is a second full OpenAI call inside one `/render`; worst case 30s+30s beats the client's 45s
+  abort → the friend waits 45s, BOTH paid calls are lost, and no snapshot lands (the §D
+  failure-corpus promise defeated Next-side). Tail-rare (needs parse-failure AND both calls slow).
+  Fix design: thread a per-request deadline so the repair call gets `min(OPENAI_TIMEOUT_SECONDS,
+  remaining)`, NOT a blanket timeout cut — the 30s value is pinned cross-runtime in the §A.6
+  generator-surface contract (~15 files), so the change must move both runtimes in lockstep.
+- **Visible personalization (M6-era, with Brian's copy):** the AffinitySignalScorer/cooldown are
+  live but never acknowledged on screen; the honest cheap version needs a small route change to
+  surface what the reducers computed. The trust-lane + personalization surfaces are where the app
+  stops reading as a GPT wrapper — both cheaper than they look (data already in the responses).
+- **F10 resume weather-identity window:** the §C.4 render identity includes `weatherRaw`, so a
+  minutes-scale temp drift between render and resume 409s ("generate again" — graceful copy).
+  Fix options: freeze `{weather, weatherRaw}` into the pending envelope, or drop `weatherRaw`
+  from the identity set. Contract-adjacent; not worth the churn pre-push.
 
 - **Gate-B repower micro-session (pre-M6, decoupled from recruiting):** rework the H56 repower
   tooling ledger ergonomics (append/keep-last, not delete-then-regenerate), then judge +100–250
@@ -72,16 +117,17 @@
 Lanes B–F fan out as parallel fresh-context **report-only** auditors. The coordinator
 verifies every finding against source before acting, lands fixes serially (one commit per
 lane), runs tsc + jest + build per landing, and keeps docs reconciled in the same pass.
-Floors (run-verified 2026-07-17): jest ≥643, pytest ≥1091 — green and may grow, never shrink.
+Floors (run-verified 2026-07-17): jest ≥649, pytest ≥1091 — green and may grow, never shrink.
 
 ## Residuals ledger (from 46e6c2c6, updated by the lane landings)
 
 Open (all judged non-blocking for the 3–5-friend cohort by Lane F):
 - transparent-WEBP flattens to JPEG on client downscale (phone cameras emit JPEG/HEIC — rare input)
 - multi-word color names render an empty swatch (cosmetic; data stored fine)
-- account profile photo uploads as a dataURL (~4.5MB 413 dead-end on an optional feature — polish chip above)
+- account profile photo has no client downscale — a typical phone JPEG (>~2.2MB) gets "Photo is too large" every time (worse than first recorded: everyday rejection, not just the 413 edge; still an optional vanity feature — polish chip above)
 - AuthGate first paint pays a sync+cookie round-trip (the price of the self-healing sync)
 - no signInWithRedirect fallback for in-app browsers (copy + personal onboarding mitigate)
+- bounds arithmetic note: 300 items × 5MB server image cap ≫ the 80MB byte budget (the budget binds first at ~80 full-size photos) — unreachable at friends-scale; make the pair mutually consistent if these bounds outlive Track 2
 
 Closed by this campaign:
 - ~~sync-E11000 branch untested~~ + ~~DELETE partial-failure branch untested~~ → Lane D (9452af5e)
