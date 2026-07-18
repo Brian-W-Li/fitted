@@ -1,0 +1,101 @@
+# Track 2 "friend-ready" session — 2026-07-18
+
+> **Retirement condition (born with it):** this doc retires with a `> COMPLETED` banner once (a) the
+> friend gauntlet has been run against the live app and its walls fixed, (b) add-another + export
+> round-trip are built + green, (c) the content gauntlet + outfit-lint show majority-plausible outfits,
+> (d) the ops card exists and is the standing Track-2 living doc. After that, the **ops card**
+> (`docs/plans/track2-ops-card.md`) is the single living Track-2 doc; this tracker is history.
+>
+> Mission: `docs/plans/track2-friend-ready-prompt.md`. Coordinator: Opus session. Brian = friend #0
+> (visual gauntlet on his own phone/computer, screenshots). This session drives the API/data/render
+> side via an admin-minted throwaway test UID, builds, and commits on `main` — **never pushes, never
+> deploys, never recruits.**
+
+## The acceptance-test change (why this session is shaped differently)
+The last two sessions each closed on "a fresh audit round returns zero load-bearing findings." That has
+**no fixed point** — the audited surface (all code + copy + data semantics) is unbounded, so the next
+session always finds more. Replaced with a **finite** bar: enumerate a friend gauntlet, drive it, fix
+every WALL, ship the two known walls (add-another + export). Reality terminates; static audit does not.
+
+Triage every finding with ONE question — does it fail a gauntlet scenario?
+- **WALL** — fails a scenario / dead-ends / corrupts data / breaks the erasure promise → fix now.
+- **STUMBLE** — confuses but the friend recovers → fix by ROI within a stated cap.
+- **COSMETIC** — neither → one line on the ops card; forbidden to fix this session.
+
+---
+
+## 1. TRUST RE-GRADE (first deliverable) — the last two sessions' findings, re-triaged
+
+Re-grading every finding from the **ingestion honesty pass** (2026-07-17) and the **stable audit**
+(2026-07-17) against the WALL/STUMBLE/COSMETIC bar. Source: `wardrobe-ingestion-honesty-pass.md`,
+`track2-stable-audit-2026-07-17.md`.
+
+| # | Finding (session) | What it actually was | Grade | When closed |
+|---|---|---|---|---|
+| 1 | Photo optional/previewless/un-changeable (honesty pass, D1/C2) | A friend could add 15 **photoless** items → an image-embedding-decidability closet worth **ZERO** to M6. Silent-zero-yield. | **WALL** (corpus) | Closed honesty pass C2 (`b1215625`) |
+| 2 | Item/clear delete cascaded a **snapshot-referenced photo** (stable audit, D2/REPLACE-1) | Deleting/replacing an item silently deleted a photo a training snapshot pointed at → a training example loses its image. Silent corpus corruption. | **WALL** (corpus) | Closed stable audit (`a4983e1a` + `3eb05cf7`) |
+| 3 | Double-tap → duplicate wardrobe item (stable audit) | A sub-frame double-tap POSTed a dup item. Recoverable (delete dup) but silently pollutes the corpus. | STUMBLE (data pollution) | Closed (`2941e40c` latch) |
+| 4 | Like one-tap, dislike a multi-step reason form (stable audit, D1) | Asymmetric cost → friends under-dislike → label imbalance rots the M6 negative signal. Friend *can* still dislike. | STUMBLE (data quality) | Closed (`f37da88b`) |
+| 5 | 3 false/overclaiming live strings — "ML model learns", account age/gender (stable audit, HON) | App claimed capabilities it lacks. Erodes trust / mislabels the experiment; friend still uses it. | STUMBLE (honesty) | Closed (`99455ad5`) |
+| 6 | Dead "Analyze photo" CTA + CV-off intro copy lied about CV (honesty pass, C3) | Coaching for a CV path that never runs; confusing, recoverable. | STUMBLE (honesty) | Closed (`cdbcf6c0`) |
+| 7 | `pattern`/`fit` recommender-unused fields shown as prominent as load-bearing ones (honesty pass, D2) | Per-item tax × closet size; a friction/yield drag, not a dead-end. | STUMBLE (friction) | Closed (`cdbcf6c0`) |
+| 8 | Form color swatch didn't paint CSS names; last-chip removal blocked (honesty pass, C5) | Cosmetic input polish. | COSMETIC | Closed (`a520bd11`) |
+| 9 | No per-friend yield visibility (stable audit, DP) | An **ops instrument**, not a friend-facing defect. Brian can't see if a closet is decidable. | COSMETIC (ops tooling) | Closed (`a0e2cc43` readout) |
+| 10 | **"Save & add another" absent** — 15 items = 15 modal cycles (both sessions, FRIEND-1/C4) | Compounding friction that can silently drop 20–40% of a closet → undecidable sample. Registered, **deferred twice**. | **STUMBLE→WALL-adjacent** (yield) | **STILL OPEN → B1 this session** |
+| 11 | No proactive failure alerting (stable audit, OPS-1) | Operator-blind during a weeks-long collection. External/infra mitigation. | STUMBLE (ops) | Open → ops card (observation channel) |
+| 12 | No M6 export path exists anywhere in repo | If friends deliver and data can't leave Atlas in training shape, Track 2 fails terminally. | **WALL** (M6 terminal) | **STILL OPEN → B2 this session** |
+
+### The thesis (say it plainly)
+**The genuine WALLS — the two silent corpus-corruption/zero-yield defects (#1 photoless items, #2
+deleted-photo cascade) — were closed sessions ago.** Everything the two sessions found *after* those was
+STUMBLE (honesty copy, label symmetry, friction) or COSMETIC (swatch, ops tooling). Translation: **the app
+has been friend-USABLE for a while; what kept improving was the friend-WORTHINESS of the *data* it
+collects.** That is not an endless-defect spiral — it is corpus-quality polish converging.
+
+**Two items remain genuinely open, and they are the reason this session exists, not another audit round:**
+- **B1 — "Save & add another"** (yield friction that can silently halve a sample). Deferred twice; building now.
+- **B2 — the M6 export round-trip** (verified missing; a terminal failure if discovered after friends deliver). Building now.
+
+Both are **build**, not audit. That is the whole point: converge by *doing*, not by searching for the next flaw.
+
+---
+
+## 2. THE FRIEND GAUNTLET (the finite acceptance test)
+
+Two tracks. **Brian runs the visual track on his own phone (friend #0); this session runs the API/data
+track via the admin-mint driver.** A scenario is only "passed" when observed, not asserted.
+
+### Track V — visual (Brian, phone, screenshots → I analyze the filmstrip)
+The pixel/interaction layer curl can't see. Brian screenshots each; drop into a folder; I read + grade.
+1. Shared link → sign up on a phone. (In-app-browser/webview caveat noted; don't block on it.)
+2. Empty wardrobe → is the first action obvious? Add ~10 items.
+3. Hit insufficient-items at ~3 items — is the dead-end legible ("add N more")?
+4. First render at ~5–8 items — believable outfit? (also feeds content gauntlet)
+5. **Cold render** (Fly idle / `auto_stop`) — first request may be a 20–40s wall. What does the friend SEE?
+6. Service-unreachable render — honest degraded state or broken screen?
+7. Warm ~6s render — wait affordance (skeleton/progress) present, or a frozen button?
+8. Like AND dislike (one tap each) — each acknowledged? feedback feels heard?
+9. Find RESCUE (green-shirt) — count clicks-to-rescue; does anything INVITE the friend there? Orphan centered?
+10. Edit an item; change its photo; remove it.
+11. HEIC / 12MP / sideways-EXIF upload — stored upright + usable, or sideways/rejected?
+12. Delete the account — wardrobe, photos, feedback, AND snapshots all gone (erasure, observed live).
+
+### Track A — API/data (this session, admin-mint driver, live Vercel + Fly)
+Everything data-shaped, provable without a browser:
+- A. Add items via `/api/wardrobe` as a throwaway UID (incl. photoless-item honesty path).
+- B. Insufficient-items render → the `notEnoughItems` render envelope (not a 400) at low count.
+- C. Real daily render at 5–8 items → snapshot written w/ full provenance + believable candidate set.
+- D. Cold vs warm render latency (measure both against Fly).
+- E. Service-unreachable behavior (point client at a dead URL / observe degraded envelope).
+- F. Rescue render → forced item in every shown outfit + non-hallucinated reason.
+- G. Like + one-tap dislike → interactions bound {snapshotId, candidateId}, H61 collapse.
+- H. Re-roll → lineage (parentSnapshotId, generationIndex) + actual variation.
+- I. HEIC/12MP/sideways EXIF via `/api/wardrobe/[id]/image` → orientation + storage.
+- J. **Erasure**: DELETE /api/account → Atlas has zero rows across all 5 owned collections for the UID.
+
+Timestamp every phase; flag every >1s wait with no visible feedback (Track V).
+
+---
+
+## 3. Execution log (append as I go)
+_(populated during the session)_
