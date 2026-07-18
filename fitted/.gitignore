@@ -41,3 +41,9 @@ yarn-error.log*
 next-env.d.ts
 
 .venv/
+
+# Track 2 live-driver outputs (test data / image blobs — never commit)
+track2-gauntlet-out/
+track2-export/
+track2-export-roundtrip/
+track2-export-postdelete/
