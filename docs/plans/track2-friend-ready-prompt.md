@@ -1,3 +1,7 @@
+> COMPLETED 2026-07-18 — this prompt drove the friend-ready session (built add-another + M6 export +
+> outfit-lint + REQFIELDS-1; erasure gate passed live). Session note:
+> `docs/sessions/2026-07-18-track2-friend-ready.md`; the living ops home is runbook §8. History only.
+
 # Track 2 "friend-ready" handoff prompt (next session)
 
 > Paste the block below into a fresh Claude Code session. Authored 2026-07-18 as the successor to

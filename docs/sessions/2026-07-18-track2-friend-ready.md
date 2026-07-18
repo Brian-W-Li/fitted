@@ -178,11 +178,14 @@ COSMETIC: stale comment `wardrobe/page.tsx:1291` (predates D2) → ops card back
 - **COSMETIC (log only):** COMMENT-1 stale comment; SEAM-1/2. All on the ops card.
 - **Observation channel + latency:** the ops-card daily/2-day command (yield readout + log skim);
   unknown defects surface within ~1–2 days. **Friend #1's first week IS the final audit round.**
-- **The one piece requiring Brian (not code):** run the friend-#0 phone gauntlet (Track V, visual layer
-  curl can't see) + finalize the onboarding copy, then recruit. Push is Brian's (this session never pushed).
+- **The pieces requiring Brian (not code), IN ORDER:** (1) **push + redeploy the web half** — the
+  add-another + REQFIELDS-1 web work is committed but unpushed, so the live app still runs the 2026-07-17
+  build; (2) run the friend-#0 phone gauntlet (Track V, visual layer curl can't see) **against the
+  redeployed build**; (3) finalize onboarding copy; (4) recruit. This session never pushed.
 
 ### Green floors (run-verified this session)
-- jest **689 passed** + 10 skipped (grew 675→689: +12 outfitLint, +3 add-another, +4 REQFIELDS net).
+- jest **690 passed** + 10 skipped (grew 675→690: +12 outfitLint, +3 add-another, +4 REQFIELDS net,
+  +1 outfit-lint short-sleeve false-positive test from the convergence review).
   10 skips = the 2 env-gated integration suites (corpusReadback ×8, localServiceSmoke ×2). No `it.skip`/`xit`.
 - `tsc --noEmit` clean; `npm run build` ✓.
 - pytest floor **≥1091** unaffected — zero changes to `ml-system/` or `service/` this session (verified green).

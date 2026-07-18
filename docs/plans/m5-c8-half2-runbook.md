@@ -79,7 +79,7 @@ db.generationsnapshots.getIndexes()
 
 ### H13 — cross-runtime conformance green BEFORE the flip
 ```sh
-cd ml-system && python -m pytest tests service/tests -q    # 1049
+cd ml-system && python -m pytest tests service/tests -q    # ≥1091 (current floor)
 cd fitted     && npm test                                  # 516 (incl. generationSnapshotRoundTrip + serde mirror)
 ```
 Or rely on the `.github/workflows/conformance.yml` gate being green on the branch (it runs exactly these).
@@ -218,7 +218,9 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **✅ Pushed + BOTH halves redeployed 2026-07-17 (post ingestion honesty pass + stable audit).**
+- **✅ Pushed + BOTH halves redeployed 2026-07-17 (post ingestion honesty pass + stable audit) — NOTE:
+  this covers ONLY the 2026-07-17 stack; the later 2026-07-18 friend-ready web work is unpushed (see the
+  remaining-steps note above).**
   `main` (`d71e9f06`) pushed to `origin`; the stack = the wardrobe ingestion honesty pass + this
   audit's honesty-copy / double-tap-latch / yield-readout / D1 one-tap-dislike / D2+REPLACE-1
   keep-referenced-image fixes. **Vercel web** redeployed via `npx vercel --prod` from `fitted/` →
@@ -226,9 +228,13 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
   like/dislike feedback", not "ML model learn"). **Fly** redeployed via `fly deploy` from `ml-system/`
   (image `deployment-01KXT098P0DTH37M10102J76S6`; the `ml-system/` code was unchanged, so functionally
   a no-op, but refreshed on request); rolling update on the existing machine, **G1 pin held — verified
-  exactly 1 machine**, `/readyz` green (fittedCore 0.5.0, prompt m5-c1.v1). **Only remaining
-  pre-recruiting step: the throwaway-account erasure loop** (sign in with a throwaway Google account →
-  add item → generate → DELETE /api/account → confirm erasure live). Deploys are CLI-driven (not on
+  exactly 1 machine**, `/readyz` green (fittedCore 0.5.0, prompt m5-c1.v1). The throwaway-account
+  **erasure loop PASSED live 2026-07-18** (22 rows → 0 across all 5 owned collections + Firebase auth
+  gone; `scripts/track2-erasure-check.mjs`). **Remaining pre-recruiting steps (in order): (1) the
+  2026-07-18 friend-ready web work — "Save & add another" + REQFIELDS-1 — is committed but NOT yet
+  pushed/redeployed, so `git push origin main` + `cd fitted && npx vercel --prod` to make it live;
+  (2) Brian's friend-#0 phone gauntlet (must run against the redeployed build); (3) finalize onboarding
+  copy; (4) recruit.** Deploys are CLI-driven (not on
   git push): web from
   `fitted/` via `npx vercel --prod`, service from `ml-system/` via `fly deploy` — and the repo ROOT
   must never be vercel-deployed (the root/app folders are both named `fitted`; a root deploy
