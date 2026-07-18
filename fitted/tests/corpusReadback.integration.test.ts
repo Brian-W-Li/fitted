@@ -46,6 +46,7 @@ const GENERATOR_REQUIRED_KEYS = [
 let conn: mongoose.Connection;
 let snapshots: Any[];
 let interactions: Any[];
+let wardrobeItems: Any[];
 let userIds: Set<string>;
 
 /** Collect violations with row context so one failing expect names every bad row at once. */
@@ -59,6 +60,7 @@ gate("live corpus read-back — GenerationSnapshot + OutfitInteraction integrity
     const db = conn.db!;
     snapshots = await db.collection("generationsnapshots").find({}).sort({ createdAt: 1 }).toArray();
     interactions = await db.collection("outfitinteractions").find({}).sort({ createdAt: 1 }).toArray();
+    wardrobeItems = await db.collection("wardrobeitems").find({}).toArray();
     const users = await db.collection("users").find({}, { projection: { _id: 1 } }).toArray();
     userIds = new Set(users.map((u: Any) => String(u._id)));
     console.log(`[corpus] ${snapshots.length} snapshots, ${interactions.length} interactions`);
@@ -280,5 +282,97 @@ gate("live corpus read-back — GenerationSnapshot + OutfitInteraction integrity
       if (!explained) violations.push(`${id}: degenerate render (attempts>0, nSurfaced=0) with no recorded cause`);
     }
     expect(violationsToString(violations)).toBe("");
+  });
+
+  // READ-ONLY YIELD INSTRUMENT — informational, NOT a gate (Track2 stable-audit: DP-F2 / Fable Q1+M1).
+  // Every assertion above certifies INTEGRITY; none measures YIELD. A photo-less, category-thin,
+  // like-everything corpus passes all of them yet is scientifically worthless for the M6/H26
+  // image-embedding re-measure — and that failure is invisible until M6 (append-only, irreversible).
+  // This prints per-friend yield health so a starving cohort is caught in week 1, not at M6 entry.
+  // No assertion: an early-thin corpus is a legitimate state to READ, not a test to fail. Run it at the
+  // pre-committed week-2 checkpoint; the decidability bar is ~30–60 usable positive outfits cohort-wide
+  // (runbook §8 Lane-F). image-usable-likes < likes also surfaces the delete-cascade photo leak
+  // (a liked outfit whose item photo was later deleted no longer counts on the image axis).
+  it("per-friend corpus-health readout (yield, not integrity — informational)", () => {
+    const DECIDABILITY_LOW = 30;
+    const DECIDABILITY_HIGH = 60;
+    const groupByUser = (rows: Any[]): Map<string, Any[]> => {
+      const m = new Map<string, Any[]>();
+      for (const r of rows) {
+        const k = String(r.user);
+        const bucket = m.get(k);
+        if (bucket) bucket.push(r);
+        else m.set(k, [r]);
+      }
+      return m;
+    };
+    const itemsByUser = groupByUser(wardrobeItems);
+    const snapsByUser = groupByUser(snapshots);
+    const intsByUser = groupByUser(interactions);
+    const allUsers = new Set<string>([
+      ...itemsByUser.keys(),
+      ...snapsByUser.keys(),
+      ...intsByUser.keys(),
+    ]);
+    const maxCreatedAt = (rows: Any[]): string => {
+      let best = 0;
+      for (const r of rows) {
+        const t = r.createdAt ? new Date(r.createdAt).getTime() : 0;
+        if (t > best) best = t;
+      }
+      return best ? new Date(best).toISOString().slice(0, 10) : "—";
+    };
+
+    let cohortLikes = 0;
+    let cohortImageUsableLikes = 0;
+    const lines: string[] = [];
+    for (const u of allUsers) {
+      const uItems = itemsByUser.get(u) ?? [];
+      const photoed = uItems.filter(
+        (it) => typeof it.imagePath === "string" && it.imagePath.startsWith("mongo:"),
+      );
+      const photoedIds = new Set(photoed.map((it) => String(it._id)));
+      const photoPct = uItems.length ? Math.round((photoed.length / uItems.length) * 100) : 0;
+      const typeHist: Record<string, number> = {};
+      for (const it of uItems) {
+        const t = String(it.clothingType ?? "?");
+        typeHist[t] = (typeHist[t] ?? 0) + 1;
+      }
+      const typesWith2Plus = Object.values(typeHist).filter((n) => n >= 2).length;
+
+      const uInts = intsByUser.get(u) ?? [];
+      const likes = uInts.filter((r) => r.action === "accepted");
+      const dislikes = uInts.filter((r) => r.action === "rejected");
+      // Image-usable positive: a liked outfit whose every bound item still has a stored photo.
+      const imageUsableLikes = likes.filter((r) => {
+        const its = (r.items ?? []).map((v: Any) => String(v));
+        return its.length > 0 && its.every((id: string) => photoedIds.has(id));
+      }).length;
+      cohortLikes += likes.length;
+      cohortImageUsableLikes += imageUsableLikes;
+
+      const lastActive = maxCreatedAt([...(snapsByUser.get(u) ?? []), ...uInts]);
+      const histStr = Object.entries(typeHist)
+        .map(([t, n]) => `${t}:${n}`)
+        .join(" ") || "none";
+      lines.push(
+        `  user ${u.slice(-6)}: items ${uItems.length} (photos ${photoPct}%, ${typesWith2Plus} types≥2) | ` +
+          `${histStr} | snaps ${(snapsByUser.get(u) ?? []).length} | ` +
+          `likes ${likes.length} (image-usable ${imageUsableLikes}) / dislikes ${dislikes.length} | last ${lastActive}`,
+      );
+    }
+    const verdict =
+      cohortImageUsableLikes >= DECIDABILITY_LOW
+        ? cohortImageUsableLikes >= DECIDABILITY_HIGH
+          ? "COMFORTABLE"
+          : "MARGINAL — decidable, keep collecting"
+        : "UNDERPOWERED — below the decidability floor";
+    console.log(
+      `[corpus-health] ${allUsers.size} users\n${lines.join("\n")}\n` +
+        `  COHORT: likes ${cohortLikes}, image-usable likes ${cohortImageUsableLikes} ` +
+        `vs decidability [${DECIDABILITY_LOW}–${DECIDABILITY_HIGH}] → ${verdict}`,
+    );
+    // Deliberately no assertion — this is an instrument, not a gate (see block comment).
+    expect(allUsers.size).toBeGreaterThanOrEqual(0);
   });
 });
