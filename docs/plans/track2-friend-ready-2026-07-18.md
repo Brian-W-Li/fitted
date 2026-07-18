@@ -97,5 +97,44 @@ Timestamp every phase; flag every >1s wait with no visible feedback (Track V).
 
 ---
 
-## 3. Execution log (append as I go)
-_(populated during the session)_
+## 3. Execution log
+
+### Live driver (no browser, no Google OAuth) — `fitted/scripts/track2-live.mjs`
+Reproduces the 2026-07-16 admin-minted-token driver as a reusable ops tool: mint a Firebase custom
+token from the local service-account → exchange for a real ID token (REST + web API key) → drive the
+live Vercel API as a throwaway `track2test_*` user. Gated behind `TRACK2_LIVE_OK=1`; every test user is
+erased. Smoke-verified live: mint→sync→GET wardrobe→DELETE account all green.
+
+### Content-quality gauntlet (Track A) — REAL renders, 6 personas, 51 candidates
+Seeded 6 persona closets through the real live ingestion path (with swatch photos so items are
+corpus-usable), ran real `gpt-5.4-mini` renders, captured outfits + the "why", posted feedback, erased.
+- **Majority plausible:** overwhelmingly. Believable, wearable outfits; no two-bottoms / dress+separates.
+- **Rescue LANDS:** `one-green-shirt` rescue centered the orphan tee in **every** outfit (orphan-in-all=true)
+  with non-hallucinated neutral pairings (dark jeans / navy chinos / khaki + loafers).
+- **All-black:** the "why" did NOT hallucinate color harmony/contrast — talked structure/layering/minimalism.
+- **Text-sparse (CV-off, names only):** did not collapse into nonsense; sane slotting, generic-but-fine "why".
+- **Re-roll varies:** different compositions across regenerations (not a frozen repeat).
+- **outfit-lint over all 51 live candidates:** 1 finding (2.0%), zero false positives — the
+  `formality-skewed` "weekend errands" candidate `Gray Gym Hoodie + Charcoal Suit Trousers + White
+  Running Shoes` (rule `formality-clash`). **STUMBLE, registered** — a friend disliking it IS the data
+  working; outfit-lint now monitors the rate going forward. Modal personas (college-male / rescue) clean.
+- **Content bar MET:** majority plausible + zero lint absurdities in the modal personas + rescue lands
+  with a non-hallucinated reason.
+
+### outfit-lint — `fitted/lib/outfitLint.ts` (+ 12 jest tests, + `scripts/track2-lint.mjs`)
+Deterministic mechanical-absurdity checker (two-bottoms / two-dresses / dress-with-separates / no-bottom
+/ two-shoes / formality-clash / shorts-with-heavy-coat). Independent CI-shaped monitor over the stylist;
+one source of truth (the runner transpiles the .ts, no mirrored rules). Runs over live snapshots / the M6
+export so content keeps being audited after friends arrive.
+
+### Erasure gate (Track A / gauntlet #12) — PASSED, observed live — `scripts/track2-erasure-check.mjs`
+On `one-green-shirt`: **22 rows** (1 user + 8 wardrobeitems + 8 wardrobeimages + 3 generationsnapshots +
+2 outfitinteractions) → **0 across every owned collection** after `DELETE /api/account`, AND the Firebase
+auth binding erased. The runbook §8 throwaway-account erasure check is **DONE**. All 6 personas then
+erased; Atlas confirmed 0 residual `track2test_*` users (the 2 users / 3 snapshots remaining are Brian's
+own pre-existing placeholder residue, runbook §8 — his to wipe before the real closet).
+
+### Track V (visual) — BRIAN'S filmstrip, pending
+The pixel/interaction layer (frozen button vs spinner, legible dead-ends, HEIC upright in the UI, tap
+targets, cold-start wait). Brian runs the visual gauntlet on his own phone/computer (friend #0); drop
+screenshots and I analyze them. See the Brian-as-friend-#0 script in the ops card.
