@@ -127,7 +127,9 @@ occasion pattern; photos-required ask). Campaign copy matches the house voice th
 Lanes B–F fan out as parallel fresh-context **report-only** auditors. The coordinator
 verifies every finding against source before acting, lands fixes serially (one commit per
 lane), runs tsc + jest + build per landing, and keeps docs reconciled in the same pass.
-Floors (run-verified 2026-07-17): jest ≥649, pytest ≥1091 — green and may grow, never shrink.
+Floors (run-verified 2026-07-17): jest ≥663, pytest ≥1091 — green and may grow, never shrink.
+(A follow-on **stable-version audit** ran 2026-07-17 — separate tracker
+`docs/plans/track2-stable-audit-2026-07-17.md`; it grew the jest floor 649→663.)
 
 ## Residuals ledger (from 46e6c2c6, updated by the lane landings)
 
