@@ -43,6 +43,7 @@ from fitted_core.reducers import (
     REPETITION_WINDOW_SNAPSHOTS,
 )
 from fitted_core.response import OptionPath, Risk
+from fitted_core.slotmap import _ROLE_TO_SLOT
 from fitted_core.snapshot import CANDIDATE_STAGES, ENGINE_FAILURE_CODES, ENGINE_FAILURE_STAGES
 from service import config as cfg
 
@@ -237,6 +238,12 @@ CROSS_RUNTIME_GENERATOR_EXPECTATION: dict[str, object] = {
     "maxRetries": cfg.OPENAI_MAX_RETRIES,
 }
 
+# Role → SlotMap slot (v2 §8) — the map fitted_core.slotmap owns and the Next snapshot validator
+# re-declares (lib/mlSnapshotValidation.ts ROLE_TO_SLOT) to reconstruct items[]→slotMap and cross-check
+# the declared slotMap. A drift would make TS reject a valid service candidate, so source the Python
+# map (role.value → slot) here and have the TS side assert equality.
+CROSS_RUNTIME_ROLE_TO_SLOT: dict[str, str] = {role.value: slot for role, slot in _ROLE_TO_SLOT.items()}
+
 # Enum value-sets both runtimes gate on — derived from the live config/ontology.
 CROSS_RUNTIME_ENUMS: dict[str, list[str]] = {
     "weather": sorted(cfg.WEATHER_BUCKETS),
@@ -318,6 +325,7 @@ def cross_runtime_mirror() -> dict:
         "clamps": dict(CROSS_RUNTIME_CLAMPS),
         "reducerScanBounds": dict(CROSS_RUNTIME_REDUCER_SCAN_BOUNDS),
         "generatorExpectation": dict(CROSS_RUNTIME_GENERATOR_EXPECTATION),
+        "roleToSlot": dict(CROSS_RUNTIME_ROLE_TO_SLOT),
         "serviceOnlyClamps": {
             "_comment": (
                 "Constants enforced ONLY by the service (ml-system/service/config.py) and "

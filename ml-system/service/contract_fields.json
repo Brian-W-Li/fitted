@@ -101,6 +101,13 @@
       "INTERACTION_ROWS_SCAN_LIMIT": 500,
       "REPETITION_WINDOW_SNAPSHOTS": 50
     },
+    "roleToSlot": {
+      "base_bottom": "bottom",
+      "base_top": "top",
+      "one_piece": "dress",
+      "outer_layer": "outer",
+      "shoes": "shoes"
+    },
     "schemaEnums": {
       "optionPath": [
         "bridge",

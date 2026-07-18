@@ -712,6 +712,17 @@ def test_cross_runtime_generator_expectation_derives_from_config():
     assert "maxCompletionTokens" not in gen
 
 
+def test_cross_runtime_role_to_slot_derives_from_slotmap():
+    """The role→slot map the Next snapshot validator re-declares (lib/mlSnapshotValidation.ts
+    ROLE_TO_SLOT) is sourced from fitted_core.slotmap._ROLE_TO_SLOT by cross_runtime_mirror(), so a
+    change to that map flows into the JSON the TS crossRuntimeContract test pins. Asserts the mirror
+    equals the live map (role.value → slot); a drift would make TS reject a valid service candidate."""
+    from fitted_core.slotmap import _ROLE_TO_SLOT
+
+    role_to_slot = contract.cross_runtime_mirror()["roleToSlot"]
+    assert role_to_slot == {role.value: slot for role, slot in _ROLE_TO_SLOT.items()}
+
+
 def test_cross_runtime_schema_enums_derive_from_fitted_core():
     """The candidate/role enums the GenerationSnapshot Mongoose schema re-declares are mirrored FROM the
     fitted_core ontology by cross_runtime_mirror(), so a member added to Role/Template/OptionPath/Risk/

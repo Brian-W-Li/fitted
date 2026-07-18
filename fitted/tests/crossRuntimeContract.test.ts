@@ -31,6 +31,7 @@ import {
 } from "@/lib/mlRequestAdapter";
 import { ALLOWED_ACTIONS, MAX_PER_ITEM_FEEDBACK } from "@/lib/interactions";
 import { INTERACTION_ROWS_SCAN_LIMIT, REPETITION_WINDOW_SNAPSHOTS } from "@/lib/mlBehavioralRows";
+import { ROLE_TO_SLOT } from "@/lib/mlSnapshotValidation";
 import OutfitInteraction, { FEEDBACK_REASON_RAW_TEXT_MAX_CHARS } from "@/models/OutfitInteraction";
 import { CLOTHING_TYPES } from "@/lib/clothingType";
 import { OBJECT_ID_RE, SEED_DATE_RE, isValidRequestId } from "@/lib/formats";
@@ -47,6 +48,7 @@ const CONTRACT = JSON.parse(
     clamps: Record<string, number>;
     reducerScanBounds: Record<string, number>;
     generatorExpectation: Record<string, string | number>;
+    roleToSlot: Record<string, string>;
     enums: Record<string, string[]>;
     schemaEnums: Record<string, string[]>;
     formats: Record<string, FormatVector>;
@@ -160,6 +162,18 @@ describe("cross-runtime generator expectation (TS == contract_fields.json crossR
   for (const [name, value] of Object.entries(gen)) {
     it(`${name} == ${JSON.stringify(value)}`, () => {
       expect(TS_GENERATOR_EXPECTATION[name]).toBe(value);
+    });
+  }
+});
+
+describe("cross-runtime role→slot map (TS == contract_fields.json crossRuntime.roleToSlot)", () => {
+  const roleToSlot = CONTRACT.crossRuntime.roleToSlot;
+  it("the TS ROLE_TO_SLOT map has EXACTLY the mirrored keys (no un-pinned or stray role)", () => {
+    expect(Object.keys(ROLE_TO_SLOT).sort()).toEqual(Object.keys(roleToSlot).sort());
+  });
+  for (const [role, slot] of Object.entries(roleToSlot)) {
+    it(`${role} → ${slot}`, () => {
+      expect(ROLE_TO_SLOT[role]).toBe(slot);
     });
   }
 });

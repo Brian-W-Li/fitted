@@ -71,9 +71,11 @@ function slotValues(slotMap: Any): string[] {
     .filter((v): v is string => typeof v === "string" && v.length > 0);
 }
 
-// role → slotMap slot (mirrors snapshot._SLOT_ROLE inverse). Used to reconstruct the slotMap
+// role → slotMap slot (mirrors fitted_core.slotmap._ROLE_TO_SLOT). Used to reconstruct the slotMap
 // implied by items[] and cross-check it against the declared slotMap (G — items↔slotMap consistency).
-const ROLE_TO_SLOT: Record<string, string> = {
+// Exported + pinned to contract_fields.json crossRuntime.roleToSlot (crossRuntimeContract.test.ts) so a
+// drift from the Python map — which would TS-reject a valid service candidate — reddens a suite.
+export const ROLE_TO_SLOT: Record<string, string> = {
   base_top: "top",
   base_bottom: "bottom",
   one_piece: "dress",
