@@ -6,7 +6,7 @@
  * page-level Firebase client, so we mock it (the modal itself never touches Firebase — it is a
  * pure props-driven component whose only outside effect is the injected onSave).
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 jest.mock("@/lib/firebaseClient", () => ({ auth: {} }));
@@ -64,6 +64,25 @@ describe("AddItemModal — photo strong-nudge gate (D1)", () => {
     await userEvent.click(saveBtn);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0][1]).toBe(file);
+  });
+});
+
+describe("AddItemModal — double-submit re-entrancy latch (no duplicate item)", () => {
+  it("two submit events in one tick call onSave exactly once", async () => {
+    // A sub-frame double-tap fires two submit events before `disabled={saving}` re-renders. Firing
+    // the form's submit directly reproduces that (and bypasses the disabled-button mitigation), so
+    // this isolates the savingRef latch: without it the add path would POST twice → duplicate item.
+    let resolveSave: ((v: boolean) => void) | undefined;
+    const onSave = jest.fn(() => new Promise<boolean>((r) => { resolveSave = r; }));
+    const file = new File(["x"], "tee.jpg", { type: "image/jpeg" });
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={onSave} initialItem={validItem} pendingAddFile={file} />,
+    );
+    const form = container.querySelector("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    resolveSave?.(true);
   });
 });
 

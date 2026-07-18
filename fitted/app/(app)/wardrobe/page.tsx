@@ -333,6 +333,12 @@ export function AddItemModal({
   const [imageError, setImageError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Synchronous re-entrancy latch. `disabled={saving}` only bites after React re-renders, so a
+  // sub-frame double-tap (fast mobile taps, a synthetic double-click) can fire two submits before
+  // the button disables — and the add path has NO server-side idempotency, so the second submit
+  // mints a DUPLICATE wardrobe item, silently polluting the fresh Track 2 corpus. A ref flips
+  // synchronously, before the first submit yields at its `await`, so the second is a no-op.
+  const savingRef = useRef(false);
   const [guideDismissedSession, setGuideDismissedSession] = useState(false);
   const [guideDismissedForever, setGuideDismissedForever] = useState(false);
 
@@ -464,6 +470,7 @@ export function AddItemModal({
   // secondary button (the no-photo footer has no submit button, so an Enter keypress can't slip a
   // photo-less item through) — so this just saves whatever state is present.
   async function submitForm() {
+    if (savingRef.current) return; // re-entrancy latch (see savingRef declaration) — no duplicate item
     setFormError(null);
 
     // Flush a pending color the user typed but didn't click "Add" — the #1 papercut: "red" sits in
@@ -514,6 +521,7 @@ export function AddItemModal({
     // Change/Remove in the confirm form actually take effect.
     const fileToUpload = imageFile;
 
+    savingRef.current = true; // engaged only after validation passes, so a failed validate never locks
     setSaving(true);
     try {
       const result = await onSave(
@@ -544,6 +552,7 @@ export function AddItemModal({
       }
       if (result !== false) onClose();
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
