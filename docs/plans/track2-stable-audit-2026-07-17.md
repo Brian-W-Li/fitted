@@ -99,5 +99,18 @@ Unauth strangers can't burn budget (every render/write route token-gated; servic
 save-flush rescues typed-but-un-added entries; magic-byte sniff rejects renamed non-images. H33
 photo-copy consistent across all docs; honesty-pass ground truth matches source.
 
-## Convergence gate
-A fresh-context round on the FINAL post-fix tree must return zero load-bearing before DONE.
+## Convergence — REACHED 2026-07-17
+Two fresh-context convergence rounds: round 1 on the first 4 commits (CONVERGED), round 2 on the
+final tree `dfa82490` incl. D1+D2 (CONVERGED — both re-audited sound; gates re-run: jest 674 / tsc
+clean / build ✓; imageRef path, erasure-intact, H61 collapse, mutation-meaningful tests all verified).
+
+### Residuals from the final round (non-blocking)
+- **REPLACE-1 (same class as D2, NOT in the delete-scoped decision).** Photo *replace*
+  (`wardrobe/[id]/image/route.ts` deletes the old image before upload) still strips a
+  snapshot-referenced OLD image — the same leak D2 closed for delete/clear. One-line fix available
+  (guard the old-image delete with `isImagePathReferenced`). Surfaced to Brian; not landed without a
+  scope decision. Smaller surface than delete (replacing a photo mid-study is rarer).
+- **READOUT-MINOR.** The corpus-yield readout's ascending sort has no `_id` tiebreak (the production
+  reducer uses `{createdAt:-1,_id:-1}`). Harmless — same-`createdAt` collisions are same-action so the
+  count is identical; read-only diagnostic, not the training path.
+- **h26 pytest floor (≥305) NOT re-run** — nothing in this campaign touched `ml-system/experiments/h26`.
