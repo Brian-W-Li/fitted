@@ -340,9 +340,19 @@ gate("live corpus read-back — GenerationSnapshot + OutfitInteraction integrity
       }
       const typesWith2Plus = Object.values(typeHist).filter((n) => n >= 2).length;
 
+      // Dedup per {snapshotId, candidateId} keeping the LATEST row (per-candidate latest-state,
+      // §23-H61): a one-tap dislike plus its optional "tell us why?" enrich are two same-action rows
+      // that collapse to one, so counting raw rows would double the dislike. Rows arrive
+      // createdAt-ascending (beforeAll sort), so the last write wins; unbound rows key on _id.
       const uInts = intsByUser.get(u) ?? [];
-      const likes = uInts.filter((r) => r.action === "accepted");
-      const dislikes = uInts.filter((r) => r.action === "rejected");
+      const latestByCandidate = new Map<string, Any>();
+      for (const r of uInts) {
+        const key = r.snapshotId && r.candidateId ? `${r.snapshotId}:${r.candidateId}` : `id:${r._id}`;
+        latestByCandidate.set(key, r);
+      }
+      const dedupInts = [...latestByCandidate.values()];
+      const likes = dedupInts.filter((r) => r.action === "accepted");
+      const dislikes = dedupInts.filter((r) => r.action === "rejected");
       // Image-usable positive: a liked outfit whose every bound item still has a stored photo.
       const imageUsableLikes = likes.filter((r) => {
         const its = (r.items ?? []).map((v: Any) => String(v));

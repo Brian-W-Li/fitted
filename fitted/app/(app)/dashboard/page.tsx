@@ -488,6 +488,7 @@ function OutfitCard({
   forcedItemId,
   onLike,
   onDislike,
+  onExplain,
   onRegenerate,
 }: {
   outfit: ShownOutfit;
@@ -496,6 +497,7 @@ function OutfitCard({
   forcedItemId: string | null;
   onLike: () => void;
   onDislike: () => void;
+  onExplain: () => void;
   onRegenerate: () => void;
 }) {
   return (
@@ -540,6 +542,14 @@ function OutfitCard({
             <span className={`px-3 py-1 text-sm font-medium rounded-lg ${outfit.feedback === "liked" ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}>
               {outfit.feedback === "liked" ? "Liked" : "Disliked"}
             </span>
+          )}
+          {outfit.feedback === "disliked" && (
+            <button
+              onClick={onExplain}
+              className="text-xs text-slate-500 underline hover:text-slate-700 transition-colors"
+            >
+              Tell us why?
+            </button>
           )}
         </div>
       </div>
@@ -906,16 +916,32 @@ function DashboardInner() {
       return next;
     });
 
+  // One-tap dislike — symmetric with Like (§Q4c): posts 'rejected' immediately so a dislike costs the
+  // same as a like. The old flow forced the "what didn't work?" modal before any dislike registered,
+  // making dislikes more expensive than likes and skewing the accept/reject balance the M6 re-measure
+  // trains on toward the positive. Now the reasons are an optional follow-up (below), not a toll.
+  const handleDislike = async (index: number) => {
+    const outfit = result?.shown[index];
+    if (!outfit) return;
+    markFeedback(index, "disliked");
+    const ok = await postFeedback(outfit, "rejected");
+    if (!ok) {
+      markFeedbackClear(index);
+      setError("Couldn't save your feedback. Please try again.");
+    }
+  };
+
+  // Optional "tell us why?" follow-up to a dislike. The one-tap already posted 'rejected'; this
+  // attaches the structured reasons as a second same-action row that per-candidate latest-state
+  // (§23-H61) collapses onto the first — so the negative is never double-counted, and a failed
+  // enrich leaves the recorded dislike standing.
   const handleSaveDislike = async (data: { perItemFeedback: PerItemFeedback[]; codes: string[] }) => {
     if (!feedbackModal) return;
     const { outfit, index } = feedbackModal;
     setFeedbackModal(null);
     markFeedback(index, "disliked");
     const ok = await postFeedback(outfit, "rejected", data);
-    if (!ok) {
-      markFeedbackClear(index);
-      setError("Couldn't save your feedback. Please try again.");
-    }
+    if (!ok) setError("Couldn't save the extra detail — your dislike was still recorded.");
   };
 
   const bindable = Boolean(result?.bindable);
@@ -1039,7 +1065,8 @@ function DashboardInner() {
                 bindable={bindable}
                 forcedItemId={rescueItemId}
                 onLike={() => handleLike(index)}
-                onDislike={() => setFeedbackModal({ outfit, index })}
+                onDislike={() => handleDislike(index)}
+                onExplain={() => setFeedbackModal({ outfit, index })}
                 onRegenerate={() => {
                   setError("");
                   setRegenModal({ outfit, index });
