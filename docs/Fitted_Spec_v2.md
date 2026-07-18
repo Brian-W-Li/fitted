@@ -187,9 +187,9 @@ the single most important structural deliverable.
 **What the engine is *today* vs. the destination** (read this before "style graph" misleads). At `[NOW]`
 the engine is a **closet-grounded GPT stylist with structured outputs and stable feedback keys**: GPT
 composes outfits fenced to the wardrobe + Lens, the deterministic ranker filters/diversifies them (the
-response layer buckets them into path/risk), and the response carries `baseKey`/`fullSignature` so M4 can
-persist them; after the M5 GenerationSnapshot writer lands, feedback binds by `{snapshotId,candidateId}` and
-the server re-reads keys from the snapshot. Believability rides on **GPT's styling judgment fenced by the closet** — *not* a
+response layer buckets them into path/risk), and the response carries `baseKey`/`fullSignature`; feedback
+binds by `{snapshotId,candidateId}` and the server re-reads keys from the GenerationSnapshot (§15). Believability
+rides on **GPT's styling judgment fenced by the closet** — *not* a
 learned graph yet. The **personal style graph** is the brand, the metaphor, and the `[STAGED]` payoff:
 accumulated feedback + a learned compatibility model (§11) is what the data *grows into*. Same engine,
 different rungs — not the same moment. *(Seam caveat: "no other code change" holds only if the seam is the
@@ -374,8 +374,7 @@ collection clean, since no real users accumulated against this fork; `docs/plans
 
 ### 6.7 Caches (§15)
 **No runtime candidate cache** (retired at M5 — `m5-cutover.md` D2): the immutable `GenerationSnapshot` is
-the durable candidate store, every render (first or re-roll) is a fresh generation, and ranking runs per
-request.
+the durable candidate store; every render is a fresh generation. Semantics home = §15.
 
 ## 7. Canonical keys
 
@@ -697,18 +696,16 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   still writing distinct child snapshots. The old two-stage cache / TTL / cache-hit re-rank semantics are
   intentionally absent; a future scale optimization must be newly specified and must not weaken the
   one-snapshot-per-render corpus contract. See §6.7 and §23-H4/H16/H49/H51.
-- **The M5 request adapter** owns raw→canonical normalization (R5: weather bucketing, occasion
-  normalization) **and** malformed `WardrobeItem` **wire-value validation** (R12 part 2). The
-  `WardrobeItemDocument → fitted_core.WardrobeItem` mapping is the wire boundary where untrusted Mongo data
-  enters — it validates types, non-empty ids/strings, and tag-container shape through one predictable error
-  channel. The dataclass keeps only its two narrow guards (enum coercion of `clothingType`,
-  `warmth ∈ 0..10`) as a last-resort backstop and is **not** the wire boundary (it accepts `warmth=True`,
-  since a Python bool is an int — the trap-guard). **R5 is load-bearing for snapshot-write integrity, not
-  just sampler correctness:** the `GenerationSnapshot.ts` schema pins `weather` to the 5-value enum and marks
-  both `weather` and `occasion` `required`, so an un-bucketed weather or empty occasion would throw a
-  Mongoose `ValidationError` during the M5 blocking write. R5 normalization must therefore complete
-  *before* the snapshot is constructed; the adapter rejects invalid Lens/request fields before any service
-  call or write and never lets Mongoose become the first validator mid-write.
+- **The M5 request adapter** owns raw→canonical normalization (R5: weather bucketing, occasion normalization)
+  **and** malformed `WardrobeItem` **wire-value validation** (R12 part 2): the `WardrobeItemDocument →
+  fitted_core.WardrobeItem` mapping is the wire boundary where untrusted Mongo data enters, validating types,
+  non-empty ids/strings, and tag-container shape through one predictable error channel. The dataclass keeps
+  only its two narrow guards (`clothingType` enum coercion, `warmth ∈ 0..10`) as a last-resort backstop and is
+  **not** the wire boundary — *trap-guard:* it accepts `warmth=True` (a Python bool is an int). **R5 is
+  load-bearing for snapshot-write integrity, not just sampler correctness:** `GenerationSnapshot.ts` marks
+  `weather` (5-value enum) and `occasion` `required`, so an un-bucketed/empty value throws a Mongoose
+  `ValidationError` mid-write — R5 must complete *before* the snapshot is built, and the adapter rejects
+  invalid Lens/request fields before any service call or write, never letting Mongoose be the first validator.
   (`RescueRequest.weather/occasion` are plain `str` — the dataclass does not enforce the bucket, by design.)
 - **GenerationSnapshot** (training truth, `[NEXT]`): one immutable record per rendered response — request
   inputs + StyleProfileSnapshot + the full candidate funnel + **shown outfit ids/positions** +
@@ -1069,7 +1066,8 @@ recommendation **vertical is replaced wholesale**, written clean against this sp
 **Persists as host infrastructure (keep):** Firebase auth, wardrobe CRUD (`wardrobe/route.ts`,
 `wardrobe/[id]`, `wardrobe/[id]/image`, `wardrobe/clear`), Mongo plumbing (`lib/mongodb`, `lib/db`),
 profile/account UI (`account/page.tsx`), wardrobe UI, the image store (`WardrobeImage`, `lib/imageStorage`,
-`images/[imageId]`), sign-in/up + landing + `AuthGate`/`Sidebar`. The CV ingestion surface (`cv/infer`,
+`images/[imageId]`), sign-in/up + landing + `AuthGate`/`Sidebar`; **`lib/weather.ts`** (retained as a v2 engine helper — `lib/mlRecommend.ts`
+re-derives the bucketed Lens field via `getWeatherContext`, R5). The CV ingestion surface (`cv/infer`,
 `cv/status`, `lib/cvToWardrobeForm`, the add-item upload UI) is kept but revamped by the W-track (§18).
 
 **Deleted in M4 (✅ complete; deletion license, no real users to protect — surfaces below are greppable by name, the deleted code's old line numbers are gone):**
@@ -1087,7 +1085,6 @@ profile/account UI (`account/page.tsx`), wardrobe UI, the image store (`Wardrobe
 |---|---|
 | `app/api/recommend/route.ts` | rewritten against this spec |
 | `app/api/recommend/regenerate/route.ts` | folded into one route (R9); near-duplicate of `route.ts` |
-| `lib/weather.ts` | single consumer (`recommend/route.ts`); v2 weather is the bucketed Lens field, re-derived clean |
 | The request-time `clothingType` string-grep paths (`route.ts:231`/`inferItemType` `:472`, regenerate `:225`/`:484`) | replaced by the first-class `clothingType` enum (§6.1) |
 | The footwear auto-injection hack (`route.ts:512-527`) | sampler/validator handle shoes honestly |
 | `dashboard/page.tsx` recommendation UI + `history/page.tsx` | rewritten to the §6.5 response + StyleMove |
@@ -1095,37 +1092,29 @@ profile/account UI (`account/page.tsx`), wardrobe UI, the image store (`Wardrobe
 
 `OutfitInteraction.ts` is **kept and extended** (§6.6) — it is the training-signal source.
 
-**Database wipe (M4 deploy step).** With no real users on this fork, M4 drops the `wardrobeitems`,
-`outfitinteractions`, and `preferencesummaries` collections cleanly rather than running a backfill
-classifier. Consequences:
-- The M4 plan's §10.3 backfill classifier folds out (no rows to classify; the §6.1 ingestion rule covers
-  all future rows). The dry-run/report mode becomes a fixture-mode tool only.
-- The M4 plan's §9.1 co-presence guard runs strict from row 0 — no legacy "all four binding fields absent"
-  allowance is needed.
-- Brian re-uploads his test wardrobe through the rebuilt ingestion (§18 data-path); the bolted-on dresses
-  string-match cruft has nothing to migrate.
+**Database wipe (M4, executed).** With no real users on this fork, M4 dropped `wardrobeitems`,
+`outfitinteractions`, and `preferencesummaries` cleanly rather than backfilling; the §6.1 ingestion rule
+covers all future rows and the co-presence guard runs strict from row 0 (folded-out backfill classifier +
+rationale: `docs/plans/m4-data-model-migration.md`). Brian re-uploads his test wardrobe through the rebuilt
+ingestion (§18); the bolted-on dresses string-match cruft has nothing to migrate.
 
-**Sequencing (executed):** the legacy vertical served as the flag-off arm through C7 and was deleted
-wholesale at C8 half-1 (`754135a8`); flag-off now yields the §A degraded empty state, never legacy. The
-M4 deletions above were safe because their callers were surgically removed in the same M4 sessions.
+**Sequencing (executed):** the legacy vertical was the flag-off arm through C7, deleted wholesale at C8
+half-1; flag-off now yields the §A degraded empty state, never legacy.
 
-**Trust-boundary gates — CLOSED at M5 C6/C7 (`7c469e39`/`e48af7dc`/`326e0d61`) and hardened by the
-Track 2 audit lanes.** Identity comes only from the verified Firebase token on every retained DB route
-(`account`, `auth/sync`); `images/[imageId]` enforces ownership via the Firebase session cookie (with
-`nosniff`); `cv/infer` has auth + a per-user rate limit + a 10 MiB size cap; the `interactions` route was
-rewritten with the §16 ownership/membership gates (the old unscoped populate read-primitive is gone) plus
-the post-persist erasure-race check (§23-H43). Per-account storage is bounded (field/array caps at
-ingestion, a per-user item ceiling, a per-user image byte budget, courtesy rate limits) and renders are
-paced per-user ahead of the service's global bucket. **Surviving residual (W-track):**
-`wardrobe/[id]/image` has the `Content-Length` precheck, the storage-layer 5MB cap, and the per-user
-byte budget, but an absent/lying header still reaches `request.formData()` — true request-size/streaming
-enforcement lands with the W-track upload rebuild (ties H14's image-replace ordering).
+**Trust-boundary gates — CLOSED (M5 C6/C7 + Track 2 audit lanes).** Identity comes only from the verified
+Firebase token on every retained DB route (`account`, `auth/sync`); `images/[imageId]` enforces ownership via
+the Firebase session cookie (with `nosniff`); `cv/infer` has auth + a per-user rate limit + a 10 MiB size cap;
+the `interactions` route enforces the §16 ownership/membership gates plus the post-persist erasure-race check
+(§23-H43). Per-account storage is bounded (field/array caps at ingestion, a per-user item ceiling, a per-user
+image byte budget, courtesy rate limits) and renders are paced per-user ahead of the service's global bucket.
+**Surviving residual (W-track):** `wardrobe/[id]/image` has the `Content-Length` precheck, the storage-layer
+5MB cap, and the per-user byte budget, but an absent/lying header still reaches `request.formData()` — true
+request-size/streaming enforcement lands with the W-track upload rebuild (ties H14's image-replace ordering).
 
-**Client-side state gates — CLOSED (M5 C6 UI rewrite + Track 2 Lane A `3a652675`).** Dashboard state is
-uid-namespaced and cleared on sign-out (`fitted_dashboard_v2:${uid}`); redirect-before-sync awaits the
-idempotent `/api/auth/sync` before entering the app; a failed wardrobe save no longer closes the modal
-and discards input; a degraded/empty re-roll no longer wipes the outfits on screen. Remaining minor
-residuals are ledgered in `docs/plans/track2-audit-campaign.md`.
+**Client-side state gates — CLOSED (M5 C6 + Track 2 Lane A).** Dashboard state is uid-namespaced and cleared
+on sign-out (`fitted_dashboard_v2:${uid}`); redirect-before-sync awaits the idempotent `/api/auth/sync` before
+entering the app; a failed wardrobe save keeps the modal open with input intact; a degraded/empty re-roll
+preserves the on-screen outfits. Remaining minor residuals are ledgered in `docs/plans/track2-audit-campaign.md`.
 
 ---
 
@@ -1281,7 +1270,7 @@ Every known gap, with status. No silent holes; add here in the same edit you fin
 | H58 | **The Next→service contract had no home before M5.** Pre-M5, `fitted_core` had no HTTP layer; §15.1/`snapshot_serde` covered only snapshot-payload direction and §15.2 only item-field renames, leaving endpoints, request casing, auth, error envelopes, and Lens mapping homeless. | **RESOLVED — service (C3) + Next client (C5/C6) LANDED** | M5 §A is now the service contract home (`POST /render`, `GET /readyz`, camelCase request/response, shared-secret `X-Fitted-Service-Key`, service-owned OpenAI key/config, bounded errors/degenerate payloads), and §F owns the §15.2-parallel Lens adapter table. C3 implemented the stateless Python ASGI service with auth before body read, body/depth/input clamps, rate/token bounds, reducers, render, degenerate failure rows, and no-spend readiness. Remaining live app work is not resolved here: C5 wires Next fetching/validation/persistence/idempotency, and C6 wires the daily/rescue UI loop. Ties H12/H13/H51/H60. |
 | H59 | **Regenerate must preflight contradictory locks.** The legacy `regenerate` route can accept the same item in `lockedItemIds` and `dislikedItemIds`, leaving the reroll with an impossible constraint set that can degrade into empty-success / wrong-output behavior instead of a predictable client error (forward-audit reconcile 2026-07-06) | **RESOLVED — locked∩disliked preflight LANDED (C5)** (`mlRecommend.ts` rejects the contradictory set) | M5 deletes the legacy route, so do not patch it now; the rewritten recommend/regenerate contract must reject `locked ∩ disliked ≠ ∅` before candidate filtering (400/409 with a stable error envelope), and tests must pin that no empty successful recommendation response is emitted for contradictory per-request controls. Ties H7 (generationIndex/reroll), H49's no-cache fresh-generation provenance, and the §12/R9 regen controls. |
 | H60 | **Recommend/regenerate route rewrite must bound user-controlled prompt/spend fields.** The legacy vertical accepts request-body text knobs (`occasion`, style/change notes, feedback/change targets, weather-ish context) and generation options without a centralized length/type clamp or a hard completion-token budget, so a malformed direct API caller can expand prompt size / output spend even though the current fork is not the deployed prod (forward-audit reconcile 2026-07-06) | **RESOLVED — field clamps + token cap LANDED (C5)** (`mlRequestAdapter.ts` §A/G7 clamps + `max_completion_tokens`) | M5's rewritten route/service adapter must validate and clamp all body-controlled text/array fields before they reach the service prompt, set an explicit output-token cap (`max_completion_tokens` for GPT-5.x per H55), and test overlong/ill-typed request bodies plus the cap plumbing. This is distinct from H58 service auth: auth prevents open proxying, while this bounds authenticated or same-user malformed calls. |
-| H61 | **Feedback correction/retraction affinity semantics unpinned.** The §H reducer treats `accepted`→(`item_affinity`+1 / `liked_full_signatures`) and `rejected`→(cooldown / dislike windows) as **independent additive channels**, and `item_affinity` dedup keys on `{snapshotId, candidateId, action}` — so a user who likes candidate X and later **corrects to dislike** the same X produces two non-colliding rows: the item keeps its `+1` affinity and stays in `liked_full_signatures` **while also** entering the cooldown/dislike windows. The history UI ("*to change your mind, just react again*") implies a correction takes effect; the reducer does not net it. H11's append-only rule governs **storage** (store a new row, never in-place edit), not reducer **retraction**, so this is genuinely unhomed. | **IMPLEMENTED (M5, `reducers.py`)** | **Per-candidate latest-STATE.** For each `{snapshotId, candidateId}` only the **most-recent action row** contributes to signals — i.e. the first row seen in the most-recent-first scan wins; older rows for that same candidate (incl. same-action repeats) are skipped. A candidate whose winning action is `rejected` also **blocks its `fullSignature`** from `liked_full_signatures` (a `blocked_signatures` set, since a set can't hold both signs). This honors the UI promise ("to change your mind, just react again"), and subsumes the 300s double-count guard (each candidate counts once — the `_is_duplicate_counted_event` window becomes deletable for counted actions). **Grain is exactly `{snapshotId, candidateId}`** — item affinity stays strictly per-candidate, so a like of outfit A and a dislike of a *different* outfit B that share an item keep BOTH signals (legit cross-candidate taste, not a contradiction). Requires the deterministic `{createdAt:-1, _id:-1}` projection sort (already shipped) so same-millisecond ties resolve stably. **M6 obligation:** the M6 labeler MUST use the same latest-state rule so training labels never disagree with serving signals; the discarded history stays available as auxiliary label-churn features. Storage stays append-only (no data loss); netting is read-time. Landed at the reducer (`reducers.py:82-117`) with correction/waffle/tie/signature-block tests. |
+| H61 | **Feedback correction/retraction affinity semantics unpinned.** The §H reducer treats `accepted`→(`item_affinity`+1 / `liked_full_signatures`) and `rejected`→(cooldown / dislike windows) as **independent additive channels**, and `item_affinity` dedup keys on `{snapshotId, candidateId, action}` — so a user who likes candidate X and later **corrects to dislike** the same X produces two non-colliding rows: the item keeps its `+1` affinity and stays in `liked_full_signatures` **while also** entering the cooldown/dislike windows. The history UI ("*to change your mind, just react again*") implies a correction takes effect; the reducer does not net it. H11's append-only rule governs **storage** (store a new row, never in-place edit), not reducer **retraction**, so this is genuinely unhomed. | **IMPLEMENTED (M5, `reducers.py`)** | **Per-candidate latest-STATE.** For each `{snapshotId, candidateId}` only the **most-recent action row** contributes to signals — i.e. the first row seen in the most-recent-first scan wins; older rows for that same candidate (incl. same-action repeats) are skipped. A candidate whose winning action is `rejected` also **blocks its `fullSignature`** from `liked_full_signatures` (a `blocked_signatures` set, since a set can't hold both signs). This honors the UI promise ("to change your mind, just react again"), and subsumes the 300s double-count guard (each candidate counts once — the `_is_duplicate_counted_event` window becomes deletable for counted actions). **Grain is exactly `{snapshotId, candidateId}`** — item affinity stays strictly per-candidate, so a like of outfit A and a dislike of a *different* outfit B that share an item keep BOTH signals (legit cross-candidate taste, not a contradiction). Requires the deterministic `{createdAt:-1, _id:-1}` projection sort (already shipped) so same-millisecond ties resolve stably. **M6 obligation:** the M6 labeler MUST use the same latest-state rule so training labels never disagree with serving signals; the discarded history stays available as auxiliary label-churn features. Storage stays append-only (no data loss); netting is read-time. Landed at the reducer (`reduce_interaction_rows`, `reducers.py:81`) with correction/waffle/tie/signature-block tests. |
 
 ---
 
