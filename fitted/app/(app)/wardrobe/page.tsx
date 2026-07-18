@@ -6,7 +6,7 @@ import Link from "next/link";
 import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
 import { AddItemUploadStepActions } from "@/lib/addItemUploadStepActions";
-import { validateWardrobeForm } from "@/lib/wardrobeValidation";
+import { validateWardrobeForm, normalizeColor } from "@/lib/wardrobeValidation";
 import { type ClothingType } from "@/lib/clothingType";
 import { applyWardrobePipeline } from "@/lib/wardrobeDisplayPipeline";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
@@ -384,13 +384,9 @@ function AddItemModal({
    *  visible error, never silently no-op (the pre-fix behavior stranded users at "Add at least one
    *  color" with no way to satisfy it). */
   function addColor(raw: string) {
-    const h = raw.trim();
-    if (!h) return;
-    const hex = /^#[0-9A-Fa-f]{6}$/.test(h) ? h.toLowerCase() : /^[0-9A-Fa-f]{6}$/.test(h) ? `#${h.toLowerCase()}` : null;
-    const name = /^[A-Za-z][A-Za-z\- ]{1,23}$/.test(h) ? h.toLowerCase().replace(/\s+/g, " ") : null;
-    const normalized = hex ?? name;
-    if (!normalized) {
-      setColorError('Use a color name (e.g. "navy") or a hex code (e.g. #382828).');
+    const res = normalizeColor(raw);
+    if (!res.ok) {
+      if (res.error) setColorError(res.error);
       return;
     }
     setColorError(null);
@@ -401,8 +397,8 @@ function AddItemModal({
       return;
     }
     // Case-insensitive dedupe — CV-prefilled hex may be uppercase while new entries are lowercased.
-    if (!colors.some((c) => c.toLowerCase() === normalized)) {
-      setColors((prev: string[]) => [...prev, normalized]);
+    if (!colors.some((c) => c.toLowerCase() === res.value)) {
+      setColors((prev: string[]) => [...prev, res.value]);
     }
     setColorsInput("");
   }
@@ -441,13 +437,51 @@ function AddItemModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
-    const validation = validateWardrobeForm({ name, category, subCategory, colors });
+
+    // Flush a pending color the user typed but didn't click "Add" — the #1 papercut: "red" sits in
+    // the box, Save fails "Add at least one color" with no obvious cause. Reject a MALFORMED pending
+    // color (don't silently drop it), but honor the count-cap/dedupe like addColor does.
+    let colorsToSave = colors;
+    const pendingColor = colorsInput.trim();
+    if (pendingColor) {
+      const res = normalizeColor(pendingColor);
+      if (!res.ok) {
+        // Route to formError (not colorError): this blocks the save from the FOOTER, so the message
+        // renders next to the Save button (line ~955) AND in the Colors section (the includes("color")
+        // path) — colorError alone renders only up in the scrolled body, re-hiding the very papercut
+        // this fix targets. The guidance string contains "color", so both render sites light up.
+        setFormError(res.error);
+        return;
+      }
+      if (colors.length < 25 && !colors.some((c) => c.toLowerCase() === res.value)) {
+        colorsToSave = [...colors, res.value];
+      }
+      setColors(colorsToSave);
+      setColorsInput("");
+    }
+
+    // Same courtesy for a typed-but-un-added occasion (optional field — silent data loss otherwise).
+    // An over-long pending tag blocks with the same message addOccasionTag uses, rather than vanishing.
+    let occasionsToSave = occasions;
+    const pendingOccasion = occasionsInput.trim().replace(/\s+/g, " ");
+    if (pendingOccasion) {
+      if (pendingOccasion.length > 60) {
+        setFormError(`"${pendingOccasion.slice(0, 24)}…" is too long for an occasion tag (60 characters max).`);
+        return;
+      }
+      if (occasions.length < 25 && !occasions.includes(pendingOccasion)) {
+        occasionsToSave = [...occasions, pendingOccasion];
+      }
+      setOccasions(occasionsToSave);
+      setOccasionsInput("");
+    }
+
+    const validation = validateWardrobeForm({ name, category, subCategory, colors: colorsToSave });
     if (!validation.valid) {
       setFormError(validation.error);
       return;
     }
 
-    const colorsToSave = colors;
     // Edit mode passes the picked file too — the edit save path uploads it as a replacement photo.
     const fileToUpload = isEdit ? imageFile : (addStep === "form" ? pendingAddFile ?? imageFile : imageFile);
 
@@ -466,7 +500,7 @@ function AddItemModal({
           fit: fit.trim(),
           size: "",
           seasons,
-          occasions,
+          occasions: occasionsToSave,
           notes: "",
           isAvailable,
         },
