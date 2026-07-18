@@ -436,6 +436,15 @@ export function AddItemModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    await submitForm();
+  }
+
+  // Shared by the form's submit ("Save item", the primary button rendered ONLY when a photo is
+  // attached) and the deliberate "Save without a photo" button. The D1 photo strong-nudge is
+  // enforced by the FOOTER rendering — a photo-less save is reachable only via the honestly-labeled
+  // secondary button (the no-photo footer has no submit button, so an Enter keypress can't slip a
+  // photo-less item through) — so this just saves whatever state is present.
+  async function submitForm() {
     setFormError(null);
 
     // Flush a pending color the user typed but didn't click "Add" — the #1 papercut: "red" sits in
@@ -482,8 +491,9 @@ export function AddItemModal({
       return;
     }
 
-    // Edit mode passes the picked file too — the edit save path uploads it as a replacement photo.
-    const fileToUpload = isEdit ? imageFile : (addStep === "form" ? pendingAddFile ?? imageFile : imageFile);
+    // imageFile is the single source of truth (mount-initialized from pendingAddFile + synced), so
+    // Change/Remove in the confirm form actually take effect.
+    const fileToUpload = imageFile;
 
     setSaving(true);
     try {
@@ -532,6 +542,17 @@ export function AddItemModal({
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [imageFile]);
+
+  // ── Photo (confirm form). Single source of truth is `imageFile` (mount-initialized from
+  //    pendingAddFile + synced), so Change/Remove operate on it directly. In edit mode the stored
+  //    image is kept when no new file is picked. `willHavePhoto` drives the D1 strong-nudge: a
+  //    photo-less save must be a deliberate, honestly-labeled action, never the default.
+  const existingPhotoUrl = isEdit ? imageUrlFromPath(existingImagePath ?? undefined) : null;
+  const photoPreviewSrc = previewUrl ?? existingPhotoUrl;
+  const willHavePhoto = !!imageFile || (isEdit && !!existingImagePath);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [enlarged, setEnlarged] = useState(false);
+  const triggerPicker = () => fileInputRef.current?.click();
 
   if (isUploadStep) {
     return (
@@ -682,6 +703,21 @@ export function AddItemModal({
           </button>
         </div>
 
+        {enlarged && photoPreviewSrc && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-6 cursor-zoom-out"
+            onClick={() => setEnlarged(false)}
+            role="button"
+            aria-label="Close enlarged photo"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photoPreviewSrc}
+              alt="Item photo enlarged"
+              className="max-h-full max-w-full rounded-lg object-contain"
+            />
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1 overflow-hidden">
           <div className="p-5 overflow-y-auto space-y-5">
             {showCvGuide && (
@@ -933,25 +969,67 @@ export function AddItemModal({
 
             <section className="space-y-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Photo</h3>
-              {isEdit && (
-                <p className="text-sm text-slate-600">
-                  Optional — choose a file to {initialItem?.imagePath ? "replace the current photo" : "add a photo"}.
-                </p>
-              )}
-              {addStep === "form" && pendingAddFile && (
-                <p className="text-sm text-slate-600">Photo will be saved with this item.</p>
-              )}
-              {(isEdit || !addStep || addStep !== "form" || !pendingAddFile) && (
-                <div>
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
-                    onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
-                  />
-                  {imageError && <p className="mt-1 text-xs text-red-600">{imageError}</p>}
+              {willHavePhoto ? (
+                <div className="space-y-2">
+                  {photoPreviewSrc && (
+                    <button
+                      type="button"
+                      onClick={() => setEnlarged(true)}
+                      className="block rounded-lg border border-slate-200 bg-white p-1 hover:border-slate-300 transition-colors"
+                      aria-label="Enlarge photo"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photoPreviewSrc}
+                        alt="Item photo"
+                        className="max-h-56 w-auto rounded object-contain cursor-zoom-in"
+                      />
+                    </button>
+                  )}
+                  <div className="flex items-center gap-3 text-sm">
+                    <button
+                      type="button"
+                      onClick={triggerPicker}
+                      className="font-medium text-slate-700 hover:text-slate-900 transition-colors"
+                    >
+                      Change photo
+                    </button>
+                    {!!imageFile && (
+                      <button
+                        type="button"
+                        onClick={() => setImageFile(null)}
+                        className="text-slate-500 hover:text-red-600 transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    <span className="text-xs text-slate-400">Tap the photo to enlarge</span>
+                  </div>
                 </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={triggerPicker}
+                  className="w-full rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 px-4 py-6 text-center hover:border-slate-400 hover:bg-slate-50 transition-colors"
+                >
+                  <span className="block text-sm font-medium text-slate-800">+ Add a photo</span>
+                  <span className="mt-1 block text-xs text-slate-500">
+                    This is what powers the recommendations — and the style-matching experiment. Items
+                    without a photo still work, but won&apos;t count toward it.
+                  </span>
+                </button>
               )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  onPickImage(e.target.files?.[0] ?? null);
+                  e.target.value = ""; // allow re-picking the same file name
+                }}
+              />
+              {imageError && <p className="text-xs text-red-600">{imageError}</p>}
             </section>
           </div>
 
@@ -959,7 +1037,7 @@ export function AddItemModal({
             {formError && (
               <p className="text-sm text-red-600 mb-3">{formError}</p>
             )}
-            <div className="flex justify-end gap-2">
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={onClose}
@@ -968,16 +1046,40 @@ export function AddItemModal({
               >
                 Cancel
               </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {saving && (
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                )}
-                {saving ? "Saving…" : "Save item"}
-              </button>
+              {willHavePhoto ? (
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {saving && (
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  )}
+                  {saving ? "Saving…" : "Save item"}
+                </button>
+              ) : (
+                <>
+                  {/* D1: the photo-less save is the low-emphasis, honestly-labeled path; "Add a photo"
+                      is the primary affordance. */}
+                  <button
+                    type="button"
+                    onClick={() => submitForm()}
+                    disabled={saving}
+                    title="This item won't count toward the style-matching experiment"
+                    className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {saving ? "Saving…" : "Save without a photo"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={triggerPicker}
+                    disabled={saving}
+                    className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                  >
+                    Add a photo
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </form>
