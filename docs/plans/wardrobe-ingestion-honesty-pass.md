@@ -1,6 +1,6 @@
 > COMPLETED 2026-07-17 (converged) — the deferred "add-another" (§C4) was BUILT in the friend-ready
 > session (2026-07-18) as "Save & add another", and REQFIELDS-1 relaxed the required set to
-> {name, category} there too. The live Track-2 doc is `track2-ops-card.md`. History only. The
+> {name, category} there too. The live Track-2 doc is `m5-c8-half2-runbook.md` §8. History only. The
 > yield-vs-integrity posture below (nudge + honest label + out-of-band ask; never progress mechanics)
 > is the standing rule — fold into Spec §18/§22 when convenient (stable-audit PRECEDENT chip).
 

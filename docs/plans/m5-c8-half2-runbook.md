@@ -243,6 +243,63 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
   degraded state (never legacy, never 5xx). `fly scale count 0` stops the service (and all spend);
   `fly apps destroy fitted-render-service` ends the ~$4/mo when the collection window closes.
 
+### Track 2 collection-window ops (folded in 2026-07-18 — the living ops home)
+
+**Observation channel — run every 1–2 days while friends collect.** Without a signal, friend #2 hits a
+wall day 1 and you learn day 9. Minimum watch = the corpus/yield readout (the `corpusReadback` command
+above) + a log/spend skim (`fly logs … | tail`, `fly scale show` = 1, OpenAI dashboard). Friend #1's
+first week IS the final audit round — unknown defects surface here within ~1–2 days, not via more static audits.
+
+**Pull the corpus (M6 export, read-only):**
+```sh
+cd fitted && node scripts/export_track2.mjs --uri "$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" --out ./track2-export
+```
+→ `manifest.json` (counts + a `yield` block with the decidability verdict vs the 30–60 bar), snapshots /
+wardrobe / interactions_latest (§H61) / training_examples JSONL + `images/`. The manifest's `yield` IS the
+yield artifact (one home, no drift). A **deleted friend exports zero** (erasure). Round-trip proven live:
+`node scripts/track2-export-roundtrip.mjs` (incl. a D2-retained photo of a deleted item).
+
+**Content monitor:** `cd fitted && npx jest outfitLint` — the deterministic mechanical-absurdity checker
+(two-bottoms / dress-with-separates / formality-clash / …). A rising hit-rate = stylist-quality
+regression. Baseline over 51 real candidates: 1 finding (2%). `scripts/track2-lint.mjs` runs it over output.
+
+**Live driver (no browser):** `TRACK2_LIVE_OK=1 node scripts/track2-live.mjs smoke` mints a throwaway
+`track2test_*` user (local service-account) and drives the live API as a friend would; `track2-gauntlet.mjs`
+seeds persona closets + real renders; `track2-erasure-check.mjs <slug>` proves erasure with an Atlas
+read-back. All gated `TRACK2_LIVE_OK=1`; they write the live corpus + spend $, so they always erase after.
+
+**KNOWN-RESIDUALS BACKLOG (the anti-spiral home — non-blocking findings live here, graded):**
+- STUMBLE **CONTENT-1** — outfit-lint flagged `gym hoodie + suit trousers` (2%); monitored, not a wall.
+- STUMBLE **OPS-1** — no proactive failure alerting; mitigated by the observation channel (manual).
+- COSMETIC **COMMENT-1** — stale comment `wardrobe/page.tsx` (predates D2); fix when next in that file.
+- COSMETIC **SEAM-1/2** — client entry caps hand-copied (agree); edit sends `size:""`/`notes:""` (no UI).
+- Watch-item **REQFIELDS-1 tripwire** — required set relaxed to {name, category}; if sparse closets get
+  disliked into undecidability, ask that friend to backfill colors via edit — do NOT re-tighten validation.
+
+**Brian-as-friend-#0 (do before recruiting).** If you can't get through this on your phone with your own
+closet, no verdict matters; if you can, your thumbs are the "ready" signal. **Screenshot each step** — that
+filmstrip is the visual layer the API driver can't see (frozen-button-vs-spinner, HEIC upright, legible
+dead-ends, tap targets). 1) Sign in on your phone (real browser). 2) Add ~10 real items via **"Save & add
+another"** — smooth now? Include one **HEIC**, one **12MP**, one **sideways** photo — stored upright? 3) Stop
+at ~3 items, try to generate — is the "add N more" dead-end legible? 4) Generate at ~8 items — believable?
+spinner or frozen button? try a **cold** one (20–40s wall — what shows?). 5) Like + dislike — each acknowledged?
+6) Rescue (build around an item) — how many taps, does it center your item sanely? 7) Edit/change-photo/remove
+an item. 8) **Delete your account** → confirm your stuff is gone. Flag any >1s pause with no feedback.
+
+**Friend onboarding message (draft — finalize in your voice; it's the first UI + honest-consent artifact):**
+> Hey — I built an outfit recommender and I'm collecting a little data from a few friends to train the next
+> version. ~20 min? You add photos of your clothes, it builds outfits from *your* wardrobe (incl. a "build
+> around this piece" mode). It's early — decent, not magic — which is why honest ratings help. **Most useful:
+> add real photos** (they're what the ML measures) and **rate honestly — a dislike helps more than a polite
+> like**; aim for ~15 items, a couple of each type. Open `https://fitted-three.vercel.app` on your phone
+> (Safari/Chrome, not the Instagram/Messenger in-app browser). Privacy: your stuff lives in my DB for this
+> small experiment among ~5 friends; delete your account anytime and everything of yours is erased permanently.
+
+(Risk: the message sets the photo + honest-dislike expectation out-of-band — load-bearing, since the app
+nudges but doesn't coerce. Skip photos → yield stays unpowered no matter how many snapshots.)
+
+Full session context: `docs/sessions/2026-07-18-track2-friend-ready.md` (trust re-grade table + gauntlet).
+
 ## Rollback (pinned — honest)
 - **Immediate safe state:** `USE_ML_SHORTLISTER` off/unset → §A **degraded empty state** (no
   recommendations, but no errors/leaks). The flag alone disables the vertical — no redeploy needed.

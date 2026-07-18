@@ -4,7 +4,7 @@
 > friend gauntlet has been run against the live app and its walls fixed, (b) add-another + export
 > round-trip are built + green, (c) the content gauntlet + outfit-lint show majority-plausible outfits,
 > (d) the ops card exists and is the standing Track-2 living doc. After that, the **ops card**
-> (`docs/plans/track2-ops-card.md`) is the single living Track-2 doc; this tracker is history.
+> (`docs/plans/m5-c8-half2-runbook.md` §8) is the single living Track-2 doc; this tracker is history.
 >
 > Mission: `docs/plans/track2-friend-ready-prompt.md`. Coordinator: Opus session. Brian = friend #0
 > (visual gauntlet on his own phone/computer, screenshots). This session drives the API/data/render
@@ -168,7 +168,7 @@ COSMETIC: stale comment `wardrobe/page.tsx:1291` (predates D2) → ops card back
 - [x] (4) scoped new-code regression lane clean.
 - [x] (5) green verified this session (see floors below); tree clean; committed on `main` (NOT pushed).
 - [x] (6) closing acts: ops card + observation channel + onboarding draft + doc compaction +
-      friend-#0 script (all on `track2-ops-card.md`).
+      friend-#0 script (all on `m5-c8-half2-runbook.md` §8).
 
 **READY FOR FRIEND #1** with these named open items (explicitly authorized to ship):
 - **WALL:** none open. The two genuine walls (photoless items, deleted-photo cascade) closed sessions

@@ -1,5 +1,5 @@
 > COMPLETED 2026-07-17 — converged + pushed + both halves redeployed. Superseded by the friend-ready
-> session (2026-07-18). The single living Track-2 doc is now `track2-ops-card.md`. History only.
+> session (2026-07-18). The single living Track-2 doc is now `m5-c8-half2-runbook.md` §8. History only.
 
 # Track 2 pre-push audit campaign
 
