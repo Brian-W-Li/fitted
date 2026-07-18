@@ -218,16 +218,16 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **⚠ Precondition RE-OPENED by the ingestion honesty pass + the 2026-07-17 stable audit.** The
-  `af836070` deploy was current when made (Vercel prod aliased + live-verified; Fly release v2, 1
-  machine, `/readyz` 200), but `main` has since advanced with a **web-only** stack — the wardrobe
-  ingestion honesty pass plus this audit's honesty-copy / double-tap-latch / yield-readout fixes —
-  that is **committed but NOT pushed / NOT deployed**, so the live app still serves the pre-honesty
-  build. Before the first friend: (1) push `main`; (2) **redeploy the Vercel (web) half** (`fitted/`
-  via `npx vercel --prod`); (3) run the throwaway-account erasure loop (add item → generate → DELETE
-  /api/account) to observe erasure live. The **Fly render service is unchanged** (zero `ml-system/`
-  diff in this stack) — its redeploy is a no-op, so "redeploy both halves" reduces to the web half
-  here. Deploys are CLI-driven (not on git push): web from
+- **⚠ Precondition (post ingestion honesty pass + 2026-07-17 stable audit): PUSHED, web redeploy +
+  erasure check STILL PENDING.** `main` advanced past the `af836070` deploy with a **web-only** stack
+  (the wardrobe ingestion honesty pass + this audit's honesty-copy / double-tap-latch / yield-readout
+  / D1 one-tap-dislike / D2+REPLACE-1 keep-referenced-image fixes). It was **pushed to `origin/main`
+  2026-07-17 (`7bd0e019`)**, but deploys are CLI-driven (NOT on git push), so the live app still
+  serves the pre-honesty build until redeployed. Before the first friend: (1) **redeploy the Vercel
+  (web) half** (`fitted/` via `npx vercel --prod`); (2) run the throwaway-account erasure loop (add
+  item → generate → DELETE /api/account) to observe erasure live. The **Fly render service is
+  unchanged** (zero `ml-system/` diff in this stack) — its redeploy is a no-op, so "redeploy both
+  halves" reduces to the web half here. Deploys are CLI-driven (not on git push): web from
   `fitted/` via `npx vercel --prod`, service from `ml-system/` via `fly deploy` — and the repo ROOT
   must never be vercel-deployed (the root/app folders are both named `fitted`; a root deploy
   uploads the whole monorepo and fails the free-tier file quota).
