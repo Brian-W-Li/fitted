@@ -218,16 +218,18 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **⚠ Precondition (post ingestion honesty pass + 2026-07-17 stable audit): PUSHED, web redeploy +
-  erasure check STILL PENDING.** `main` advanced past the `af836070` deploy with a **web-only** stack
-  (the wardrobe ingestion honesty pass + this audit's honesty-copy / double-tap-latch / yield-readout
-  / D1 one-tap-dislike / D2+REPLACE-1 keep-referenced-image fixes). It was **pushed to `origin/main`
-  2026-07-17 (`7bd0e019`)**, but deploys are CLI-driven (NOT on git push), so the live app still
-  serves the pre-honesty build until redeployed. Before the first friend: (1) **redeploy the Vercel
-  (web) half** (`fitted/` via `npx vercel --prod`); (2) run the throwaway-account erasure loop (add
-  item → generate → DELETE /api/account) to observe erasure live. The **Fly render service is
-  unchanged** (zero `ml-system/` diff in this stack) — its redeploy is a no-op, so "redeploy both
-  halves" reduces to the web half here. Deploys are CLI-driven (not on git push): web from
+- **✅ Pushed + BOTH halves redeployed 2026-07-17 (post ingestion honesty pass + stable audit).**
+  `main` (`d71e9f06`) pushed to `origin`; the stack = the wardrobe ingestion honesty pass + this
+  audit's honesty-copy / double-tap-latch / yield-readout / D1 one-tap-dislike / D2+REPLACE-1
+  keep-referenced-image fixes. **Vercel web** redeployed via `npx vercel --prod` from `fitted/` →
+  aliased to fitted-three.vercel.app, live-verified serving the audited copy ("adjust to your
+  like/dislike feedback", not "ML model learn"). **Fly** redeployed via `fly deploy` from `ml-system/`
+  (image `deployment-01KXT098P0DTH37M10102J76S6`; the `ml-system/` code was unchanged, so functionally
+  a no-op, but refreshed on request); rolling update on the existing machine, **G1 pin held — verified
+  exactly 1 machine**, `/readyz` green (fittedCore 0.5.0, prompt m5-c1.v1). **Only remaining
+  pre-recruiting step: the throwaway-account erasure loop** (sign in with a throwaway Google account →
+  add item → generate → DELETE /api/account → confirm erasure live). Deploys are CLI-driven (not on
+  git push): web from
   `fitted/` via `npx vercel --prod`, service from `ml-system/` via `fly deploy` — and the repo ROOT
   must never be vercel-deployed (the root/app folders are both named `fitted`; a root deploy
   uploads the whole monorepo and fails the free-tier file quota).
