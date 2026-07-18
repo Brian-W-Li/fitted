@@ -42,14 +42,18 @@ const ATHLETIC = ["gym", "athletic", "running", "track pant", "track pants", "sw
 const FORMAL = ["suit", "tuxedo", "dress shirt", "dress pant", "dress trouser", "oxford", "gown", "blazer", "sport coat"];
 // Heavy cold-weather outerwear that clashes with warm-weather bottoms.
 const HEAVY_OUTERWEAR = ["parka", "overcoat", "puffer", "down jacket", "winter coat", "wool coat", "heavy coat"];
-const WARM_BOTTOM = ["shorts", "short "];
+const WARM_BOTTOM = ["shorts"];
 
-function hay(name: string): string {
-  return ` ${(name ?? "").toLowerCase()} `;
-}
+// Whole-word matching (mirrors lib/keywordMatch's doctrine) so a signal word can't be caught inside a
+// larger word — "shorts" must NOT fire on "short sleeve shirt", "coat" must NOT fire on "petticoat".
+// A false lint hit is worse than a miss (the point is a trustworthy rising-rate signal), so precision
+// wins over recall here. Multi-word phrases ("dress shirt", "winter coat") still match verbatim.
 function mentions(name: string, words: string[]): boolean {
-  const h = hay(name);
-  return words.some((w) => h.includes(w.toLowerCase()));
+  const h = ` ${(name ?? "").toLowerCase()} `;
+  return words.some((w) => {
+    const esc = w.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${esc}\\b`).test(h);
+  });
 }
 
 /**

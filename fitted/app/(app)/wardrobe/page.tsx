@@ -467,8 +467,9 @@ export function AddItemModal({
   /** Reset the confirm-form back to a blank add state — used by "Save & add another" so a friend can
    *  enter their next item without re-opening the modal (the #1 yield-friction removal: 15 items no
    *  longer means 15 modal open/close cycles). Clears every field INCLUDING the photo, so the next
-   *  item starts on the photo-first path (D1). The re-entrancy latch (savingRef) is released by
-   *  submitForm's finally BEFORE this runs, so the reset can't strand the latch. */
+   *  item starts on the photo-first path (D1). Called from submitForm's success branch, just BEFORE
+   *  the finally releases the savingRef latch — safe because this only touches form state, never the
+   *  latch; a rapid follow-up tap is instead blocked by the now-empty name failing validation. */
   function resetFormForAddAnother() {
     setName("");
     setCategory("top");

@@ -167,6 +167,12 @@ async function main() {
       console.error("usage: erase <uid>");
       process.exit(1);
     }
+    // Safety invariant: this driver only ever erases the throwaway test users IT mints. Refuse any
+    // non-`track2test_` uid so a mistyped/pasted real Google uid can never be account-deleted here.
+    if (!arg.startsWith("track2test_")) {
+      console.error(`Refusing to erase "${arg}": only track2test_* throwaway uids may be erased by this tool.`);
+      process.exit(1);
+    }
     const email = `${arg}@example.invalid`;
     const token = await mintIdToken(arg, email);
     const del = await api("DELETE", "/api/account", { token });

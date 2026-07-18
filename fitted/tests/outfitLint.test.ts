@@ -75,6 +75,11 @@ describe("outfitLint — mechanical absurdity checker", () => {
     expect(out.map((f) => f.rule)).toContain("shorts-with-heavy-coat");
   });
 
+  test("a SHORT-SLEEVE shirt with a heavy coat is NOT flagged (whole-word: 'shorts' != 'short sleeve')", () => {
+    const out = lintOutfit([it_("top", "Short Sleeve Shirt"), it_("bottom", "Wool Trousers"), it_("outer_layer", "Winter Parka"), it_("shoes", "Boots")]);
+    expect(out.map((f) => f.rule)).not.toContain("shorts-with-heavy-coat");
+  });
+
   test("lintBatch rolls up per-rule counts and only lists outfits with findings", () => {
     const report = lintBatch([
       { label: "clean", items: [it_("top", "Tee"), it_("bottom", "Jeans"), it_("shoes", "Sneakers")] },
