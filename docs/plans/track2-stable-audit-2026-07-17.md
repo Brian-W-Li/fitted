@@ -111,6 +111,13 @@ clean / build ✓; imageRef path, erasure-intact, H61 collapse, mutation-meaning
   Mutation-verified behavioral test. jest 674→675.
 - **OPS-2 — RESOLVED (Brian).** The OpenAI $10 is confirmed a HARD spend cap (not a soft alert);
   Brian is fine lifting it toward ~$20 if needed. The one backstop everything leans on is genuinely hard.
+- **REPLACE-1 fresh-eyes convergence (3rd round, on `3eb05cf7`): CONVERGED.** Budget math verified
+  correct in all 4 cases (no wrong-reject, no M0-overrun admit); guard/erasure/tests sound; new KEEP
+  test mutation-meaningful. Residual MINOR: the referenced-case budget-credit branch is correct by
+  inspection but not asserted at a byte boundary (the KEEP test uses tiny files); storage-UX + a
+  pre-existing non-atomic TOCTOU on the delete window are acceptable at friends-scale. D2 keep-logic
+  affirmed by Brian: "the history of what a person liked shouldn't be affected by what's in their
+  wardrobe anymore."
 - **READOUT-MINOR.** The corpus-yield readout's ascending sort has no `_id` tiebreak (the production
   reducer uses `{createdAt:-1,_id:-1}`). Harmless — same-`createdAt` collisions are same-action so the
   count is identical; read-only diagnostic, not the training path.
