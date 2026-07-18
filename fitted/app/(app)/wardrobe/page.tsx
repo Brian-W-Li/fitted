@@ -284,7 +284,7 @@ type AddItemModalProps = {
   existingImagePath?: string | null;
 };
 
-function AddItemModal({
+export function AddItemModal({
   onClose,
   onSave,
   initialItem,
