@@ -1,5 +1,11 @@
 # Wardrobe ingestion honesty pass (Track 2 friend-readiness)
 
+> **CONVERGED 2026-07-17** (C1–C5 + the color flush + the crop-guard fix landed; a fresh-eyes
+> convergence round over the full diff traced 8 named doubts to safe root causes — zero load-bearing).
+> Commits: b1215625, 6a8fffd7 (C1), a8157fad (C2), cdbcf6c0 (C3), f3be86dd (crop guard), a520bd11
+> (C4/C5). NOT pushed / NOT redeployed — Brian tightens the §Copy drafts, then redeploys both halves.
+> Remaining in-pass work: add-another (deferred, §C4). Cosmetic residuals below.
+
 > Active plan. Client-only polish of the wardrobe add/edit surface so a friend can produce
 > *usable ML data* (photos + honest attributes + honest feedback) — the Track 2 data-shaped ask
 > (runbook §8). Design settled 2026-07-17 via two source-grounded audits + a Fable seat; all five
@@ -82,6 +88,15 @@ Per-checkpoint: read real files first, match team style, `tsc`+`eslint`+`jest` o
 one fresh-context review, verify findings against source, mutation-verify any new load-bearing test.
 Fresh-eyes convergence round at the end (zero load-bearing or keep going). Commit per checkpoint on
 main; never push (Brian pushes + redeploys after approving copy).
+
+## Cosmetic residuals (convergence round — non-blocking, registered not fixed)
+- The upload step shows the optimistic CV intro + a (disabled) "Analyze photo" button for the
+  sub-second before the `/api/cv/status` probe resolves and flips `cvUnavailable` true. Harmless
+  (button disabled until a file is picked; probe is fast; a raced Analyze fails cleanly to cvError).
+- Edit of an item whose stored `imagePath` is NOT a `mongo:` path shows no thumbnail (the `<img>` is
+  guarded, so no broken image) — doesn't occur in the Track 2 deployment (all paths are `mongo:`).
+- A stored edit photo can be Changed but not fully cleared (Remove shows only for a newly-picked
+  file). By design (edit never overwrites the stored photo unless a new one is picked).
 
 ## Copy (draft — for Brian's voice, swap before redeploy)
 Every string below is a WORKING DRAFT shipped so the flow is testable; none has reached a friend
