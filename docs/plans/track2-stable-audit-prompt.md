@@ -1,3 +1,6 @@
+> COMPLETED — this handoff prompt drove the 2026-07-17 stable audit; superseded by
+> `track2-friend-ready-prompt.md`. History only.
+
 # Track 2 "stable version" audit — handoff prompt
 
 > Paste the block below into a fresh Claude Code session to run the deep audit-and-harden campaign

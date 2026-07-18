@@ -134,6 +134,62 @@ auth binding erased. The runbook §8 throwaway-account erasure check is **DONE**
 erased; Atlas confirmed 0 residual `track2test_*` users (the 2 users / 3 snapshots remaining are Brian's
 own pre-existing placeholder residue, runbook §8 — his to wipe before the real closet).
 
+### B1 — "Save & add another" (the deferred #1 yield wall) — BUILT
+`fitted/app/(app)/wardrobe/page.tsx` + 3 jsdom regression tests. Saves + resets the form without
+re-opening the modal. ADD-mode + photo-first footer only (Fable: the asymmetry IS the honest nudge —
+gradient toward corpus-valuable photos via convenience, not coercion). Reuses the savingRef latch (the
+sharp edge — add-another reopens the just-latched modal); rapid-double-tap saves once. 9/9 modal tests.
+
+### REQFIELDS-1 — required set relaxed to {name, category} (Fable-decided) — BUILT
+`lib/wardrobeValidation.ts` + microcopy. subCategory(Type) + colors were a CLIENT-ONLY tax (the engine
+derives clothingType from category alone; the server accepts sparse items — proven live). Fable verdict
+RELAX: required = {name, category} + photo nudge; Type + colors stay visible + encouraged, no guilt
+mechanics. Tripwire: watch friend #1's like-rate; if sparse hurts, backfill via edit, don't re-tighten.
+
+### B2 — the M6 export round-trip — BUILT (`scripts/export_track2.mjs`)
+See §3 above / the ops card. Round-trip proven live incl. the D2-deleted-item-photo seam + the
+export-sees-zero-for-a-deleted-user erasure seam. Yield readout folded into the manifest (one artifact).
+
+### Scoped new-code regression lane — CLEAN
+Fresh-context adversarial audit of the 3 surfaces (D2/REPLACE-1 keep-referenced-images + honesty×behavior
++ IDOR; one-tap dislike + H61 collapse; yield readout token): **no WALL/STUMBLE**. Erasure + IDOR + H61
+verified intact end-to-end (the erasure claim independently confirmed by the live 22→0 test). One
+COSMETIC: stale comment `wardrobe/page.tsx:1291` (predates D2) → ops card backlog.
+
+---
+
+## 4. DEFINITION OF DONE — "READY FOR FRIEND #1"
+- [x] (1) Friend gauntlet **Track A (data)** passes on the live app; every WALL fixed. **Track V (visual)
+      = Brian's phone filmstrip**, the last piece (see below) — friend-#0 script on the ops card.
+- [x] (2) add-another + the export round-trip BUILT, tested (latch-interaction + one reconstructed
+      training example), green.
+- [x] (3) content gauntlet: majority-plausible + zero lint absurdities in the modal personas + rescue
+      lands (1 formality-clash STUMBLE at 2% in an edge persona, monitored by outfit-lint).
+- [x] (4) scoped new-code regression lane clean.
+- [x] (5) green verified this session (see floors below); tree clean; committed on `main` (NOT pushed).
+- [x] (6) closing acts: ops card + observation channel + onboarding draft + doc compaction +
+      friend-#0 script (all on `track2-ops-card.md`).
+
+**READY FOR FRIEND #1** with these named open items (explicitly authorized to ship):
+- **WALL:** none open. The two genuine walls (photoless items, deleted-photo cascade) closed sessions
+  ago; the two remaining-open items (add-another, export) are BUILT this session.
+- **STUMBLE (fix by ROI, none block friend #1):** REQFIELDS-1 shipped; CONTENT-1 formality-clash
+  (monitored); OPS-1 operator-blind (mitigated by the observation channel).
+- **COSMETIC (log only):** COMMENT-1 stale comment; SEAM-1/2. All on the ops card.
+- **Observation channel + latency:** the ops-card daily/2-day command (yield readout + log skim);
+  unknown defects surface within ~1–2 days. **Friend #1's first week IS the final audit round.**
+- **The one piece requiring Brian (not code):** run the friend-#0 phone gauntlet (Track V, visual layer
+  curl can't see) + finalize the onboarding copy, then recruit. Push is Brian's (this session never pushed).
+
+### Green floors (run-verified this session)
+- jest **689 passed** + 10 skipped (grew 675→689: +12 outfitLint, +3 add-another, +4 REQFIELDS net).
+  10 skips = the 2 env-gated integration suites (corpusReadback ×8, localServiceSmoke ×2). No `it.skip`/`xit`.
+- `tsc --noEmit` clean; `npm run build` ✓.
+- pytest floor **≥1091** unaffected — zero changes to `ml-system/` or `service/` this session (verified green).
+- h26 pytest floor **≥305** untouched (nothing touched `experiments/h26`).
+- New live ops scripts are node `.mjs` (not in the jest floor); their behavior is proven by live runs
+  recorded above + the export round-trip harness.
+
 ### Track V (visual) — BRIAN'S filmstrip, pending
 The pixel/interaction layer (frozen button vs spinner, legible dead-ends, HEIC upright in the UI, tap
 targets, cold-start wait). Brian runs the visual gauntlet on his own phone/computer (friend #0); drop

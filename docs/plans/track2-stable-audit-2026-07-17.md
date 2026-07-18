@@ -1,3 +1,6 @@
+> COMPLETED 2026-07-17 — converged, pushed, both halves redeployed. Its residuals were re-graded in
+> the friend-ready session (2026-07-18); the live ones now live on `track2-ops-card.md`. History only.
+
 # Track 2 "stable version" audit — 2026-07-17
 
 > Tracker for the audit-and-harden campaign driving `main` to a new STABLE, PUSH-SAFE state before
