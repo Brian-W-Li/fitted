@@ -4,6 +4,7 @@ import { adminAuth } from "@/lib/firebaseAdmin";
 import { deriveClothingType, normalizeClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
 import { validateWardrobePatchPayload } from "@/lib/wardrobeRequestValidation";
+import { isImagePathReferenced } from "@/lib/imageReferences";
 
 async function getUserIdFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -192,7 +193,7 @@ export async function DELETE(
     const { userId } = userResult;
     const { id: itemId } = await params;
 
-    const { WardrobeItem, WardrobeImage } = await initDatabase();
+    const { WardrobeItem, WardrobeImage, GenerationSnapshot } = await initDatabase();
 
     const doc = await WardrobeItem.findOneAndDelete({
       _id: itemId,
@@ -206,13 +207,18 @@ export async function DELETE(
       );
     }
 
-    // Best-effort cleanup of any linked WardrobeImage document
+    // Best-effort cleanup of the linked WardrobeImage — UNLESS a GenerationSnapshot references it.
+    // A referenced image is corpus provenance for the M6 image-embedding re-measure (§D2 /
+    // lib/imageReferences); hard-deleting it would silently void the image side of every already-
+    // labeled outfit built from this item. Kept images are still purged on account-delete (erasure).
     const imagePath = (doc as { imagePath?: unknown }).imagePath;
     const imagePathStr = typeof imagePath === "string" ? imagePath : undefined;
     if (imagePathStr?.startsWith("mongo:")) {
       const imageId = imagePathStr.slice("mongo:".length);
       try {
-        await WardrobeImage.deleteOne({ _id: imageId, user: userId }).exec();
+        if (!(await isImagePathReferenced(GenerationSnapshot, userId, imagePathStr))) {
+          await WardrobeImage.deleteOne({ _id: imageId, user: userId }).exec();
+        }
       } catch (e) {
         // Log and continue; the main deletion has already succeeded
         console.error("Failed to delete linked wardrobe image:", e);

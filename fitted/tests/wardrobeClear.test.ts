@@ -8,7 +8,9 @@
 import { Types } from "mongoose";
 import { clearUserWardrobe } from "@/lib/clearWardrobe";
 
-function stubModels() {
+// `snapshotRefs` = the imageRefs the user's GenerationSnapshots reference (§D2 keep-set). Default []
+// (no snapshots) so the legacy "delete all images" behavior is exercised unchanged.
+function stubModels(snapshotRefs: string[] = []) {
   const calls: Record<string, Record<string, unknown>[]> = {};
   const model = (name: string, deletedCount?: number) => ({
     deleteMany: (filter: Record<string, unknown>) => {
@@ -21,6 +23,12 @@ function stubModels() {
     models: {
       WardrobeItem: model("wardrobeitems", 3),
       WardrobeImage: model("wardrobeimages"),
+      GenerationSnapshot: {
+        exists: () => ({ exec: async () => null }),
+        distinct: (_field: string, _filter: Record<string, unknown>) => ({
+          exec: async () => snapshotRefs,
+        }),
+      },
     },
   };
 }
@@ -52,9 +60,29 @@ describe("clearUserWardrobe", () => {
       },
     });
     const deleted = await clearUserWardrobe(
-      { WardrobeItem: model("wardrobeitems"), WardrobeImage: model("wardrobeimages") },
+      {
+        WardrobeItem: model("wardrobeitems"),
+        WardrobeImage: model("wardrobeimages"),
+        GenerationSnapshot: {
+          exists: () => ({ exec: async () => null }),
+          distinct: () => ({ exec: async () => [] }),
+        },
+      },
       new Types.ObjectId(),
     );
     expect(deleted).toBe(0);
+  });
+
+  it("KEEPS snapshot-referenced images: excludes them from the image deleteMany (§D2)", async () => {
+    const { calls, models } = stubModels(["mongo:keep1", "mongo:keep2"]);
+    const userId = new Types.ObjectId();
+
+    await clearUserWardrobe(models, userId);
+
+    // Items still fully deleted; images scoped to the user but EXCLUDING the referenced ids.
+    expect(calls.wardrobeitems).toEqual([{ user: userId }]);
+    expect(calls.wardrobeimages).toEqual([
+      { user: userId, _id: { $nin: ["keep1", "keep2"] } },
+    ]);
   });
 });

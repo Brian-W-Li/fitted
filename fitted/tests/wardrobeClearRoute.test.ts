@@ -12,6 +12,7 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import User from "@/models/User";
 import WardrobeItem from "@/models/WardrobeItem";
 import WardrobeImage from "@/models/WardrobeImage";
+import GenerationSnapshot from "@/models/GenerationSnapshot";
 
 jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
 jest.mock("@/lib/firebaseAdmin", () => ({ adminAuth: { verifyIdToken: jest.fn() } }));
@@ -23,7 +24,7 @@ let harness: MongoHarness;
 
 function mockDb() {
   const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
-  initDatabase.mockResolvedValue({ User, WardrobeItem, WardrobeImage });
+  initDatabase.mockResolvedValue({ User, WardrobeItem, WardrobeImage, GenerationSnapshot });
 }
 function setToken(uid: string | null) {
   const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
@@ -35,7 +36,7 @@ function setToken(uid: string | null) {
 
 let consoleErrorSpy: jest.SpyInstance;
 beforeAll(async () => {
-  harness = await startMemoryMongo([User, WardrobeItem, WardrobeImage]);
+  harness = await startMemoryMongo([User, WardrobeItem, WardrobeImage, GenerationSnapshot]);
 }, 120_000);
 afterAll(async () => {
   await harness.stop();
@@ -80,6 +81,24 @@ async function seedWardrobe(userId: string, n: number) {
     });
   }
 }
+// One item + its image, plus a GenerationSnapshot that references the image (the raw imageRef field
+// is all §D2 reads — insert directly to skip the snapshot's heavy required-field validation). Returns
+// the image _id string so the test can assert it SURVIVES the clear.
+async function seedReferencedImage(userId: string): Promise<string> {
+  const item = await WardrobeItem.create({
+    user: userId, name: "Referenced", category: "top", clothingType: "top", warmth: 2,
+  });
+  const img = await WardrobeImage.create({
+    user: userId, wardrobeItem: item._id,
+    base64: Buffer.from("PNG").toString("base64"), contentType: "image/png", sizeBytes: 3,
+  });
+  const imageId = img._id.toString();
+  await GenerationSnapshot.collection.insertOne({
+    user: new Types.ObjectId(userId),
+    itemSnapshots: [{ evidence: { image: { imageRef: `mongo:${imageId}` } } }],
+  });
+  return imageId;
+}
 
 describe("DELETE /api/wardrobe/clear — behavioral, real Mongo", () => {
   it("hard-deletes the caller's items AND images, returning the item deletedCount", async () => {
@@ -92,6 +111,20 @@ describe("DELETE /api/wardrobe/clear — behavioral, real Mongo", () => {
 
     expect(await WardrobeItem.countDocuments({ user: userId })).toBe(0);
     expect(await WardrobeImage.countDocuments({ user: userId })).toBe(0); // images not orphaned (§23-H14)
+  });
+
+  it("KEEPS an image a GenerationSnapshot references, deletes the unreferenced ones (§D2)", async () => {
+    const userId = await seedUser("firebase-uid");
+    await seedWardrobe(userId, 2); // 2 items + 2 unreferenced images
+    const keptImageId = await seedReferencedImage(userId); // +1 item + 1 referenced image
+
+    const res = await DELETE(makeRequest());
+    expect(res.status).toBe(200);
+    // All 3 items gone; the 2 unreferenced images gone; the 1 snapshot-referenced image SURVIVES so
+    // the M6 image-embedding re-measure can still re-fetch that accepted outfit's pixels.
+    expect(await WardrobeItem.countDocuments({ user: userId })).toBe(0);
+    expect(await WardrobeImage.countDocuments({ user: userId })).toBe(1);
+    expect(await WardrobeImage.countDocuments({ _id: new Types.ObjectId(keptImageId) })).toBe(1);
   });
 
   it("clears ONLY the caller's wardrobe, never another user's rows", async () => {

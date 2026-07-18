@@ -13,13 +13,16 @@ export async function DELETE(request: NextRequest) {
     const idToken = authHeader.slice("Bearer ".length).trim();
     const decoded = await adminAuth.verifyIdToken(idToken);
 
-    const { User, WardrobeItem, WardrobeImage } = await initDatabase();
+    const { User, WardrobeItem, WardrobeImage, GenerationSnapshot } = await initDatabase();
     const user = await User.findOne({ authProvider: "firebase", authId: decoded.uid }).exec();
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
 
-    const deletedCount = await clearUserWardrobe({ WardrobeItem, WardrobeImage }, user._id);
+    const deletedCount = await clearUserWardrobe(
+      { WardrobeItem, WardrobeImage, GenerationSnapshot },
+      user._id,
+    );
 
     return NextResponse.json({ ok: true, deletedCount });
   } catch (error) {
