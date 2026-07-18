@@ -1058,7 +1058,7 @@ function DashboardInner() {
         {!result && !inFlight && !error && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center">
             <p className="text-slate-600">Click &quot;Get Recommendations&quot; to see outfit suggestions.</p>
-            <p className="mt-2 text-sm text-slate-500">The more you like/dislike, the smarter the recommendations become.</p>
+            <p className="mt-2 text-sm text-slate-500">The more you like/dislike, the more the recommendations adjust to you.</p>
           </div>
         )}
       </div>

@@ -54,7 +54,7 @@ export default function LandingPage() {
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <p className="font-medium text-slate-900">Personalized outfit recommendations</p>
-              <p className="mt-1">Get outfit suggestions and let the ML model learn from your like/dislike feedback over time</p>
+              <p className="mt-1">Get outfit suggestions that adjust to your like/dislike feedback</p>
             </div>
           </div>
         </div>

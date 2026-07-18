@@ -250,7 +250,7 @@ export default function AccountPage() {
       <header className="mb-6">
         <h1 className="text-4xl font-semibold tracking-tight text-slate-900">Account</h1>
         <p className="mt-2 text-slate-600">
-          Manage your profile details used in outfit recommendations
+          Manage your profile details
         </p>
       </header>
 
