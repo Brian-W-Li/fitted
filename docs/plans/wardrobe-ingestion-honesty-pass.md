@@ -77,5 +77,25 @@ one fresh-context review, verify findings against source, mutation-verify any ne
 Fresh-eyes convergence round at the end (zero load-bearing or keep going). Commit per checkpoint on
 main; never push (Brian pushes + redeploys after approving copy).
 
-## Copy (draft — for Brian's voice)
-_Filled in as checkpoints land; Brian swaps before redeploy._
+## Copy (draft — for Brian's voice, swap before redeploy)
+Every string below is a WORKING DRAFT shipped so the flow is testable; none has reached a friend
+(not redeployed). Tighten in your voice, then redeploy.
+
+**Photo (C2):**
+- No-photo prompt (dashed box): "+ Add a photo" / "This is what powers the recommendations — and the
+  style-matching experiment. Items without a photo still work, but won't count toward it."
+- Photo-less save button: "Save without a photo" (tooltip: "This item won't count toward the
+  style-matching experiment").
+- Preview controls: "Change photo" / "Remove" / "Tap the photo to enlarge".
+
+**CV-off upload step (C3):**
+- Intro: "Add a clear photo of the item, then fill in a few quick details."
+- Primary button: "Continue →".
+
+**Confirm form (C3):**
+- Layer-role coaching: "Jacket, coat, or blazer? Set this to Outer layer so it's matched as outerwear."
+- Disclosure summary: "More details (optional)".
+- Quick guide (3 tips): "Photo & colors matter most: a clear photo and the real colors are what power
+  the recommendations — and the experiment." / "Category & type: pick the closest match — it sets how
+  outfits are built. For a jacket or coat, set Layer role to Outer." / "Occasions / contexts: add how
+  you actually wear it (e.g. gym, office, date night) to sharpen recommendations."

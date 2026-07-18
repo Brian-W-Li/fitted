@@ -66,3 +66,22 @@ describe("AddItemModal — photo strong-nudge gate (D1)", () => {
     expect(onSave.mock.calls[0][1]).toBe(file);
   });
 });
+
+describe("AddItemModal — collapsed 'More details' still submit (D2)", () => {
+  it("Pattern + Fit (in the optional disclosure) still reach the onSave payload — collapse doesn't drop data", async () => {
+    const onSave = jest.fn((_item: unknown, _file: File | null) => true);
+    const file = new File(["x"], "tee.jpg", { type: "image/jpeg" });
+    render(
+      <AddItemModal onClose={() => {}} onSave={onSave} initialItem={validItem} pendingAddFile={file} />,
+    );
+    // The <details> is collapsed by default, but the fields stay mounted — the whole point of the
+    // D2 collapse (simplify the form without dropping the wire shape). Set them without expanding.
+    await userEvent.selectOptions(screen.getByLabelText("Pattern"), "striped");
+    await userEvent.selectOptions(screen.getByLabelText("Fit"), "Slim");
+    await userEvent.click(screen.getByRole("button", { name: /save item/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const payload = onSave.mock.calls[0][0] as { pattern?: string; fit?: string };
+    expect(payload.pattern).toBe("striped");
+    expect(payload.fit).toBe("Slim");
+  });
+});

@@ -278,6 +278,9 @@ type AddItemModalProps = {
   isAnalyzing?: boolean;
   /** Error message from the most recent CV inference attempt, shown in the upload step. */
   cvError?: string | null;
+  /** True when the CV service is not configured — the upload step then drops the dead "Analyze
+   *  photo" CTA and makes manual entry the primary path. */
+  cvUnavailable?: boolean;
   /** Called when the user wants to skip CV and go directly to the form. Receives the currently-selected file (may be null). */
   onSkipToForm?: (file: File | null) => void;
   /** When editing, show current image and make file input optional so we don't overwrite. */
@@ -294,6 +297,7 @@ export function AddItemModal({
   onAnalyze,
   isAnalyzing,
   cvError,
+  cvUnavailable,
   onSkipToForm,
   existingImagePath,
 }: AddItemModalProps) {
@@ -569,7 +573,11 @@ export function AddItemModal({
               <span className="text-lg leading-none">×</span>
             </button>
           </div>
-          <p className="mb-4 text-sm text-slate-600">Upload a photo and we&apos;ll suggest category, colors, and more — or skip and fill in the details manually.</p>
+          <p className="mb-4 text-sm text-slate-600">
+            {cvUnavailable
+              ? "Add a clear photo of the item, then fill in a few quick details."
+              : "Upload a photo and we’ll suggest category, colors, and more — or skip and fill in the details manually."}
+          </p>
           <div
             className={`relative rounded-xl border-2 border-dashed transition-colors ${
               dragOver ? "border-slate-400 bg-slate-50" : "border-slate-200 bg-slate-50/50"
@@ -609,6 +617,7 @@ export function AddItemModal({
             imageFile={imageFile}
             isAnalyzing={isAnalyzing}
             cvError={cvError}
+            cvUnavailable={cvUnavailable}
             onClose={onClose}
             onAnalyze={onAnalyze}
             onSkipToForm={onSkipToForm}
@@ -628,13 +637,13 @@ export function AddItemModal({
             </div>
             <ul className="space-y-2 text-xs leading-5 text-slate-700">
               <li>
-                <span className="font-semibold text-slate-900">CV may be wrong:</span> photo recognition is a draft, always verify category, type, and colors before saving
+                <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> a clear photo and the real colors are what power the recommendations — and the experiment.
               </li>
               <li>
-                <span className="font-semibold text-slate-900">Check Layer role:</span> set base, mid, or outer so outfit matching handles stacking correctly
+                <span className="font-semibold text-slate-900">Category &amp; type:</span> pick the closest match — it sets how outfits are built. For a jacket or coat, set Layer role to Outer.
               </li>
               <li>
-                <span className="font-semibold text-slate-900">Use Occasions / contexts:</span> add how you usually wear this piece (e.g. gym, office, date night) to improve recommendations
+                <span className="font-semibold text-slate-900">Occasions / contexts:</span> add how you actually wear it (e.g. gym, office, date night) to sharpen recommendations.
               </li>
             </ul>
             <div className="mt-4 flex gap-2">
@@ -727,13 +736,13 @@ export function AddItemModal({
                 </div>
                 <ul className="space-y-2 text-xs leading-5 text-slate-700">
                   <li>
-                    <span className="font-semibold text-slate-900">CV may be wrong:</span> photo recognition is a draft, always verify category, type, and colors before saving
+                    <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> a clear photo and the real colors are what power the recommendations — and the experiment.
                   </li>
                   <li>
-                    <span className="font-semibold text-slate-900">Check Layer role:</span> set base, mid, or outer so outfit matching handles stacking correctly
+                    <span className="font-semibold text-slate-900">Category &amp; type:</span> pick the closest match — it sets how outfits are built. For a jacket or coat, set Layer role to Outer.
                   </li>
                   <li>
-                    <span className="font-semibold text-slate-900">Use Occasions / contexts:</span> add how you usually wear this piece (e.g. gym, office, date night) to improve recommendations
+                    <span className="font-semibold text-slate-900">Occasions / contexts:</span> add how you actually wear it (e.g. gym, office, date night) to sharpen recommendations.
                   </li>
                 </ul>
                 <div className="mt-4 flex gap-2">
@@ -850,50 +859,65 @@ export function AddItemModal({
               </div>
             </section>
 
-            {/* Style */}
+            {/* Layer role stays primary — it is the one explicit user knob over the outfit slot
+                (layerRole="outer" files the item as outer_layer; lib/clothingType.ts), and the
+                Category dropdown has no "Outerwear" value, so it is the correct filing path for a
+                jacket/coat. Pattern + Fit are stored-but-unused by the recommender today, so they
+                collapse under an optional <details> that keeps them MOUNTED — they still submit in
+                the wire shape (D2 invariant), the friend just isn't asked to fill dead fields. */}
             <section className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Style</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Pattern</label>
-                  <select
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                    value={pattern}
-                    onChange={(e) => setPattern(e.target.value)}
-                  >
-                    <option value="">Select…</option>
-                    {PATTERN_OPTIONS.map((p) => (
-                      <option key={p.value} value={p.value}>{p.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Layer role</label>
-                  <select
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                    value={layerRole}
-                    onChange={(e) => setLayerRole(e.target.value)}
-                  >
-                    <option value="">None / Not applicable</option>
-                    <option value="base">Base layer (e.g. tee, shirt)</option>
-                    <option value="mid">Mid layer (e.g. sweater)</option>
-                    <option value="outer">Outer layer (e.g. jacket, coat)</option>
-                  </select>
-                </div>
-              </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Fit</label>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Layer role</label>
                 <select
+                  aria-label="Layer role"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
-                  value={fit}
-                  onChange={(e) => setFit(e.target.value)}
+                  value={layerRole}
+                  onChange={(e) => setLayerRole(e.target.value)}
                 >
-                  <option value="">Select…</option>
-                  {FIT_OPTIONS.map((f) => (
-                    <option key={f} value={f}>{f}</option>
-                  ))}
+                  <option value="">None / Not applicable</option>
+                  <option value="base">Base layer (e.g. tee, shirt)</option>
+                  <option value="mid">Mid layer (e.g. sweater)</option>
+                  <option value="outer">Outer layer (e.g. jacket, coat)</option>
                 </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Jacket, coat, or blazer? Set this to <span className="font-medium">Outer layer</span> so it&apos;s matched as outerwear.
+                </p>
               </div>
+              <details className="rounded-lg border border-slate-200 bg-slate-50/50">
+                <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-600">
+                  More details (optional)
+                </summary>
+                <div className="grid grid-cols-2 gap-3 px-3 pb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Pattern</label>
+                    <select
+                      aria-label="Pattern"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                      value={pattern}
+                      onChange={(e) => setPattern(e.target.value)}
+                    >
+                      <option value="">Select…</option>
+                      {PATTERN_OPTIONS.map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Fit</label>
+                    <select
+                      aria-label="Fit"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300"
+                      value={fit}
+                      onChange={(e) => setFit(e.target.value)}
+                    >
+                      <option value="">Select…</option>
+                      {FIT_OPTIONS.map((f) => (
+                        <option key={f} value={f}>{f}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </details>
             </section>
 
             {/* When & where */}
@@ -1172,6 +1196,10 @@ export default function WardrobePage() {
   const [addPendingFile, setAddPendingFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [cvError, setCvError] = useState<string | null>(null);
+  // Distinct from cvError (which is also set on a transient inference failure): true when the CV
+  // service is not configured at all, so the upload step drops the dead "Analyze photo" CTA and makes
+  // manual entry the primary path (CV is off in production — the W-track replacement isn't built).
+  const [cvUnavailable, setCvUnavailable] = useState(false);
   const cvAbortRef = useRef<AbortController | null>(null);
   const [activeFilter, setActiveFilter] = useState<"all" | "top" | "bottom" | "one piece" | "footwear">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1413,6 +1441,7 @@ export default function WardrobePage() {
               setAddPendingFile(null);
               setIsAnalyzing(false);
               setCvError(null);
+              setCvUnavailable(false);
               cvAbortRef.current?.abort();
               cvAbortRef.current = null;
               setIsModalOpen(true);
@@ -1424,6 +1453,7 @@ export default function WardrobePage() {
                   if (!data.available) {
                     // Honest copy: "temporarily" was a false promise while CV is not configured
                     // at all (the W-track replacement isn't built yet) — never fake a comeback.
+                    setCvUnavailable(true);
                     setCvError(
                       data.reason === "not_configured"
                         ? "Photo analysis isn't set up yet — fill in the details yourself (about 30 seconds)."
@@ -1717,6 +1747,7 @@ export default function WardrobePage() {
           }}
           isAnalyzing={isAnalyzing}
           cvError={cvError}
+          cvUnavailable={cvUnavailable}
           onSkipToForm={(file) => {
             setAddInferred(null);
             setAddPendingFile(file);
