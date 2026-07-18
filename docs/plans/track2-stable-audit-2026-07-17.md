@@ -10,11 +10,12 @@
   push `af836070` (13 commits). Tree at start: `372707af`, clean, `main`.
 
 ## Green floors (run-verified this session)
-- jest **663 passed** + 9 skipped (grew 649→663). pytest **1091 passed**. `npm run build` ✓. `tsc` ✓.
-- 9 skips = 2 env-gated integration suites (`corpusReadback` needs live Atlas URI; `localServiceSmoke`
-  needs the deployed Fly URL+key). No `it.skip`/`xit` anywhere — nothing surgically disabled.
+- jest **674 passed** + 10 skipped (grew 649→674). pytest **1091 passed**. `npm run build` ✓. `tsc` ✓.
+- 10 skips = 2 env-gated integration suites (`corpusReadback` ×8 needs live Atlas URI;
+  `localServiceSmoke` ×2 needs the deployed Fly URL+key). No `it.skip`/`xit` anywhere — nothing
+  surgically disabled.
 - The gated **corpus-readback verifier was RUN live read-only** against the Track 2 Atlas: 8/8 pass
-  (7 integrity + the new yield readout).
+  (7 integrity + the new yield readout, which read Brian's cruft → "UNDERPOWERED, image-usable 0").
 
 ## Lane roster — all reported
 | Lane | Angle | Headline |
@@ -38,24 +39,25 @@
    depth, like/dislike balance, image-usable likes, cohort vs 30–60 decidability bar). Read-only,
    assertion-free instrument. LIVE-VERIFIED: read the current cruft → "UNDERPOWERED, image-usable
    likes 0" (the 8 placeholders are 0%-photo).
-4. `<this commit>` — doc reconciliation: runbook §8 "SATISFIED"→"RE-OPENED" (live build is behind
+4. `1ca0053e` — doc reconciliation: runbook §8 "SATISFIED"→"RE-OPENED" (live build is behind
    `main`; redeploy the web half + run erasure check before first friend); CLAUDE.md status; jest
    floor 649→663; Spec §23-H45 "→ implement at M5 C6" → IMPLEMENTED.
+5. `a4983e1a` — D2 delete-cascade fix (see decisions below).
+6. `f37da88b` — D1 one-tap dislike (see decisions below).
 
-## DECISIONS FOR BRIAN (verified load-bearing for the science; his call — see closing report)
-- **D1 — Feedback like/dislike friction asymmetry (Fable Q4c, verified `dashboard/page.tsx:1041-1042`).**
-  Like = 1 tap → posts `accepted`. Dislike = opens the "What didn't work?" modal → ≥2 interactions +
-  a screen before `rejected` posts. Cheaper likes bias the label distribution positive — the exact
-  signal the M6 re-measure trains on. Options: (a) make dislike one-tap too, structured reasons an
-  OPTIONAL follow-up; (b) keep mandatory reasons (richer §16 signal, accept the skew); (c) defer.
-  Touches the §16 feedback contract — Brian's design call, not landed unilaterally.
-- **D2 — Item-delete photo cascade voids labeled-outfit image data (Fable#2 / DP-F1, verified
-  `wardrobe/[id]/route.ts:215`).** Deleting an item (or Delete-all) hard-deletes its `WardrobeImage`;
-  any prior snapshot's `imageRef` to it dangles → irreversible image-side corpus loss (highest failure
-  rank). Fix is BACKEND (out of this pass's client-only scope): don't hard-delete a snapshot-referenced
-  image, or capture a snapshot-time image hash (schema already reserves `imageVersion`/`hash`). The new
-  yield readout now DETECTS it (image-usable likes < likes). Options: (a) expand scope, fix backend
-  now; (b) register + out-of-band mitigation (tell friends not to delete/re-add mid-study).
+The jest floor grew to **674** after D1/D2; docs (CLAUDE.md / campaign / this tracker) still cite
+663 as the post-doc-reconciliation number — update to 674 at the final doc pass if desired (663 is
+still met, so no floor is broken).
+
+## DECISIONS (Brian chose "fix both now" 2026-07-17 — both LANDED)
+- **D1 — Feedback like/dislike asymmetry → FIXED `f37da88b`.** One-tap dislike posts `rejected`
+  instantly (symmetric with Like); the structured reasons are an optional "Tell us why?" follow-up
+  that re-posts `rejected` with reasons, collapsed by per-candidate latest-state (§H61) so the
+  negative isn't double-counted. Yield readout deduped per candidate to match.
+- **D2 — Item/clear delete photo cascade → FIXED `a4983e1a`.** `lib/imageReferences` keeps a
+  snapshot-referenced image on item-delete and clear-wardrobe; account-delete still purges all
+  (erasure). Mutation-verified real-Mongo behavioral tests (referenced image survives, unreferenced
+  deleted, other-user ref doesn't protect).
 
 ## CHIPS (out of scope / ops — registered, not fixed)
 - **OPS-1 (FAIL L1, high).** No proactive failure alerting — every degraded path is legible to the
