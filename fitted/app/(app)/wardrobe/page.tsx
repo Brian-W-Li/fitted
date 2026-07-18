@@ -79,6 +79,21 @@ const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
 const CV_GUIDE_DISMISS_FOREVER_KEY = "fitted-cv-guide-dismiss-forever-v1";
 
+/** The CSS color to paint a swatch with, or null to show the label text-only. A 6-hex always works;
+ *  a name is used only if the browser resolves it as a real color (CSS.supports) — so "turquoise"/
+ *  "navy" paint, and a two-word name paints via its space-collapsed CSS form ("light blue" →
+ *  "lightblue", "dark red" → "darkred") while genuinely non-CSS names ("navy blue") fall back to
+ *  text-only rather than an empty circle. The STORED value is unchanged (it still reads as-typed to
+ *  the stylist); this only governs the display swatch. Guarded for jsdom, where CSS may be absent. */
+function swatchColor(c: string): string | null {
+  if (/^#[0-9A-Fa-f]{6}$/.test(c)) return c;
+  if (typeof CSS === "undefined" || typeof CSS.supports !== "function") return null;
+  if (CSS.supports("color", c)) return c;
+  const compact = c.replace(/\s+/g, "");
+  if (compact !== c && CSS.supports("color", compact)) return compact;
+  return null;
+}
+
 function imageUrlFromPath(imagePath?: string) {
   if (!imagePath) return null;
   if (imagePath.startsWith("mongo:")) {
@@ -216,16 +231,16 @@ function WardrobeCard({
         {item.colors.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5 items-center">
             {item.colors.map((c) => {
-              const isHex = /^#[0-9A-Fa-f]{6}$/.test(c);
+              const sc = swatchColor(c);
               return (
                 <span
                   key={c}
                   className="inline-flex items-center gap-1 rounded-full bg-slate-100 pl-1 pr-2 py-0.5 text-[11px] font-medium text-slate-700"
                 >
-                  {isHex && (
+                  {sc && (
                     <span
                       className="h-4 w-4 rounded-full border border-slate-300 shrink-0"
-                      style={{ backgroundColor: c }}
+                      style={{ backgroundColor: sc }}
                       title={c}
                     />
                   )}
@@ -813,28 +828,33 @@ export function AddItemModal({
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Colors *</h3>
               {colors.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {colors.map((hex: string) => (
-                    <span
-                      key={hex}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 pl-1 pr-2 py-1 bg-white shadow-sm"
-                    >
+                  {colors.map((c: string) => {
+                    const sc = swatchColor(c);
+                    const isHex = /^#[0-9A-Fa-f]{6}$/.test(c);
+                    return (
                       <span
-                        className="h-5 w-5 rounded-full border border-slate-200 shrink-0"
-                        style={{ backgroundColor: hex }}
-                        title={hex}
-                      />
-                      <span className="text-xs text-slate-700 font-mono">{hex}</span>
-                      <button
-                        type="button"
-                        onClick={() => setColors((prev: string[]) => prev.filter((c: string) => c !== hex))}
-                        disabled={colors.length <= 1}
-                        className="text-slate-400 hover:text-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400"
-                        aria-label="Remove color"
+                        key={c}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 pl-1 pr-2 py-1 bg-white shadow-sm"
                       >
-                        ×
-                      </button>
-                    </span>
-                  ))}
+                        {sc && (
+                          <span
+                            className="h-5 w-5 rounded-full border border-slate-200 shrink-0"
+                            style={{ backgroundColor: sc }}
+                            title={c}
+                          />
+                        )}
+                        <span className={`text-xs text-slate-700 ${isHex ? "font-mono" : ""}`}>{c}</span>
+                        <button
+                          type="button"
+                          onClick={() => setColors((prev: string[]) => prev.filter((x: string) => x !== c))}
+                          className="text-slate-400 hover:text-red-600 transition-colors"
+                          aria-label={`Remove color ${c}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               {formError && formError.includes("color") && (
@@ -1421,6 +1441,9 @@ export default function WardrobePage() {
           <h1 className="text-3xl font-semibold tracking-tight">Wardrobe</h1>
           <p className="mt-1 text-sm text-slate-600">
             Add pieces from your closet so we can start building outfits.
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            For the style-matching experiment, aim for ~15 items with photos — a couple of each type (tops, bottoms, shoes, outerwear).
           </p>
         </div>
         <div className="flex gap-2">

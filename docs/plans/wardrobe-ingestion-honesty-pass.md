@@ -67,10 +67,16 @@ rewrite, the CV-off intro copy.)
 - **C3 — Honesty (D2).** Kill dead "Analyze photo" CTA + fix CV-off intro copy; collapse
   pattern/fit behind disclosure (layerRole stays primary + coached); rewrite the guide. + behavioral
   test: collapsed fields still submit in the wire shape.
-- **C4 — Completeness (D4).** Static target hint; add-another-without-re-navigating.
-- **C5 — Mechanical.** Form color swatch: render the color only when it's a real CSS color
-  (`isHex || CSS.supports('color', c)`), else text-only (item-card parity); Enter-guard on Name;
-  allow removing the last color chip; duplicate-add guard on double-tap.
+- **C4 — Completeness (D4).** Static target hint DONE. **Add-another-without-re-navigating DEFERRED**
+  to a focused follow-up (it's a modal-lifecycle change — bulk-add flow — that deserves its own
+  design + tests rather than a bolt-on at the tail of a long session; Fable ranked it high-ROI, so
+  it's the top of the next-pass list, not dropped).
+- **C5 — Mechanical.** Form color swatch: `swatchColor()` paints hex + real CSS names (incl.
+  space-collapsed "light blue"→lightblue), else text-only (item-card parity, both use the helper);
+  allow removing the last color chip (save-time validation still enforces ≥1); mono font only for
+  hex labels. Enter-guard DROPPED (Enter-submit is now useful — with no photo there's no submit
+  button so it can't slip a photo-less item through; with a photo it saves). Duplicate-add guard
+  NOT NEEDED (the Save buttons are `disabled={saving}`, so a double-tap can't double-submit).
 
 Per-checkpoint: read real files first, match team style, `tsc`+`eslint`+`jest` on touched surface,
 one fresh-context review, verify findings against source, mutation-verify any new load-bearing test.
@@ -91,6 +97,10 @@ Every string below is a WORKING DRAFT shipped so the flow is testable; none has 
 **CV-off upload step (C3):**
 - Intro: "Add a clear photo of the item, then fill in a few quick details."
 - Primary button: "Continue →".
+
+**Wardrobe page (C4):**
+- Target hint: "For the style-matching experiment, aim for ~15 items with photos — a couple of each
+  type (tops, bottoms, shoes, outerwear)."
 
 **Confirm form (C3):**
 - Layer-role coaching: "Jacket, coat, or blazer? Set this to Outer layer so it's matched as outerwear."
