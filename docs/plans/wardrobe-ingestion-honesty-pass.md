@@ -98,9 +98,10 @@ main; never push (Brian pushes + redeploys after approving copy).
 - A stored edit photo can be Changed but not fully cleared (Remove shows only for a newly-picked
   file). By design (edit never overwrites the stored photo unless a new one is picked).
 
-## Copy (draft — for Brian's voice, swap before redeploy)
-Every string below is a WORKING DRAFT shipped so the flow is testable; none has reached a friend
-(not redeployed). Tighten in your voice, then redeploy.
+## Copy (Brian-approved 2026-07-17, provisional "for now")
+Brian reviewed the strings below and approved them as-is for the first friend rollout ("I like all
+your strings for now") — provisional, may be refined later, but NOT a blocker for redeploy. Listed
+here as the single home for the friend-facing copy.
 
 **Photo (C2):**
 - No-photo prompt (dashed box): "+ Add a photo" / "This is what powers the recommendations — and the
