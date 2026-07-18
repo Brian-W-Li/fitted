@@ -95,6 +95,16 @@ occasion pattern; photos-required ask). Campaign copy matches the house voice th
   live but never acknowledged on screen; the honest cheap version needs a small route change to
   surface what the reducers computed. The trust-lane + personalization surfaces are where the app
   stops reading as a GPT wrapper — both cheaper than they look (data already in the responses).
+- **Round-3 closing minors (registered by the final reviewer, all non-blocking):** (a) a
+  limiter-denied fresh render still pays the weather fetch + (for regens) the unprojected parent
+  read before the pacer runs — zero spend/writes, but a scripted unique-requestId loop gets
+  unbounded per-user Mongo/weather reads (fix sketch: requestId existence probe → limiter →
+  identity build); (b) the dashboard rescue-entry banner shows for a zero-item user (copy
+  prematurity — gate on wardrobe count if it grates); (c) occasion-chip errors render in the
+  modal footer, not beside the input like color errors; (d) the interactions ceiling is
+  check-then-create (concurrent posts at 1999 can land 2001 — soft bound, fine at friend scale);
+  (e) the GET-join test doesn't assert optionPath/risk/template — the exact fields a future
+  .select() edit would silently drop.
 - **F10 resume weather-identity window:** the §C.4 render identity includes `weatherRaw`, so a
   minutes-scale temp drift between render and resume 409s ("generate again" — graceful copy).
   Fix options: freeze `{weather, weatherRaw}` into the pending envelope, or drop `weatherRaw`
