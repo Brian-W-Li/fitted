@@ -27,6 +27,7 @@ import {
   MAX_IMAGE_URL_CHARS,
   WEATHER_BUCKETS,
   SUPPORTED_INTENTS,
+  GENERATOR_EXPECTATION,
 } from "@/lib/mlRequestAdapter";
 import { ALLOWED_ACTIONS, MAX_PER_ITEM_FEEDBACK } from "@/lib/interactions";
 import { INTERACTION_ROWS_SCAN_LIMIT, REPETITION_WINDOW_SNAPSHOTS } from "@/lib/mlBehavioralRows";
@@ -45,6 +46,7 @@ const CONTRACT = JSON.parse(
   crossRuntime: {
     clamps: Record<string, number>;
     reducerScanBounds: Record<string, number>;
+    generatorExpectation: Record<string, string | number>;
     enums: Record<string, string[]>;
     schemaEnums: Record<string, string[]>;
     formats: Record<string, FormatVector>;
@@ -95,6 +97,22 @@ const TS_REDUCER_SCAN_BOUNDS: Record<string, number> = {
   REPETITION_WINDOW_SNAPSHOTS,
 };
 
+// The §A.6 generator expectation values Next sends and the service exact-matches. `maxCompletionTokens`
+// is deliberately excluded — it is env-driven (both sides read the same env var), mirrored by shared-env
+// not a static value; the exhaustiveness check below pins that the mirror carries the STATIC set only.
+const TS_GENERATOR_EXPECTATION: Record<string, string | number> = {
+  provider: GENERATOR_EXPECTATION.provider,
+  model: GENERATOR_EXPECTATION.model,
+  temperature: GENERATOR_EXPECTATION.temperature,
+  apiSurface: GENERATOR_EXPECTATION.apiSurface,
+  responseFormat: GENERATOR_EXPECTATION.responseFormat,
+  reasoningEffort: GENERATOR_EXPECTATION.reasoningEffort,
+  storeMode: GENERATOR_EXPECTATION.storeMode,
+  promptCacheRetention: GENERATOR_EXPECTATION.promptCacheRetention,
+  timeoutSeconds: GENERATOR_EXPECTATION.timeoutSeconds,
+  maxRetries: GENERATOR_EXPECTATION.maxRetries,
+};
+
 const TS_ENUMS: Record<string, readonly string[]> = {
   weather: WEATHER_BUCKETS,
   intent: SUPPORTED_INTENTS,
@@ -130,6 +148,18 @@ describe("cross-runtime reducer scan bounds (TS == contract_fields.json crossRun
   for (const [name, value] of Object.entries(bounds)) {
     it(`${name} == ${value}`, () => {
       expect(TS_REDUCER_SCAN_BOUNDS[name]).toBe(value);
+    });
+  }
+});
+
+describe("cross-runtime generator expectation (TS == contract_fields.json crossRuntime.generatorExpectation)", () => {
+  const gen = CONTRACT.crossRuntime.generatorExpectation;
+  it("the TS generator-expectation map has EXACTLY the mirrored static keys (maxCompletionTokens is env-driven, excluded)", () => {
+    expect(Object.keys(TS_GENERATOR_EXPECTATION).sort()).toEqual(Object.keys(gen).sort());
+  });
+  for (const [name, value] of Object.entries(gen)) {
+    it(`${name} == ${JSON.stringify(value)}`, () => {
+      expect(TS_GENERATOR_EXPECTATION[name]).toBe(value);
     });
   }
 });

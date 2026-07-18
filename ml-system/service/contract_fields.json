@@ -85,6 +85,18 @@
         ]
       }
     },
+    "generatorExpectation": {
+      "apiSurface": "chat_completions",
+      "maxRetries": 0,
+      "model": "gpt-5.4-mini",
+      "promptCacheRetention": "in_memory",
+      "provider": "openai",
+      "reasoningEffort": "none",
+      "responseFormat": "json_schema_strict",
+      "storeMode": "none",
+      "temperature": 0.5,
+      "timeoutSeconds": 30.0
+    },
     "reducerScanBounds": {
       "INTERACTION_ROWS_SCAN_LIMIT": 500,
       "REPETITION_WINDOW_SNAPSHOTS": 50

@@ -690,6 +690,28 @@ def test_cross_runtime_reducer_scan_bounds_derive_from_reducers():
     }
 
 
+def test_cross_runtime_generator_expectation_derives_from_config():
+    """The mirrored §A.6 generator expectation is sourced from the SAME cfg constants
+    app._validate_generator_expectation exact-matches the wire block against, so a config value change
+    flows into the JSON the TS side pins (lib/mlRequestAdapter.ts GENERATOR_EXPECTATION). Asserts the
+    mirror equals the live config (a one-sided edit reddens) and that `maxCompletionTokens` stays OUT of
+    the static mirror — it is env-driven and mirrored by shared-env, not a static value."""
+    gen = contract.cross_runtime_mirror()["generatorExpectation"]
+    assert gen == {
+        "provider": cfg.GENERATOR_PROVIDER,
+        "model": cfg.GENERATOR_MODEL,
+        "temperature": cfg.GENERATOR_TEMPERATURE,
+        "apiSurface": cfg.GENERATOR_API_SURFACE,
+        "responseFormat": cfg.GENERATOR_RESPONSE_FORMAT,
+        "reasoningEffort": cfg.GENERATOR_REASONING_EFFORT,
+        "storeMode": cfg.GENERATOR_STORE_MODE,
+        "promptCacheRetention": cfg.GENERATOR_PROMPT_CACHE_RETENTION,
+        "timeoutSeconds": cfg.OPENAI_TIMEOUT_SECONDS,
+        "maxRetries": cfg.OPENAI_MAX_RETRIES,
+    }
+    assert "maxCompletionTokens" not in gen
+
+
 def test_cross_runtime_schema_enums_derive_from_fitted_core():
     """The candidate/role enums the GenerationSnapshot Mongoose schema re-declares are mirrored FROM the
     fitted_core ontology by cross_runtime_mirror(), so a member added to Role/Template/OptionPath/Risk/

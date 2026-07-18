@@ -217,6 +217,26 @@ CROSS_RUNTIME_REDUCER_SCAN_BOUNDS: dict[str, int] = {
     "REPETITION_WINDOW_SNAPSHOTS": REPETITION_WINDOW_SNAPSHOTS,
 }
 
+# Generator expectation (§A.6) — the STATIC generator fields the service exact-matches the wire
+# `generator` block against (app._validate_generator_expectation). Next re-declares these as
+# GENERATOR_EXPECTATION (lib/mlRequestAdapter.ts); a drift means every render is rejected pre-spend at
+# runtime, caught late — so source the values from the same cfg constants the exact-match reads and
+# have the TS side assert equality offline. `maxCompletionTokens` is intentionally ABSENT: it is
+# env-driven (config.max_completion_tokens, within the token band), and Next reads the SAME env name,
+# so it is mirrored by shared-env, not by a static value.
+CROSS_RUNTIME_GENERATOR_EXPECTATION: dict[str, object] = {
+    "provider": cfg.GENERATOR_PROVIDER,
+    "model": cfg.GENERATOR_MODEL,
+    "temperature": cfg.GENERATOR_TEMPERATURE,
+    "apiSurface": cfg.GENERATOR_API_SURFACE,
+    "responseFormat": cfg.GENERATOR_RESPONSE_FORMAT,
+    "reasoningEffort": cfg.GENERATOR_REASONING_EFFORT,
+    "storeMode": cfg.GENERATOR_STORE_MODE,
+    "promptCacheRetention": cfg.GENERATOR_PROMPT_CACHE_RETENTION,
+    "timeoutSeconds": cfg.OPENAI_TIMEOUT_SECONDS,
+    "maxRetries": cfg.OPENAI_MAX_RETRIES,
+}
+
 # Enum value-sets both runtimes gate on — derived from the live config/ontology.
 CROSS_RUNTIME_ENUMS: dict[str, list[str]] = {
     "weather": sorted(cfg.WEATHER_BUCKETS),
@@ -297,6 +317,7 @@ def cross_runtime_mirror() -> dict:
         ),
         "clamps": dict(CROSS_RUNTIME_CLAMPS),
         "reducerScanBounds": dict(CROSS_RUNTIME_REDUCER_SCAN_BOUNDS),
+        "generatorExpectation": dict(CROSS_RUNTIME_GENERATOR_EXPECTATION),
         "serviceOnlyClamps": {
             "_comment": (
                 "Constants enforced ONLY by the service (ml-system/service/config.py) and "
