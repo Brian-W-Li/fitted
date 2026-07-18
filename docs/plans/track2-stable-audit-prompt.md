@@ -15,6 +15,23 @@ you NEVER push and NEVER deploy — Brian does that manually after you converge.
 CREATIVE: invent your own audit angles; do not run a checklist.
 
 ═══════════════════════════════════════════════════════════════════════════
+ORCHESTRATION & MODELS (how to run this)
+═══════════════════════════════════════════════════════════════════════════
+- YOU are the coordinator — a high-reasoning Opus session. Own the correctness-heavy work
+  yourself: read source, spawn/parse lanes, verify every finding against source, land fixes,
+  reconcile docs, judge convergence. Do NOT delegate the coordinator judgment.
+- Fan out the audit as PARALLEL, FRESH-CONTEXT, REPORT-ONLY auditor subagents via the Agent tool,
+  one per angle, each handed its 10–15 named doubts.
+- FABLE (Agent model:"fable") is a spawned SEAT, used ONLY for the judgment calls this prompt marks
+  — the ambition/user-orientation lens (Q1–Q6, merit M1–M3), the honesty-of-copy ruling (angle D),
+  anti-capture/dark-pattern (angle G), and any "is this right for the friend/ambition" decision.
+  Fable judges promise-fidelity; it is NEVER the coordinator and never lands fixes.
+- Workflows/ultracode are OPTIONAL: you may run the deterministic finder→verify→dedup fan-out
+  phases as Workflows for exhaustiveness, but the fix-landing + convergence judgment stays in your
+  adaptive main loop. Plain Agent-tool fan-out is sufficient; use heavier orchestration only if it
+  buys real coverage, not ceremony.
+
+═══════════════════════════════════════════════════════════════════════════
 THE MOMENT (why this audit exists — internalize before touching anything)
 ═══════════════════════════════════════════════════════════════════════════
 Fitted is LIVE with real money: https://fitted-three.vercel.app (Vercel) → a Fly render service
