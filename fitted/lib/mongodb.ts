@@ -30,7 +30,12 @@ export async function connectMongo(): Promise<typeof mongoose> {
 
   if (!cached.promise) {
     cached.promise = mongoose.connect(uri, {
-      autoIndex: true,
+      // autoIndex ON in dev/test (auto-builds indexes on a fresh DB, incl. the in-memory test Mongo),
+      // OFF in production: with autoIndex on, every COLD serverless instance re-synchronizes all
+      // models' indexes against the (slow, free-tier M0) DB before serving its first request — a real
+      // cold-start tax on a sole-user deployment. Prod indexes are already built out-of-band; a NEW
+      // index (schema change) now requires a one-time manual build in prod.
+      autoIndex: process.env.NODE_ENV !== "production",
       maxPoolSize: 5,
     });
   }
