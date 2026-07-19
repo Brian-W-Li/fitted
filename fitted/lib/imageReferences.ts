@@ -10,6 +10,12 @@
 
 const MONGO_PREFIX = "mongo:";
 const IMAGE_REF_PATH = "itemSnapshots.evidence.image.imageRef";
+// A WardrobeImage _id is always a 24-hex ObjectId. `imagePath` is a free-form PATCH field, so a
+// snapshot's imageRef could carry a non-hex tail ("mongo:garbage"); a non-hex id must NOT reach the
+// clear-wardrobe `_id: {$nin: keepIds}` filter, where Mongoose would CastError → 500 AFTER the item
+// delete already ran (a partial clear). Mirror the item-delete guard (`[id]/route.ts` OBJECT_ID_RE)
+// + the export's `parseImageId` — drop non-hex tails here rather than crash downstream.
+const IMAGE_ID_RE = /^[a-f0-9]{24}$/i;
 
 type ExistsQuery = { exec: () => Promise<unknown> };
 type DistinctQuery = { exec: () => Promise<unknown[]> };
@@ -39,7 +45,10 @@ export async function referencedImageIds(
   const refs = await SnapshotModel.distinct(IMAGE_REF_PATH, { user: userId }).exec();
   const ids = new Set<string>();
   for (const r of refs) {
-    if (typeof r === "string" && r.startsWith(MONGO_PREFIX)) ids.add(r.slice(MONGO_PREFIX.length));
+    if (typeof r !== "string" || !r.startsWith(MONGO_PREFIX)) continue;
+    const id = r.slice(MONGO_PREFIX.length);
+    // Only real 24-hex ids can name a WardrobeImage; a non-hex tail would CastError the $nin filter.
+    if (IMAGE_ID_RE.test(id)) ids.add(id);
   }
   return [...ids];
 }

@@ -391,7 +391,13 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
     // signs before deciding the winning tab — filtering by action in the query would strand a flipped
     // candidate under its stale sign. Same deterministic sort as the reducer's projection.
     const { OutfitInteraction, GenerationSnapshot } = deps.models;
+    // Project ONLY what pickLatestPerCandidate + projectHistoryCard read: the binding/order fields +
+    // action + occasion. The card CONTENT is server-joined from the snapshot (below), never the row —
+    // so an unprojected find would pull heavy per-row fields (perItemFeedback notes, feedbackReason
+    // rawText, items) for up to HISTORY_SCAN_LIMIT (2000) rows and discard them. On the free-tier M0
+    // wire that read cost is real (and it fires again on every dashboard restore-reconcile).
     const rawRows = (await OutfitInteraction.find({ user: userObjectId })
+      .select("action context.occasion createdAt snapshotId candidateId")
       .sort({ createdAt: -1, _id: -1 })
       .limit(HISTORY_SCAN_LIMIT)
       .lean()
@@ -413,8 +419,8 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
     const snapshotById = new Map<string, Any>();
     if (snapshotIds.length > 0) {
       // Project ONLY what projectHistoryCard reads — a full snapshot carries generationAttempts
-      // rawText (up to 120KB each) + rawEmitted blobs, and the history page fires two of these
-      // ≤50-snapshot joins per view; unprojected, that's multi-MB reads growing with every week
+      // rawText (up to 120KB each) + rawEmitted blobs, and the history page fires this join over the
+      // deduped candidate set per view; unprojected, that's multi-MB reads growing with every week
       // of real use.
       const snapshots = (await GenerationSnapshot.find({ _id: { $in: snapshotIds }, user: userObjectId })
         .select(

@@ -55,16 +55,27 @@ describe("isImagePathReferenced", () => {
 });
 
 describe("referencedImageIds", () => {
+  const A = "a".repeat(24); // realistic 24-hex WardrobeImage _ids
+  const B = "b".repeat(24);
+
   it("returns the distinct image ids with the mongo: prefix stripped", async () => {
-    const { calls, model } = distinctStub(["mongo:a", "mongo:b"]);
+    const { calls, model } = distinctStub([`mongo:${A}`, `mongo:${B}`]);
     const ids = await referencedImageIds(model, "u1");
-    expect(ids.sort()).toEqual(["a", "b"]);
+    expect(ids.sort()).toEqual([A, B].sort());
     expect(calls).toEqual([{ field: IMAGE_REF_PATH, filter: { user: "u1" } }]);
   });
 
   it("ignores non-string / non-mongo / null refs (dangling old refs are harmless)", async () => {
-    const { model } = distinctStub(["mongo:a", null, "", "http://x", 42]);
-    expect(await referencedImageIds(model, "u1")).toEqual(["a"]);
+    const { model } = distinctStub([`mongo:${A}`, null, "", "http://x", 42]);
+    expect(await referencedImageIds(model, "u1")).toEqual([A]);
+  });
+
+  it("drops a non-hex tail so it can't CastError the clear-wardrobe $nin filter (partial-clear 500)", async () => {
+    // `imagePath` is a free-form PATCH field, so a snapshot ref could be "mongo:garbage". A non-hex
+    // id must never reach `WardrobeImage.deleteMany({_id:{$nin:[...]}})` (Mongoose ObjectId cast → 500
+    // AFTER the item delete already ran). The guard drops it; the valid id is still kept.
+    const { model } = distinctStub([`mongo:${A}`, "mongo:garbage", "mongo:short", `mongo:${B}xyz`]);
+    expect((await referencedImageIds(model, "u1")).sort()).toEqual([A]);
   });
 
   it("returns an empty array when the user has no referencing snapshots", async () => {

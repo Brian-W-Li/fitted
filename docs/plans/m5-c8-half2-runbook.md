@@ -265,6 +265,17 @@ restored-chip reconciliation; the SHOULD-FIX copy/polish batch incl. `error.tsx`
 --prod` from `fitted/`, Fly untouched → stays 1 machine). Remaining: **NEW-D** (Atlas M0→M2 ~$9/mo cost
 decision) + the OBSERVE-only items. Bounded CURATE-1/2/3 + TEST-1 residuals live in that plan.
 
+**Pre-friend deploy re-verify (fail-SILENT env footguns — a 2026-07-19 whole-codebase sweep finding).**
+Every core-flow misconfig degrades *silently* to an empty state (no 500, no alarm), so a mistyped env var =
+zero friend yield you only notice by watching. After ANY redeploy, before the next friend:
+1. `USE_ML_SHORTLISTER` is exactly `true` (any other value → permanent "stylist temporarily unavailable").
+2. `FITTED_SERVICE_KEY` (Vercel) byte-equals `SERVICE_KEY_CURRENT` (Fly) — the naming footgun above; a
+   mismatch degrades to `auth_failed`, an *unset* `ML_SERVICE_URL`/`FITTED_SERVICE_KEY` 500s every render.
+3. If you ever tune `M5_MAX_COMPLETION_TOKENS`, set it on BOTH Vercel and Fly (drift → silent
+   `contract_invalid` empty state); keep `ML_SERVICE_TIMEOUT_MS` ≤ ~45s (too high → platform 504).
+4. **The real gate:** run ONE real render in the live UI and confirm the response is `bindable:true` (a
+   like/dislike actually records) — that single check catches all of the above at once.
+
 **Pull the corpus (M6 export, read-only):**
 ```sh
 cd fitted && node scripts/export_track2.mjs --uri "$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" --out ./track2-export

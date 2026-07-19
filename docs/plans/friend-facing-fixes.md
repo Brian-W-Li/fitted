@@ -42,7 +42,32 @@ in runbook §8. Floors grew **721→758 jest / 1095→1096 pytest**; tsc/eslint(
   NEW-A (event hint). **F12 verified** (replace works + D2-correct; clear-to-nothing intentionally absent —
   photos are the corpus).
 
+## WHOLE-CODEBASE SWEEP 2026-07-19 (5 fresh-context lanes over the 18th+19th window vs baseline 1e13ed5b)
+
+Ran after the commit above to answer "did the 18th+19th window make anything WORSE, and any leftover
+errors anywhere." Lanes: dashboard-feedback regression, wardrobe-ingestion regression, core-recommend+API
+sweep, data-integrity+erasure whole-app, history/interactions cross-consumer. **Result: no regressions,
+both sacred promises (append-only corpus + account-erasure) hold, core value path untouched + hardened.**
+The 18th's REQFIELDS-1 actually *improved* corpus safety (category is now a required select — no silent
+mis-slotted item). Two small fixes applied + tested (floor 758→759 jest):
+- **PERF-1 (regression, fixed):** the History GET `find` was unprojected — up to 2000 full interaction rows
+  pulled per view (and per dashboard restore-reconcile) vs baseline's 50-row cap. Added `.select(...)` to
+  the 6 fields actually read. ~40× less M0 wire read.
+- **CLEAR-1 (pre-existing, fixed):** `referencedImageIds` didn't hex-validate the id tail, so a crafted
+  `imagePath="mongo:garbage"` could CastError the clear-wardrobe `$nin` → 500 *after* items deleted
+  (partial clear). Added a hex guard mirroring the item-delete path + `parseImageId`; regression test added.
+- **DEPLOY (config, not code):** every core-flow misconfig fails *silently* to a degraded empty state, so a
+  mistyped env var = zero friend yield with no alarm. Pre-friend checklist now in runbook §8.
+
 ## KNOWN RESIDUALS (bounded, non-corrupting or astronomically rare — registered, not fixed)
+- **TOCTOU-1 (latent, pre-existing)** — item-delete / clear-wardrobe check "image not referenced" then
+  delete; a render persisting a snapshot that references it in that window leaves the fresh outfit's image
+  side `unresolved` in the export. One image, corpus-only, needs delete-during-in-flight-render. Inherent
+  to the D2 design; not worth a lock at study scale.
+- **ERASE-SELFHEAL-1 (latent, pre-existing)** — the in-flight erasure self-heal (`interactions.ts` +
+  `mlRecommend.ts`) deletes ALL of a user's rows when a single `User.exists` read returns false; a
+  false-negative read would over-delete a live corpus. Impossible on single-node Atlas M0; revisit only if
+  read-replicas are ever added.
 - **CURATE-1** — a History flip-to-dislike is reasonless (no modal there), so a flip-flop (dislike→like→
   dislike) loses the original `feedbackReason`. The LABEL stays correct (rejected); only the optional
   "why" is lost. Fixing = carry-forward the latest same-sign reason in the collapse (changes the pinned

@@ -74,7 +74,9 @@ describe("clearUserWardrobe", () => {
   });
 
   it("KEEPS snapshot-referenced images: excludes them from the image deleteMany (§D2)", async () => {
-    const { calls, models } = stubModels(["mongo:keep1", "mongo:keep2"]);
+    const keep1 = "1".repeat(24); // realistic 24-hex WardrobeImage _ids (the guarded id shape)
+    const keep2 = "2".repeat(24);
+    const { calls, models } = stubModels([`mongo:${keep1}`, `mongo:${keep2}`]);
     const userId = new Types.ObjectId();
 
     await clearUserWardrobe(models, userId);
@@ -82,7 +84,7 @@ describe("clearUserWardrobe", () => {
     // Items still fully deleted; images scoped to the user but EXCLUDING the referenced ids.
     expect(calls.wardrobeitems).toEqual([{ user: userId }]);
     expect(calls.wardrobeimages).toEqual([
-      { user: userId, _id: { $nin: ["keep1", "keep2"] } },
+      { user: userId, _id: { $nin: [keep1, keep2] } },
     ]);
   });
 });
