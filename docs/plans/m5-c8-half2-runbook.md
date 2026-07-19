@@ -287,7 +287,9 @@ read-back. All gated `TRACK2_LIVE_OK=1`; they write the live corpus + spend $, s
 closet, no verdict matters; if you can, your thumbs are the "ready" signal. **Screenshot each step** — that
 filmstrip is the visual layer the API driver can't see (frozen-button-vs-spinner, HEIC upright, legible
 dead-ends, tap targets). 1) Sign in on your phone (real browser). 2) Add ~10 real items via **"Save & add
-another"** — smooth now? Include one **HEIC**, one **12MP**, one **sideways** photo — stored upright? 3) Stop
+another"** — smooth now? Include one **HEIC**, one **12MP**, and one shot with the **phone rotated to landscape** — does it
+display **upright** (EXIF-rotation check)? (NB: a garment *laid* sideways will correctly stay sideways —
+that's faithful capture, not a bug; nothing can auto-upright a garment.) 3) Stop
 at ~3 items, try to generate — is the "add N more" dead-end legible? 4) Generate at ~8 items — believable?
 spinner or frozen button? try a **cold** one (20–40s wall — what shows?). 5) Like + dislike — each acknowledged?
 6) Rescue (build around an item) — how many taps, does it center your item sanely? 7) Edit/change-photo/remove
