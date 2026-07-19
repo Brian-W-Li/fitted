@@ -257,6 +257,15 @@ wall day 1 and you learn day 9. Minimum watch = the corpus/yield readout (the `c
 above) + a log/spend skim (`fly logs … | tail`, `fly scale show` = 1, OpenAI dashboard). Friend #1's
 first week IS the final audit round — unknown defects surface here within ~1–2 days, not via more static audits.
 
+**Friend-facing polish backlog** (from the 2026-07-18 4-lane surface trace; F1–F4 shipped `c73ccf99`/`fix F4 copy`).
+Nothing blocking; ranked-ish, all with code cites verifiable via grep:
+- **F5** — no way to undo/correct a like/dislike in the UI (`dashboard/page.tsx:531`); History copy says "react again" but that's near-impossible (can't re-surface the outfit). Fix: flip a reaction on the History page.
+- **F6** — ~3s CV-optimistic window on the add modal (`wardrobe:648`) shows "we'll suggest…"/enabled "Analyze photo" that fails (CV off). Fix: default `cvUnavailable=true`.
+- **F7** — "style-matching experiment" jargon leaks to friends (`wardrobe:1123`+). Soften to plain words.
+- **NEW-A** — the Event-description hint "…and any constraints" is vague/misleading (Brian: "what constraints?"). It's free prose; reword to e.g. "…and anything to keep in mind (comfort, dress code)."
+- **NEW-B** — the **risk** axis (safe/noticeable/bold) is invisible for a basic/neutral closet: it's driven by `visibility` (bold tags + contrast pairs, `response.py assign_risk`), so a plain-tees-and-jeans closet always reads "safe". Not a bug — but the axis adds no visible variety unless the closet has bold pieces (demo-value note; optionPath still varies).
+- **F8** dev-toned auth errors leak (`signin:15,30`); **F9** no `error.tsx`/`not-found.tsx` boundary; **F10** `notEnoughItems` empty state has no `/wardrobe` link (`dashboard`); **F11** HEIC generic reject (`wardrobe:395`); **F12** edit can't fully clear a stored photo (`wardrobe:1103`, likely D2-intended); **F13** regenerate on a rated card silently replaces the list; **F14** raw engineer-toned lock errors (`mlRecommend.ts:246`); **F15** pre-GPT daily "not enough" copy generic; **F16** partial render (1–2 of 3) drops the insufficient hint (`dashboard:1055`); **F17** 8 engineFailureVocab codes collapse to 2 browser outcomes (corpus keeps detail — acceptable).
+
 **Pull the corpus (M6 export, read-only):**
 ```sh
 cd fitted && node scripts/export_track2.mjs --uri "$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" --out ./track2-export

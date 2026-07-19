@@ -1066,15 +1066,16 @@ function DashboardInner() {
 
         {error && <div className="mt-4 p-4 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
-        {/* In-flight — the Fly service is a single machine, so a cold first request is ~20–40s. Without
-            this a friend sees only a disabled "Generating…" button and thinks it froze (F4). */}
+        {/* In-flight — the stylist is a gpt-5.4-mini generation call, so EVERY generate takes ~20–40s
+            (not a one-time cold start — the Fly machine stays warm). Without this a friend sees only a
+            disabled "Generating…" button and thinks it froze (F4). */}
         {inFlight && shown.length === 0 && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center border border-slate-200">
             <div className="inline-flex items-center gap-3 text-slate-600">
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" aria-hidden="true" />
-              <span>Building your outfits…</span>
+              <span>Putting looks together…</span>
             </div>
-            <p className="mt-2 text-sm text-slate-500">The first request can take up to ~30 seconds while the stylist warms up.</p>
+            <p className="mt-2 text-sm text-slate-500">This usually takes 20–40 seconds — the stylist is thinking it through.</p>
           </div>
         )}
 
