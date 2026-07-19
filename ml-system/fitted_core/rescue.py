@@ -743,8 +743,18 @@ _REPAIR_INSTRUCTION = (
 # User-facing hint when generation/filtering/ranking left fewer than ``n_surfaced`` outfits
 # (spearhead.md §H "All candidates drop" / "Fewer than n_surfaced survive"). Never silent: an
 # honest partial still tells the user what happened, mirroring the pre-GPT sufficiency hint.
+# Intent-specific: the OLD single string said "wear this item … try regenerating", which is wrong for
+# DAILY (no forced item) AND misleading whenever the shortfall is structural (a thin closet is
+# combinatorially capped, so regenerating cannot conjure more distinct looks — it just re-spends). Lead
+# with the actionable "add a few more pieces" advice (honest for the common thin-closet case) and offer
+# "or try again" for the rarer stochastic miss.
 _INSUFFICIENT_AFTER_GENERATION_HINT = (
-    "couldn't assemble enough distinct ways to wear this item right now — try regenerating"
+    "couldn't find enough distinct ways to wear this piece right now — "
+    "add a few more items to pair it with, or try again"
+)
+_DAILY_INSUFFICIENT_AFTER_GENERATION_HINT = (
+    "couldn't put together enough distinct outfits right now — "
+    "add a few more pieces for more variety, or try again"
 )
 
 
@@ -1461,7 +1471,7 @@ def _render_daily(
         not_enough_items=False,
         insufficient_after_generation=insufficient,
         spread_collapsed=spread_collapsed,
-        reason_hint=_INSUFFICIENT_AFTER_GENERATION_HINT if insufficient else None,
+        reason_hint=_DAILY_INSUFFICIENT_AFTER_GENERATION_HINT if insufficient else None,
         fallback_stage=ranked.fallback_stage,
     )
 
@@ -1552,7 +1562,7 @@ def _render_daily_with_trace(
         not_enough_items=False,
         insufficient_after_generation=insufficient,
         spread_collapsed=build_trace.spread_collapsed,
-        reason_hint=_INSUFFICIENT_AFTER_GENERATION_HINT if insufficient else None,
+        reason_hint=_DAILY_INSUFFICIENT_AFTER_GENERATION_HINT if insufficient else None,
         fallback_stage=ranked.fallback_stage,
     )
     return RenderTrace(

@@ -317,7 +317,10 @@ export function AddItemModal({
   existingImagePath,
 }: AddItemModalProps) {
   const [name, setName] = useState(initialItem?.name ?? "");
-  const [category, setCategory] = useState(initialItem?.category ?? "top");
+  // Empty default (not "top") so a new item forces a real Category choice — a silent "top" default
+  // mis-slots shoes/jackets and corrupts the M6 corpus (validateWardrobeForm rejects "", so the
+  // "Select a category…" placeholder makes the required marker actually bite). Edit keeps its value.
+  const [category, setCategory] = useState(initialItem?.category ?? "");
   const [subCategory, setSubCategory] = useState(initialItem?.subCategory ?? "");
   const [colors, setColors] = useState<string[]>(initialItem?.colors ?? []);
   const [colorsInput, setColorsInput] = useState("");
@@ -360,7 +363,7 @@ export function AddItemModal({
   useEffect(() => {
     if (!initialItem || isUploadStep) return;
     setName(initialItem.name ?? "");
-    setCategory(initialItem.category ?? "top");
+    setCategory(initialItem.category ?? "");
     setSubCategory(initialItem.subCategory ?? "");
     setColors(initialItem.colors ?? []);
     setPattern(initialItem.pattern ?? "");
@@ -472,7 +475,7 @@ export function AddItemModal({
    *  latch; a rapid follow-up tap is instead blocked by the now-empty name failing validation. */
   function resetFormForAddAnother() {
     setName("");
-    setCategory("top");
+    setCategory("");
     setSubCategory("");
     setColors([]);
     setColorsInput("");
@@ -862,6 +865,9 @@ export function AddItemModal({
                     onChange={(e) => setCategory(e.target.value)}
                     required
                   >
+                    <option value="" disabled>
+                      Select a category…
+                    </option>
                     {CATEGORY_OPTIONS.map((c) => (
                       <option key={c.value} value={c.value}>{c.label}</option>
                     ))}

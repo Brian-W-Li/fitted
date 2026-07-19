@@ -480,6 +480,15 @@ const OPTION_PATH_LABEL: Record<string, string> = {
   bridge: "Bridge",
   stretch: "Stretch",
 };
+// Friendly-cased risk labels (the schema value is lowercase — never show the raw enum to a friend).
+const RISK_LABEL: Record<string, string> = {
+  safe: "Safe",
+  noticeable: "Noticeable",
+  bold: "Bold",
+};
+// Hover copy (desktop) — the always-visible legend under the results covers mobile.
+const PATH_TOOLTIP = "How adventurous the combo is: Reliable (safe, familiar) → Bridge → Stretch (more experimental).";
+const RISK_TOOLTIP = "How much the look stands out: Safe (understated) → Noticeable → Bold (a statement).";
 
 function OutfitCard({
   outfit,
@@ -512,12 +521,18 @@ function OutfitCard({
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full">
+          <span
+            className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full"
+            title={outfit.optionPath ? PATH_TOOLTIP : undefined}
+          >
             {(outfit.optionPath && OPTION_PATH_LABEL[outfit.optionPath]) ?? `Outfit ${index + 1}`}
           </span>
           {outfit.risk && (
-            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${RISK_BADGE[outfit.risk] ?? "bg-slate-100 text-slate-600"}`}>
-              {outfit.risk}
+            <span
+              className={`px-2 py-1 text-xs font-semibold rounded-full ${RISK_BADGE[outfit.risk] ?? "bg-slate-100 text-slate-600"}`}
+              title={RISK_TOOLTIP}
+            >
+              {RISK_LABEL[outfit.risk] ?? outfit.risk}
             </span>
           )}
         </div>
@@ -1051,12 +1066,30 @@ function DashboardInner() {
 
         {error && <div className="mt-4 p-4 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
+        {/* In-flight — the Fly service is a single machine, so a cold first request is ~20–40s. Without
+            this a friend sees only a disabled "Generating…" button and thinks it froze (F4). */}
+        {inFlight && shown.length === 0 && (
+          <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center border border-slate-200">
+            <div className="inline-flex items-center gap-3 text-slate-600">
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" aria-hidden="true" />
+              <span>Building your outfits…</span>
+            </div>
+            <p className="mt-2 text-sm text-slate-500">The first request can take up to ~30 seconds while the stylist warms up.</p>
+          </div>
+        )}
+
         {/* Results — §6.5 cards, or the degraded/empty state (no feedback controls when !bindable). */}
         {result && shown.length > 0 && (
           <div className="mt-6 space-y-4">
             {result.generationIndex != null && result.generationIndex > 0 && (
               <p className="text-xs text-slate-500">Regenerated outfit (variation {result.generationIndex})</p>
             )}
+            {/* Legend — the badges are opaque without it on mobile (no hover for the tooltips). */}
+            <p className="text-xs text-slate-500 leading-5">
+              Each outfit is tagged two ways: <span className="font-medium text-slate-700">Reliable → Bridge → Stretch</span> (how
+              safe vs. adventurous the combo is) and <span className="font-medium text-slate-700">Safe / Noticeable / Bold</span> (how
+              much the look stands out).
+            </p>
             {shown.map((outfit, index) => (
               <OutfitCard
                 key={`${outfit.snapshotId}:${outfit.candidateId}`}

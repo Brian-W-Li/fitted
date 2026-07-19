@@ -15,6 +15,7 @@ from fitted_core.generation import FinishStatus
 from fitted_core.models import ItemType, Role, WardrobeItem
 from fitted_core.reducers import AffinitySignalScorer, BehavioralSignals
 from fitted_core.rescue import (
+    _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT,
     _INSUFFICIENT_AFTER_GENERATION_HINT,
     RenderRequest,
     render,
@@ -152,10 +153,21 @@ def test_daily_drops_missing_stylemove_but_does_not_apply_rescue_forced_item_dro
     assert result.ranked is not None
     assert len(result.ranked.outfits) == 1
     assert result.insufficient_after_generation is True
-    assert result.reason_hint == _INSUFFICIENT_AFTER_GENERATION_HINT
+    assert result.reason_hint == _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT
     survivor = result.ranked.outfits[0]
     assert survivor.slot_map.top == "t2"
     assert survivor.slot_map.bottom == "b2"
+
+
+def test_insufficient_after_generation_hints_are_honest():
+    # F1: the post-generation hints must NOT tell the user to "try regenerating" (misleading on a thin
+    # closet — combinatorially capped, so a re-roll only re-spends), and DAILY must not say "this item"
+    # (it has no forced item). Both lead with the actionable "add … more pieces/items" advice.
+    assert "try regenerating" not in _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT
+    assert "try regenerating" not in _INSUFFICIENT_AFTER_GENERATION_HINT
+    assert "this item" not in _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT
+    assert "add a few more" in _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT
+    assert "add a few more" in _INSUFFICIENT_AFTER_GENERATION_HINT
 
 
 def test_daily_traced_stylemove_drop_uses_render_provenance_in_snapshot_payload():

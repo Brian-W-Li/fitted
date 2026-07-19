@@ -205,3 +205,34 @@ describe("AddItemModal — Type taxonomy", () => {
     expect(screen.getByRole("option", { name: "Sweatshirt" })).toBeInTheDocument();
   });
 });
+
+describe("AddItemModal — Category must be chosen (F2 corpus-integrity)", () => {
+  it("a fresh add starts on a 'Select a category…' placeholder, not a silent 'Top'", () => {
+    const file = new File(["x"], "tee.jpg", { type: "image/jpeg" });
+    render(<AddItemModal onClose={() => {}} onSave={() => true} pendingAddFile={file} addStep="form" />);
+    const placeholder = screen.getByRole("option", { name: /select a category/i });
+    const select = placeholder.closest("select") as HTMLSelectElement;
+    expect(select.value).toBe(""); // NOT "top"
+  });
+
+  it("blocks save while Category is unchosen, then clears once a category is picked", async () => {
+    const onSave = jest.fn((_i: unknown, _f: File | null) => true);
+    const file = new File(["x"], "tee.jpg", { type: "image/jpeg" });
+    render(<AddItemModal onClose={() => {}} onSave={onSave} pendingAddFile={file} addStep="form" />);
+    // Valid name so Category is the only blocker.
+    await userEvent.type(screen.getByPlaceholderText(/blue denim jacket/i), "Mystery item");
+    const select = screen.getByRole("option", { name: /select a category/i }).closest("select") as HTMLSelectElement;
+
+    // Unchosen → save is blocked (the required select is constraint-invalid), onSave never fires.
+    await userEvent.click(screen.getByRole("button", { name: /save item/i }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(select.validity.valueMissing).toBe(true);
+
+    // Pick a real category → the block clears and the save goes through.
+    await userEvent.selectOptions(select, "footwear");
+    expect(select.validity.valueMissing).toBe(false);
+    await userEvent.click(screen.getByRole("button", { name: /save item/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0][0] as { category: string }).category).toBe("footwear");
+  });
+});
