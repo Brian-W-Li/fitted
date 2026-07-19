@@ -8,6 +8,9 @@ import { resolveImageSrc } from "@/lib/imageUrl";
 import { clearSessionCookie } from "@/lib/sessionCookie";
 import { MAX_OCCASION_CHARS } from "@/lib/mlRequestAdapter";
 import { isEmptyDegradedRender } from "@/lib/renderResultGuards";
+import { useDislikeEnrich } from "@/lib/useDislikeEnrich";
+import { emptyStateMessage, recommendErrorMessage, partialRenderHint } from "@/lib/recommendCopy";
+import { reconcileShownFeedback, buildActionByKey, type HistoryActionRow } from "@/lib/feedbackReconcile";
 
 // ============================================================================
 // M5 §6.5 browser contract (the G15 allowlist the /api/recommend route returns).
@@ -166,22 +169,6 @@ function sortDisplayItems(items: DisplayItem[]): DisplayItem[] {
   );
 }
 
-/** Machine-code reason hints (all three healthy flags false) → friendly copy. An unrecognized code
- *  falls to generic error copy — the client-side default the plan requires (G4/§A reasonHint). */
-const MACHINE_REASON_COPY: Record<string, string> = {
-  service_unavailable: "The stylist is temporarily unavailable. Please try again in a moment.",
-  contract_invalid: "We couldn't build a request from that input. Try rephrasing the occasion.",
-  // Two ceilings share this hint: the GLOBAL service bucket (12 renders/min at one machine —
-  // often someone else's traffic) and the per-user 6/min pacer (§A, mlRecommend 5.5). The copy
-  // must stay non-blaming (it can be either) and honest about the wait (the per-user sliding
-  // window can need up to a minute).
-  rate_limited: "The stylist is busy right now — try again in a minute.",
-  // auth_failed here is the SERVICE key handshake failing (an ops misconfig), not the user's
-  // session — "sign in again" would send users on a futile loop.
-  auth_failed: "The stylist is temporarily unavailable. Please try again later.",
-  engine_failure: "Something went wrong generating outfits. Please try again.",
-};
-
 /** UUIDv4 for the idempotency token. `crypto.randomUUID` needs a secure context + a ~2021 browser;
  *  on anything older, fall back to a Math.random v4 (fine here — it's an idempotency key, not a
  *  security token) instead of throwing BEFORE any state change (which made Generate a silent no-op). */
@@ -193,17 +180,6 @@ function newRequestId(): string {
     const r = (Math.random() * 16) | 0;
     return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
   });
-}
-
-/** Turn a render result into the user-facing empty-state message (prose hint or mapped code). */
-function emptyStateMessage(result: RenderResult): string {
-  // Defensive: a result restored from sessionStorage may predate a shape change — never crash.
-  const flags = result.flags ?? ({} as RenderResult["flags"]);
-  const healthy = flags.notEnoughItems || flags.insufficientAfterGeneration;
-  if (healthy && flags.reasonHint) return flags.reasonHint; // prose register — genuine advice
-  if (flags.reasonHint && MACHINE_REASON_COPY[flags.reasonHint]) return MACHINE_REASON_COPY[flags.reasonHint];
-  if (flags.notEnoughItems) return "Add a few more items to your closet so we can build an outfit.";
-  return "No outfits this time. Try adjusting the occasion, or add more to your closet.";
 }
 
 const RISK_BADGE: Record<string, string> = {
@@ -220,6 +196,7 @@ interface PerItemFeedback {
   disliked: boolean;
   notes?: string;
 }
+
 
 const DISLIKE_REASONS: { code: string; label: string }[] = [
   { code: "too_boring", label: "Too boring" },
@@ -408,6 +385,11 @@ function RegenerateModal({
             Lock the pieces you want to keep, or mark the ones to avoid. We&apos;ll generate a fresh outfit
             under the same occasion.
           </p>
+          {/* F13 — regenerate silently swapped the whole list; say so, and reassure feedback is kept. */}
+          <p className="text-xs text-slate-500">
+            This replaces the outfits currently on screen. Any likes or dislikes you&apos;ve already given are
+            saved and stay in your History.
+          </p>
           {sortDisplayItems(outfit.displayItems).map((item) => {
             const imgSrc = imageUrlFromPath(item.imageUrl);
             const isLocked = locked.has(item.itemId);
@@ -499,6 +481,8 @@ function OutfitCard({
   onDislike,
   onExplain,
   onRegenerate,
+  enrichStatus,
+  onRetryEnrich,
 }: {
   outfit: ShownOutfit;
   index: number;
@@ -508,6 +492,8 @@ function OutfitCard({
   onDislike: () => void;
   onExplain: () => void;
   onRegenerate: () => void;
+  enrichStatus?: "saving" | "failed";
+  onRetryEnrich: () => void;
 }) {
   return (
     <div
@@ -558,14 +544,24 @@ function OutfitCard({
               {outfit.feedback === "liked" ? "Liked" : "Disliked"}
             </span>
           )}
-          {outfit.feedback === "disliked" && (
-            <button
-              onClick={onExplain}
-              className="text-xs text-slate-500 underline hover:text-slate-700 transition-colors"
-            >
-              Tell us why?
-            </button>
-          )}
+          {outfit.feedback === "disliked" &&
+            (enrichStatus === "saving" ? (
+              <span className="text-xs text-slate-400">Saving details…</span>
+            ) : enrichStatus === "failed" ? (
+              <button
+                onClick={onRetryEnrich}
+                className="text-xs text-amber-600 underline hover:text-amber-700 transition-colors"
+              >
+                Couldn&apos;t save the details — retry
+              </button>
+            ) : (
+              <button
+                onClick={onExplain}
+                className="text-xs text-slate-500 underline hover:text-slate-700 transition-colors"
+              >
+                Tell us why?
+              </button>
+            ))}
         </div>
       </div>
 
@@ -672,7 +668,14 @@ function DashboardInner() {
       setOccasion(saved.occasion ?? "");
     }
     const pending = readJSON<PendingEnvelope>(PENDING_KEY(uid));
-    if (pending) resumePending(uid, pending);
+    if (pending) {
+      resumePending(uid, pending);
+    } else if (saved?.result && firebaseUser) {
+      // No render is resuming (which would replace the result), so reconcile the restored chips.
+      // Pass the SAVED occasion so a re-persist round-trips it exactly (the callback's closure
+      // `occasion` is still "" here — setOccasion above hasn't flushed for this async continuation).
+      void reconcileFeedbackFromServer(firebaseUser, saved.result, saved.occasion ?? "");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
 
@@ -705,6 +708,36 @@ function DashboardInner() {
       } satisfies PersistedDashboard);
     },
     [uid, occasion],
+  );
+
+  // Reconcile a restored render's feedback chips against server latest-state (audit #2/#4): History
+  // curation (flip/remove) done elsewhere would otherwise leave a STALE "disliked" chip whose lingering
+  // "Tell us why?" posts a fresh rejected that supersedes the flip (corpus corruption), or hide the
+  // re-rate buttons on a removed card. Best-effort + mount-only, and it applies ONLY if the user hasn't
+  // touched the restored result yet (identity guard) so it can never clobber a fresh in-session mark.
+  const reconcileFeedbackFromServer = useCallback(
+    async (user: FirebaseUser, baseResult: RenderResult, savedOccasion: string) => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/interactions", { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = (await res.json()) as { interactions?: HistoryActionRow[] };
+        const actionByKey = buildActionByKey(data.interactions);
+        const { shown, changed } = reconcileShownFeedback(baseResult.shown, actionByKey);
+        if (!changed) return;
+        const next = { ...baseResult, shown };
+        setResult((prev) => {
+          if (prev !== baseResult) return prev; // user already interacted — never clobber a live mark
+          // Re-persist the reconciled chips, round-tripping the SAVED occasion verbatim (never the
+          // closure's stale "" — that would blank the echoed occasion on the next restore).
+          persistResult(next, savedOccasion);
+          return next;
+        });
+      } catch {
+        // best-effort — a failed reconcile leaves the restored marks, no worse than before the fix
+      }
+    },
+    [persistResult],
   );
 
   /** Issue a render (daily/rescue root OR a re-roll) under an already-persisted envelope. */
@@ -741,7 +774,9 @@ function DashboardInner() {
           } else if (codeStr === "request_id_conflict") {
             setError("That request was already used for a different outfit. Please generate again.");
           } else {
-            setError(env.error?.message ?? "Couldn't generate outfits. Please try again.");
+            // F14 — map to friendly copy by CODE; never echo the raw server message (the structural-lock
+            // rejects like "more than one lock occupies the top slot" are engineer-toned by design).
+            setError(recommendErrorMessage(codeStr));
           }
           return;
         }
@@ -785,7 +820,7 @@ function DashboardInner() {
         // Same no-wipe rule as submitRegenerate: a resumed RE-ROLL that comes back degraded/empty
         // must not replace (or overwrite the persisted copy of) the outfits restored on reload.
         if (envelope.parentSnapshotId != null && isEmptyDegradedRender(r)) {
-          setError(emptyStateMessage(r));
+          setError(emptyStateMessage(r.flags));
           return false;
         }
         // The arriving render is FOR the envelope's frozen occasion — fill the input when it's
@@ -858,7 +893,7 @@ function DashboardInner() {
           // must NOT wipe the outfits the user is looking at — keep the current result and show
           // the reason in the modal instead. The modal stays open so they can adjust and retry.
           if (isEmptyDegradedRender(r)) {
-            setError(emptyStateMessage(r));
+            setError(emptyStateMessage(r.flags));
             return false; // reject: state + persisted copy keep the previous render
           }
           setResult(r);
@@ -872,7 +907,7 @@ function DashboardInner() {
   // --- Feedback binds {snapshotId, candidateId} (never itemIds). ---
   const postFeedback = useCallback(
     async (
-      outfit: ShownOutfit,
+      outfit: Pick<ShownOutfit, "snapshotId" | "candidateId">,
       action: "accepted" | "rejected",
       extra?: { perItemFeedback?: PerItemFeedback[]; codes?: string[] },
     ): Promise<boolean> => {
@@ -946,17 +981,25 @@ function DashboardInner() {
     }
   };
 
-  // Optional "tell us why?" follow-up to a dislike. The one-tap already posted 'rejected'; this
-  // attaches the structured reasons as a second same-action row that per-candidate latest-state
-  // (§23-H61) collapses onto the first — so the negative is never double-counted, and a failed
-  // enrich leaves the recorded dislike standing.
+  // D-3 — durable dislike-reason enrich: the reasons are HELD and retried on failure (per-card
+  // affordance) instead of silently lost. Attaching them as a second same-action row is safe —
+  // per-candidate latest-state (§23-H61) collapses it onto the one-tap, so it is never double-counted,
+  // and a retried duplicate is harmless. See lib/useDislikeEnrich for the in-session-only rationale.
+  const { saveDislikeReasons, retryEnrich, statusFor } = useDislikeEnrich(
+    useCallback(
+      (binding, data) => postFeedback(binding, "rejected", data),
+      [postFeedback],
+    ),
+  );
+
+  // Optional "tell us why?" follow-up to a dislike. The one-tap already recorded a reasonless
+  // 'rejected', so closing the modal here loses nothing — the reasons are held by the enrich hook.
   const handleSaveDislike = async (data: { perItemFeedback: PerItemFeedback[]; codes: string[] }) => {
     if (!feedbackModal) return;
     const { outfit, index } = feedbackModal;
     setFeedbackModal(null);
     markFeedback(index, "disliked");
-    const ok = await postFeedback(outfit, "rejected", data);
-    if (!ok) setError("Couldn't save the extra detail — your dislike was still recorded.");
+    await saveDislikeReasons({ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId }, data);
   };
 
   const bindable = Boolean(result?.bindable);
@@ -1020,7 +1063,7 @@ function DashboardInner() {
               placeholder="e.g. Outdoor brunch with friends in early spring, smart casual but comfortable. Might get windy."
             />
             <div className="mt-1 flex justify-between text-[11px] text-slate-500">
-              <span>Tell the stylist what the event is, the vibe, and any constraints.</span>
+              <span>Tell the stylist the event, the vibe, and any constraints (e.g. it might rain, no heels, keep it warm).</span>
               <span>{occasion.length}/{MAX_OCCASION_CHARS}</span>
             </div>
           </div>
@@ -1085,6 +1128,12 @@ function DashboardInner() {
             {result.generationIndex != null && result.generationIndex > 0 && (
               <p className="text-xs text-slate-500">Regenerated outfit (variation {result.generationIndex})</p>
             )}
+            {/* F16 — a partial render (fewer looks than usual) must still say WHY, not silently show 1–2. */}
+            {partialRenderHint(result.flags, shown.length) && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                {partialRenderHint(result.flags, shown.length)}
+              </div>
+            )}
             {/* Legend — the badges are opaque without it on mobile (no hover for the tooltips). */}
             <p className="text-xs text-slate-500 leading-5">
               Each outfit is tagged two ways: <span className="font-medium text-slate-700">Reliable → Bridge → Stretch</span> (how
@@ -1101,6 +1150,8 @@ function DashboardInner() {
                 onLike={() => handleLike(index)}
                 onDislike={() => handleDislike(index)}
                 onExplain={() => setFeedbackModal({ outfit, index })}
+                enrichStatus={statusFor(outfit)}
+                onRetryEnrich={() => retryEnrich({ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId })}
                 onRegenerate={() => {
                   setError("");
                   setRegenModal({ outfit, index });
@@ -1112,7 +1163,19 @@ function DashboardInner() {
 
         {result && shown.length === 0 && !inFlight && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center border border-slate-200">
-            <p className="text-slate-600">{emptyStateMessage(result)}</p>
+            <p className="text-slate-600">{emptyStateMessage(result.flags)}</p>
+            {/* F10 — a notEnoughItems dead-end must offer the way out (the wardrobe), not just describe it. */}
+            {result.flags?.notEnoughItems && (
+              <a
+                href="/wardrobe"
+                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Go to your wardrobe
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </a>
+            )}
           </div>
         )}
 

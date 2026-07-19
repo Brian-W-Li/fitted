@@ -1,3 +1,5 @@
+import json
+import os
 from datetime import datetime, timedelta, timezone
 
 from fitted_core import config, reducers
@@ -505,3 +507,48 @@ def test_reducing_the_same_rows_twice_is_deterministic():
 
     assert first == second
     assert tuple(first.item_affinity.items()) == tuple(second.item_affinity.items())
+
+
+def _load_shared_latest_state_fixture():
+    """The SHARED cross-runtime fixture (§23-H61) — the same file the jest pin reads. It lives in the
+    Next app tree; the monorepo relative path IS the single-source (one artifact, three consumers)."""
+    here = os.path.dirname(__file__)  # ml-system/tests
+    path = os.path.normpath(
+        os.path.join(here, "..", "..", "fitted", "tests", "fixtures", "latestFeedbackState.fixture.json")
+    )
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def test_latest_state_matches_shared_cross_runtime_fixture():
+    """Cross-runtime pin (§23-H61): the reducer's latest-state over the SHARED fixture must agree with
+    the TS History helper + the CJS export picker (`fitted/tests/latestFeedbackState.test.ts`). If the
+    createdAt-then-_id winner rule drifts in any of the three homes, this reddens — stopping the corpus
+    label from disagreeing with what the friend saw in History and what the engine acts on."""
+    fixture = _load_shared_latest_state_fixture()
+
+    def _created_ms(value: object) -> int:
+        # Mirror the JS pickers' `new Date(x ?? 0).getTime()` (NaN→0) rather than a raw STRING compare:
+        # a future fixture row with a different ISO format/offset (e.g. `...20Z` vs `...20.000Z`, or a
+        # `-04:00` offset) must sort by the SAME instant the JS homes use, or the "one rule, three homes"
+        # pin silently dissolves while every suite stays green.
+        if not isinstance(value, str) or not value:
+            return 0
+        try:
+            return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
+        except ValueError:
+            return 0
+
+    # `buildBehavioralRows` sorts {createdAt:-1, _id:-1} before the reducer sees the rows; replicate that
+    # sort here (createdAt by parsed instant; _id hex lexicographically) so the reducer's first-seen rule
+    # sees the same order the live Mongo query delivers.
+    rows = sorted(
+        fixture["rows"],
+        key=lambda r: (_created_ms(r.get("createdAt")), str(r.get("_id") or "")),
+        reverse=True,
+    )
+    signals = reduce_interaction_rows(rows)
+    want = fixture["pythonExpected"]
+    assert signals.item_affinity == want["itemAffinity"]
+    assert signals.liked_full_signatures == frozenset(want["likedFullSignatures"])
+    assert signals.recent_disliked_base_keys == tuple(want["recentDislikedBaseKeys"])

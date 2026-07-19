@@ -199,6 +199,20 @@ describe("AddItemModal — photo preview (iOS tab-switch resilience + enlarge)",
   });
 });
 
+describe("AddItemModal — CV-honest intro copy (F6)", () => {
+  it("shows the honest manual-entry copy when CV is unavailable (the prod default)", () => {
+    render(<AddItemModal onClose={() => {}} onSave={() => true} title="Add item" addStep="upload" cvUnavailable={true} />);
+    expect(screen.getByText(/fill in a few quick details/i)).toBeInTheDocument();
+    // Never promises CV suggestions while CV is off.
+    expect(screen.queryByText(/suggest category/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the CV-suggest copy only when CV is genuinely available", () => {
+    render(<AddItemModal onClose={() => {}} onSave={() => true} title="Add item" addStep="upload" cvUnavailable={false} />);
+    expect(screen.getByText(/suggest category/i)).toBeInTheDocument();
+  });
+});
+
 describe("AddItemModal — Type taxonomy", () => {
   it("offers 'Sweatshirt' as a Type option (a crewneck had no home before)", () => {
     render(<AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />);

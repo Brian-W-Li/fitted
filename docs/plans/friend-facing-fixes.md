@@ -1,8 +1,67 @@
-# Friend-facing fixes — fresh-session prompt/plan
+# Friend-facing fixes — plan + backlog
 
-> Paste this into a `/clear`-ed session. It is the execution plan for fixing the friend-facing backlog
-> found during the 2026-07-18/19 Track-2 gauntlet. Scope grounded by a deep source review; every item
-> carries a file:line. **Single home for the backlog is now THIS doc**; runbook §8 points here.
+> The execution plan for the friend-facing backlog found during the 2026-07-18/19 Track-2 gauntlet.
+> **Single home for the backlog is THIS doc**; runbook §8 points here.
+
+## STATUS — Phases 1–3 IMPLEMENTED 2026-07-19 (Fable-reviewed, audited, green) + REVIEW-PASS 2026-07-19
+
+Built + tested + heavy-audited (3 parallel lanes: creative red-team + correctness/cross-runtime +
+security/trust-boundary; every finding verified against source). A **second, independent review pass**
+(4 fresh-context lanes: security/trust-boundary, cross-runtime latest-state, test-quality/mutation,
+spec↔code+doc fidelity) found **no blockers and no corpus/security/cross-runtime defects** — every
+corpus-write path (POST derivation, DELETE-all-rows, latest-state collapse) has behavioral coverage; the
+DELETE door is IDOR/injection-safe (query-string strings, user-scoped, ObjectId-cast). It applied five
+non-blocking fixes: (1) a canonical-spec + code-comment accuracy bug — the disliked **cooldown** is
+interaction-driven, not snapshot-driven (only the repetition window is snapshot-driven); (2) an
+occasion-persist closure-stale clobber in the dashboard reconcile (round-trips the saved occasion now,
+display-only); (3) extracted+tested `buildActionByKey` (the reconcile adapter — closes the TEST-1
+field-name/key-format drift risk); (4) hardened the Python shared-fixture sort to parse instants (was a
+raw string compare that could silently diverge from the JS ms-compare); (5) de-duped a floor-count restate
+in runbook §8. Floors grew **721→758 jest / 1095→1096 pytest**; tsc/eslint(0 err)/`npm run build` clean.
+**Not yet committed or deployed — Brian's call.**
+
+- **PHASE 1 — History curation (D-1/D-2/#4): DONE.** `DELETE /api/interactions` (`deleteInteraction`) is
+  the sanctioned curation door — user-scoped native-driver hard-delete of EVERY row for a
+  `{snapshotId,candidateId}` binding; cross-user → 404; idempotent (404==done client-side). **Flip =
+  appended opposite action** via POST (append-only intact). History deduped to per-candidate latest-state
+  (`lib/latestFeedbackState.ts`) — one card per outfit; the NEW-C two-card bug is gone. #4: reachability
+  raised to the **full per-user corpus** (2000-row cap), matching the M6 export's reach so nothing
+  trainable is un-curatable. **Trap-guards:** delete removes ALL rows for the binding (latest-only would
+  resurrect a superseded action); snapshots NEVER touched (deleting a `rejected` un-blocks that signature
+  — expected, not a regression). Cross-runtime latest-state pinned equal (TS helper == export CJS picker
+  == Python reducer) by one shared fixture, incl. the action-gate (planned/packed can't win) + whitespace
+  parity. Homed in spec §16 + §23-H11/H54.
+- **PHASE 2 — dislike-reason data-loss (D-3): DONE.** Fable picked **(b) durable enrich**: `useDislikeEnrich`
+  hook HOLDS the composed reasons and retries on failure (per-card affordance) instead of the pre-fix
+  silent drop. **Trap-guard:** in-session ONLY (no cross-load persist) — persisting would widen the
+  stale-supersede window; do not add it. The dashboard also reconciles restored chips vs server
+  latest-state (`lib/feedbackReconcile.ts`) to close the dislike→flip-in-History→return re-entry.
+- **PHASE 3 — friend UX: DONE.** F6 (CV-honest default), F7 (de-jargon), F8 (auth-error tone — **+ signup,
+  same leak**), F9 (`error.tsx`/`not-found.tsx`), F10 (empty-state wardrobe link), F11 (HEIC-aware reject),
+  F13 (regenerate-replaces hint), F14 (lock-error tone → `lib/recommendCopy`), F16 (partial-render hint),
+  NEW-A (event hint). **F12 verified** (replace works + D2-correct; clear-to-nothing intentionally absent —
+  photos are the corpus).
+
+## KNOWN RESIDUALS (bounded, non-corrupting or astronomically rare — registered, not fixed)
+- **CURATE-1** — a History flip-to-dislike is reasonless (no modal there), so a flip-flop (dislike→like→
+  dislike) loses the original `feedbackReason`. The LABEL stays correct (rejected); only the optional
+  "why" is lost. Fixing = carry-forward the latest same-sign reason in the collapse (changes the pinned
+  H61 rule) — deferred; not worth it at study scale.
+- **CURATE-2** — cross-instance clock skew could give a slow enrich an older `createdAt` than its one-tap,
+  dropping the "why". NTP keeps Vercel clocks ~sub-ms; label stays correct. Rare + silent; registered.
+- **CURATE-3** — two-tab / in-flight-enrich-across-navigation conflicting curation resolves last-write-wins
+  (append-after-delete has no tombstone). Requires two tabs or an abnormally slow enrich + immediate
+  cross-page flip. Bounded; a refetch-after-curation would tidy the view but not change the resolution.
+- **TEST-1 (narrowed after the review pass)** — no full `DashboardInner` mount test. The reconcile
+  ADAPTER (`buildActionByKey`: GET payload → `{snapshotId}:{candidateId}` map) is now unit-tested and
+  keys off the shared `feedbackKey`, so a response-field/key-format drift reddens a test rather than
+  silently reopening the stale-chip vector. What still rides on inspection: the mount FIRE CONDITION
+  (no-pending-envelope ∧ saved-result) and the `prev !== baseResult` identity guard — glue that only
+  reads/updates local state; triple-verified correct, corpus-safe (a mislabel is impossible under
+  append-only + latest-state). A ~15-line RTL mount test would close the remainder; deferred.
+- **CURATE-4 (minor, non-corpus)** — the History `curationErrorMessage` copy + the `res.status !== 404`
+  idempotency branch have no unit test (`historyCuration.test.tsx` covers the happy path only). Friend-
+  facing copy, not a corpus path; registered.
 
 ## You are
 Picking up a fix session on **Fitted** (monorepo `/Users/Brian/Documents/fitted`: Next app in `fitted/`,

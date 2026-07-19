@@ -46,3 +46,13 @@ export interface ExportManifest {
 export function exportTrack2(opts: { db: DbLike; outDir: string; userFilter: unknown | null }): Promise<ExportManifest>;
 export const BUNDLE_VERSION: string;
 export function parseImageId(ref: unknown): string | null;
+
+/** §23-H61 latest-state collapse per {snapshotId, candidateId}; mirror of lib/latestFeedbackState.ts. */
+export interface LatestStateRowLike {
+  snapshotId?: { toString(): string } | string | null;
+  candidateId?: string | null;
+  createdAt?: Date | string | number | null;
+  _id?: { toString(): string } | string | null;
+  [key: string]: unknown;
+}
+export function pickLatestPerCandidate<T extends LatestStateRowLike>(rows: Iterable<T>): Map<string, T>;

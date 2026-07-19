@@ -1,0 +1,21 @@
+{
+  "_comment": "SHARED cross-runtime fixture for the §23-H61 per-candidate latest-STATE rule. Read by tests/latestFeedbackState.test.ts (TS helper + export CJS picker) AND ml-system/tests/test_reducers.py (Python reducer). The three impls MUST agree on the winner per {snapshotId,candidateId}: max by createdAt, tie-broken by _id (hex desc). Do not edit rows without updating BOTH consumers. Covers: (A) createdAt ordering, (B) same-createdAt _id tiebreak, (C) single row, (D) a like corrected to a dislike (older row skipped), (E) an unbound row (dropped).",
+  "rows": [
+    { "_id": "1111111111111111111111a1", "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa1", "candidateId": "c1", "action": "accepted", "createdAt": "2026-07-01T10:00:10.000Z", "items": ["ghostA"], "fullSignature": "sigGhostA" },
+    { "_id": "1111111111111111111111a2", "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa1", "candidateId": "c1", "action": "rejected", "createdAt": "2026-07-01T10:00:20.000Z", "baseKey": "baseA", "fullSignature": "sigA" },
+    { "_id": "2222222222222222222222b3", "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa1", "candidateId": "c2", "action": "accepted", "createdAt": "2026-07-01T10:00:30.000Z", "items": ["ghostB"], "fullSignature": "sigGhostB" },
+    { "_id": "2222222222222222222222b4", "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa1", "candidateId": "c2", "action": "rejected", "createdAt": "2026-07-01T10:00:30.000Z", "baseKey": "baseB" },
+    { "_id": "3333333333333333333333c5", "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa2", "candidateId": "c1", "action": "accepted", "createdAt": "2026-07-01T10:00:05.000Z", "items": ["realC1", "realC2"], "fullSignature": "sigC" },
+    { "_id": "4444444444444444444444d6", "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa3", "candidateId": "", "action": "accepted", "createdAt": "2026-07-01T10:00:40.000Z", "items": ["unbound"], "fullSignature": "sigUnbound" }
+  ],
+  "expected": [
+    { "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa1", "candidateId": "c1", "winnerId": "1111111111111111111111a2", "action": "rejected" },
+    { "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa1", "candidateId": "c2", "winnerId": "2222222222222222222222b4", "action": "rejected" },
+    { "snapshotId": "aaaaaaaaaaaaaaaaaaaaaaa2", "candidateId": "c1", "winnerId": "3333333333333333333333c5", "action": "accepted" }
+  ],
+  "pythonExpected": {
+    "itemAffinity": { "realC1": 1, "realC2": 1 },
+    "likedFullSignatures": ["sigC"],
+    "recentDislikedBaseKeys": ["baseB", "baseA"]
+  }
+}

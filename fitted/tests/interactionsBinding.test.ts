@@ -16,6 +16,7 @@ import User from "@/models/User";
 import {
   postInteraction,
   getInteractions,
+  deleteInteraction,
   __resetInteractionRateLimit,
   INTERACTION_RATE_LIMIT_CAPACITY,
   type InteractionDeps,
@@ -45,6 +46,10 @@ function postReq(body: Record<string, unknown>): Any {
 }
 function getReq(url = "http://localhost/api/interactions"): Any {
   return { headers: { get: () => "Bearer x" }, url };
+}
+function delReq(snapshotId: string, candidateId: string): Any {
+  const qs = `snapshotId=${encodeURIComponent(snapshotId)}&candidateId=${encodeURIComponent(candidateId)}`;
+  return { headers: { get: () => "Bearer x" }, url: `http://localhost/api/interactions?${qs}` };
 }
 
 function deps(userId: string): InteractionDeps {
@@ -428,12 +433,91 @@ describe("GET /api/interactions — user-scoped snapshot join (§I)", () => {
   });
 });
 
-describe("route surface — append-only (no PATCH/DELETE handler)", () => {
-  it("the route module exports only GET + POST", async () => {
+describe("GET /api/interactions — latest-state collapse (D-2, §23-H61)", () => {
+  it("a dislike + its later 'why' enrich (2 rejected rows) collapse to ONE card", async () => {
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    await postInteraction(postReq({ snapshotId, candidateId, action: "rejected" }), deps(userId));
+    await postInteraction(
+      postReq({ snapshotId, candidateId, action: "rejected", feedbackReason: { codes: ["not_me"] } }),
+      deps(userId),
+    );
+    // Append-only: 2 rows on disk...
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(2);
+    // ...but the curation view shows ONE (D-2 — the NEW-C two-card bug is gone).
+    const json = (await (await getInteractions(getReq(), deps(userId))).json()) as Any;
+    expect(json.interactions).toHaveLength(1);
+    expect(json.interactions[0].action).toBe("rejected");
+  });
+
+  it("a like then a dislike (a flip) shows ONE card, in the disliked tab only", async () => {
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), deps(userId));
+    await postInteraction(postReq({ snapshotId, candidateId, action: "rejected" }), deps(userId));
+    const all = (await (await getInteractions(getReq(), deps(userId))).json()) as Any;
+    expect(all.interactions).toHaveLength(1);
+    expect(all.interactions[0].action).toBe("rejected");
+    // The optional ?action= filter is applied AFTER the collapse (on the WINNING action).
+    const liked = (await (await getInteractions(getReq("http://localhost/api/interactions?action=accepted"), deps(userId))).json()) as Any;
+    expect(liked.interactions).toHaveLength(0);
+    const disliked = (await (await getInteractions(getReq("http://localhost/api/interactions?action=rejected"), deps(userId))).json()) as Any;
+    expect(disliked.interactions).toHaveLength(1);
+  });
+});
+
+describe("DELETE /api/interactions — curation door (D-1)", () => {
+  it("hard-deletes EVERY row for the binding (a like-then-dislike leaves 2) → candidate un-rated", async () => {
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), deps(userId));
+    await postInteraction(postReq({ snapshotId, candidateId, action: "rejected" }), deps(userId));
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(2);
+
+    const res = await deleteInteraction(delReq(snapshotId, candidateId), deps(userId));
+    expect(res.status).toBe(200);
+    expect((await res.json()).deleted).toBe(2);
+    // Both rows gone → the curation view is empty (reverted to shown-but-unrated).
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+    const json = (await (await getInteractions(getReq(), deps(userId))).json()) as Any;
+    expect(json.interactions).toHaveLength(0);
+  });
+
+  it("cross-user delete → 404, and the victim's row is untouched", async () => {
+    const owner = oid();
+    const attacker = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(owner);
+    await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), deps(owner));
+    const res = await deleteInteraction(delReq(snapshotId, candidateId), deps(attacker));
+    expect(res.status).toBe(404);
+    expect(await OutfitInteraction.countDocuments({ user: new Types.ObjectId(owner) })).toBe(1);
+  });
+
+  it("delete with nothing to remove → 404 (idempotent — the client treats its own 404 as done)", async () => {
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    const res = await deleteInteraction(delReq(snapshotId, candidateId), deps(userId));
+    expect(res.status).toBe(404);
+  });
+
+  it("invalid snapshotId → 400; missing candidateId → 400", async () => {
+    const userId = oid();
+    const bad = await deleteInteraction(delReq("not-an-object-id", "c0"), deps(userId));
+    expect(bad.status).toBe(400);
+    const missing = await deleteInteraction(
+      { headers: { get: () => "Bearer x" }, url: "http://localhost/api/interactions?snapshotId=" + oid() } as Any,
+      deps(userId),
+    );
+    expect(missing.status).toBe(400);
+  });
+});
+
+describe("route surface — GET + POST + DELETE (no PATCH; DELETE is the curation door)", () => {
+  it("the route module exports GET, POST, DELETE — and no PATCH (append-only writes; flip is a POST)", async () => {
     const mod = await import("@/app/api/interactions/route");
     expect(typeof mod.GET).toBe("function");
     expect(typeof mod.POST).toBe("function");
+    expect(typeof (mod as Any).DELETE).toBe("function");
     expect((mod as Any).PATCH).toBeUndefined();
-    expect((mod as Any).DELETE).toBeUndefined();
   });
 });

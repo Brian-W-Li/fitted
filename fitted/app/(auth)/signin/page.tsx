@@ -8,26 +8,26 @@ import { useState } from "react";
 import RedirectIfAuthenticated from "@/app/(app)/RedirectIfAuthenticated";
 import { ensureSessionCookie } from "@/lib/sessionCookie";
 
+// F8 — a friend never needs to see a Firebase error string or a "fix it in the console" instruction
+// they can't act on. Map the cases a friend can actually resolve (wrong browser) to plain guidance,
+// and everything else to a calm generic line — never the raw SDK message.
 function normalizeAuthError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const code = /auth\/[a-z-]+/.exec(message)?.[0];
 
-  if (code === "auth/unauthorized-domain") {
-    return "This domain is not authorized in Firebase Auth, use localhost or add this domain in Firebase Console";
-  }
   if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
     // Chat-app in-app browsers (Instagram/Messenger/iMessage webviews) block the OAuth popup and
     // there is no popup setting to change — the actionable fix is a real browser.
     return "Sign-in couldn't open here. Open this page in Safari or Chrome (not the in-app browser) and try again.";
   }
-  if (code === "auth/popup-closed-by-user") {
-    return "Sign-in popup was closed before completing login";
-  }
   if (message.includes("disallowed_useragent")) {
     return "Google sign-in doesn't work inside in-app browsers. Open this page in Safari or Chrome and try again.";
   }
-
-  return message || "Sign-in failed";
+  if (code === "auth/popup-closed-by-user") {
+    return "Sign-in was cancelled before it finished. Tap “Continue with Google” to try again.";
+  }
+  // auth/unauthorized-domain (an ops misconfig the friend can't fix) and any other SDK error fall here.
+  return "Couldn't sign you in. Please try again in a moment.";
 }
 
 export default function SigninPage() {

@@ -16,14 +16,32 @@
  *   - append-only: `.create()` only (fires the co-presence guard); no update/delete path.
  *   - structured `feedbackReason` validated against the closed §16 code set.
  *
- * The GET is the read side: user-scoped, and it server-JOINS each row's bound candidate content
- * (styleMove/optionPath/risk/items) + `itemSnapshots` display fields via `{snapshotId, candidateId}`
- * at read time — never denormalized interaction-row content, never the legacy unscoped populate.
+ * The GET is the read side (the History curation view): user-scoped, collapsed to per-candidate
+ * latest-STATE (§23-H61) so one card shows per `{snapshotId, candidateId}` (a dislike + its later
+ * "why" enrich, or a like later flipped to dislike, read as ONE card in its winning tab, never two).
+ * It server-JOINS each surviving row's bound candidate content (styleMove/optionPath/risk/items) +
+ * `itemSnapshots` display fields via `{snapshotId, candidateId}` at read time — never denormalized
+ * interaction-row content, never the legacy unscoped populate.
+ *
+ * DELETE is the curation door (the "little bro tapped 5 reactions" case, D-1): a HARD-delete of every
+ * row for one `{snapshotId, candidateId}` binding, scoped to the caller's user, via the same sanctioned
+ * native-driver door the account-erasure cascade uses (below the co-presence `pre('validate')` guard,
+ * which is document-only and never fired on deletes anyway). This is NOT a break of the append-only
+ * posture: a *correction* is still a new event (a flip = an appended opposite action via POST); DELETE
+ * is deliberate *curation/erasure* of a retracted-or-junk label, and with no derived affinity anywhere
+ * (affinity recomputes from the log every request) a delete is consistent by construction — the reducer
+ * + export simply stop seeing the rows, reverting that candidate to shown-but-unrated (`label=null`).
+ * Snapshots are NEVER touched (immutable training truth, H10/H29); deleting a `rejected` correctly
+ * un-blocks that candidate's signature AND drops its baseKey from the disliked-cooldown buffer (both
+ * interaction-derived — recomputed from the log — so the aversion is forgotten, as intended) but does
+ * NOT un-surface a repeated outfit: the repetition window (recently-shown fullSignatures) is the
+ * snapshot-driven suppression, and it is untouched by a feedback delete (Fable-confirmed, D-1.2).
  *
  * INJECTABLE (`InteractionDeps`) so a jest test drives it over a REAL in-memory Mongo with a fixed
  * user — the behavior-first cure. `prodInteractionDeps()` binds the real auth + models.
  *
- * Reference: docs/plans/m5-cutover.md §I / §H / §A (G15); docs/Fitted_Spec_v2.md §16.
+ * Reference: docs/plans/friend-facing-fixes.md PHASE 1; docs/plans/m5-cutover.md §I / §H / §A (G15);
+ * docs/Fitted_Spec_v2.md §16 / §23-H61.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import mongoose from "mongoose";
@@ -35,6 +53,7 @@ import {
   type FeedbackReasonCode,
 } from "@/models/OutfitInteraction";
 import { OBJECT_ID_RE } from "@/lib/formats";
+import { pickLatestPerCandidate } from "@/lib/latestFeedbackState";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -45,7 +64,13 @@ export const ALLOWED_ACTIONS = new Set(["accepted", "rejected"]);
 export const MAX_PER_ITEM_FEEDBACK = 20; // §A clamp table (mirror of config.MAX_PER_ITEM_FEEDBACK)
 export const MAX_INTERACTIONS_PER_USER = 2000; // per-user storage ceiling (append-only rows only grow)
 const NOTES_MAX_CHARS = FEEDBACK_REASON_RAW_TEXT_MAX_CHARS; // 500 — same route cap
-const HISTORY_LIMIT = 50;
+// History reachability (#4): scan the FULL per-user corpus (the storage cap), not the old
+// `createdAt >= 1 month` + 50-cap that made older feedback un-curatable over a weeks-long collection.
+// Deliberately the whole corpus and NOT the reducer's 500-row serving window: the M6 export dedups
+// over EVERY row, so a label past row 500 is still trainable — and anything trainable must be
+// curatable (flip/remove), or the "little bro" cleanup can't reach it. Bounded by the 2000-row
+// per-user ceiling; deduped to latest-state the card count is far smaller in practice.
+const HISTORY_SCAN_LIMIT = MAX_INTERACTIONS_PER_USER;
 
 const REASON_CODE_SET = new Set<string>(FEEDBACK_REASON_CODES);
 
@@ -361,18 +386,25 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action");
 
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-
-    const query: Record<string, unknown> = { user: userObjectId, createdAt: { $gte: oneMonthAgo } };
-    query.action = action && ALLOWED_ACTIONS.has(action) ? action : { $in: ["accepted", "rejected"] };
-
+    // Fetch BOTH actions across the training-active window (no per-action query filter): the latest
+    // state of a candidate can be either sign (a like flipped to dislike), so the dedup MUST see both
+    // signs before deciding the winning tab — filtering by action in the query would strand a flipped
+    // candidate under its stale sign. Same deterministic sort as the reducer's projection.
     const { OutfitInteraction, GenerationSnapshot } = deps.models;
-    const interactions = (await OutfitInteraction.find(query)
-      .sort({ createdAt: -1 })
-      .limit(HISTORY_LIMIT)
+    const rawRows = (await OutfitInteraction.find({ user: userObjectId })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(HISTORY_SCAN_LIMIT)
       .lean()
       .exec()) as Any[];
+
+    // §23-H61 latest-state collapse (D-2): one row per {snapshotId, candidateId}, newest wins — so a
+    // one-tap dislike + its later "why" enrich, or a like since flipped, render as ONE card, never two.
+    // The optional `?action=` filter is applied AFTER the collapse (on the WINNING action) so a caller
+    // asking for one tab still gets correct latest-state; History fetches all and splits client-side.
+    const wanted = action && ALLOWED_ACTIONS.has(action) ? action : null;
+    const interactions = pickLatestPerCandidate(rawRows).filter(
+      (i) => wanted == null || i.action === wanted,
+    );
 
     // User-scoped snapshot join (the cross-user read guard: only THIS user's snapshots resolve).
     const snapshotIds = [
@@ -402,5 +434,59 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
   } catch (error) {
     console.error("Error fetching interactions:", error);
     return respondError(500, "internal", "Failed to fetch interactions");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE — curation door (D-1): hard-delete every row for one {snapshotId, candidateId} binding,
+// scoped to the caller's user. Flip is NOT here — a flip is an appended opposite action (POST). This
+// is the deliberate erasure of a retracted/junk label. Binding ids come from the query string
+// (?snapshotId=&candidateId=) so the DELETE carries no body (proxies strip DELETE bodies).
+// ---------------------------------------------------------------------------
+export async function deleteInteraction(request: NextRequest, deps: InteractionDeps): Promise<NextResponse> {
+  try {
+    const auth = await deps.verifyUser(request);
+    if ("error" in auth) return respondError(auth.status, "auth", auth.error);
+    // Rate-limit curation on the same per-user bucket as writes — a friend removing a handful of
+    // reactions is nowhere near 60/min; the bound stops a scripted delete loop.
+    if (!allowInteraction(auth.userId, (deps.now ?? Date.now)())) {
+      return respondError(429, "rate_limited", "too many requests — please slow down");
+    }
+    const userObjectId = new mongoose.Types.ObjectId(auth.userId);
+
+    const { searchParams } = new URL(request.url);
+    const snapshotId = searchParams.get("snapshotId");
+    const candidateId = searchParams.get("candidateId");
+    if (typeof snapshotId !== "string" || !mongoose.isValidObjectId(snapshotId)) {
+      return respondError(400, "invalid_binding", "snapshotId is required and must be a valid id");
+    }
+    if (typeof candidateId !== "string" || candidateId.length === 0) {
+      return respondError(400, "invalid_binding", "candidateId is required");
+    }
+
+    // Native-driver hard-delete of ALL rows for the binding (a like-then-dislike leaves two rows; a
+    // latest-only delete would resurrect the superseded action as the new latest-state, Fable D-1.1).
+    // The filter is user-scoped, so a cross-user binding matches nothing → deletedCount 0 → 404. The
+    // ObjectId casts matter: the native driver does no Mongoose casting (mirror of interactions.ts
+    // erasure-race + User.ts cascade), so a hex-string user/snapshot would match zero ObjectId fields.
+    const { OutfitInteraction } = deps.models;
+    const result = await OutfitInteraction.db
+      .collection("outfitinteractions")
+      .deleteMany({
+        user: userObjectId,
+        snapshotId: new mongoose.Types.ObjectId(snapshotId),
+        candidateId,
+      });
+    const deleted = typeof result?.deletedCount === "number" ? result.deletedCount : 0;
+    if (deleted === 0) {
+      // Cross-user (nothing owned matched) OR already-removed. The client treats its own 404 as
+      // success-equivalent (idempotent remove); a genuine cross-user probe learns nothing (404 same
+      // as a stale self-delete). Never 200-with-0, which would let an attacker distinguish the two.
+      return respondError(404, "not_found", "no feedback found for that outfit");
+    }
+    return NextResponse.json({ success: true, deleted });
+  } catch (error) {
+    console.error("Error deleting interaction:", error);
+    return respondError(500, "internal", "Failed to delete interaction");
   }
 }

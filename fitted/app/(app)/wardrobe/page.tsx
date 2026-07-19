@@ -79,6 +79,12 @@ const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
 const CV_GUIDE_DISMISS_FOREVER_KEY = "fitted-cv-guide-dismiss-forever-v1";
 
+// F11 — a bare "only JPEG/PNG/WEBP" silently blocks a friend on iPhone, whose photos are HEIC by
+// default (→ zero corpus yield). Tell them how to get an accepted file. (Note: iOS Safari often
+// auto-converts HEIC to JPEG on pick, so this fires mainly on drag-drop / non-Safari paths.)
+const UNSUPPORTED_IMAGE_MSG =
+  "That image type isn't supported. iPhone photos are often HEIC — take a screenshot of the photo and upload that, or set Camera → Formats to “Most Compatible”, then try again.";
+
 /** The CSS color to paint a swatch with, or null to show the label text-only. A 6-hex always works;
  *  a name is used only if the browser resolves it as a real color (CSS.supports) — so "turquoise"/
  *  "navy" paint, and a two-word name paints via its space-collapsed CSS form ("light blue" →
@@ -396,7 +402,7 @@ export function AddItemModal({
     // Basic client-side checks (server will enforce too)
     const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
     if (!allowed.has(file.type)) {
-      setImageError("Only JPEG, PNG, or WEBP images are allowed.");
+      setImageError(UNSUPPORTED_IMAGE_MSG);
       return;
     }
     const maxBytes = 5 * 1024 * 1024;
@@ -661,7 +667,7 @@ export function AddItemModal({
               setDragOver(false);
               const f = e.dataTransfer.files?.[0];
               if (f && /^image\/(jpeg|png|webp)$/i.test(f.type)) onPickImage(f);
-              else setImageError("Please use a JPEG, PNG, or WEBP image.");
+              else setImageError(UNSUPPORTED_IMAGE_MSG);
             }}
           >
             <input
@@ -1126,9 +1132,9 @@ export function AddItemModal({
                 >
                   <span className="block text-sm font-medium text-slate-800">+ Add a photo</span>
                   <span className="mt-1 block text-xs text-slate-500">
-                    A photo is what the style-matching experiment measures — the whole point.
-                    Recommendations run on the details you enter, so an item without a photo still
-                    works, but won&apos;t count toward the experiment.
+                    The photo is the important part — it&apos;s what this little project actually studies.
+                    Your recommendations run on the details you type in, so an item without a photo still
+                    works — it just won&apos;t help the study.
                   </span>
                 </button>
               )}
@@ -1303,7 +1309,10 @@ export default function WardrobePage() {
   // Distinct from cvError (which is also set on a transient inference failure): true when the CV
   // service is not configured at all, so the upload step drops the dead "Analyze photo" CTA and makes
   // manual entry the primary path (CV is off in production — the W-track replacement isn't built).
-  const [cvUnavailable, setCvUnavailable] = useState(false);
+  // F6 — default TRUE (honest): CV is off in prod, so the manual-entry copy shows immediately rather
+  // than promising "we'll suggest category/colors" for the ~1s until the /api/cv/status probe returns.
+  // The probe flips it to false only if CV is genuinely available (the W-track future).
+  const [cvUnavailable, setCvUnavailable] = useState(true);
   const cvAbortRef = useRef<AbortController | null>(null);
   const [activeFilter, setActiveFilter] = useState<"all" | "top" | "bottom" | "one piece" | "footwear">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1548,16 +1557,20 @@ export default function WardrobePage() {
               setAddPendingFile(null);
               setIsAnalyzing(false);
               setCvError(null);
-              setCvUnavailable(false);
+              setCvUnavailable(true); // F6 — fail-closed to the honest manual-entry copy until proven otherwise
               cvAbortRef.current?.abort();
               cvAbortRef.current = null;
               setIsModalOpen(true);
-              // Probe CV service in the background — if unavailable, surface the
-              // fallback message immediately so users don't have to wait 15s.
+              // Probe CV service in the background — flip to the "we'll suggest…" copy ONLY if it is
+              // genuinely available; otherwise leave the honest manual-entry copy in place (no flash of
+              // a promise we can't keep while CV is off in production).
               fetch("/api/cv/status")
                 .then((r) => r.json())
                 .then((data: { available?: boolean; reason?: string }) => {
-                  if (!data.available) {
+                  if (data.available) {
+                    setCvUnavailable(false);
+                    setCvError(null);
+                  } else {
                     // Honest copy: "temporarily" was a false promise while CV is not configured
                     // at all (the W-track replacement isn't built yet) — never fake a comeback.
                     setCvUnavailable(true);
@@ -1568,7 +1581,7 @@ export default function WardrobePage() {
                     );
                   }
                 })
-                .catch(() => {/* silently ignore — user can still try Analyze */});
+                .catch(() => {/* silently ignore — the honest manual-entry copy already stands */});
             }}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
           >

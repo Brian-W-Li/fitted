@@ -22,6 +22,38 @@ function writeJsonl(path, rows) {
   writeFileSync(path, rows.map((r) => JSON.stringify(r, jsonReplacer)).join("\n") + (rows.length ? "\n" : ""));
 }
 
+// §23-H61 per-candidate latest-STATE. Mirror of `fitted/lib/latestFeedbackState.ts` (the History
+// curation view) and the Python reducer's first-seen rule — pinned equal by the shared fixture test
+// `tests/latestFeedbackState.test.ts` + `test_reducers.py`. Keep the createdAt-then-_id rule identical
+// across all three homes (that agreement is what stops the corpus label from disagreeing with what the
+// friend saw in History and what the engine acts on).
+function isNewerRow(a, b) {
+  const at = new Date(a.createdAt ?? 0).getTime();
+  const bt = new Date(b.createdAt ?? 0).getTime();
+  const an = Number.isNaN(at) ? 0 : at;
+  const bn = Number.isNaN(bt) ? 0 : bt;
+  if (an !== bn) return an > bn;
+  return String(a._id ?? "") > String(b._id ?? "");
+}
+// Only accepted/rejected win a candidate slot — parity with the reducer + lib/latestFeedbackState.ts
+// (a future planned/packed row must not win the collapse here while the reducer skips it).
+const PARTICIPATING_ACTIONS = new Set(["accepted", "rejected"]);
+
+/** Collapse interaction rows to the latest row per {snapshotId, candidateId}; returns a Map. */
+function pickLatestPerCandidate(rows) {
+  const latest = new Map();
+  for (const r of rows) {
+    if (!r || r.action == null || !PARTICIPATING_ACTIONS.has(r.action)) continue;
+    const snap = r.snapshotId == null ? "" : String(r.snapshotId);
+    const cand = r.candidateId == null ? "" : String(r.candidateId);
+    if (!snap.trim() || !cand.trim()) continue; // .trim() parity with the reducer's _truthy_str
+    const key = `${snap}::${cand}`;
+    const prev = latest.get(key);
+    if (!prev || isNewerRow(r, prev)) latest.set(key, r);
+  }
+  return latest;
+}
+
 const EXT = { "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp" };
 const OBJ_ID_RE = /^[a-f0-9]{24}$/i;
 // engineVisible.imageUrl is the served route form `/api/images/<id>`; the generatorVisible/evidence
@@ -69,19 +101,8 @@ async function exportTrack2({ db, outDir, userFilter }) {
     imageManifest[id] = { status: "resolved", file, contentType: doc.contentType, sizeBytes: doc.sizeBytes };
   }
 
-  // §H61 latest-state collapse per {snapshotId, candidateId}.
-  const latestByKey = new Map();
-  for (const i of interactions) {
-    if (!i.snapshotId || !i.candidateId) continue;
-    const key = `${i.snapshotId.toString()}::${i.candidateId}`;
-    const prev = latestByKey.get(key);
-    const newer =
-      !prev ||
-      new Date(i.createdAt ?? 0).getTime() > new Date(prev.createdAt ?? 0).getTime() ||
-      (new Date(i.createdAt ?? 0).getTime() === new Date(prev.createdAt ?? 0).getTime() &&
-        i._id.toString() > prev._id.toString());
-    if (newer) latestByKey.set(key, i);
-  }
+  // §H61 latest-state collapse per {snapshotId, candidateId} (shared rule — see pickLatestPerCandidate).
+  const latestByKey = pickLatestPerCandidate(interactions);
 
   // Training examples: one row per SHOWN candidate, joined to its immutable item features + images.
   const trainingExamples = [];
@@ -189,4 +210,4 @@ async function exportTrack2({ db, outDir, userFilter }) {
   return manifest;
 }
 
-module.exports = { exportTrack2, BUNDLE_VERSION, parseImageId };
+module.exports = { exportTrack2, BUNDLE_VERSION, parseImageId, pickLatestPerCandidate };
