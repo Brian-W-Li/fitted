@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -44,6 +43,7 @@ const TYPE_OPTIONS = [
   { value: "shirt", label: "Shirt" },
   { value: "blazer", label: "Blazer" },
   { value: "sweater", label: "Sweater" },
+  { value: "sweatshirt", label: "Sweatshirt" },
   { value: "hoodie", label: "Hoodie" },
   { value: "jacket", label: "Jacket" },
   { value: "cardigan", label: "Cardigan" },
@@ -592,13 +592,28 @@ export function AddItemModal({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!imageFile) {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
       return;
     }
-    const url = URL.createObjectURL(imageFile);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
+    // Hold the picked photo as a base64 data URL (a plain string in React state), NOT a `blob:`
+    // object URL. On iOS WebKit — Safari AND Chrome — backgrounding the tab reclaims the blob backing
+    // an object URL while keeping JS state, so a blob-URL <img> silently goes blank when a friend
+    // switches tabs mid-add (to check a message / look up a color name). A data URL survives exactly
+    // like the form's text fields do, so the preview no longer vanishes. (A FULL iOS tab discard on a
+    // long background still resets everything; that is a separate draft-persistence concern, not this
+    // blob-reclaim bug.)
+    let cancelled = false;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (!cancelled) setPreviewUrl(typeof reader.result === "string" ? reader.result : null);
+    };
+    reader.onerror = () => {
+      if (!cancelled) setPreviewUrl(null);
+    };
+    reader.readAsDataURL(imageFile);
+    return () => {
+      cancelled = true;
+    };
   }, [imageFile]);
 
   // ── Photo (confirm form). Single source of truth is `imageFile` (mount-initialized from
@@ -725,7 +740,14 @@ export function AddItemModal({
             {addStep === "form" && pendingAddFile && (() => {
               const url = previewUrl ?? "";
               return url ? (
-                <img src={url} alt="" className="h-12 w-12 rounded-lg object-cover border border-slate-200 shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => setEnlarged(true)}
+                  className="shrink-0 rounded-lg"
+                  aria-label="Enlarge photo"
+                >
+                  <img src={url} alt="" className="h-12 w-12 rounded-lg object-cover border border-slate-200 cursor-zoom-in" />
+                </button>
               ) : null;
             })()}
             <div className="min-w-0">

@@ -162,3 +162,46 @@ describe("AddItemModal — collapsed 'More details' still submit (D2)", () => {
     expect(payload.fit).toBe("Slim");
   });
 });
+
+describe("AddItemModal — photo preview (iOS tab-switch resilience + enlarge)", () => {
+  const photo = () => new File(["x"], "tee.jpg", { type: "image/jpeg" });
+
+  it("renders the picked photo as data: URLs, never blob: object URLs (iOS tab-switch safety)", async () => {
+    // The preview must be a `data:` URL (a plain string in React state) so it survives an iOS WebKit
+    // tab-switch, which reclaims the blob backing a `blob:` object URL and blanks the <img>. Reverting
+    // to URL.createObjectURL would make these src `blob:…` and redden the test.
+    render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} pendingAddFile={photo()} addStep="form" />,
+    );
+    // Wait for the async FileReader read to land (the enlarge triggers only render once previewUrl is set).
+    await screen.findAllByRole("button", { name: "Enlarge photo" });
+    const previewSrcs = Array.from(document.querySelectorAll("img"))
+      .map((i) => i.getAttribute("src") ?? "")
+      .filter((s) => s.startsWith("data:") || s.startsWith("blob:"));
+    expect(previewSrcs.length).toBeGreaterThan(0);
+    for (const src of previewSrcs) {
+      expect(src).toMatch(/^data:image\//);
+      expect(src).not.toMatch(/^blob:/);
+    }
+  });
+
+  it("makes the HEADER thumbnail tap-to-enlarge (not only the large preview)", async () => {
+    render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} pendingAddFile={photo()} addStep="form" />,
+    );
+    // With a photo attached there are two enlarge affordances: the header thumbnail (this fix, first in
+    // DOM order) + the main preview. Losing the header button drops this to 1 and reddens the test.
+    const enlargeBtns = await screen.findAllByRole("button", { name: "Enlarge photo" });
+    expect(enlargeBtns).toHaveLength(2);
+    expect(screen.queryByLabelText("Close enlarged photo")).not.toBeInTheDocument();
+    await userEvent.click(enlargeBtns[0]); // the header thumbnail
+    expect(screen.getByLabelText("Close enlarged photo")).toBeInTheDocument();
+  });
+});
+
+describe("AddItemModal — Type taxonomy", () => {
+  it("offers 'Sweatshirt' as a Type option (a crewneck had no home before)", () => {
+    render(<AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />);
+    expect(screen.getByRole("option", { name: "Sweatshirt" })).toBeInTheDocument();
+  });
+});
