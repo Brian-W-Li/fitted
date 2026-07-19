@@ -260,6 +260,7 @@ first week IS the final audit round — unknown defects surface here within ~1�
 **Friend-facing polish backlog** (from the 2026-07-18 4-lane surface trace; F1–F4 shipped `c73ccf99`/`fix F4 copy`).
 Nothing blocking; ranked-ish, all with code cites verifiable via grep:
 - **F5** — no way to undo/correct a like/dislike in the UI (`dashboard/page.tsx:531`); History copy says "react again" but that's near-impossible (can't re-surface the outfit). Fix: flip a reaction on the History page.
+- **NEW-C** — History shows the RAW append-only feedback log (`getInteractions`, `lib/interactions.ts:371` — no collapse), so a one-tap dislike + its "tell us why" submission appear as **two** entries for one outfit. NOT a data/training bug (the reducer collapses to H61 latest-state per `{snapshotId,candidateId}`), only a display duplication. Fix: dedup the History query by `{snapshotId,candidateId}` (latest per outfit), same as the reducer.
 - **F6** — ~3s CV-optimistic window on the add modal (`wardrobe:648`) shows "we'll suggest…"/enabled "Analyze photo" that fails (CV off). Fix: default `cvUnavailable=true`.
 - **F7** — "style-matching experiment" jargon leaks to friends (`wardrobe:1123`+). Soften to plain words.
 - **NEW-A** — the Event-description hint "…and any constraints" is vague/misleading (Brian: "what constraints?"). It's free prose; reword to e.g. "…and anything to keep in mind (comfort, dress code)."

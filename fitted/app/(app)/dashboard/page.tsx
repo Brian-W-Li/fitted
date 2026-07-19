@@ -1066,16 +1066,16 @@ function DashboardInner() {
 
         {error && <div className="mt-4 p-4 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
-        {/* In-flight — the stylist is a gpt-5.4-mini generation call, so EVERY generate takes ~20–40s
-            (not a one-time cold start — the Fly machine stays warm). Without this a friend sees only a
-            disabled "Generating…" button and thinks it froze (F4). */}
+        {/* In-flight feedback — a warm generate measures ~3s (the gpt-5.4-mini call); only the rare
+            cold-deploy first hit is slow. No specific-duration copy (it was wrong twice) — the spinner
+            conveys "working" for however long it takes, so a friend never sees a frozen button (F4). */}
         {inFlight && shown.length === 0 && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center border border-slate-200">
             <div className="inline-flex items-center gap-3 text-slate-600">
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" aria-hidden="true" />
               <span>Putting looks together…</span>
             </div>
-            <p className="mt-2 text-sm text-slate-500">This usually takes 20–40 seconds — the stylist is thinking it through.</p>
+            <p className="mt-2 text-sm text-slate-500">The stylist is picking outfits from your closet — usually just a few seconds.</p>
           </div>
         )}
 
