@@ -218,25 +218,17 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **✅ Pushed + web-redeployed twice: the 2026-07-17 stack (post ingestion honesty pass + stable audit)
-  AND the 2026-07-18 friend-ready stack (add-another + REQFIELDS-1 + M6 export/outfit-lint + doc fixes;
-  `origin/main` `78e5556a`, Vercel new build live). Fly last deployed 2026-07-17 (unchanged since).**
-  `main` (`d71e9f06`) pushed to `origin`; the stack = the wardrobe ingestion honesty pass + this
-  audit's honesty-copy / double-tap-latch / yield-readout / D1 one-tap-dislike / D2+REPLACE-1
-  keep-referenced-image fixes. **Vercel web** redeployed via `npx vercel --prod` from `fitted/` →
-  aliased to fitted-three.vercel.app, live-verified serving the audited copy ("adjust to your
-  like/dislike feedback", not "ML model learn"). **Fly** redeployed via `fly deploy` from `ml-system/`
-  (image `deployment-01KXT098P0DTH37M10102J76S6`; the `ml-system/` code was unchanged, so functionally
-  a no-op, but refreshed on request); rolling update on the existing machine, **G1 pin held — verified
-  exactly 1 machine**, `/readyz` green (fittedCore 0.5.0, prompt m5-c1.v1). The throwaway-account
-  **erasure loop PASSED live 2026-07-18** (22 rows → 0 across all 5 owned collections + Firebase auth
-  gone; `scripts/track2-erasure-check.mjs`). **The 2026-07-18 friend-ready web work — "Save & add another"
-  + REQFIELDS-1 — was pushed (`origin/main` `78e5556a`) + web-redeployed 2026-07-18** (`npx vercel --prod`
-  from `fitted/` → `fitted-three.vercel.app`, verified 200; **Fly NOT redeployed — web-only change, so the
-  1-machine pin is unaffected**). **Remaining pre-recruiting steps: (1) Brian's friend-#0 phone gauntlet
-  (now testable on the live friend-ready build); (2) finalize onboarding copy; (3) recruit.** Deploys are
-  CLI-driven (not on
-  git push): web from
+- **✅ Live web = `origin/main` `30b03cc9` (2026-07-19 deploy).** Stack shipped: the friend-facing
+  curation batch (History flip/remove + latest-state dedup) + the 2026-07-19 correctness/honesty batch
+  (weather-by-number H66 · the two erasure-race guards H43 · honest partial-delete H63 incl. the client
+  alert · degrade logging · timeout clamp). Deployed via `npx vercel --prod` from `fitted/` → aliased
+  `fitted-three.vercel.app`, verified **200**. **Fly NOT touched — every change was web-side, so the
+  1-machine pin is unaffected; `fly scale show` = 1 verified 2026-07-19.** Fly last actually deployed
+  2026-07-17 (`/readyz` green, fittedCore 0.5.0, prompt m5-c1.v1). The throwaway-account **erasure loop
+  PASSED live 2026-07-18** (22 rows → 0 across all 5 owned collections + Firebase auth gone;
+  `scripts/track2-erasure-check.mjs`). **Remaining pre-recruiting steps: (1) Brian's friend-#0 phone
+  gauntlet (now testable on the live build); (2) finalize onboarding copy; (3) recruit.** Deploys are
+  CLI-driven (not on git push): web from
   `fitted/` via `npx vercel --prod`, service from `ml-system/` via `fly deploy` — and the repo ROOT
   must never be vercel-deployed (the root/app folders are both named `fitted`; a root deploy
   uploads the whole monorepo and fails the free-tier file quota).
