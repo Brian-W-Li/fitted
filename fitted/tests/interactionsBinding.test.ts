@@ -94,7 +94,7 @@ async function makeSnapshot(
     slotMap: { top: topId, bottom: bottomId },
     template: "two_piece",
     baseKey: `top:${topId}|bottom:${bottomId}`,
-    fullSignature: `top:${topId}|bottom:${bottomId}`,
+    fullSignature: `top:${topId}|bottom:${bottomId}|outer=none|shoes=none`,
     optionPath: "reliable",
     risk: "safe",
     styleMove: { moveType: "anchor", changedItemIds: [topId], oneSentence: "Anchor the look." },
@@ -156,7 +156,7 @@ describe("POST /api/interactions — bind + append (§I)", () => {
     expect(row.snapshotId.toString()).toBe(snapshotId);
     expect(row.candidateId).toBe(candidateId);
     expect(row.baseKey).toBe(`top:${topId}|bottom:${bottomId}`);
-    expect(row.fullSignature).toBe(`top:${topId}|bottom:${bottomId}`);
+    expect(row.fullSignature).toBe(`top:${topId}|bottom:${bottomId}|outer=none|shoes=none`);
     expect(row.items.map((i: Any) => i.toString()).sort()).toEqual([topId, bottomId].sort());
     expect(row.context.occasion).toBe("brunch");
   });
@@ -184,7 +184,7 @@ describe("POST /api/interactions — bind + append (§I)", () => {
     // Server-derived, never the echo (the anti-poison invariant).
     expect(row.items.map((i: Any) => i.toString()).sort()).toEqual([topId, bottomId].sort());
     expect(row.baseKey).toBe(`top:${topId}|bottom:${bottomId}`);
-    expect(row.fullSignature).toBe(`top:${topId}|bottom:${bottomId}`);
+    expect(row.fullSignature).toBe(`top:${topId}|bottom:${bottomId}|outer=none|shoes=none`);
     expect(row.context.occasion).toBe("brunch");
     expect(row.items.map((i: Any) => i.toString())).not.toContain(forgedItem);
   });
@@ -299,7 +299,7 @@ describe("POST /api/interactions — bind + append (§I)", () => {
     );
     expect(okRes.status).toBe(200);
     const row = (await OutfitInteraction.findOne({ user: userId }).lean()) as Any;
-    expect(new Set(row.feedbackReason.codes)).toEqual(new Set(["too_boring", "not_me"])); // deduped
+    expect(row.feedbackReason.codes).toEqual(["too_boring", "not_me"]); // deduped (Set preserves first-seen order)
     expect(row.feedbackReason.rawText).toHaveLength(500); // capped
     expect(row.feedbackReason.source).toBe("user");
 

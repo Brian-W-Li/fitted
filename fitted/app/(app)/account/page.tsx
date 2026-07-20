@@ -60,6 +60,20 @@ export default function AccountPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (data?.dataDeleted) {
+          // §23-H63: your data IS fully erased; only the Firebase sign-in unlink didn't complete (it
+          // retries automatically on the next delete after a re-sign-in). Sign out so you're not
+          // stranded on a now-dataless account — same cleanup as the success path.
+          await clearSessionCookie();
+          await signOut(auth).catch(() => {});
+          try {
+            window.sessionStorage.clear();
+          } catch {
+            // best-effort
+          }
+          window.location.href = "/";
+          return;
+        }
         setError(data.error ?? "Failed to delete account. Please try again.");
         setDeleting(false);
         return;

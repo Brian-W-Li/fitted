@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { WardrobeItem } = await initDatabase();
+    const { WardrobeItem, WardrobeImage, User } = await initDatabase();
     const itemCount = await WardrobeItem.countDocuments({ user: userId }).exec();
     if (itemCount >= MAX_ITEMS_PER_USER) {
       return NextResponse.json(
@@ -228,6 +228,15 @@ export async function POST(request: NextRequest) {
       notes: notes || undefined,
       isAvailable,
     });
+
+    // Erasure-race close (§23-H43 / Track 2): the account-delete cascade may run while this authed
+    // create is in flight; a row persisted for a since-deleted user must not survive "delete me".
+    // Mirror the snapshot/interaction writer-side guards (mlRecommend.ts / interactions.ts).
+    if (!(await User.exists({ _id: userId }))) {
+      await WardrobeItem.deleteMany({ user: userId });
+      await WardrobeImage.deleteMany({ user: userId });
+      return NextResponse.json({ error: "Account no longer exists" }, { status: 401 });
+    }
 
     return NextResponse.json(
       {

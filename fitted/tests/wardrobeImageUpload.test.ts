@@ -123,6 +123,18 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     expect(img.sizeBytes).toBe(8);
   });
 
+  it("erasure race (§23-H43): account gone at the post-upload guard → the new image self-erases, 401", async () => {
+    const id = await seedItem();
+    // The account-delete cascade can land between auth and the post-upload User.exists guard. The
+    // uploaded image row (REAL photo bytes) must not survive "delete me" — the guard sweeps it + 401s.
+    const spy = jest.spyOn(User, "exists").mockResolvedValueOnce(null as never);
+    const res = await post(id, makeRequest({ file: makeFile(8) }));
+    expect(res.status).toBe(401);
+    expect(await WardrobeImage.countDocuments({ user: userId })).toBe(0);
+    expect(await WardrobeItem.countDocuments({ user: userId })).toBe(0);
+    spy.mockRestore();
+  });
+
   it("deletes the previously-linked WardrobeImage when a new one replaces it", async () => {
     const id = await seedItem();
     // First upload.

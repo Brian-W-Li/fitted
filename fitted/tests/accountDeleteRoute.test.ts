@@ -242,14 +242,23 @@ describe("DELETE /api/account — cascade erasure + auth removal", () => {
     expect(await GenerationSnapshot.countDocuments({ user: a.userId })).toBe(0); // swept by phase 3
   });
 
-  it("still reports success when the Firebase-side deletion fails (Mongo data already removed)", async () => {
+  it("reports HONEST partial failure (502) when Firebase-side deletion fails after retry — Mongo data still erased", async () => {
     const a = await seedUser("uid-a", "a@example.com");
     setToken("uid-a");
     mockedAdminAuth().deleteUser.mockRejectedValue(new Error("firebase down"));
 
     const res = await DELETE(makeRequest());
-    expect(res.status).toBe(200);
+    // The route must NOT claim full erasure while the Firebase identity survived (F-D / §23-H63): all
+    // Mongo data is gone, but authDeleted:false so the client can warn + retry (re-sign-in → delete again).
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      ok: false,
+      dataDeleted: true,
+      authDeleted: false,
+      error: "auth_deletion_failed",
+    });
     expect(await User.findById(a.userId)).toBeNull(); // the data deletion still happened
+    expect(mockedAdminAuth().deleteUser).toHaveBeenCalledTimes(2); // retried once before giving up
   });
 
   it("500s when the user delete fails midway — leaving the phase-1 redaction fail-safe in place and NOT touching Firebase", async () => {

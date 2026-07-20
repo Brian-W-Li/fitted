@@ -16,6 +16,7 @@ import type { NextRequest } from "next/server";
 import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import User from "@/models/User";
 import WardrobeItem from "@/models/WardrobeItem";
+import WardrobeImage from "@/models/WardrobeImage";
 import { CLOTHING_TYPES } from "@/lib/clothingType";
 
 jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
@@ -29,7 +30,7 @@ let userId: string;
 
 function mockDb() {
   const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
-  initDatabase.mockResolvedValue({ User, WardrobeItem });
+  initDatabase.mockResolvedValue({ User, WardrobeItem, WardrobeImage });
 }
 function setToken(uid: string) {
   const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
@@ -39,7 +40,7 @@ function setToken(uid: string) {
 }
 
 beforeAll(async () => {
-  harness = await startMemoryMongo([User, WardrobeItem]);
+  harness = await startMemoryMongo([User, WardrobeItem, WardrobeImage]);
 }, 120_000); // first run may download the mongod binary
 afterAll(async () => {
   await harness.stop();
@@ -87,6 +88,18 @@ describe("POST /api/wardrobe — M4 ingestion (behavioral, real Mongo)", () => {
     expect(Number.isInteger(doc.warmth)).toBe(true);
     expect(doc.warmth).toBeGreaterThanOrEqual(0);
     expect(doc.warmth).toBeLessThanOrEqual(10);
+  });
+
+  it("erasure race (§23-H43): account gone at the post-create guard → the new item self-erases, 401", async () => {
+    // The account-delete cascade can land between auth and the post-create User.exists guard. Simulate
+    // the user being gone at the guard: the just-created item must be swept and the request must 401 —
+    // the in-flight-create erasure seam the guard closes ("delete me" wins). The item IS really created
+    // (real Mongoose), then really deleted by the guard's deleteMany, so count()==0 proves the sweep.
+    const spy = jest.spyOn(User, "exists").mockResolvedValueOnce(null as never);
+    const res = await post({ name: "Racing tee", category: "top" });
+    expect(res.status).toBe(401);
+    expect(await count()).toBe(0);
+    spy.mockRestore();
   });
 
   it("preserves outer_layer and derives a warm value for a wool coat", async () => {

@@ -154,7 +154,7 @@ export async function resolveWeatherProd(input: WeatherInput): Promise<WeatherRe
       eventTimeISO: typeof input.eventTimeISO === "string" ? input.eventTimeISO : undefined,
     });
     if (ctx) {
-      return { weather: bucketFromSummary(ctx.weatherSummary), weatherRaw: ctx.weatherSummary };
+      return { weather: bucketFromTemp(ctx), weatherRaw: ctx.weatherSummary };
     }
   }
   return { weather: bucketFromSummary(input.occasion), weatherRaw: null };
@@ -171,6 +171,20 @@ export function bucketFromSummary(text: string): WeatherBucket {
   if (["outdoor", "outside", "beach", "park", "picnic", "hiking", "hike", "camping", "garden", "trail"].some(has))
     return "outdoor";
   if (["indoor", "inside", "air condition", "office"].some(has)) return "indoor";
+  return "mild";
+}
+
+/** R5 bucket from RESOLVED TEMPERATURE (feels-like preferred; §F R5 "temp→bucket"). The geo weather
+ *  path uses this: `getWeatherContext`'s summary carries the °C but no weather-appropriate keyword, so a
+ *  friend on a 34°C clear day must bucket by the NUMBER, not the text (`bucketFromSummary` would return
+ *  "mild"). `bucketFromSummary` stays the no-geo occasion-text fallback. The thresholds are practical
+ *  feels-like dressing cut-points; the bucket then maps to the ranker's SEPARATE 0–10 item-warmth band
+ *  (not a °C scale). Snow overrides to cold regardless of °C (snow showers at 12°C is still cold-dress). */
+export function bucketFromTemp(ctx: { weatherSummary: string; tempC: number; feelsLikeC?: number }): WeatherBucket {
+  if (/\bsnow\b/i.test(ctx.weatherSummary)) return "cold";
+  const t = typeof ctx.feelsLikeC === "number" ? ctx.feelsLikeC : ctx.tempC;
+  if (t <= 10) return "cold";
+  if (t >= 24) return "hot";
   return "mild";
 }
 
@@ -517,7 +531,13 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         parentCandidateCacheKey: parentSnapshotId ? parentCandidateCacheKey : undefined,
       });
     } catch (err) {
-      if (err instanceof PayloadContractError) return respondDegraded("contract_invalid");
+      if (err instanceof PayloadContractError) {
+        // Post-spend: the paid render's payload failed the §G cross-check and is discarded. Log it —
+        // a silent discard here is a burned gpt-5.4-mini call with zero yield (e.g. a service-deploy
+        // candidateCacheKey drift), invisible without this line.
+        console.warn("[render] post-service payload cross-check failed (paid render discarded) → contract_invalid");
+        return respondDegraded("contract_invalid");
+      }
       throw err;
     }
 
@@ -536,7 +556,10 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         wardrobeById,
       });
     } catch (err) {
-      if (err instanceof PayloadContractError) return respondDegraded("contract_invalid");
+      if (err instanceof PayloadContractError) {
+        console.warn("[render] buildSnapshotDoc rejected the paid payload → contract_invalid");
+        return respondDegraded("contract_invalid");
+      }
       throw err;
     }
 

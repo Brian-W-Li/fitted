@@ -24,7 +24,13 @@ function envTimeoutMs(): number {
   const raw = process.env.ML_SERVICE_TIMEOUT_MS;
   if (raw == null) return 45_000;
   const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : 45_000;
+  // Clamp an operator override well under the route maxDuration (60s), leaving ~10s for the
+  // pre-service Mongo reads + post-service write — the recommend route's documented
+  // PRE + SERVICE_TIMEOUT + WRITE_MARGIN < 60s budget. This makes the AbortSignal.timeout degrade
+  // normally win the race against Vercel's raw-504 kill; it is not an absolute guarantee under a
+  // pathological cold-start (a multi-second pre-read could still push the abort past 60s). The
+  // unset default (45s) carries the full ~15s margin.
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 50_000) : 45_000;
 }
 export const SERVICE_TIMEOUT_MS = envTimeoutMs();
 
@@ -146,6 +152,7 @@ export async function callRenderService(
   } catch {
     // Transport failure: unreachable, DNS, connection reset, OR our own AbortSignal.timeout firing.
     // All are the same outage from the browser's perspective (§D — Next catch).
+    console.warn("[render] service unreachable/timeout → degrade (service_unavailable)");
     return { ok: false, reasonHint: "service_unavailable" };
   }
 
@@ -156,7 +163,11 @@ export async function callRenderService(
     } catch {
       envelope = null;
     }
-    return { ok: false, reasonHint: degradeFromResponse(res.status, envelope) };
+    const reasonHint = degradeFromResponse(res.status, envelope);
+    // Observability for the collection mission: a silent 200-empty state means zero yield. A wrong
+    // service key (401→auth_failed) or a service hiccup should be visible in the logs, not invisible.
+    console.warn(`[render] service HTTP ${res.status} → degrade (${reasonHint})`);
+    return { ok: false, reasonHint };
   }
 
   // 2xx — a degenerate payload is STILL a 2xx (the service returns it for a paid-but-no-JSON run,
@@ -164,10 +175,12 @@ export async function callRenderService(
   try {
     const response = (await res.json()) as unknown;
     if (!isRenderServiceResponse(response)) {
+      console.warn("[render] 2xx payload failed shape validation → degrade (contract_invalid)");
       return { ok: false, reasonHint: "contract_invalid" };
     }
     return { ok: true, response };
   } catch {
+    console.warn("[render] 2xx body failed to parse → degrade (service_unavailable)");
     return { ok: false, reasonHint: "service_unavailable" };
   }
 }

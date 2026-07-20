@@ -119,20 +119,28 @@ describe("GenerationSnapshot — validation", () => {
     expect(new GenerationSnapshot({ ...validBase(), nSurfaced: -1 }).validateSync()?.errors.nSurfaced).toBeDefined();
   });
 
-  it.each(["provider", "model", "temperature", "promptVersion"])(
-    "requires generator.%s (full generator is non-null provenance, §15.1/§8.2-C)",
-    (sub) => {
-      const generator: Record<string, unknown> = {
-        provider: "openai",
-        model: "gpt",
-        temperature: 0.7,
-        promptVersion: "spearhead-d.v1",
-      };
-      delete generator[sub];
-      const err = new GenerationSnapshot({ ...validBase(), generator }).validateSync();
-      expect(err?.errors[`generator.${sub}`]).toBeDefined();
-    },
-  );
+  // Every required-no-default generator subfield (§A.6 extended provenance included). storeMode is
+  // exempt — it has default:"none", so its `required` never fires on omission. This covers the full
+  // D-1/D-2 silent-strip class the schema warns about, not just the 4 core fields.
+  it.each([
+    "provider",
+    "model",
+    "temperature",
+    "promptVersion",
+    "maxCompletionTokens",
+    "apiSurface",
+    "responseFormat",
+    "reasoningEffort",
+    "promptCacheRetention",
+    "timeoutSeconds",
+    "maxRetries",
+  ])("requires generator.%s (full generator is non-null provenance, §15.1/§8.2-C/§A.6)", (sub) => {
+    // Start from the COMPLETE valid generator so deleting one field isolates that field's error.
+    const generator = { ...(validBase().generator as Record<string, unknown>) };
+    delete generator[sub];
+    const err = new GenerationSnapshot({ ...validBase(), generator }).validateSync();
+    expect(err?.errors[`generator.${sub}`]).toBeDefined();
+  });
 
   it("requires the scorer provenance block (kind + available; §15.1 non-null provenance)", () => {
     const noScorer = validBase() as Record<string, unknown>;

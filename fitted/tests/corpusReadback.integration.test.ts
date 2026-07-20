@@ -64,6 +64,13 @@ gate("live corpus read-back — GenerationSnapshot + OutfitInteraction integrity
     const users = await db.collection("users").find({}, { projection: { _id: 1 } }).toArray();
     userIds = new Set(users.map((u: Any) => String(u._id)));
     console.log(`[corpus] ${snapshots.length} snapshots, ${interactions.length} interactions`);
+    // Vacuity guard: a green run must mean "certified", not "examined zero rows". An empty or
+    // mis-pointed CORPUS_READBACK_URI would otherwise pass every violation loop below vacuously,
+    // falsely certifying the erasure-completeness + append-only-join invariants over nothing.
+    // NOTE: this deliberately FAILS against a truthfully-empty corpus (e.g. immediately after a full
+    // erasure, before any friend data). This instrument is meant to run against a POPULATED collection
+    // corpus — an empty-DB "failure" here is expected, not a defect to debug.
+    expect(snapshots.length + interactions.length).toBeGreaterThan(0);
   }, 30_000);
 
   afterAll(async () => {

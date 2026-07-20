@@ -18,7 +18,7 @@ display-only); (3) extracted+tested `buildActionByKey` (the reconcile adapter �
 field-name/key-format drift risk); (4) hardened the Python shared-fixture sort to parse instants (was a
 raw string compare that could silently diverge from the JS ms-compare); (5) de-duped a floor-count restate
 in runbook §8. Floors grew **721→758 jest / 1095→1096 pytest**; tsc/eslint(0 err)/`npm run build` clean.
-**Not yet committed or deployed — Brian's call.**
+**Committed on `main` (`abc0ba19` + `64b15825`); NOT yet deployed — Brian's call.**
 
 - **PHASE 1 — History curation (D-1/D-2/#4): DONE.** `DELETE /api/interactions` (`deleteInteraction`) is
   the sanctioned curation door — user-scoped native-driver hard-delete of EVERY row for a
@@ -93,7 +93,7 @@ Picking up a fix session on **Fitted** (monorepo `/Users/Brian/Documents/fitted`
 Python render service in `ml-system/`). **Deployed + live:** Vercel `fitted-three.vercel.app` (web) +
 Fly `fitted-render-service` (Python, **must stay 1 machine**) + Atlas **M0** (free tier). Goal of Track 2:
 collect 3–5 friend closets → M6/H26 image-embedding re-measure, so **feedback-label + corpus integrity is
-sacred**. Current live build ≈ `414dca7b`. Floors: **721 jest / 1095 pytest** (grow, never pin).
+sacred**. Deploy state lives only in runbook §8 (single home). Floors: **773 jest / 1097 pytest** (grow, never pin).
 
 ## Read first
 `CLAUDE.md` (conventions, append-only invariant, build-and-audit loop), `docs/Fitted_Spec_v2.md`

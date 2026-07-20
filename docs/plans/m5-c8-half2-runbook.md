@@ -79,8 +79,8 @@ db.generationsnapshots.getIndexes()
 
 ### H13 — cross-runtime conformance green BEFORE the flip
 ```sh
-cd ml-system && python -m pytest tests service/tests -q    # ≥1091 (current floor)
-cd fitted     && npm test                                  # ≥690 (current floor; incl. generationSnapshotRoundTrip + serde mirror)
+cd ml-system && python -m pytest tests service/tests -q    # ≥1097 (current floor)
+cd fitted     && npm test                                  # ≥773 (current floor; incl. generationSnapshotRoundTrip + serde mirror)
 ```
 Or rely on the `.github/workflows/conformance.yml` gate being green on the branch (it runs exactly these).
 
@@ -261,7 +261,7 @@ first week IS the final audit round — unknown defects surface here within ~1�
 F1–F4 shipped `c73ccf99`/`414dca7b`. **Phases 1–3 IMPLEMENTED + heavy-audited 2026-07-19** (History
 curation flip/remove + latest-state dedup + full-corpus reachability; the dislike-reason durable enrich +
 restored-chip reconciliation; the SHOULD-FIX copy/polish batch incl. `error.tsx`/`not-found.tsx`) — green
-(floors in that plan's STATUS block), **NOT yet committed or deployed** (Brian's call; deploy web via `npx vercel
+(floors in that plan's STATUS block), **committed on `main` (`abc0ba19` + `64b15825`); NOT yet deployed** (Brian's call; deploy web via `npx vercel
 --prod` from `fitted/`, Fly untouched → stays 1 machine). Remaining: **NEW-D** (Atlas M0→M2 ~$9/mo cost
 decision) + the OBSERVE-only items. Bounded CURATE-1/2/3 + TEST-1 residuals live in that plan.
 

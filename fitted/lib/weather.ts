@@ -116,7 +116,7 @@ const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
  */
 export async function getWeatherContext(
   input: WeatherInput,
-): Promise<{ weatherSummary: string; isForecast: boolean } | null> {
+): Promise<{ weatherSummary: string; isForecast: boolean; tempC: number; feelsLikeC?: number } | null> {
   const { lat, lon, eventTimeISO } = input;
   const now = Date.now();
   const eventMs = eventTimeISO ? new Date(eventTimeISO).getTime() : NaN;
@@ -156,6 +156,8 @@ export async function getWeatherContext(
           data.current?.wind_speed_10m ?? 0,
         ),
         isForecast: false,
+        tempC: temp,
+        feelsLikeC: data.current?.apparent_temperature,
       };
     } else {
       // ── Hourly forecast ─────────────────────────────────────────────────
@@ -222,6 +224,8 @@ export async function getWeatherContext(
           closestIdx,
         ),
         isForecast: true,
+        tempC: temps[closestIdx],
+        feelsLikeC: data.hourly?.apparent_temperature?.[closestIdx],
       };
     }
   } catch {

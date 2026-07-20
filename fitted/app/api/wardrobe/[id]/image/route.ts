@@ -95,7 +95,7 @@ export async function POST(
     const bytes = Buffer.from(await file.arrayBuffer());
 
     // attach pointer on WardrobeItem (user-scoped)
-    const { WardrobeItem, WardrobeImage, GenerationSnapshot } = await initDatabase();
+    const { WardrobeItem, WardrobeImage, GenerationSnapshot, User } = await initDatabase();
 
     // 1) Load current item so we can see its existing imagePath
     const existingItem = await WardrobeItem.findOne({
@@ -170,6 +170,15 @@ export async function POST(
       { _id: wardrobeItemId, user: userId },
       { $set: { imagePath } }
     ).exec();
+
+    // Erasure-race close (§23-H43): if the account was deleted while this authed upload was in flight,
+    // the new WardrobeImage row (real photo bytes) must not survive "delete me". Mirror the writer-side
+    // guards (mlRecommend.ts / interactions.ts).
+    if (!(await User.exists({ _id: userId }))) {
+      await WardrobeImage.deleteMany({ user: userId });
+      await WardrobeItem.deleteMany({ user: userId });
+      return NextResponse.json({ error: "Account no longer exists" }, { status: 401 });
+    }
 
     return NextResponse.json({ imagePath });
   } catch (err) {

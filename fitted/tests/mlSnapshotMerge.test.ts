@@ -53,6 +53,29 @@ describe("buildSnapshotDoc raw-field caps", () => {
     expect(Buffer.byteLength(evidence.rawAttributes, "utf8")).toBe(RAW_ATTRIBUTES_CAP_BYTES);
   });
 
+  // Independent known-answer oracle for capRawField's hash-of-ORIGINAL contract. The delegation
+  // asserts above (rawTextHash === capRawField(...).hash) prove buildSnapshotDoc DELEGATES to the
+  // capper, but can't catch a bug INSIDE the capper (e.g. hashing the truncated bytes) — both sides
+  // would move together. This pins the capper to a hardcoded sha256 of the ORIGINAL bytes.
+  it("capRawField hashes the ORIGINAL (pre-truncation) bytes — independent KAT", () => {
+    // sha256("xxxxxxxxxx") over the 10-byte original, even though the value is truncated to 4 bytes.
+    const over = capRawField("xxxxxxxxxx", 4);
+    expect(over.hash).toBe("fc11d6f28e59d3cc33c0b14ceb644bf0902ebd63d61218dffe9e7dac7c254542");
+    expect(over.bytes).toBe(10);
+    expect(over.truncated).toBe(true);
+    expect(over.value).toBe("xxxx");
+
+    // under-cap: value passes through, hash is over the same original bytes.
+    const under = capRawField("hello world", 100);
+    expect(under.hash).toBe("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+    expect(under.bytes).toBe(11);
+    expect(under.truncated).toBe(false);
+    expect(under.value).toBe("hello world");
+
+    // absent → null hash (documented contract).
+    expect(capRawField(null, 10).hash).toBeNull();
+  });
+
   it("rejects schema-known fields the M5 service is not allowed to author", () => {
     expect(() =>
       buildSnapshotDoc({

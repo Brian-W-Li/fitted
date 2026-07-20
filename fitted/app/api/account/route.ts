@@ -234,9 +234,11 @@ export async function PATCH(request: NextRequest) {
  *      BEFORE the user row died would otherwise survive; once the user row is gone, no new write
  *      can slip past (auth + the writer's post-persist User.exists check both fail), so this
  *      sweep is the closing bracket of the race.
- *   4. Delete the Firebase Auth account so the Google binding is gone too. A failure here (after
- *      the Mongo data is already gone) is logged, not fatal — the orphaned auth account would just
- *      re-create a fresh empty user on a future sign-in.
+ *   4. Delete the Firebase Auth account so the Google binding is gone too, retrying once (300ms
+ *      backoff) on a transient failure. If it STILL fails, the route returns 502 with an honest
+ *      partial-success body ({dataDeleted:true, authDeleted:false}) — it never claims full erasure
+ *      while the identity survives (§23-H63). All Mongo data is already gone; re-signing-in
+ *      re-creates a fresh empty user, and deleting again retries only this step.
  * The in-flight-render race is thus closed from both sides: mlRecommend self-erases when it sees
  * the user gone post-persist; this route sweeps once the user row's death makes that check reliable.
  */
@@ -267,10 +269,24 @@ export async function DELETE(request: NextRequest) {
     await cascadeDeleteUserData(User.db, auth.userId);
 
     if (user.authId) {
-      try {
-        await adminAuth.deleteUser(user.authId);
-      } catch (e) {
-        console.error("Firebase auth deletion failed (Mongo data already removed):", e);
+      let authDeleted = false;
+      for (let attempt = 0; attempt < 2 && !authDeleted; attempt++) {
+        try {
+          await adminAuth.deleteUser(user.authId);
+          authDeleted = true;
+        } catch (e) {
+          console.error(`Firebase auth deletion failed (attempt ${attempt + 1}; Mongo data already removed):`, e);
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 300));
+        }
+      }
+      if (!authDeleted) {
+        // Honest partial-success: ALL Mongo data (photos, snapshots, interactions) is gone, but the
+        // Firebase identity (email/displayName/photoURL) survived — do NOT claim full erasure. Signing
+        // in once re-creates a fresh empty user; deleting again retries only this step.
+        return NextResponse.json(
+          { ok: false, dataDeleted: true, authDeleted: false, error: "auth_deletion_failed" },
+          { status: 502 },
+        );
       }
     }
 

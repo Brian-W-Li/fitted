@@ -422,7 +422,7 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
       // rawText (up to 120KB each) + rawEmitted blobs, and the history page fires this join over the
       // deduped candidate set per view; unprojected, that's multi-MB reads growing with every week
       // of real use.
-      const snapshots = (await GenerationSnapshot.find({ _id: { $in: snapshotIds }, user: userObjectId })
+      const snapshots = (await GenerationSnapshot.find({ _id: { $in: snapshotIds }, user: userObjectId, redacted: { $ne: true } })
         .select(
           "candidates.candidateId candidates.items candidates.styleMove candidates.optionPath " +
             "candidates.risk candidates.template itemSnapshots.itemId itemSnapshots.engineVisible",

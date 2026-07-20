@@ -10,15 +10,21 @@
  * POST resolved, so a transient failure silently lost the sole trainable "why" channel (§16).
  *
  * This hook HOLDS the composed reasons so a failure surfaces a per-card RETRY instead of vanishing.
- * It is IN-SESSION ONLY (state, never persisted across loads) — deliberately. The enrich lands within
- * seconds of the dislike, so its fresh server-side `createdAt` **practically never** overtakes a later
- * flip/remove on the same candidate (the pathological case needs an abnormally slow in-flight enrich
- * AND an immediate cross-page flip of the same card — bounded by normal enrich latency, not truly
- * impossible). Persisting it across loads would WIDEN that window into a routine one (a queued enrich
- * landing after a flip on the next visit), which is why cross-load persistence is intentionally absent
- * — do NOT add it without re-solving that. The dashboard also reconciles restored feedback chips
- * against server latest-state on return (`lib/feedbackReconcile.ts`), which closes the common
- * dislike→navigate→flip→return→"tell us why" re-entry that a stale persisted mark would otherwise open.
+ * It is IN-SESSION ONLY (state, never persisted across loads) — deliberately.
+ *
+ * RACE (bounded + recoverable; AbortController narrowing registered in §23-H62). The enrich is a SECOND
+ * POST landing ~1-3s after the dislike:
+ *  - vs a later FLIP: harmless — the enrich's `rejected` would have to out-`createdAt` the flip's
+ *    `accepted` to win latest-state, a createdAt-tie rarity.
+ *  - vs a later REMOVE (History curation): `deleteInteraction` hard-deletes EVERY row for the binding, so
+ *    an enrich still in flight when the delete lands simply `.create()`s a fresh `rejected` — RESURRECTING
+ *    a just-curated candidate for the whole enrich round-trip (no createdAt-overtake needed). It self-heals
+ *    (the row reappears in History, re-curatable) and the dashboard reconcile closes the dashboard-return
+ *    case, but an M6 export pulled inside that window would capture a label the friend believed they erased.
+ * Persisting reasons across loads would WIDEN this into a routine window (a queued enrich landing after a
+ * flip/remove on the NEXT visit), which is why cross-load persistence is intentionally absent — do NOT add
+ * it without re-solving the race. The dashboard also reconciles restored feedback chips against server
+ * latest-state on return (`lib/feedbackReconcile.ts`), closing the common dislike→navigate→flip→return case.
  *
  * Injectable `postEnrich` so the state machine is unit-tested without the dashboard (firebase/network).
  */

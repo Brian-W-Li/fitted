@@ -552,3 +552,27 @@ def test_latest_state_matches_shared_cross_runtime_fixture():
     assert signals.item_affinity == want["itemAffinity"]
     assert signals.liked_full_signatures == frozenset(want["likedFullSignatures"])
     assert signals.recent_disliked_base_keys == tuple(want["recentDislikedBaseKeys"])
+
+
+def test_reduce_interaction_rows_newest_non_participating_action_does_not_claim_slot():
+    """Reducer parity (§23-H61): a newest bound `planned`/`packed` (non-{accepted,rejected}) action must
+    NOT occupy a candidate's slot over an older `accepted` — else the corpus label would disagree with the
+    History card and the engine. The JS side pins this via `withPlanned` in latestFeedbackState.test.ts;
+    the shared fixture carries no non-participating bound row, so this closes the Python-side gap directly.
+    A mutation moving the gate below `seen_candidates.add` (letting `planned` win) reddens here."""
+    # Most-recent-first (the reducer trusts the caller's {createdAt:-1,_id:-1} sort).
+    rows = [
+        {"snapshotId": "s1", "candidateId": "cP", "action": "planned", "createdAt": _ts(20)},
+        {
+            "snapshotId": "s1",
+            "candidateId": "cP",
+            "action": "accepted",
+            "createdAt": _ts(10),
+            "items": ["x1"],
+            "fullSignature": "sigP",
+        },
+    ]
+    signals = reduce_interaction_rows(rows)
+    # The older accepted stands: its item affinity + liked signature survive; planned contributes nothing.
+    assert signals.item_affinity == {"x1": 1}
+    assert signals.liked_full_signatures == frozenset({"sigP"})

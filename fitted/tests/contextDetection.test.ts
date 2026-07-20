@@ -14,7 +14,21 @@
  * drops the legacy-only "bbq"/"barbecue" outdoor words (multi-word/"outside" phrasings still bucket
  * outdoor) — the assertions below reflect the live function.
  */
-import { bucketFromSummary as detectTemperatureHint } from "@/lib/mlRecommend";
+import {
+  bucketFromSummary as detectTemperatureHint,
+  bucketFromTemp,
+  resolveWeatherProd,
+} from "@/lib/mlRecommend";
+import { getWeatherContext } from "@/lib/weather";
+
+// resolveWeatherProd's geo branch calls the STATICALLY-imported getWeatherContext (not injectable via
+// MlRecommendDeps), so mock the module to drive that wiring deterministically without a network fetch.
+// Spread the real module so only getWeatherContext is replaced (other exports stay live).
+jest.mock("@/lib/weather", () => ({
+  ...jest.requireActual("@/lib/weather"),
+  getWeatherContext: jest.fn(),
+}));
+const mockedGetWeatherContext = getWeatherContext as jest.MockedFunction<typeof getWeatherContext>;
 
 // ---------------------------------------------------------------------------
 
@@ -397,5 +411,79 @@ describe("detectTemperatureHint — minimal context inputs", () => {
 
   it("single letter 'a' → mild (default)", () => {
     expect(detectTemperatureHint("a")).toBe("mild");
+  });
+});
+
+describe("bucketFromTemp — geo weather buckets by the NUMBER, not the summary text", () => {
+  const ctx = (tempC: number, feelsLikeC?: number, weatherSummary = `Clear sky, ${Math.round(tempC)}°C`) => ({
+    weatherSummary,
+    tempC,
+    feelsLikeC,
+  });
+
+  it("cold ≤ 10°C, hot ≥ 24°C, mild in between (thresholds aligned to WEATHER_WARMTH_BAND)", () => {
+    expect(bucketFromTemp(ctx(9))).toBe("cold");
+    expect(bucketFromTemp(ctx(10))).toBe("cold"); // boundary: ≤ 10 is cold
+    expect(bucketFromTemp(ctx(11))).toBe("mild");
+    expect(bucketFromTemp(ctx(23))).toBe("mild");
+    expect(bucketFromTemp(ctx(24))).toBe("hot"); // boundary: ≥ 24 is hot
+    expect(bucketFromTemp(ctx(35))).toBe("hot");
+  });
+
+  it("the pre-fix bug: a hot/cold day whose summary lacks a keyword no longer collapses to 'mild'", () => {
+    // "Clear sky, 34°C" has no hot-family keyword → bucketFromSummary would return "mild".
+    expect(detectTemperatureHint("Clear sky, 34°C")).toBe("mild"); // the old (wrong) path
+    expect(bucketFromTemp(ctx(34))).toBe("hot"); // the new (correct) path
+  });
+
+  it("prefers feels-like over the dry-bulb temp when present", () => {
+    expect(bucketFromTemp(ctx(20, 26))).toBe("hot"); // 20°C but feels 26°C → hot
+    expect(bucketFromTemp(ctx(15, 8))).toBe("cold"); // 15°C but feels 8°C → cold
+    expect(bucketFromTemp(ctx(18, undefined))).toBe("mild"); // no feels-like → use tempC
+  });
+
+  it("snow in the summary overrides to cold regardless of °C", () => {
+    expect(bucketFromTemp(ctx(12, 12, "Snow showers, 12°C"))).toBe("cold");
+    expect(bucketFromTemp(ctx(30, 30, "Heavy snow, 30°C"))).toBe("cold"); // contrived, but pins the override
+  });
+});
+
+describe("resolveWeatherProd — geo branch wires bucketFromTemp, NOT bucketFromSummary (H66 regression)", () => {
+  afterEach(() => mockedGetWeatherContext.mockReset());
+
+  it("geo present + a keyword-less HOT summary → 'hot' (mutation guard for mlRecommend.ts geo wiring)", async () => {
+    // The exact H66 bug this closes: reverting the geo wiring to bucketFromSummary(ctx.weatherSummary)
+    // collapses this to "mild" (no hot-family keyword in "Clear sky, 34°C"), silently mis-labeling every
+    // geo render's ranker penalty + M6 corpus `weather` field. This pins that the NUMBER wins.
+    mockedGetWeatherContext.mockResolvedValue({
+      weatherSummary: "Clear sky, 34°C",
+      isForecast: false,
+      tempC: 34,
+      feelsLikeC: 34,
+    });
+    const res = await resolveWeatherProd({ occasion: "brunch", lat: 34.4, lon: -119.8 });
+    expect(res.weather).toBe("hot");
+    expect(res.weatherRaw).toBe("Clear sky, 34°C"); // raw summary passes through verbatim
+    expect(mockedGetWeatherContext).toHaveBeenCalledTimes(1);
+  });
+
+  it("geo present + a keyword-less COLD summary (feels-like drives it) → 'cold'", async () => {
+    // 3°C dry-bulb, feels-like 1°C — both ≤ 10; bucketFromSummary("Clear sky, 3°C") would say "mild".
+    mockedGetWeatherContext.mockResolvedValue({
+      weatherSummary: "Clear sky, 3°C",
+      isForecast: false,
+      tempC: 3,
+      feelsLikeC: 1,
+    });
+    const res = await resolveWeatherProd({ occasion: "morning walk", lat: 40, lon: -74 });
+    expect(res.weather).toBe("cold");
+  });
+
+  it("geo context null (fetch failed/out-of-range) → falls back to the occasion-text heuristic", async () => {
+    mockedGetWeatherContext.mockResolvedValue(null);
+    const res = await resolveWeatherProd({ occasion: "freezing winter hike", lat: 40, lon: -74 });
+    expect(res.weather).toBe("cold"); // bucketFromSummary(occasion): "freezing"/"winter" → cold
+    expect(res.weatherRaw).toBeNull(); // no raw summary when geo yielded nothing
+    expect(mockedGetWeatherContext).toHaveBeenCalledTimes(1); // geo WAS attempted (lat/lon present)
   });
 });
