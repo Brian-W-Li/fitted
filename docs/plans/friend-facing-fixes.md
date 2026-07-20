@@ -93,7 +93,7 @@ Picking up a fix session on **Fitted** (monorepo `/Users/Brian/Documents/fitted`
 Python render service in `ml-system/`). **Deployed + live:** Vercel `fitted-three.vercel.app` (web) +
 Fly `fitted-render-service` (Python, **must stay 1 machine**) + Atlas **M0** (free tier). Goal of Track 2:
 collect 3–5 friend closets → M6/H26 image-embedding re-measure, so **feedback-label + corpus integrity is
-sacred**. Deploy state lives only in runbook §8 (single home). Floors: **773 jest / 1097 pytest** (grow, never pin).
+sacred**. Deploy state lives only in runbook §8 (single home). Floors: **778 jest / 1097 pytest** (grow, never pin).
 
 ## Read first
 `CLAUDE.md` (conventions, append-only invariant, build-and-audit loop), `docs/Fitted_Spec_v2.md`

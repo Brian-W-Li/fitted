@@ -80,7 +80,7 @@ db.generationsnapshots.getIndexes()
 ### H13 — cross-runtime conformance green BEFORE the flip
 ```sh
 cd ml-system && python -m pytest tests service/tests -q    # ≥1097 (current floor)
-cd fitted     && npm test                                  # ≥773 (current floor; incl. generationSnapshotRoundTrip + serde mirror)
+cd fitted     && npm test                                  # ≥778 (current floor; incl. generationSnapshotRoundTrip + serde mirror)
 ```
 Or rely on the `.github/workflows/conformance.yml` gate being green on the branch (it runs exactly these).
 
