@@ -3,6 +3,7 @@ import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { type ClothingType, CLOTHING_TYPES, deriveClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
+import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 import { validateWardrobeCreatePayload } from "@/lib/wardrobeRequestValidation";
 import { allowRequest } from "@/lib/rateLimit";
 
@@ -203,7 +204,7 @@ export async function POST(request: NextRequest) {
           });
     // Honor a valid supplied warmth (W-track review form / CV); else keyword-derive.
     const warmthToSave =
-      typeof warmth === "number" && Number.isInteger(warmth) && warmth >= 0 && warmth <= 10
+      typeof warmth === "number" && Number.isInteger(warmth) && warmth >= WARMTH_MIN && warmth <= WARMTH_MAX
         ? warmth
         : deriveWarmth({
             category,

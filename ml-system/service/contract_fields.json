@@ -2,6 +2,7 @@
   "crossRuntime": {
     "_comment": "Values/behaviors hand-mirrored across the Next app (TS/Mongoose) and this service (Python). This file is the single source; a TS test and a Python test each assert their runtime matches these, so a one-sided edit reddens a suite instead of drifting silently (post-m5-reset \u00a74.1 C1/C2/C4).",
     "clamps": {
+      "DEFAULT_MAX_COMPLETION_TOKENS": 2200,
       "ENGINE_FAILURE_MESSAGE_MAX_CHARS": 300,
       "FEEDBACK_REASON_RAW_TEXT_MAX_CHARS": 500,
       "MAX_CONTROL_IDS": 50,
@@ -13,7 +14,9 @@
       "MAX_OCCASION_CHARS": 200,
       "MAX_PER_ITEM_FEEDBACK": 20,
       "MAX_WARDROBE_ITEMS": 2000,
-      "MAX_WEATHER_RAW_CHARS": 120
+      "MAX_WEATHER_RAW_CHARS": 120,
+      "WARMTH_MAX": 10,
+      "WARMTH_MIN": 0
     },
     "enums": {
       "clothingType": [
@@ -147,7 +150,6 @@
         "MAX_REQUEST_BODY_BYTES",
         "RATE_LIMIT_BURST",
         "RATE_LIMIT_REFILL_PER_SECOND",
-        "DEFAULT_MAX_COMPLETION_TOKENS",
         "MAX_COMPLETION_TOKENS_CEILING",
         "MIN_COMPLETION_TOKENS_FLOOR"
       ]

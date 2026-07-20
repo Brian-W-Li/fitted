@@ -1,5 +1,6 @@
 import { Schema, model, models, type InferSchemaType } from "mongoose";
 import { CLOTHING_TYPES } from "@/lib/clothingType";
+import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 
 const WardrobeItemSchema = new Schema(
   {
@@ -11,9 +12,10 @@ const WardrobeItemSchema = new Schema(
       default: "top",
       index: true,
     },
-    // Engine-required warmth band (0=coolest .. 10=warmest). Keyword-derived at ingestion (M4 C2);
-    // the W-track VLM CV later writes it directly. The ranker only bins this into 3 bands.
-    warmth: { type: Number, required: true, min: 0, max: 10 },
+    // Engine-required warmth band (single-homed in lib/warmth, cross-runtime-pinned; 0=coolest ..
+    // 10=warmest). Keyword-derived at ingestion (M4 C2); the W-track VLM CV later writes it
+    // directly. The ranker only bins this into 3 bands.
+    warmth: { type: Number, required: true, min: WARMTH_MIN, max: WARMTH_MAX },
     category: { type: String, required: true, index: true },
     subCategory: { type: String },
     pattern: { type: String },

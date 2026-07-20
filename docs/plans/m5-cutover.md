@@ -2244,13 +2244,14 @@ disagreed with the committed Python payload it is the write target for:
 None blocking. Deferred with a home:
 - `SERVICE_TIMEOUT_MS` numeric value — tuned at C5. Reducer values are pinned in `reducers.py`
   (`FEEDBACK_DEDUP_WINDOW=300`, `INTERACTION_ROWS_SCAN_LIMIT=500`, `REPETITION_WINDOW_SNAPSHOTS=50`) and
-  the daily ask ceiling is landed (`DAILY_MAX_CANDIDATES=12`, `config.py`). Still open:
+  the daily ask ceiling is landed (`DAILY_MAX_CANDIDATES=12`, `config.py`).
   `M5_MAX_COMPLETION_TOKENS` **landed as C3 service config** (`service/config.py`
   `DEFAULT_MAX_COMPLETION_TOKENS=2200`, env-overridable within `MIN_COMPLETION_TOKENS_FLOOR=2200` ..
-  `MAX_COMPLETION_TOKENS_CEILING=10_000` — `/readyz` 503s outside the band) but the **pre-C5 empirical
-  validation is still owed**: the (cap, ask-ceiling) pair proven on real `gpt-5.4-mini` **before C5**
-  (the cap must hold the ask, or every daily render truncates; lower the ceiling or raise the cap until
-  it fits — and re-tune default + floor together, §A.6 point 3).
+  `MAX_COMPLETION_TOKENS_CEILING=10_000` — `/readyz` 503s outside the band). The planned pre-C5
+  empirical validation of the (cap, ask-ceiling) pair was **not discharged during M5** — H40 and the
+  F3 live reads all ran uncapped, and live renders ask 6–7 candidates, never the 12-outfit ceiling —
+  and survives as **TOKCAP-1** in the Track-2 runbook §8 backlog (the living home; discharge = one
+  capped 12-outfit render, then re-tune default + floor together per §A.6 point 3).
 - ~~The §A rate-ceiling value~~ **named at C3**: `RATE_LIMIT_BURST=5` /
   `RATE_LIMIT_REFILL_PER_SECOND=0.2` per instance (`service/config.py`), global only under the fly.toml
   single-machine pin; the monthly OpenAI project cap is the hard backstop.

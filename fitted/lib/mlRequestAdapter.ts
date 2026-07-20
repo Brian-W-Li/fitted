@@ -31,6 +31,7 @@
  */
 import { CLOTHING_TYPES, type ClothingType } from "@/lib/clothingType";
 import { SEED_DATE_RE } from "@/lib/formats";
+import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 
 // ---------------------------------------------------------------------------
 // Next-side mirror of ml-system/service/config.py (§A "one home service-side + mirrored
@@ -49,6 +50,12 @@ function envPositiveInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+/** The maxCompletionTokens FALLBACK when M5_MAX_COMPLETION_TOKENS is unset (the live production
+ *  case) — a static mirror of the service's config.DEFAULT_MAX_COMPLETION_TOKENS, pinned equal via
+ *  contract_fields.json crossRuntime.clamps (the env-SET value is mirrored by shared-env instead;
+ *  a default drift would 400 every render pre-spend at the service's exact-match). */
+export const DEFAULT_MAX_COMPLETION_TOKENS = 2200;
+
 /** §A.6 generator surface — mirrors config.GENERATOR_* + OPENAI_TIMEOUT_SECONDS/OPENAI_MAX_RETRIES. */
 export const GENERATOR_EXPECTATION = {
   provider: "openai",
@@ -56,7 +63,7 @@ export const GENERATOR_EXPECTATION = {
   temperature: 0.5,
   // Env-overridable within the service band (MIN_COMPLETION_TOKENS_FLOOR..MAX_COMPLETION_TOKENS_CEILING);
   // read the SAME env name the service does so the two stay in sync across a deploy-time tune.
-  maxCompletionTokens: envPositiveInt("M5_MAX_COMPLETION_TOKENS", 2200),
+  maxCompletionTokens: envPositiveInt("M5_MAX_COMPLETION_TOKENS", DEFAULT_MAX_COMPLETION_TOKENS),
   apiSurface: "chat_completions",
   responseFormat: "json_schema_strict",
   reasoningEffort: "none",
@@ -216,12 +223,18 @@ function tryProjectWardrobeItem(
   // well-formedness gate): the service rejects the WHOLE render pre-spend (`_require_utf8`), so
   // one bad row would sink the closet on every request. Drop-predicate ≡ accept-predicate.
   if (!name.isWellFormed()) return { ok: false, id, reason: "name is not well-formed UTF-16" };
-  // warmth is contractually an INTEGER 0..10 (§15.2; the service's `_non_bool_int` rejects a float
-  // for the WHOLE render). Next's drop-predicate must match the service's accept-predicate exactly,
-  // else a fractional row passes here and sinks the closet service-side. Number.isInteger also
-  // rejects NaN/±Infinity.
-  if (typeof item.warmth !== "number" || !Number.isInteger(item.warmth) || item.warmth < 0 || item.warmth > 10) {
-    return { ok: false, id, reason: "warmth not an integer in [0,10]" };
+  // warmth is contractually an INTEGER in the WARMTH_MIN..WARMTH_MAX band (§15.2, single-homed in
+  // lib/warmth and cross-runtime-pinned; the service's `_non_bool_int` rejects a float for the
+  // WHOLE render). Next's drop-predicate must match the service's accept-predicate exactly, else a
+  // fractional row passes here and sinks the closet service-side. Number.isInteger also rejects
+  // NaN/±Infinity.
+  if (
+    typeof item.warmth !== "number" ||
+    !Number.isInteger(item.warmth) ||
+    item.warmth < WARMTH_MIN ||
+    item.warmth > WARMTH_MAX
+  ) {
+    return { ok: false, id, reason: `warmth not an integer in [${WARMTH_MIN},${WARMTH_MAX}]` };
   }
   // clothingType must be in the 5-value ontology (single-homed in lib/clothingType; the service
   // independently rejects an unknown clothingType for the WHOLE render, so a stale/undefined value

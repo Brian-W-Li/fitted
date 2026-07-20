@@ -1364,7 +1364,8 @@ exact accident this split prevents.)* ·
 not a second home:** `DEFAULT_MAX_COMPLETION_TOKENS` bounded by a `/readyz`-enforced
 `MIN_COMPLETION_TOKENS_FLOOR`..`MAX_COMPLETION_TOKENS_CEILING` band (an env cap outside the band → 503:
 below-floor is ready-but-unusable truncation, above-ceiling is an uncapped spend envelope); default +
-floor + the daily ask ceiling are re-tuned together by the `m5-cutover.md` §A.6 pre-C5 empirical gate. *(The v1.2
+floor + the daily ask ceiling are re-tuned together, and the worst-case capped-ask validation (the cap
+proven to hold the full 12-outfit ask) is still owed — tracked as TOKCAP-1, runbook §8. *(The v1.2
 candidate-cache TTL is retired — M5 D2 removes the candidate cache entirely, `docs/plans/m5-cutover.md` §C;
 there is no cache constant.)* The 70/30 split
 is **not** a constant — it is the sampler-owned `random_count` helper (§10/R6). *(Note: deployed K default is

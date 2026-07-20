@@ -177,8 +177,8 @@ def test_token_cap_readiness_floor_boundary():
 
 def test_spend_envelope_band_invariant():
     # FLOOR <= DEFAULT <= CEILING. The default path skips env validation entirely, so a
-    # mis-tuned default (the pre-C5 gate edits default + floor together) would otherwise
-    # ship a no-override deploy that violates its own band.
+    # mis-tuned default (the TOKCAP-1 re-tune edits default + floor together, runbook §8)
+    # would otherwise ship a no-override deploy that violates its own band.
     assert (
         cfg.MIN_COMPLETION_TOKENS_FLOOR
         <= cfg.DEFAULT_MAX_COMPLETION_TOKENS

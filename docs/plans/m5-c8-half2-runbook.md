@@ -80,7 +80,7 @@ db.generationsnapshots.getIndexes()
 ### H13 — cross-runtime conformance green BEFORE the flip
 ```sh
 cd ml-system && python -m pytest tests service/tests -q    # ≥1097 (current floor)
-cd fitted     && npm test                                  # ≥778 (current floor; incl. generationSnapshotRoundTrip + serde mirror)
+cd fitted     && npm test                                  # ≥784 (current floor; incl. generationSnapshotRoundTrip + serde mirror)
 ```
 Or rely on the `.github/workflows/conformance.yml` gate being green on the branch (it runs exactly these).
 
@@ -294,7 +294,11 @@ read-back. All gated `TRACK2_LIVE_OK=1`; they write the live corpus + spend $, s
 **KNOWN-RESIDUALS BACKLOG (the anti-spiral home — non-blocking findings live here, graded):**
 - STUMBLE **CONTENT-1** — outfit-lint flagged `gym hoodie + suit trousers` (2%); monitored, not a wall.
 - STUMBLE **OPS-1** — no proactive failure alerting; mitigated by the observation channel (manual).
-- COSMETIC **COMMENT-1** — stale comment `wardrobe/page.tsx` (predates D2); fix when next in that file.
+- Watch-item **TOKCAP-1** — the (cap=`2200`, ask=`12`) spend envelope has never been proven at the
+  capped WORST case: H40 + the F3 live reads ran uncapped, and live renders ask 6–7 candidates, never
+  the 12-outfit ceiling. Failure mode if too small: a full ask truncates → §D `truncated`
+  engine-failure → honest degrade (no corruption). Discharge: one capped 12-outfit render finishing
+  `stop` → flip the `service/config.py` TOKCAP-1 comments to a validated record.
 - COSMETIC **SEAM-1/2** — client entry caps hand-copied (agree); edit sends `size:""`/`notes:""` (no UI).
 - Watch-item **REQFIELDS-1 tripwire** — required set relaxed to {name, category}; if sparse closets get
   disliked into undecidability, ask that friend to backfill colors via edit — do NOT re-tighten validation.

@@ -188,6 +188,16 @@ CROSS_RUNTIME_CLAMPS: dict[str, int] = {
     # Single home fitted_core/snapshot.py (re-exported via config); the TS model's maxlength +
     # validation helper re-declare it (GenerationSnapshot.ts ENGINE_FAILURE_MESSAGE_MAX_CHARS).
     "ENGINE_FAILURE_MESSAGE_MAX_CHARS": cfg.ENGINE_FAILURE_MESSAGE_MAX_CHARS,
+    # Single home fitted_core/models.py (re-exported via config); the TS side re-declares the
+    # warmth band in lib/warmth.ts (schema min/max + the adapter's drop-predicate, which must
+    # equal the wire accept-predicate exactly or one out-of-band row sinks the whole closet).
+    "WARMTH_MIN": cfg.WARMTH_MIN,
+    "WARMTH_MAX": cfg.WARMTH_MAX,
+    # The maxCompletionTokens FALLBACK both sides hardcode for when M5_MAX_COMPLETION_TOKENS is
+    # unset (the live production case). The env-SET value is mirrored by shared-env (see the
+    # generator-expectation note below); this pins the static default the shared-env story rests
+    # on — TS re-declares it as mlRequestAdapter.DEFAULT_MAX_COMPLETION_TOKENS.
+    "DEFAULT_MAX_COMPLETION_TOKENS": cfg.DEFAULT_MAX_COMPLETION_TOKENS,
 }
 
 # Clamps the SERVICE alone enforces — intentionally NOT mirrored Next-side (documented so the
@@ -204,7 +214,9 @@ CROSS_RUNTIME_SERVICE_ONLY_CLAMPS: tuple[str, ...] = (
     "MAX_REQUEST_BODY_BYTES",
     "RATE_LIMIT_BURST",
     "RATE_LIMIT_REFILL_PER_SECOND",
-    "DEFAULT_MAX_COMPLETION_TOKENS",
+    # DEFAULT_MAX_COMPLETION_TOKENS is NOT service-only — the TS adapter hardcodes the same
+    # fallback, so it lives in CROSS_RUNTIME_CLAMPS above. The band edges stay service-only:
+    # /readyz alone enforces them, Next holds no copy.
     "MAX_COMPLETION_TOKENS_CEILING",
     "MIN_COMPLETION_TOKENS_FLOOR",
 )
@@ -224,7 +236,8 @@ CROSS_RUNTIME_REDUCER_SCAN_BOUNDS: dict[str, int] = {
 # runtime, caught late — so source the values from the same cfg constants the exact-match reads and
 # have the TS side assert equality offline. `maxCompletionTokens` is intentionally ABSENT: it is
 # env-driven (config.max_completion_tokens, within the token band), and Next reads the SAME env name,
-# so it is mirrored by shared-env, not by a static value.
+# so it is mirrored by shared-env, not by a static value. The env-UNSET fallback both sides hardcode
+# IS static, though — pinned as DEFAULT_MAX_COMPLETION_TOKENS in CROSS_RUNTIME_CLAMPS.
 CROSS_RUNTIME_GENERATOR_EXPECTATION: dict[str, object] = {
     "provider": cfg.GENERATOR_PROVIDER,
     "model": cfg.GENERATOR_MODEL,

@@ -454,6 +454,7 @@ def test_duplicate_wardrobe_ids_are_contract_invalid_with_no_payload():
 def test_malformed_wardrobe_items_rejected():
     _reject({"wardrobe": [wire_item("t1", "jacket")]})  # unknown clothingType
     _reject({"wardrobe": [wire_item("t1", "top", warmth=11)]})
+    _reject({"wardrobe": [wire_item("t1", "top", warmth=-1)]})  # below WARMTH_MIN
     _reject({"wardrobe": [wire_item("t1", "top", warmth=True)]})  # bool smuggled as int
     _reject({"wardrobe": [wire_item("t1", "top", styleTags="solid")]})  # non-array tags
     _reject({"wardrobe": [wire_item("t1", "top", extra="?")]})  # unknown field

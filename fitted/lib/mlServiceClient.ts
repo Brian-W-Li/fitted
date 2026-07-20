@@ -17,7 +17,9 @@
 import type { RenderBody } from "@/lib/mlRequestAdapter";
 
 /** Next's own timeout for the whole service round-trip. Must exceed the service's OpenAI timeout
- *  (30s) + overhead and sit below the route `maxDuration` (§D/G6 — tuned at route integration).
+ *  (the cross-runtime-pinned generatorExpectation.timeoutSeconds) + overhead and sit below the
+ *  route `maxDuration` (§D/G6 — tuned at route integration; margin test-enforced in
+ *  crossRuntimeContract.test.ts).
  *  A garbage env override falls back to the default (a NaN would make AbortSignal.timeout throw,
  *  degrading every call). */
 function envTimeoutMs(): number {

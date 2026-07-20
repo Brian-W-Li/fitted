@@ -106,12 +106,22 @@ class IssueCode(Enum):
     extra_candidates_ignored = "extraCandidatesIgnored"
 
 
+# The warmth band (v2 §6.1/§15.2): an INTEGER WARMTH_MIN..WARMTH_MAX, 0=coolest 10=warmest.
+# Single Python home — the service wire boundary (service/app.py) enforces it via the
+# service-config re-export, and the TS side (fitted/lib/warmth.ts) is pinned equal through
+# contract_fields.json crossRuntime.clamps. Lives here, NOT in fitted_core/config.py: that
+# module auto-hashes its UPPER_SNAKE globals into RANKER_CONFIG_VERSION, and the warmth bound
+# is a data-contract fact, not ranker provenance.
+WARMTH_MIN = 0
+WARMTH_MAX = 10
+
+
 @dataclass
 class WardrobeItem:
     """A single wardrobe item (v2 §6.1).
 
-    warmth is a 0–10 weather signal; material/formality are optional CV-derived
-    attributes. Tags default empty because an item legitimately may carry none.
+    warmth is a WARMTH_MIN..WARMTH_MAX weather signal; material/formality are optional
+    CV-derived attributes. Tags default empty because an item legitimately may carry none.
     """
 
     id: str
@@ -133,8 +143,8 @@ class WardrobeItem:
         # (v2 §15 / Appendix A R12). Coerce the one enum field so a raw string `type` from
         # the adapter is rejected here; ItemType(...) raises ValueError on an unknown.
         self.type = ItemType(self.type)
-        if not 0 <= self.warmth <= 10:
-            raise ValueError(f"warmth must be in 0..10, got {self.warmth}")
+        if not WARMTH_MIN <= self.warmth <= WARMTH_MAX:
+            raise ValueError(f"warmth must be in {WARMTH_MIN}..{WARMTH_MAX}, got {self.warmth}")
 
 
 @dataclass

@@ -25,10 +25,14 @@ import {
   MAX_ITEM_TAG_CHARS,
   MAX_ITEM_TAGS,
   MAX_IMAGE_URL_CHARS,
+  DEFAULT_MAX_COMPLETION_TOKENS,
   WEATHER_BUCKETS,
   SUPPORTED_INTENTS,
   GENERATOR_EXPECTATION,
 } from "@/lib/mlRequestAdapter";
+import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
+import { SERVICE_TIMEOUT_MS } from "@/lib/mlServiceClient";
+import WardrobeItem from "@/models/WardrobeItem";
 import { ALLOWED_ACTIONS, MAX_PER_ITEM_FEEDBACK } from "@/lib/interactions";
 import { INTERACTION_ROWS_SCAN_LIMIT, REPETITION_WINDOW_SNAPSHOTS } from "@/lib/mlBehavioralRows";
 import { ROLE_TO_SLOT } from "@/lib/mlSnapshotValidation";
@@ -90,6 +94,14 @@ const TS_CLAMPS: Record<string, number> = {
   MAX_PER_ITEM_FEEDBACK,
   FEEDBACK_REASON_RAW_TEXT_MAX_CHARS,
   ENGINE_FAILURE_MESSAGE_MAX_CHARS,
+  // The warmth band (single-homed in lib/warmth) — the adapter's drop-predicate must equal the
+  // service's accept-predicate exactly, or one out-of-band row sinks the whole closet (§15.2).
+  WARMTH_MIN,
+  WARMTH_MAX,
+  // The maxCompletionTokens env-UNSET fallback (the live production case) — the env-SET value is
+  // mirrored by shared-env (see the generator-expectation note below); this pins the static
+  // default that shared-env story rests on against the service's DEFAULT_MAX_COMPLETION_TOKENS.
+  DEFAULT_MAX_COMPLETION_TOKENS,
 };
 
 // The §H reducer scan bounds the Next behavioral-rows projection re-declares (lib/mlBehavioralRows.ts).
@@ -102,6 +114,7 @@ const TS_REDUCER_SCAN_BOUNDS: Record<string, number> = {
 // The §A.6 generator expectation values Next sends and the service exact-matches. `maxCompletionTokens`
 // is deliberately excluded — it is env-driven (both sides read the same env var), mirrored by shared-env
 // not a static value; the exhaustiveness check below pins that the mirror carries the STATIC set only.
+// (The env-UNSET fallback IS static, and is pinned above as clamps.DEFAULT_MAX_COMPLETION_TOKENS.)
 const TS_GENERATOR_EXPECTATION: Record<string, string | number> = {
   provider: GENERATOR_EXPECTATION.provider,
   model: GENERATOR_EXPECTATION.model,
@@ -140,6 +153,31 @@ describe("cross-runtime clamps (TS == contract_fields.json crossRuntime.clamps)"
       expect(TS_CLAMPS[name]).toBe(value);
     });
   }
+  it("WardrobeItem.warmth schema min/max are single-homed on lib/warmth", () => {
+    // The schema imports WARMTH_MIN/WARMTH_MAX (no separate literal), so pinning lib/warmth to the
+    // mirror (above) transitively pins the schema — assert the source really is lib/warmth.
+    const options = (WardrobeItem.schema.path("warmth") as { options?: { min?: number; max?: number } })
+      .options;
+    expect(options?.min).toBe(WARMTH_MIN);
+    expect(options?.max).toBe(WARMTH_MAX);
+  });
+});
+
+describe("service round-trip timeout margin (SERVICE_TIMEOUT_MS vs the pinned OpenAI timeout)", () => {
+  // The prose invariant in lib/mlServiceClient.ts, made mechanical: Next's round-trip timeout must
+  // exceed the service's OpenAI call timeout (cross-runtime-pinned generatorExpectation
+  // .timeoutSeconds) plus overhead, and sit under the recommend route's maxDuration=60s budget
+  // (the client clamps operator overrides to 50s for the same reason). Without this, bumping the
+  // pinned 30s would silently invert the margin: the client would abort while the service is still
+  // legitimately waiting on OpenAI. Runs on the module-load value (jest leaves
+  // ML_SERVICE_TIMEOUT_MS unset, so this exercises the production default path).
+  const openAiTimeoutMs = Number(CONTRACT.crossRuntime.generatorExpectation.timeoutSeconds) * 1000;
+  it("exceeds the service OpenAI timeout with ≥5s overhead margin", () => {
+    expect(SERVICE_TIMEOUT_MS).toBeGreaterThanOrEqual(openAiTimeoutMs + 5_000);
+  });
+  it("sits within the 50s clamp, under the route's 60s maxDuration budget", () => {
+    expect(SERVICE_TIMEOUT_MS).toBeLessThanOrEqual(50_000);
+  });
 });
 
 describe("cross-runtime reducer scan bounds (TS == contract_fields.json crossRuntime.reducerScanBounds)", () => {

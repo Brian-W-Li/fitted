@@ -3,6 +3,7 @@ import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { deriveClothingType, normalizeClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
+import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 import { validateWardrobePatchPayload } from "@/lib/wardrobeRequestValidation";
 import { isImagePathReferenced } from "@/lib/imageReferences";
 
@@ -84,8 +85,8 @@ export async function PATCH(
       hasSuppliedWarmth &&
       typeof suppliedWarmth === "number" &&
       Number.isInteger(suppliedWarmth) &&
-      suppliedWarmth >= 0 &&
-      suppliedWarmth <= 10
+      suppliedWarmth >= WARMTH_MIN &&
+      suppliedWarmth <= WARMTH_MAX
     ) {
       update.warmth = suppliedWarmth;
     } else if (warmthDrivingFieldsChanged) {

@@ -317,9 +317,11 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
     clothing_type = raw["clothingType"]
     if not isinstance(clothing_type, str) or clothing_type not in _ITEM_TYPE_VALUES:
         raise ContractInvalid(f"{where}.clothingType must be one of {sorted(_ITEM_TYPE_VALUES)}")
-    warmth = _non_bool_int(raw["warmth"], f"{where}.warmth")
-    if warmth > 10:
-        raise ContractInvalid(f"{where}.warmth must be in 0..10")
+    # Accept-predicate = the adapter's drop-predicate exactly (bound single-homed in
+    # fitted_core/models.py, cross-runtime-pinned against the TS lib/warmth copy).
+    warmth = _non_bool_int(
+        raw["warmth"], f"{where}.warmth", minimum=cfg.WARMTH_MIN, maximum=cfg.WARMTH_MAX
+    )
     tags = {
         key: _string_list(
             raw[key], f"{where}.{key}", max_items=cfg.MAX_ITEM_TAGS, max_chars=cfg.MAX_ITEM_TAG_CHARS

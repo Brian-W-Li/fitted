@@ -13,6 +13,7 @@
  * Keyword matching is whole-word (lib/keywordMatch) — "tee" won't match "sateen".
  */
 import { mentionsAny } from "@/lib/keywordMatch";
+import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 
 // Band centers (the warmth map; spec §6.1): hot 2 / mild 5 / cold 8.
 const HOT_CENTER = 2;
@@ -64,7 +65,7 @@ const LIGHT_KEYWORDS = [
 ];
 
 function clampBand(n: number): number {
-  return Math.max(0, Math.min(10, Math.round(n)));
+  return Math.max(WARMTH_MIN, Math.min(WARMTH_MAX, Math.round(n)));
 }
 
 export function deriveWarmth(input: {

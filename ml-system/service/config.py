@@ -32,6 +32,10 @@ from fitted_core.generation import (
 # TS model's hand copy (GenerationSnapshot.ts maxlength) to the live Python value via contract.py.
 from fitted_core.snapshot import ENGINE_FAILURE_MESSAGE_MAX_CHARS as ENGINE_FAILURE_MESSAGE_MAX_CHARS
 
+# Re-export (single home: fitted_core/models.py) — the wire boundary's warmth accept-predicate
+# and the cross-runtime clamp mirror both read these, pinning the TS copies (lib/warmth.ts).
+from fitted_core.models import WARMTH_MAX as WARMTH_MAX, WARMTH_MIN as WARMTH_MIN
+
 # --- Generator config (§A.6 / D6 — service-owned, never wire-controlled) ---------------
 GENERATOR_PROVIDER = "openai"
 GENERATOR_MODEL_ALLOWLIST = frozenset({"gpt-5.4-mini"})
@@ -55,11 +59,13 @@ GENERATOR_STORE_MODES = frozenset({"none"})
 GENERATOR_PROMPT_CACHE_RETENTIONS = frozenset({PROMPT_CACHE_RETENTION_IN_MEMORY})
 
 # Ask-sized output cap (§A.6 point 3 — NEVER a flat 900 against a 40-outfit ask): sized to
-# hold the DAILY_MAX_CANDIDATES=12 ask at ~130–170 output tokens/outfit + headroom. The
-# (cap, ask-ceiling) pair MUST be validated together on real gpt-5.4-mini before C5 (the
-# pre-C5 empirical gate) — H40's mechanical read ran uncapped, so its numbers do not extend
-# to any cap value. Env-overridable so the gate can raise it without a deploy — but only up
-# to the hard ceiling below: a fat-fingered Fly secret must not silently remove the
+# hold the DAILY_MAX_CANDIDATES=12 ask at ~130–170 output tokens/outfit + headroom. Live since
+# 2026-07-16 at typical asks (mean 6–7 candidates/render), but the capped WORST case — a full
+# 12-outfit ask under this exact cap — has never been formally exercised: H40's mechanical read
+# and the F3 live reads both ran uncapped, so their numbers do not extend to any cap value.
+# Tracked as TOKCAP-1 (m5-c8-half2-runbook §8); discharge with one capped 12-outfit render
+# before trusting the cap at the ceiling ask. Env-overridable so a tune needs no deploy — but
+# only up to the hard ceiling below: a fat-fingered Fly secret must not silently remove the
 # per-request spend envelope while /readyz stays green.
 DEFAULT_MAX_COMPLETION_TOKENS = 2200
 # Hard upper bound on the env override — well above any sane ask (even the engine-wide
@@ -67,9 +73,9 @@ DEFAULT_MAX_COMPLETION_TOKENS = 2200
 MAX_COMPLETION_TOKENS_CEILING = 10_000
 # Readiness floor — the other half of the bounds pair: a tiny-but-positive cap (1, 100)
 # would keep /readyz green while every real render truncates to a degenerate row
-# (ready-but-unusable). Pinned to the ask-sized default until the pre-C5 empirical gate
-# re-tunes both together; the gate may lower it only with measured evidence a smaller cap
-# holds the worst-case daily/rescue ask. Invariant: FLOOR <= DEFAULT <= CEILING (tested).
+# (ready-but-unusable). Pinned to the ask-sized default until TOKCAP-1 (runbook §8) re-tunes
+# default + floor together; lower it only with measured evidence a smaller cap holds the
+# worst-case daily/rescue ask. Invariant: FLOOR <= DEFAULT <= CEILING (tested).
 MIN_COMPLETION_TOKENS_FLOOR = 2200
 
 # --- §A/G7 input clamps (pre-spend; each gets an at-limit + limit+1 boundary test) ------

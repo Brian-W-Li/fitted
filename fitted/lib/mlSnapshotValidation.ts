@@ -37,6 +37,7 @@ import {
   ENGINE_FAILURE_MESSAGE_MAX_CHARS,
 } from "@/models/GenerationSnapshot";
 import { OBJECT_ID_RE } from "@/lib/formats";
+import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 
 /** The one error channel for a payload that would persist a corrupt/lying corpus row. */
 export class PayloadContractError extends Error {
@@ -218,11 +219,13 @@ export function validateSnapshotPayload(payload: unknown): void {
     // engineVisible.warmth is the one numeric ML feature the ranker conditions on, stored as a
     // bare Mongoose `Number` (no min/max/finite validator) — so Mongoose stores ±Infinity
     // silently (it rejects only NaN). This helper is the sole guard: a non-finite / out-of-range
-    // warmth would persist into the immutable corpus M6 trains on. Range mirrors the ingestion
-    // derivation + the adapter bound (0..10).
+    // warmth would persist into the immutable corpus M6 trains on. Bound single-homed in
+    // lib/warmth (cross-runtime-pinned).
     const warmth = snap.engineVisible?.warmth;
-    if (warmth != null && (!isFiniteNum(warmth) || warmth < 0 || warmth > 10)) {
-      fail(`itemSnapshots ${iid}: engineVisible.warmth ${warmth} is non-finite or outside [0,10]`);
+    if (warmth != null && (!isFiniteNum(warmth) || warmth < WARMTH_MIN || warmth > WARMTH_MAX)) {
+      fail(
+        `itemSnapshots ${iid}: engineVisible.warmth ${warmth} is non-finite or outside [${WARMTH_MIN},${WARMTH_MAX}]`,
+      );
     }
   }
 

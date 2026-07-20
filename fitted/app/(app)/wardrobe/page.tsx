@@ -1371,8 +1371,9 @@ export default function WardrobePage() {
 
   async function handleDeleteItem(item: WardrobeItem) {
     if (!firebaseUser) return;
-    // Deletion is permanent (the item's photo is cascade-deleted too) and the trash button sits a
-    // fat-finger away from Edit — confirm, same as Delete-all.
+    // Deletion is permanent (the photo goes too, unless an outfit-history snapshot still references
+    // it — the D2 retention carve-out) and the trash button sits a fat-finger away from Edit —
+    // confirm, same as Delete-all.
     if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
     try {
       setError(null);
