@@ -224,11 +224,16 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
   alert · degrade logging · timeout clamp). Deployed via `npx vercel --prod` from `fitted/` → aliased
   `fitted-three.vercel.app`, verified **200**. **Fly NOT touched — every change was web-side, so the
   1-machine pin is unaffected; `fly scale show` = 1 verified 2026-07-19.** Fly last actually deployed
-  2026-07-17 (`/readyz` green, fittedCore 0.5.0, prompt m5-c1.v1). The throwaway-account **erasure loop
-  PASSED live 2026-07-18** (22 rows → 0 across all 5 owned collections + Firebase auth gone;
-  `scripts/track2-erasure-check.mjs`). **Remaining pre-recruiting steps: (1) Brian's friend-#0 phone
-  gauntlet (now testable on the live build); (2) finalize onboarding copy; (3) recruit.** Deploys are
-  CLI-driven (not on git push): web from
+  2026-07-17 (`/readyz` green, fittedCore 0.5.0, prompt m5-c1.v1). **Render path RE-VERIFIED live on the
+  2026-07-19 build** — `track2-gauntlet.mjs run college-male-minimal` seeded 7 items → both daily renders
+  200/3-candidates + reroll 200 + feedback recorded (accepted+rejected → proves `bindable:true`), then
+  erased + independently read back **0 orphans** across all 4 corpus collections (throwaway-account erasure
+  also PASSED live 2026-07-18, 22 rows → 0 + Firebase auth gone). **Onboarding copy FINALIZED (below).**
+  **Only remaining pre-recruiting step: recruit** (Brian, out-of-session; ~3 guys / 2 girls, ≥1 dress-heavy
+  closet, but engagement > gender). The friend-#0 phone gauntlet (below) is now OPTIONAL — the render +
+  erasure layers are verified live and photo display is WYSIWYG (shows exactly as saved → the retake-if-
+  sideways guidance moved into the onboarding message); **friend #1's first week is the real acceptance
+  test**, watched via the observation channel. Deploys are CLI-driven (not on git push): web from
   `fitted/` via `npx vercel --prod`, service from `ml-system/` via `fly deploy` — and the repo ROOT
   must never be vercel-deployed (the root/app folders are both named `fitted`; a root deploy
   uploads the whole monorepo and fails the free-tier file quota).
@@ -294,8 +299,9 @@ read-back. All gated `TRACK2_LIVE_OK=1`; they write the live corpus + spend $, s
 - Watch-item **REQFIELDS-1 tripwire** — required set relaxed to {name, category}; if sparse closets get
   disliked into undecidability, ask that friend to backfill colors via edit — do NOT re-tighten validation.
 
-**Brian-as-friend-#0 (do before recruiting).** If you can't get through this on your phone with your own
-closet, no verdict matters; if you can, your thumbs are the "ready" signal. **Screenshot each step** — that
+**Brian-as-friend-#0 (OPTIONAL as of 2026-07-19 — render + erasure verified live, photos confirmed WYSIWYG;
+kept as a reference checklist, not a gate).** If you run it: can't get through it on your phone with your own
+closet → no verdict matters; if you can, your thumbs are the "ready" signal. **Screenshot each step** — that
 filmstrip is the visual layer the API driver can't see (frozen-button-vs-spinner, HEIC upright, legible
 dead-ends, tap targets). 1) Sign in on your phone (real browser). 2) Add ~10 real items via **"Save & add
 another"** — smooth now? Include one **HEIC**, one **12MP**, and one shot with the **phone rotated to landscape** — does it
@@ -306,17 +312,42 @@ spinner or frozen button? try a **cold** one (20–40s wall — what shows?). 5)
 6) Rescue (build around an item) — how many taps, does it center your item sanely? 7) Edit/change-photo/remove
 an item. 8) **Delete your account** → confirm your stuff is gone. Flag any >1s pause with no feedback.
 
-**Friend onboarding message (draft — finalize in your voice; it's the first UI + honest-consent artifact):**
-> Hey — I built an outfit recommender and I'm collecting a little data from a few friends to train the next
-> version. ~20 min? You add photos of your clothes, it builds outfits from *your* wardrobe (incl. a "build
-> around this piece" mode). It's early — decent, not magic — which is why honest ratings help. **Most useful:
-> add real photos** (they're what the ML measures) and **rate honestly — a dislike helps more than a polite
-> like**; aim for ~15 items, a couple of each type. Open `https://fitted-three.vercel.app` on your phone
-> (Safari/Chrome, not the Instagram/Messenger in-app browser). Privacy: your stuff lives in my DB for this
-> small experiment among ~5 friends; delete your account anytime and everything of yours is erased permanently.
+**Friend onboarding message (FINALIZED 2026-07-19 — device-agnostic + retention-disclosed; send as-is or tweak voice):**
+> Hey! I've been building an outfit-recommender app and I'm testing it with a few friends to help train the
+> next version. Would you be down to be a tester for a few days? ~20 min to set up.
+>
+> **What it does:** you add photos of your clothes and it builds outfits from *your own* wardrobe — there's
+> even a "build an outfit around this one piece" mode.
+>
+> **What I'd need from you:**
+> 1. **Add ~15 of your real clothes, each with a photo** — a few of each type (tops, bottoms, shoes, a jacket
+>    or two). The **photos are the important part** (that's literally what the model learns from), so real
+>    photos matter way more than filling in every field (a name + category is plenty).
+> 2. **Generate some outfits** — try a few different occasions.
+> 3. **Rate them honestly** — 👍 what you'd actually wear, 👎 what you wouldn't. Don't just like everything to
+>    be nice — honest thumbs-downs help more than polite likes.
+> 4. **Mess with it over a few days** — curate your closet.
+>
+> **Photo tip:** photos show up exactly the way they're saved, so if one looks sideways just rotate/retake it.
+>
+> **Opening it:** go to `https://fitted-three.vercel.app` in any normal browser — phone or laptop, whatever's
+> easier. Two gotchas: NOT the Instagram/Messenger in-app browser (breaks sign-in), and the first load can
+> take a few seconds.
+>
+> **Your data:** your call whether to delete your account when done — delete anytime in the app. If you don't
+> delete, your data may be used for this experiment and to keep building the app. Never shared, never used for
+> anything else.
 
-(Risk: the message sets the photo + honest-dislike expectation out-of-band — load-bearing, since the app
-nudges but doesn't coerce. Skip photos → yield stays unpowered no matter how many snapshots.)
+Why each line is load-bearing (the app nudges but can't coerce, so the message carries it): **photos** +
+**honest dislikes** are the two out-of-band asks (skip photos → yield stays unpowered no matter how many
+snapshots). The **retention line is the honest-consent artifact** — the Fable-settled posture (2026-07-19):
+friends who DON'T delete → their data may be kept for the experiment + app-building; deletion still FULLY
+erases (a deleted friend exports **zero**), so keeping the "erased permanently"-style promise while retaining
+a deleted friend's export would break it — hence the softer "may be used if you don't delete" wording.
+**Decidability target:** ≥30 image-usable *accepted* (liked) outfits across the cohort (the
+`exportTrack2Core.cjs` yield readout flips `UNDERPOWERED → DECIDABLE` at 30). Dislikes aren't counted by that
+bar but keep the likes honest + are hard negatives. Device note: it's a webapp — phone OR laptop both work;
+phone's just handy for snapping clothes on the spot.
 
 Full session context: `docs/sessions/2026-07-18-track2-friend-ready.md` (trust re-grade table + gauntlet).
 

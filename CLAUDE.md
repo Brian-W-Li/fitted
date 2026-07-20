@@ -87,11 +87,17 @@ returns zero" to a finite friend gauntlet, and **built the two genuinely-open it
 another" (yield-friction) + `scripts/export_track2.mjs` (the M6 training export, round-trip-proven live
 incl. the D2-retained-photo seam) + `lib/outfitLint.ts` (content monitor) + REQFIELDS-1 (required set
 relaxed to {name, category}, Fable-decided). The **throwaway-account erasure check PASSED live** (22 rows
-→ 0). **The 2026-07-18 friend-ready web work (add-another, REQFIELDS-1) was pushed + web-redeployed
-2026-07-18** (`origin/main` `78e5556a`; Vercel `fitted-three.vercel.app` serving the new build, verified
-200; Fly untouched → still 1 machine). Remaining: Brian runs the friend-#0 phone gauntlet (now testable on
-the live friend-ready build) + finalizes onboarding copy, then recruits 3–5 friend closets (out-of-session)
-toward the M6/H26 re-measure entry conditions (Spec §20/§23-H26).
+→ 0). **Latest deploy 2026-07-19** (`origin/main` `9d9330d4`, live build `30b03cc9`): the friend-facing
+correctness/honesty batch — weather-by-number (H66), the two erasure-race guards (H43), honest
+partial-delete + client alert (H63), degrade logging, timeout clamp — reviewed (independent principal
+review: SHIP) + web-redeployed (`fitted-three.vercel.app` verified 200; Fly untouched → still 1 machine).
+Render path + erasure **re-verified live** on that build (gauntlet render → `bindable:true`; erasure → 0
+orphans). **Onboarding copy FINALIZED (runbook §8); the friend-#0 gauntlet is now optional.** Remaining:
+Brian recruits 3–5 friend closets (out-of-session; ~3 guys/2 girls, ≥1 dress-heavy, engagement > gender)
+toward the M6/H26 re-measure entry conditions (Spec §20/§23-H26). **Unblocked forward work while data
+collects:** extend H26 gate-B power (the frozen judge budget — `13,395` questions remain, cost-approved)
+and build the M6 image-embedding pipeline (adapt the existing `ml-system/experiments/h26/embed.py`
+FashionSigLIP). Portfolio writeup (roadmap step 7) is deprioritized.
 Sequence: consolidation → H26 ✅ → M5 ✅ → reset ✅ → Track 2 (deployed + audited + friend-ready; recruit).
 
 Maps to team issues **#84** (Brian's own: *"LLM prompts make it better"*) and **#112** (*"Shortlisting strategy for LLM context"*). The team's brainstorm in `ml-system/mlWhatWeAreGoingTodo` essentially specced it.
