@@ -348,7 +348,14 @@ forbids). B's seed sensitivity is therefore disclosed as not re-measurable in-sp
   judged question budget shrinks the 0.0003 half-width overshoot — the cap was a cost choice,
   not a data limit; 13,395 frozen-ordered questions remain unjudged) and the **transfer entry
   condition** (re-measure the catalog→closet drop on powered real-ingestion data / friend
-  closets before any production commitment). Under the NO-GO, the untrained zero-shot cosine
+  closets before any production commitment). The power lever is **built + frozen**:
+  `gate_b_extension.py` (freeze/run/analyze) judges questions `[500:N_ext]` of the SAME frozen
+  order into a SEPARATE `judge_runs_extension.ndjson` (keep-last, resume-safe) and analyzes the
+  concatenated ledger under the SAME sealed letter into `metrics_extension.json` — the frozen
+  N=500 record stays byte-identical (§23-H56). Frozen at **N_ext=1000** (projected half-width
+  ~0.0356, survives a 25% variance-inflation stress ≤ δ); the paid `run` (~$2) is pending.
+  Optional-stopping is disclosed: the extension was decided after the N=500 result and N_ext is
+  fixed once by power math (never "extend until it passes"). Under the NO-GO, the untrained zero-shot cosine
   remains a deployable fallback for the seam — it shares all four systems properties; section 3
   states exactly what the trained head adds over it.
 - **Ingestion requirements surfaced**: EXIF orientation normalization (section 6); real-photo
@@ -380,5 +387,5 @@ ledger is what preserves the judge run in git.
 - **Measured ops numbers**: head latency via the committed `bench_head.py` → `bench_head.json`
   (machine + date recorded); judge cost/latency re-derived from the payload logs' `usage`
   fields + file mtimes (dated, local-only).
-- **Suite**: 302 pytest green / 1 skipped (opt-in live-judge smoke), hermetic (no network, no
+- **Suite**: 320 pytest green / 1 skipped (opt-in live-judge smoke), hermetic (no network, no
   spend); `pytest tests/` from this directory.

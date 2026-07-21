@@ -186,7 +186,13 @@ def _guard_gate_b_ledger(*, ledger_path: str = GATE_B_LEDGER, root_dir: str = RO
     committed-clean — a bare `os.remove` would destroy paid, possibly not-yet-committed judge results
     (every gate-b prefix costs real tokens). Only delete when the file is absent or committed-clean (git
     then preserves the prior run, so a fresh regenerate is safe). `git` is injectable for hermetic tests;
-    `evaluate.RealGit.identity` reports an untracked ledger as `committed=False`, so that case refuses too."""
+    `evaluate.RealGit.identity` reports an untracked ledger as `committed=False`, so that case refuses too.
+
+    Scope (§23-H56): this delete-then-regenerate is ONLY the original frozen-500 reproduction path
+    (`cmd_gate_b`, capped at `gate_b_cap`=500). The M6 gate-B REPOWER/EXTENSION path is a SEPARATE,
+    additive tool — `gate_b_extension.py` — which appends judged questions [500:N_ext] to its own
+    `judge_runs_extension.ndjson` (keep-last dedup, resume-safe) and NEVER deletes or rewrites the frozen
+    ledger, so the frozen N=500 `judge_ledger_sha256` bind keeps holding. Do not extend the prefix here."""
     if not os.path.exists(ledger_path):
         return
     from evaluate import RealGit
