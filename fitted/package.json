@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "track2:monitor": "node scripts/track2-monitor.mjs"
   },
   "dependencies": {
     "firebase": "^12.8.0",

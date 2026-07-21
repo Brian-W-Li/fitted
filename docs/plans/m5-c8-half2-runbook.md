@@ -218,17 +218,18 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **✅ Live web = `origin/main` `30b03cc9` (2026-07-19 deploy).** Stack shipped: the friend-facing
-  curation batch (History flip/remove + latest-state dedup) + the 2026-07-19 correctness/honesty batch
-  (weather-by-number H66 · the two erasure-race guards H43 · honest partial-delete H63 incl. the client
-  alert · degrade logging · timeout clamp). Deployed via `npx vercel --prod` from `fitted/` → aliased
-  `fitted-three.vercel.app`, verified **200**. **Fly NOT touched — every change was web-side, so the
-  1-machine pin is unaffected; `fly scale show` = 1 verified 2026-07-19.** Fly last actually deployed
-  2026-07-17 (`/readyz` green, fittedCore 0.5.0, prompt m5-c1.v1). **Render path RE-VERIFIED live on the
-  2026-07-19 build** — `track2-gauntlet.mjs run college-male-minimal` seeded 7 items → both daily renders
-  200/3-candidates + reroll 200 + feedback recorded (accepted+rejected → proves `bindable:true`), then
-  erased + independently read back **0 orphans** across all 4 corpus collections (throwaway-account erasure
-  also PASSED live 2026-07-18, 22 rows → 0 + Firebase auth gone). **Onboarding copy FINALIZED (below).**
+- **✅ BOTH halves redeployed 2026-07-21 (pre-recruit checklist item 2) — the audited HEAD is now the
+  collecting build.** Live web = `origin/main` `734ea85e` via `npx vercel --prod` from `fitted/` → aliased
+  `fitted-three.vercel.app`, verified **200**. Fly render service = image
+  `deployment-01KY3AR1TAZS67900TCCHW20FE` via `fly deploy` from `ml-system/`, **`fly scale show` = exactly
+  1 machine** (rolling update reused the single machine — no HA machine spawned; G1 held), `/readyz` green
+  (fittedCore 0.5.0, prompt m5-c1.v1). This build first ships `217a6ee3`'s behavior-preserving cross-runtime
+  pins (warmth band + token default single-homed + pinned TS↔Python) — independently audit-reviewed 2026-07-21
+  (no load-bearing findings) and exercised end-to-end by the gate below. **Render path RE-VERIFIED live on the
+  2026-07-21 build** — `track2-gauntlet.mjs run college-male-minimal` seeded 7 items → daily renders
+  200/3-candidates + reroll 200 + feedback recorded (accepted+rejected → proves `bindable:true`), then erased +
+  independently read back **0 orphans** across all corpus collections (throwaway-account erasure previously
+  PASSED live, 22 rows → 0 + Firebase auth gone). **Onboarding copy FINALIZED (below).**
   **Pre-recruit checklist (2026-07-20 merit+dynamics audit — do these BEFORE the first onboarding
   message; recruiting starts an unrepeatable clock):**
   1. **✅ DONE (2026-07-20) — Pre-registered the re-measure decision rule** (the single highest-
@@ -240,16 +241,47 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
      `derive_power.py`). The export yield readout (`manifest.yield`) is hardened from the raw ≥30
      count to the **scoreable-cluster certificate** — watch `primaryRead.verdict` (UNDERPOWERED →
      DECIDABLE at ≥25/arm both, concentration cap OK). Full rule single-homed in Spec §20 M6 row.
-  2. **Push + redeploy both halves** so the audited HEAD is the collecting build (`217a6ee3`'s
-     behavior-preserving runtime refactors are committed but not deployed), then re-run the one-render
-     `bindable:true` gate.
+  2. **✅ DONE (2026-07-21) — pushed + redeployed both halves.** `origin/main` `734ea85e` live on Vercel +
+     Fly (image `deployment-01KY3AR1TAZS67900TCCHW20FE`, `fly scale show` = 1); the one-render
+     `bindable:true` gate re-ran green (gauntlet render → erase → 0-orphan readback). Ops-notes deploy line
+     updated. `217a6ee3`'s cross-runtime pins are now live + audit-reviewed (no load-bearing findings).
   3. **Stagger onboarding — never a synchronized friend evening.** The service's sync OpenAI call
      serializes renders on one ASGI event loop (1 machine): ~5 simultaneous first renders → 40–50s
      queue → the 45s Next timeout → "stylist unavailable" as a first impression. One active
      onboarding at a time until the render call is moved off the event loop.
-  4. *(strongly recommended, ~half day)* Convert the observation channel to a CI-shaped artifact: a
-     daily cron asserting `/readyz`==200 + Fly machine-count==1 + the read-only yield readout,
-     notify-on-fail. The synthetic render stays manual/weekly (it spends + writes corpus).
+  4. **✅ SCRIPT BUILT (2026-07-21) — scheduling is your call.** The CI-shaped monitor is
+     `fitted/scripts/track2-monitor.mjs` (`npm run track2:monitor`): two HARD checks — `/readyz`==200+ready
+     ∧ Fly machine-count==1 — plus a read-only yield readout (informational; certified decidability stays
+     `export_track2`'s job). A hard FAIL fires a **macOS notification** + appends `fitted/track2-monitor.log`
+     + exits non-zero; all checks are read-only (no spend). Both PASS and FAIL paths verified live 2026-07-21.
+     **Run manually for now** (script-only per this session). To schedule daily, install the launchd plist
+     below. The synthetic render (the sanctioned gate) stays manual/weekly (it spends + writes corpus).
+
+     <details><summary>launchd daily plist (install when you want it running unattended)</summary>
+
+     Write `~/Library/LaunchAgents/com.fitted.track2monitor.plist` (edit the two absolute paths):
+     ```xml
+     <?xml version="1.0" encoding="UTF-8"?>
+     <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+     <plist version="1.0"><dict>
+       <key>Label</key><string>com.fitted.track2monitor</string>
+       <key>ProgramArguments</key>
+       <array>
+         <string>/opt/homebrew/bin/node</string>
+         <string>/Users/Brian/Documents/fitted/fitted/scripts/track2-monitor.mjs</string>
+         <string>--quiet</string>
+       </array>
+       <key>WorkingDirectory</key><string>/Users/Brian/Documents/fitted/fitted</string>
+       <!-- launchd's minimal PATH won't find `fly`; add homebrew so the machine-count check resolves it -->
+       <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string></dict>
+       <key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+       <key>StandardErrorPath</key><string>/Users/Brian/Documents/fitted/fitted/track2-monitor.log</string>
+     </dict></plist>
+     ```
+     Then `launchctl load ~/Library/LaunchAgents/com.fitted.track2monitor.plist`. (`FLY_BIN`=abs path is an
+     alternative to the PATH env var.) Runs only while the Mac is on — a synchronized-evening gap, not a
+     24/7 monitor; for always-on coverage a cloud `/readyz` ping would need to be added separately.
+     </details>
   Then **recruit** (Brian, out-of-session; ~3 guys / 2 girls, ≥1 dress-heavy closet, but
   engagement > gender). The friend-#0 phone gauntlet (below) is now OPTIONAL — the render +
   erasure layers are verified live and photo display is WYSIWYG (shows exactly as saved → the retake-if-
