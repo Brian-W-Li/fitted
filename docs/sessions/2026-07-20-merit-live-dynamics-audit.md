@@ -96,3 +96,43 @@ residual).
   manually-verified only — the client-test-infra decision is a standing registered residual.
 - Fable-seat spot-checks verified the load-bearing lens cites, but Lens 2's exact CI constants were
   checked directionally, not re-derived — the prereg session re-derives its own N′ and boundaries.
+
+## 2026-07-21 — fresh-eyes verification of this audit (independent review, coordinator session)
+
+A fresh session re-verified this audit's load-bearing claims independently (6 read-only lanes +
+the coordinator's own mutation testing + suite run). Verdict: **the audit stands** — one
+load-bearing overclaim corrected, small truth-refreshes applied, everything else CONFIRMED.
+
+- **Power math (Lane 2): CONFIRMED.** The H26 healthy-band structural-undecidability arithmetic
+  was re-derived from scratch (Hanley-McNeil, catalog AUC 0.7315) — every constant in the frozen
+  `preregistration.md` §9 reproduced; the Spec §20 M6-row resolution rests on sound math.
+- **The three dynamics tests (Lane 1): CONFIRMED load-bearing** by mutation. Serialization pin →
+  red when `handle_render` is dispatched off-loop (order flips to `[readyz, render]`); composed
+  erasure race → red when the step-11.5 `User.exists` self-erase is disabled (`bindable` returns
+  `true`); different-identity 409 → red when the post-write G5 `!identityMatches` is inverted
+  (both arms return 200). All sources restored via `git checkout`.
+- **H67/H68/H69 (Lane 4): substantively accurate.** H68 (renders on the single ASGI loop) and H69
+  (no pixel-dimension bound) confirmed against source; H67 arithmetic sound. One small figure fixed:
+  H67 said "renders 6/min/instance" — the token bucket is 12/min sustained (burst 5, refill 0.2/s).
+- **Doc-fold + prereg fold-in (Lanes 5, 7): CONFIRMED,** no cross-doc contradictions; prereg homes
+  (Spec §20 M6 row / runbook §8 / preregistration.md ↔ .json ↔ CERTIFICATE) mutually consistent.
+  Fix-on-sight floor refresh applied (ground-truth suites: 1098 ml-system pytest / 308 (+2 skip)
+  experiments / 793 jest) across README, CLAUDE.md, runbook §8.
+- **Git hygiene (Lane 6): clean** — `gate_b_extension.py` untouched/uncommitted; tree otherwise pristine.
+
+**LOAD-BEARING FINDING — TOKCAP-1 discharge was DAILY-only; records overclaimed (now corrected).**
+The pre-C5 empirical gate (`m5-cutover.md`) named **two** worst-case asks to validate at the 2200
+cap: a worst-case **daily** ask *and* a worst-case **rescue** ask. The 2026-07-20 discharge ran only
+the daily case (`candidateRequested=12`). Rescue's ask is *not* bounded by the daily-12 cap —
+`_rescue_candidate_requested` (`fitted_core/rescue.py:472`) clamps to [6, 40], so a forced
+optional over a rich closet can ask up to 40 drafts (~6,800 tok >> 2,200). The records
+(`service/config.py`, Spec §16, runbook §8, `m5-cutover.md`) presented the daily-12 discharge as the
+whole "capped worst case." Corrected this session: all four homes now scope the discharge to the
+DAILY worst case and register the un-revalidated rescue ask as graded residual **TOKCAP-2** (runbook
+§8). Not a shipping blocker — the ask is an upper-bound hint and a large rescue yield degrades
+gracefully (truncation → repair → "couldn't find enough", never a 500); friend closets are small
+(the live one-green-shirt rescue asks 9). To fully discharge: a worst-case-rescue gauntlet persona.
+
+**NOT changed (out of fold, reported):** `docs/plans/friend-facing-fixes.md:21` carries a stale
+"NOT yet deployed" line, but it is a completed/retired plan doc (its fixes are ancestors of the live
+build `30b03cc9`) and exempt from the active-truth standard — left as-is.

@@ -79,8 +79,8 @@ db.generationsnapshots.getIndexes()
 
 ### H13 — cross-runtime conformance green BEFORE the flip
 ```sh
-cd ml-system && python -m pytest tests service/tests -q    # ≥1097 (current floor)
-cd fitted     && npm test                                  # ≥784 (current floor; incl. generationSnapshotRoundTrip + serde mirror)
+cd ml-system && python -m pytest tests service/tests -q    # ≥1098 (current floor)
+cd fitted     && npm test                                  # ≥793 (current floor; incl. generationSnapshotRoundTrip + serde mirror)
 ```
 Or rely on the `.github/workflows/conformance.yml` gate being green on the branch (it runs exactly these).
 
@@ -316,15 +316,25 @@ read-back. All gated `TRACK2_LIVE_OK=1`; they write the live corpus + spend $, s
 **KNOWN-RESIDUALS BACKLOG (the anti-spiral home — non-blocking findings live here, graded):**
 - STUMBLE **CONTENT-1** — outfit-lint flagged `gym hoodie + suit trousers` (2%); monitored, not a wall.
 - STUMBLE **OPS-1** — no proactive failure alerting; mitigated by the observation channel (manual).
-- ✅ **TOKCAP-1 DISCHARGED (2026-07-20, live).** The (cap=`2200`, ask=`12`) envelope holds at the
-  capped worst case: the `tokcap-full-ask` gauntlet persona (16-item closet) forced
-  `candidateRequested=12` under the live default cap on the deployed Fly service — re-roll returned
-  **12/12 outfits, finish `stop`**, one attempt, clean strict-JSON parse (root render 11/12, also
-  `stop`); snapshot-verified via `diagnostics`/`generator` before erasure (erasure gate re-passed,
-  37 rows → 0). `service/config.py` comments now carry the validated record. Re-check with the same
-  persona after any prompt/schema change that lengthens per-outfit output. (Correction the run
-  surfaced: the ask hits 12 for any pool with ≥2 tops × ≥2 bottoms — the old "live asks 6–7" line
-  described *returned* counts, not the ask.)
+- ✅ **TOKCAP-1 DISCHARGED (2026-07-20, live) — DAILY worst case only.** The (cap=`2200`,
+  daily ask=`12`) envelope holds at the **daily** capped worst case: the `tokcap-full-ask` gauntlet
+  persona (16-item closet) forced `candidateRequested=12` under the live default cap on the deployed
+  Fly service — re-roll returned **12/12 outfits, finish `stop`**, one attempt, clean strict-JSON
+  parse (root render 11/12, also `stop`); snapshot-verified via `diagnostics`/`generator` before
+  erasure (erasure gate re-passed, 37 rows → 0). `service/config.py` comments now carry the validated
+  record. Re-check with the same persona after any prompt/schema change that lengthens per-outfit
+  output. (Correction the run surfaced: the ask hits 12 for any pool with ≥2 tops × ≥2 bottoms — the
+  old "live asks 6–7" line described *returned* counts, not the ask.)
+- WATCH **TOKCAP-2** — the pre-C5 empirical gate (`m5-cutover.md`) named **two** worst-case asks to
+  validate at the 2200 cap; only the DAILY one (ask=12) was run. The **RESCUE** ask is *not* bounded
+  by the daily-12 cap — `_rescue_candidate_requested` (`fitted_core/rescue.py`) clamps to
+  [`MIN_RESCUE_CANDIDATES`=6, `MAX_CANDIDATES`=40], so a forced optional (shoes/outer) over a rich
+  closet can ask up to 40 drafts (~6,800 tok >> 2,200). **Not a blocker:** the ask is an upper-bound
+  hint and a large rescue *yield* would degrade gracefully (truncation → one repair → "couldn't find
+  enough" fallback, never a 500 or a corpus lie), and friend closets are small (the live one-green-
+  shirt rescue asks 9). To fully discharge: add a worst-case rescue persona to `track2-gauntlet.mjs`
+  (forced optional + ≥3 tops × ≥3 bottoms) and confirm `finish_reason != "length"`, or lower the
+  rescue ask ceiling. (2026-07-21 audit-review finding.)
 - COSMETIC **SEAM-1/2** — client entry caps hand-copied (agree); edit sends `size:""`/`notes:""` (no UI).
 - **2026-07-20 dynamics audit registrations** — three new §23 holes: **H67** (Atlas M0 aggregate
   capacity: base64 ×4/3 means ~4.8 at-cap image accounts fill the 512MB cluster; GenerationSnapshot

@@ -98,8 +98,8 @@ flowchart LR
 | M5 live cutover | ✅ done, **deployed 2026-07-16** | Orchestrator, reducer seam, stateless Fly render service, regenerate vertical, live Mongo snapshot/feedback writes, §6.5 UI, trust-boundary auth — legacy recommender deleted; the engine is the only recommender. |
 | Track 2 data collection | 🔄 live now | Friend-closet corpus through the real pipeline (photos + accepted/rejected labels bound to immutable snapshots) — the input the M6 re-measure is gated on. Account deletion fully erases (proven live: a deleted user exports zero). |
 
-**Test rigor** (floors that grow, never shrink): **1098** `ml-system` pytest · **305 (+1 skip)** H26 pytest ·
-**786** Next/jest. Pure-engine determinism is verified under controlled generator inputs; live GPT renders
+**Test rigor** (floors that grow, never shrink): **1098** `ml-system` pytest · **308 (+2 skip)** experiments pytest ·
+**793** Next/jest. Pure-engine determinism is verified under controlled generator inputs; live GPT renders
 remain stochastic by design. Gate boundaries are mutation-tested.
 
 **Repo layout:**

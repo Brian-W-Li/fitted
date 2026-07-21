@@ -2249,9 +2249,11 @@ None blocking. Deferred with a home:
   `DEFAULT_MAX_COMPLETION_TOKENS=2200`, env-overridable within `MIN_COMPLETION_TOKENS_FLOOR=2200` ..
   `MAX_COMPLETION_TOKENS_CEILING=10_000` — `/readyz` 503s outside the band). The empirical
   validation of the (cap, ask-ceiling) pair — deferred out of M5 as **TOKCAP-1** — was
-  **discharged 2026-07-20** live at the capped worst case (full 12-outfit ask under 2200 →
-  12/12 returned, finish `stop`; validated record in `service/config.py`, re-check driver in
-  runbook §8).
+  **discharged 2026-07-20** live at the **daily** capped worst case (full 12-outfit daily ask
+  under 2200 → 12/12 returned, finish `stop`; validated record in `service/config.py`, re-check
+  driver in runbook §8). The pre-C5 gate's other named half — a **worst-case rescue ask** (rescue
+  is unbounded by the daily-12 cap; `_rescue_candidate_requested` → [6, 40]) — was **not** re-run
+  live; it is a graded residual (**TOKCAP-2**, runbook §8) that degrades gracefully, not a blocker.
 - ~~The §A rate-ceiling value~~ **named at C3**: `RATE_LIMIT_BURST=5` /
   `RATE_LIMIT_REFILL_PER_SECOND=0.2` per instance (`service/config.py`), global only under the fly.toml
   single-machine pin; the monthly OpenAI project cap is the hard backstop.
