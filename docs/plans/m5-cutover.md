@@ -2247,11 +2247,11 @@ None blocking. Deferred with a home:
   the daily ask ceiling is landed (`DAILY_MAX_CANDIDATES=12`, `config.py`).
   `M5_MAX_COMPLETION_TOKENS` **landed as C3 service config** (`service/config.py`
   `DEFAULT_MAX_COMPLETION_TOKENS=2200`, env-overridable within `MIN_COMPLETION_TOKENS_FLOOR=2200` ..
-  `MAX_COMPLETION_TOKENS_CEILING=10_000` — `/readyz` 503s outside the band). The planned pre-C5
-  empirical validation of the (cap, ask-ceiling) pair was **not discharged during M5** — H40 and the
-  F3 live reads all ran uncapped, and live renders ask 6–7 candidates, never the 12-outfit ceiling —
-  and survives as **TOKCAP-1** in the Track-2 runbook §8 backlog (the living home; discharge = one
-  capped 12-outfit render, then re-tune default + floor together per §A.6 point 3).
+  `MAX_COMPLETION_TOKENS_CEILING=10_000` — `/readyz` 503s outside the band). The empirical
+  validation of the (cap, ask-ceiling) pair — deferred out of M5 as **TOKCAP-1** — was
+  **discharged 2026-07-20** live at the capped worst case (full 12-outfit ask under 2200 →
+  12/12 returned, finish `stop`; validated record in `service/config.py`, re-check driver in
+  runbook §8).
 - ~~The §A rate-ceiling value~~ **named at C3**: `RATE_LIMIT_BURST=5` /
   `RATE_LIMIT_REFILL_PER_SECOND=0.2` per instance (`service/config.py`), global only under the fly.toml
   single-machine pin; the monthly OpenAI project cap is the hard backstop.

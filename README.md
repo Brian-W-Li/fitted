@@ -8,12 +8,12 @@ continuation**, focused on rebuilding the recommendation engine (`ml-system/`) i
 using it as the seam for a trained style-graph scorer. The goal here is **technical depth**, not launch.
 
 > **Two different things share the name "Fitted" — don't conflate them:**
-> - The **deployed app** at [fitted-outfits.vercel.app](https://fitted-outfits.vercel.app/) runs the
->   *team's* repo (the original CS 148 product).
-> - **This fork** is the engine rewrite. Its `ml-system/` work is heavily built and tested but does not
->   yet serve the live app — the cutover that wires it in is the active milestone (M5). What you can read
->   today is a working substrate plus a completed offline ML experiment; what you cannot yet *watch* is
->   this engine producing a live recommendation.
+> - The **team's deployed app** at [fitted-outfits.vercel.app](https://fitted-outfits.vercel.app/) runs
+>   the *team's* repo (the original CS 148 product).
+> - **This fork** is the engine rewrite — and since **2026-07-16 it runs its own live deployment**
+>   ([fitted-three.vercel.app](https://fitted-three.vercel.app) → a stateless Python render service on
+>   Fly.io), currently serving a small friends-only data-collection cohort. The M5 cutover is done: the
+>   legacy recommender is deleted and every live recommendation is produced by this engine.
 
 ---
 
@@ -64,6 +64,29 @@ canonical, build-tagged design lives in [`docs/Fitted_Spec_v2.md`](docs/Fitted_S
 
 ---
 
+## The live system
+
+Since 2026-07-16 the engine serves real renders end-to-end. The Next.js app holds no OpenAI key; the
+stylist call, output-schema enforcement, and spend envelope live service-side. Every render persists an
+immutable `GenerationSnapshot` (full generator provenance + the item features the engine actually saw),
+and every like/dislike binds to `{snapshotId, candidateId}` — the append-only training corpus the M6
+scorer will train on. Deleting an account erases everything (wardrobe, photos, snapshots, feedback) —
+verified live, not asserted.
+
+```mermaid
+flowchart LR
+    B[Browser<br/>Firebase Auth] --> R["Next.js /api/recommend<br/>(Vercel)"]
+    R --> A[request adapter<br/>+ wardrobe projection]
+    A --> S["render service (Fly.io, stateless)<br/>auth · input clamps · rate bucket"]
+    S --> C[fitted_core<br/>sampler → GPT stylist → validator → ranker]
+    C --> S --> R
+    R --> W[(MongoDB Atlas<br/>GenerationSnapshot: immutable)]
+    B -- like / dislike --> I["/api/interactions"] --> W2[(OutfitInteraction:<br/>append-only, snapshot-bound)]
+    W & W2 --> X[export_track2<br/>training corpus + yield readout]
+```
+
+---
+
 ## What's actually built
 
 | Layer | State | What |
@@ -72,10 +95,11 @@ canonical, build-tagged design lives in [`docs/Fitted_Spec_v2.md`](docs/Fitted_S
 | Spearhead rescue vertical | ✅ built, tested | Orphan-item rescue end-to-end: forced-item pin → sufficiency check → generate → parse → validate → rank → cold-start `compatibility`/`visibility` → `optionPath`/`risk` bucketing. |
 | M4 data + snapshot layer | ✅ built (snapshot substrate ships dormant) | 5-value `clothingType`, keyword-derived `warmth`, the immutable `GenerationSnapshot` training-truth record + a three-way TS↔Python↔Mongo contract. |
 | H26 compatibility spike | ✅ done (NO-GO by the frozen letter) | The offline go/no-go above. |
-| M5 live cutover | 🚧 in progress (C1-C7 built) | Orchestrator, reducer seam, stateless service, regenerate vertical, Mongo snapshot/feedback writes, §6.5 UI, and trust-boundary auth are built/tested; C8 (legacy-path retirement + live-key cutover) remains. |
+| M5 live cutover | ✅ done, **deployed 2026-07-16** | Orchestrator, reducer seam, stateless Fly render service, regenerate vertical, live Mongo snapshot/feedback writes, §6.5 UI, trust-boundary auth — legacy recommender deleted; the engine is the only recommender. |
+| Track 2 data collection | 🔄 live now | Friend-closet corpus through the real pipeline (photos + accepted/rejected labels bound to immutable snapshots) — the input the M6 re-measure is gated on. Account deletion fully erases (proven live: a deleted user exports zero). |
 
-**Test rigor** (floors that grow, never shrink): **987** `ml-system` pytest · **305 (+1 skip)** H26 pytest ·
-**546** Next/jest. Pure-engine determinism is verified under controlled generator inputs; live GPT renders
+**Test rigor** (floors that grow, never shrink): **1097** `ml-system` pytest · **305 (+1 skip)** H26 pytest ·
+**784** Next/jest. Pure-engine determinism is verified under controlled generator inputs; live GPT renders
 remain stochastic by design. Gate boundaries are mutation-tested.
 
 **Repo layout:**
@@ -84,7 +108,7 @@ remain stochastic by design. Gate boundaries are mutation-tested.
 |---|---|
 | `ml-system/fitted_core/` | The v2 substrate — the current focus. |
 | `ml-system/experiments/h26/` | The compatibility spike (frozen artifacts + `results.md`). |
-| `fitted/` | The Next.js 16 / React 19 app (the deployed team product's codebase). |
+| `fitted/` | The Next.js 16 / React 19 app — this fork's live deployment (Vercel). |
 | `docs/Fitted_Spec_v2.md` | The single canonical spec (build-ladder tagged; §23 = open-holes register). |
 | `ml-system/outfit_recommender.py` | Legacy rule-based demo — runnable reference only, retired at M6. |
 
@@ -102,7 +126,7 @@ python3 -m pytest tests -q          # the v2 substrate suite
 python3 outfit_recommender.py       # the legacy rule-based demo
 ```
 
-**The Next.js app** (the deployed product's codebase; needs Firebase + MongoDB + OpenAI keys):
+**The Next.js app** (needs Firebase + MongoDB env; the OpenAI key lives service-side, never in the app):
 
 ```sh
 cd fitted

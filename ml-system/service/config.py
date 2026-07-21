@@ -59,13 +59,15 @@ GENERATOR_STORE_MODES = frozenset({"none"})
 GENERATOR_PROMPT_CACHE_RETENTIONS = frozenset({PROMPT_CACHE_RETENTION_IN_MEMORY})
 
 # Ask-sized output cap (§A.6 point 3 — NEVER a flat 900 against a 40-outfit ask): sized to
-# hold the DAILY_MAX_CANDIDATES=12 ask at ~130–170 output tokens/outfit + headroom. Live since
-# 2026-07-16 at typical asks (mean 6–7 candidates/render), but the capped WORST case — a full
-# 12-outfit ask under this exact cap — has never been formally exercised: H40's mechanical read
-# and the F3 live reads both ran uncapped, so their numbers do not extend to any cap value.
-# Tracked as TOKCAP-1 (m5-c8-half2-runbook §8); discharge with one capped 12-outfit render
-# before trusting the cap at the ceiling ask. Env-overridable so a tune needs no deploy — but
-# only up to the hard ceiling below: a fat-fingered Fly secret must not silently remove the
+# hold the DAILY_MAX_CANDIDATES=12 ask at ~130–170 output tokens/outfit + headroom.
+# VALIDATED at the capped worst case (TOKCAP-1 discharge, 2026-07-20, live Fly service):
+# a 16-item closet forced the full candidateRequested=12 ask under this exact 2200 cap and
+# the model returned 12/12 outfits, finish_reason "stop", one attempt, clean strict-JSON
+# parse (the sibling root render: 11/12, also "stop") — snapshot-verified via the
+# diagnostics/generator fields before erasure. Re-check driver: fitted/scripts/
+# track2-gauntlet.mjs persona `tokcap-full-ask` — re-run it after any prompt/schema change
+# that lengthens per-outfit output. Env-overridable so a tune needs no deploy — but only up
+# to the hard ceiling below: a fat-fingered Fly secret must not silently remove the
 # per-request spend envelope while /readyz stays green.
 DEFAULT_MAX_COMPLETION_TOKENS = 2200
 # Hard upper bound on the env override — well above any sane ask (even the engine-wide
@@ -73,9 +75,9 @@ DEFAULT_MAX_COMPLETION_TOKENS = 2200
 MAX_COMPLETION_TOKENS_CEILING = 10_000
 # Readiness floor — the other half of the bounds pair: a tiny-but-positive cap (1, 100)
 # would keep /readyz green while every real render truncates to a degenerate row
-# (ready-but-unusable). Pinned to the ask-sized default until TOKCAP-1 (runbook §8) re-tunes
-# default + floor together; lower it only with measured evidence a smaller cap holds the
-# worst-case daily/rescue ask. Invariant: FLOOR <= DEFAULT <= CEILING (tested).
+# (ready-but-unusable). 2200 is the TOKCAP-1-validated value (holds the full 12-outfit
+# worst case — see DEFAULT above); lower it only with measured evidence a smaller cap
+# holds the worst-case daily/rescue ask. Invariant: FLOOR <= DEFAULT <= CEILING (tested).
 MIN_COMPLETION_TOKENS_FLOOR = 2200
 
 # --- §A/G7 input clamps (pre-spend; each gets an at-limit + limit+1 boundary test) ------

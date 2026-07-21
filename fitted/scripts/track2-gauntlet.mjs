@@ -121,6 +121,31 @@ const PERSONAS = {
       item("White Running Shoes", "footwear", ["white"], ["gym"]),
     ],
   },
+  "tokcap-full-ask": {
+    note:
+      "TOKCAP-1 discharge driver — a 16-item closet whose sampled pool forces the full DAILY_MAX_CANDIDATES=12 ask " +
+      "under the live default cap (M5_MAX_COMPLETION_TOKENS unset → 2200). Read the snapshot back BEFORE erasing: " +
+      "diagnostics.candidateRequested must be 12 and generator.finishStatus unset (clean finish, no truncation).",
+    occasions: ["casual weekend"],
+    items: [
+      item("White Oxford Shirt", "top", ["white"], ["casual", "work"]),
+      item("Black Crew T-Shirt", "top", ["black"], ["casual"]),
+      item("Navy Polo Shirt", "top", ["navy"], ["casual"]),
+      item("Gray Pullover Hoodie", "top", ["gray"], ["casual"]),
+      item("Cream Knit Sweater", "top", ["cream"], ["casual"]),
+      item("Light Blue Linen Shirt", "top", ["blue"], ["casual"]),
+      item("Dark Wash Jeans", "bottom", ["blue"], ["casual"]),
+      item("Khaki Chinos", "bottom", ["tan"], ["casual", "work"]),
+      item("Black Joggers", "bottom", ["black"], ["casual"]),
+      item("Olive Cotton Shorts", "bottom", ["olive"], ["casual"]),
+      item("Charcoal Wool Trousers", "bottom", ["charcoal"], ["work"]),
+      item("White Leather Sneakers", "footwear", ["white"], ["casual"]),
+      item("Brown Suede Loafers", "footwear", ["brown"], ["casual", "work"]),
+      item("Black Running Shoes", "footwear", ["black"], ["casual", "gym"]),
+      item("Navy Bomber Jacket", "top", ["navy"], ["casual"], "outer"),
+      item("Beige Overcoat", "top", ["beige"], ["work", "casual"], "outer"),
+    ],
+  },
   "text-sparse": {
     note: "CV-off minimal manual entry — names + category only, no colors/occasions. Does the stylist collapse into generic filler?",
     occasions: ["casual weekend"],

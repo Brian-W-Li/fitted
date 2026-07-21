@@ -60,6 +60,33 @@ def http(
     receive: Any = None,
 ) -> tuple[int, Any]:
     """Drive the ASGI callable with one request; returns (status, parsed JSON body)."""
+    return asyncio.run(
+        http_async(
+            app,
+            method,
+            path,
+            headers=headers,
+            body=body,
+            json_body=json_body,
+            chunks=chunks,
+            receive=receive,
+        )
+    )
+
+
+async def http_async(
+    app,
+    method: str,
+    path: str,
+    *,
+    headers: Optional[Mapping[str, str]] = None,
+    body: bytes = b"",
+    json_body: Optional[dict] = None,
+    chunks: Optional[list[bytes]] = None,
+    receive: Any = None,
+) -> tuple[int, Any]:
+    """The awaitable core of ``http`` — for tests that drive several requests on ONE loop
+    (e.g. the serialization pin, which needs two requests in flight concurrently)."""
     if json_body is not None:
         body = json.dumps(json_body).encode("utf-8")
     if chunks is None:
@@ -69,28 +96,24 @@ def http(
         for i, chunk in enumerate(chunks)
     ]
     sent: list[dict] = []
+    iterator = iter(request_messages)
 
-    async def run() -> None:
-        iterator = iter(request_messages)
+    async def default_receive():
+        return next(iterator)
 
-        async def default_receive():
-            return next(iterator)
+    async def send(message):
+        sent.append(message)
 
-        async def send(message):
-            sent.append(message)
-
-        scope = {
-            "type": "http",
-            "method": method,
-            "path": path,
-            "headers": [
-                (key.lower().encode("latin-1"), value.encode("latin-1"))
-                for key, value in (headers or {}).items()
-            ],
-        }
-        await app(scope, receive if receive is not None else default_receive, send)
-
-    asyncio.run(run())
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "headers": [
+            (key.lower().encode("latin-1"), value.encode("latin-1"))
+            for key, value in (headers or {}).items()
+        ],
+    }
+    await app(scope, receive if receive is not None else default_receive, send)
     status = sent[0]["status"]
     raw = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
     return status, (json.loads(raw) if raw else None)

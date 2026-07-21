@@ -93,11 +93,16 @@ partial-delete + client alert (H63), degrade logging, timeout clamp — reviewed
 review: SHIP) + web-redeployed (`fitted-three.vercel.app` verified 200; Fly untouched → still 1 machine).
 Render path + erasure **re-verified live** on that build (gauntlet render → `bindable:true`; erasure → 0
 orphans). **Onboarding copy FINALIZED (runbook §8); the friend-#0 gauntlet is now optional.** Remaining:
-Brian recruits 3–5 friend closets (out-of-session; ~3 guys/2 girls, ≥1 dress-heavy, engagement > gender)
-toward the M6/H26 re-measure entry conditions (Spec §20/§23-H26). **Unblocked forward work while data
-collects:** extend H26 gate-B power (the frozen judge budget — `13,395` questions remain, cost-approved)
-and build the M6 image-embedding pipeline (adapt the existing `ml-system/experiments/h26/embed.py`
-FashionSigLIP). Portfolio writeup (roadmap step 7) is deprioritized.
+the **runbook §8 pre-recruit checklist** (2026-07-20 merit+dynamics audit — headlined by
+**pre-registering the re-measure decision rule** before any friend data exists, Spec §20 M6 row; +
+push/redeploy both halves, staggered onboarding, the cron monitor), then Brian recruits 3–5 friend
+closets (out-of-session; ~3 guys/2 girls, ≥1 dress-heavy, engagement > gender) toward the M6/H26
+re-measure entry conditions (Spec §20/§23-H26). **Unblocked forward work while data collects:** extend
+H26 gate-B power (the frozen judge budget — `13,395` questions remain, cost-approved; fix §23-H56
+first) and build the M6 image-embedding pipeline (adapt the existing
+`ml-system/experiments/h26/embed.py` FashionSigLIP). Portfolio writeup (roadmap step 7) stays
+deprioritized — the README front door was brought to current truth 2026-07-20 (TOKCAP-1 discharged the
+same day).
 Sequence: consolidation → H26 ✅ → M5 ✅ → reset ✅ → Track 2 (deployed + audited + friend-ready; recruit).
 
 Maps to team issues **#84** (Brian's own: *"LLM prompts make it better"*) and **#112** (*"Shortlisting strategy for LLM context"*). The team's brainstorm in `ml-system/mlWhatWeAreGoingTodo` essentially specced it.

@@ -17,8 +17,26 @@ import { NextRequest } from "next/server";
 import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import WardrobeItem from "@/models/WardrobeItem";
+import WardrobeImage from "@/models/WardrobeImage";
 import OutfitInteraction from "@/models/OutfitInteraction";
 import User from "@/models/User";
+
+// Mocks used ONLY by the composed erasure-race case (the real DELETE /api/account route runs in
+// this suite): every mlRecommend test injects deps, so these never affect the render paths.
+jest.mock("@/lib/db", () => ({
+  initDatabase: jest.fn(),
+  // Delegates to the REAL harness-connected User model so the registered cascade hook + ObjectId
+  // cast run for real (same honest-limit note as accountDeleteRoute.test.ts: the 3-line
+  // `deleteUserWithData` wrapper body is replicated, not executed).
+  deleteUserWithData: jest.fn(async (uid: unknown) => {
+    const UserModel = jest.requireActual("@/models/User").default;
+    const result = await UserModel.deleteOne({ _id: uid });
+    return result.deletedCount > 0;
+  }),
+}));
+jest.mock("@/lib/firebaseAdmin", () => ({
+  adminAuth: { verifyIdToken: jest.fn(), deleteUser: jest.fn() },
+}));
 import { mlRecommend, resolveWeatherProd, type MlRecommendDeps, type WeatherResolution } from "@/lib/mlRecommend";
 import { GENERATOR_EXPECTATION } from "@/lib/mlRequestAdapter";
 import type { RenderBody } from "@/lib/mlRequestAdapter";
@@ -32,7 +50,7 @@ let userId: string;
 let itemIds: { top: string; b1: string; b2: string; shoes: string };
 
 beforeAll(async () => {
-  harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, OutfitInteraction, User]);
+  harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, WardrobeImage, OutfitInteraction, User]);
 });
 afterAll(async () => {
   await harness.stop();
@@ -593,6 +611,48 @@ describe("§C.4 idempotency + G5", () => {
     expect(await GenerationSnapshot.countDocuments({ user: userId, requestId: rid })).toBe(1);
     expect(new Set([firstBody.shown[0].snapshotId, secondBody.shown[0].snapshotId]).size).toBe(1);
   });
+
+  it("concurrent duplicate requestId with DIFFERENT identity → one 200 winner + one 409, no wrong-render token", async () => {
+    // The POST-write G5 arm (step 11's deduped-but-identity-mismatch 409): both calls pass the
+    // step-5 early read-check before either write commits, so the loser discovers the conflict
+    // only on its E11000 re-read. If this guard regressed, the loser would silently receive the
+    // WINNER's outfits for a DIFFERENT occasion plus a binding token to the wrong render —
+    // mislabeling the training corpus. (The sequential different-identity case above 409s at the
+    // early check and never reaches this arm.)
+    const rid = uuid();
+    let arrivals = 0;
+    let release!: () => void;
+    const bothArrived = new Promise<void>((resolve) => { release = resolve; });
+    const deps = makeDeps({
+      callService: async (b) => {
+        arrivals += 1;
+        if (arrivals === 2) release();
+        await bothArrived;
+        return fakeService()(b);
+      },
+    });
+
+    const [a, b] = await Promise.all([
+      mlRecommend(req({ requestId: rid, occasion: "brunch" }), deps),
+      mlRecommend(req({ requestId: rid, occasion: "a wedding" }), deps),
+    ]);
+    expect(arrivals).toBe(2); // both passed the early read-check → the post-write arm decided
+    expect([a.status, b.status].sort()).toEqual([200, 409]); // write winner is nondeterministic
+
+    const loser = a.status === 409 ? a : b;
+    const winner = a.status === 409 ? b : a;
+    const loserBody = (await loser.json()) as Any;
+    expect(loserBody.error.code).toBe("request_id_conflict");
+    expect(loserBody.shown).toBeUndefined(); // no outfits, no binding token for the loser
+    expect(JSON.stringify(loserBody)).not.toContain("snapshotId");
+
+    const winnerBody = (await winner.json()) as Any;
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId: rid })).toBe(1);
+    const row = (await GenerationSnapshot.findOne({ user: userId, requestId: rid }).lean()) as Any;
+    expect(winnerBody.shown[0].snapshotId).toBe(row._id.toString());
+    // The stored render IS the winner's request, not a blend: its occasion matches the 200 arm.
+    expect(row.occasion).toBe(a.status === 200 ? "brunch" : "a wedding");
+  });
 });
 
 describe("degrade + reject arms (no write, snapshotId discarded)", () => {
@@ -613,6 +673,69 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     expect(body.bindable).toBe(false);
     expect(body.shown).toEqual([]);
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0); // delete means delete
+  });
+
+  it("COMPOSED erasure race: the REAL DELETE /api/account completes while a render is parked in-flight → zero rows everywhere, non-bindable render", async () => {
+    // The H43 guard pair has two halves — the writer-side post-persist User.exists self-erase
+    // (step 11.5) and the route's phase-3 post-deletion sweep — and until now each was tested
+    // against a hand-rolled stand-in of the other. This composes both REAL units on one schedule:
+    // the render authenticates and parks inside callService; the full real route (phase-1
+    // redaction → cascade → phase-3 sweep → Firebase delete) runs to completion; the render then
+    // resumes, writes its snapshot for the now-dead user, and must self-erase + refuse a token.
+    // HONEST LIMIT: the OTHER window — the write landing between the cascade's snapshot sweep and
+    // the user row's death — has no injection seam between callService and the step-11 write, so
+    // it cannot be composed with a real render; accountDeleteRoute.test.ts's hand-injected
+    // phase-3 test remains that window's guard.
+    await WardrobeImage.create({
+      user: userId,
+      wardrobeItem: itemIds.top,
+      base64: "aGk=",
+      contentType: "image/jpeg",
+      sizeBytes: 2,
+    });
+    const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
+    initDatabase.mockResolvedValue({ User, WardrobeItem, WardrobeImage, OutfitInteraction, GenerationSnapshot });
+    const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
+      adminAuth: { verifyIdToken: jest.Mock; deleteUser: jest.Mock };
+    };
+    adminAuth.verifyIdToken.mockResolvedValue({ uid: "uid-test" }); // the beforeEach user's authId
+    adminAuth.deleteUser.mockResolvedValue(undefined);
+
+    let parked!: () => void;
+    const renderParked = new Promise<void>((r) => { parked = r; });
+    let release!: () => void;
+    const releaseGate = new Promise<void>((r) => { release = r; });
+    const deps = makeDeps({
+      callService: async (b) => {
+        parked();
+        await releaseGate;
+        return fakeService()(b);
+      },
+    });
+
+    const renderPromise = mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), deps);
+    await renderParked; // the render is authed + in-flight, pre-write
+
+    const { DELETE } = await import("@/app/api/account/route");
+    const delRes = await DELETE({
+      headers: { get: (h: string) => (h.toLowerCase() === "authorization" ? "Bearer fake" : null) },
+    } as Any);
+    expect(delRes.status).toBe(200);
+    expect(adminAuth.deleteUser).toHaveBeenCalledWith("uid-test");
+
+    release();
+    const { status, body } = await json(await renderPromise);
+    expect(status).toBe(200);
+    expect(body.bindable).toBe(false); // no binding token for an erased account
+    expect(body.shown).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("snapshotId");
+
+    // Erasure holds across EVERY cascade collection — the composed promise, not one half of it.
+    expect(await User.findById(userId)).toBeNull();
+    expect(await WardrobeItem.countDocuments({ user: userId })).toBe(0);
+    expect(await WardrobeImage.countDocuments({ user: userId })).toBe(0);
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
   });
 
   it("per-user render ceiling tripped → 200 rate_limited degraded, no service call, no snapshot", async () => {
