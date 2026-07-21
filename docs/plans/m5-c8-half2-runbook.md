@@ -231,9 +231,15 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
   also PASSED live 2026-07-18, 22 rows → 0 + Firebase auth gone). **Onboarding copy FINALIZED (below).**
   **Pre-recruit checklist (2026-07-20 merit+dynamics audit — do these BEFORE the first onboarding
   message; recruiting starts an unrepeatable clock):**
-  1. **Pre-register the re-measure decision rule** (the single highest-leverage item — one session;
-     rule + rationale single-homed in Spec §20 M6 row). Without it the likely Track-2 outcome is a
-     third underpowered inconclusive.
+  1. **✅ DONE (2026-07-20) — Pre-registered the re-measure decision rule** (the single highest-
+     leverage item), FROZEN freeze-before-look at `ml-system/experiments/track2_transfer/preregistration.md`
+     (+ `.json` + `derive_power.py`); Fable-reviewed (SHIP-WITH-CHANGES, all folded). Primary read =
+     accepted-vs-rejected discrimination (boundary 0.50, two-look 25/50-per-arm design, point-floor
+     ≥0.60, horizon expiry) → decidable even at pessimistic yield; secondary two-boundary transfer
+     read reported-never-gates; the inherited 0.70 healthy floor RETIRED (structurally unpassable —
+     `derive_power.py`). The export yield readout (`manifest.yield`) is hardened from the raw ≥30
+     count to the **scoreable-cluster certificate** — watch `primaryRead.verdict` (UNDERPOWERED →
+     DECIDABLE at ≥25/arm both, concentration cap OK). Full rule single-homed in Spec §20 M6 row.
   2. **Push + redeploy both halves** so the audited HEAD is the collecting build (`217a6ee3`'s
      behavior-preserving runtime refactors are committed but not deployed), then re-run the one-render
      `bindable:true` gate.
@@ -385,9 +391,13 @@ snapshots). The **retention line is the honest-consent artifact** — the Fable-
 friends who DON'T delete → their data may be kept for the experiment + app-building; deletion still FULLY
 erases (a deleted friend exports **zero**), so keeping the "erased permanently"-style promise while retaining
 a deleted friend's export would break it — hence the softer "may be used if you don't delete" wording.
-**Decidability target:** ≥30 image-usable *accepted* (liked) outfits across the cohort (the
-`exportTrack2Core.cjs` yield readout flips `UNDERPOWERED → DECIDABLE` at 30). Dislikes aren't counted by that
-bar but keep the likes honest + are hard negatives. Device note: it's a webapp — phone OR laptop both work;
+**Decidability target (updated 2026-07-20 to the frozen prereg):** the friend-facing intuition is
+still "~30+ liked outfits across the cohort," but the DECISION now keys on the **scoreable-cluster
+certificate** (`exportTrack2Core.cjs`, prereg §5): watch `manifest.yield.primaryRead.verdict`, which
+flips `UNDERPOWERED → DECIDABLE` only at **≥25 scoreable accepted AND ≥25 scoreable rejected** clusters
+with the per-friend concentration cap met — so **dislikes now count** (they are the primary read's
+negative arm, not just hard negatives). `cohortImageUsableAcceptedOutfits` is kept as a continuity
+readout but is no longer the decision. Device note: it's a webapp — phone OR laptop both work;
 phone's just handy for snapping clothes on the spot.
 
 Full session context: `docs/sessions/2026-07-18-track2-friend-ready.md` (trust re-grade table + gauntlet).

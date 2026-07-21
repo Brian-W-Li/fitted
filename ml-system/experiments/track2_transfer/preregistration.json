@@ -1,0 +1,126 @@
+{
+  "_README": "Machine-readable mirror of preregistration.md (the human authority). The FROZEN Track-2 catalog->closet re-measure decision rule. If this and the .md ever disagree, the .md wins and the divergence is a bug. FROZEN 2026-07-20, before any friend label was looked at. All AUC values are fractions. The export certificate in fitted/scripts/exportTrack2Core.cjs (CERTIFICATE) mirrors export_certificate below and is pinned equal by tests/test_preregistration.py.",
+  "experiment": "track2_transfer_remeasure",
+  "frozen_date": "2026-07-20",
+  "supersedes_gate": "h26 reported-not-gated transfer band (CI_low(AUC_closet) >= 0.70 floor AND drop <= 0.12) — RETIRED as a gate; structurally undecidable (see derivation)",
+  "unit_convention": "fraction",
+
+  "anchors_from_h26": {
+    "catalog_pair_auc_ceiling": 0.7315,
+    "closet_pair_auc_single_wardrobe": {"point": 0.5625, "ci": [0.2857, 0.7500], "effective_n": 6},
+    "chance": 0.50,
+    "inherited_healthy_floor_retired": 0.70,
+    "inherited_drop_gate_retired": 0.12
+  },
+
+  "primary_read": {
+    "name": "accepted_vs_rejected_discrimination_within_user",
+    "role": "decision",
+    "gates_m6": true,
+    "metric": "pooled within-user AUC of the content prior's outfit score, accepted vs rejected",
+    "negatives": "the friend's own rejected candidates (human-judged)",
+    "boundary": 0.50,
+    "established_requires": {"ci_low_gt": 0.50, "point_estimate_geq": 0.60},
+    "ci_level_per_look": 0.975,
+    "ci_note": "97.5% two-sided percentile CI = Bonferroni split over 2 looks (family-wise alpha 0.05); percentiles 1.25 / 98.75",
+    "looks": [
+      {"look": 1, "trigger": "first export with both arms >= 25 scoreable clusters AND concentration cap OK", "records": "analysis_sample.json (frozen snapshot-ID set at trigger)"},
+      {"look": 2, "trigger": "first export with both arms >= 50 scoreable clusters AND cap OK", "only_if": "Look 1 did not return ESTABLISHED"}
+    ],
+    "verdicts": {
+      "ESTABLISHED": "CI_low > 0.50 AND point >= 0.60 at Look 1 or Look 2 -> M6 re-measure entry SATISFIED; cohort-conditional",
+      "NOT_ESTABLISHED_well_powered": "Look 2 reached, CI straddles 0.50 or point < 0.60 -> M6 does not open on this basis",
+      "NOT_ESTABLISHED_underpowered": "horizon reached with 25 <= N < 50/arm and Look 1 did not establish",
+      "UNDERPOWERED_TERMINAL": "horizon reached with N < 25/arm -> cohort could not power the question"
+    },
+    "horizon": "2026-10-31 or render-service decommission, whichever earlier",
+    "next_levers_on_non_established": ["recruit +K friends (fresh freeze)", "H26 gate-B power extension (independent)", "re-train the prior (new pre-registered experiment)"],
+    "cohort_conditional": true,
+    "no_optional_stopping": "exactly two looks, alpha split Bonferroni, horizon-terminal; no third look, no boundary reinterpretation"
+  },
+
+  "secondary_read": {
+    "name": "catalog_to_closet_pair_auc_two_boundary_directional",
+    "role": "reported_continuity_with_h26",
+    "gates_m6": false,
+    "never_promoted_to_primary": true,
+    "negatives": "mechanical same-fine-category corrupted (H26's, identical construction)",
+    "bootstrap_unit": "source_outfit",
+    "boundaries": {"above_chance": {"read": "CI_low", "gt": 0.50}, "below_healthy": {"read": "CI_high", "lt": 0.70}},
+    "retired_as_gate": {"closet_floor_ci_low_geq": 0.70, "drop_ci_high_leq": 0.12, "trap_guard": "the 0.70 floor's pass bar exceeds the catalog ceiling 0.7315 at every reachable N — structurally unpassable; see derivation"},
+    "interpretation_floors": {"report_point": 0, "attempt_two_boundary_at": 12, "decided_at": 25, "band_12_to_25": "suggestive, coverage-caveated"},
+    "ci_level": 0.95
+  },
+
+  "ground_truth_proxy": {
+    "primary_label": "human accept/reject on a stylist-generated outfit — a taste+compatibility BLEND",
+    "different_from_h26": "NOT co-worn Polyvore truth; NOT pure compatibility",
+    "read_kind": "discrimination, never 'measures compatibility accuracy'",
+    "ceiling_below_one_by_construction": true,
+    "range_restriction_reframe": "the stylist pre-filters for compatibility, so both arms are the high-compatibility tail (truncated range DEFLATES AUC toward 0.5). The primary therefore measures MARGINAL discrimination beyond the stylist's implicit filter — precisely the M6 production job (re-rank stylist candidates). Deflation makes ESTABLISHED conservative and can never manufacture a false ESTABLISHED."
+  },
+
+  "export_certificate": {
+    "_note": "MUST byte-equal fitted/scripts/exportTrack2Core.cjs CERTIFICATE; pinned by tests/test_preregistration.py",
+    "primaryDecisionMinPerArm": 25,
+    "transferInterpMin": 12,
+    "transferDecisionMin": 25,
+    "perFriendConcentrationCap": 0.5,
+    "minCategoryDepthForNegative": 2,
+    "eligibility": {
+      "pairwise_sized_min_items": 2,
+      "image_usable": "every item image resolved",
+      "labeled": "latest-state action in {accepted, rejected} per §23-H61 (createdAt desc, _id tiebreak)",
+      "primary_scoreable": "pairwise-sized AND image-usable AND labeled; NOT filtered by same-category-negative availability",
+      "transfer_scoreable": "primary-scoreable AND accepted AND >=1 clothingType with >=2 items in the friend's closet",
+      "lineage_dedup": "scoreable counts dedup by item-set signature within {friend, arm}",
+      "author_excluded": "operator's own closet (Brian-as-friend-#0, known authId) excluded from the headline pool, reported separately"
+    }
+  },
+
+  "measurand": {
+    "scorer_headline": "H26 trained pairwise type-conditioned edge head — experiments/h26/selection.json checkpoint grid_0 (sha a172be27...), 795617 params, scored as H26 froze it",
+    "backbone": {"open_clip_id": "hf-hub:Marqo/marqo-fashionSigLIP", "revision_sha": "c56244cc94f92419e8369fa71efdaf403b124ce8", "embedding_dim": 768, "normalization": "l2", "preprocess_sha256": "fb80278db5fd5efcddc5a736a9095f34ed28da48e270cce5e12df162248404f6"},
+    "outfit_aggregation": "mean_over_edges",
+    "tie_policy_auc": 0.5,
+    "exif": "ImageOps.exif_transpose before embedding (mandatory, §23-H53); orientation-6 regression fixture required",
+    "image_resolution_failure": "outfit with any unresolved image is not scoreable (excluded, never partial-scored)",
+    "reference_rung_reported": "zero-shot FashionSigLIP cosine, same embeddings (H26 deployable fallback)"
+  },
+
+  "statistics": {
+    "auc": "pooled ROC-AUC, never per-outfit-averaged",
+    "bootstrap": {"method": "cluster_bootstrap_percentile", "b": 10000},
+    "primary_unit": "snapshot, blocked within friend; the 3-5 friends are NOT resampled (cohort-conditional)",
+    "secondary_unit": "source_outfit",
+    "concentration_cap": 0.5,
+    "leave_one_friend_out": "recompute dropping the largest-n friend; a flip across 0.50 downgrades ESTABLISHED -> suggestive (never the reverse)",
+    "per_friend_reporting": "report every friend's arm counts + own AUC"
+  },
+
+  "derivation": {
+    "source": "derive_power.py (pure stdlib) -> power_derivation.json",
+    "method": "Hanley-McNeil 1982 large-sample AUC SE, balanced n_pos=n_neg=N; 95% half-width = 1.96*SE",
+    "half_width_at_auc_0.70": {"n30": 0.133, "n40": 0.115, "n60": 0.093},
+    "floor_unpassable": {"required_point_to_pass_ci_low_0.70": {"n30": 0.833, "n60": 0.793, "n120": 0.766}, "catalog_ceiling": 0.7315, "conclusion": "pass bar exceeds ceiling at every reachable N"},
+    "drop_fails_at_true_zero": {"n<=30": "impossible (half_width>0.12)", "n40": "~54% pass"},
+    "min_n_per_arm_to_exclude_chance": {"0.70": 14, "0.65": 26, "0.62": 42, "0.60": 62, "0.58": 98, "0.55": 254}
+  },
+
+  "freeze_mechanics": {
+    "freeze_binds_when": "a friend accept/reject label (or any score over friend data) is first read/exported for analysis — NOT when a row is written",
+    "pre_freeze_rows_unlooked": true,
+    "yield_readout_never_scores": "export_track2.mjs manifest.yield certifies sample eligibility+count only; never computes the compatibility score",
+    "sha_bound_freeze_set": ["preregistration.md", "preregistration.json", "derive_power.py", "power_derivation.json"],
+    "pinned_equal_by_test": "tests/test_preregistration.py (export CERTIFICATE == export_certificate)",
+    "analysis_sample_json_written_at": "Look 1 trigger, not at freeze"
+  },
+
+  "yield_model": {
+    "provenance": "app design + H26 attrition + row-volume counts only; no label/action field read, no score computed",
+    "per_friend_image_usable_accepted": "8-15",
+    "cohort_image_usable_accepted": "30-60",
+    "cohort_scoreable_accepted_after_attrition": "18-35",
+    "rejected_arm": "comparable (dislikes onboarded as a habit)"
+  }
+}

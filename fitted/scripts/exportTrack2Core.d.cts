@@ -36,15 +36,44 @@ export interface ExportManifest {
   yield: {
     friends: number;
     cohortImageUsableAcceptedOutfits: number;
-    decidabilityBar: string;
-    verdict: string;
-    perUser: Record<string, { accepted: number; rejected: number; imageUsableAccepted: number; clothingTypeDepth: number }>;
+    prereg: string;
+    floors: {
+      primaryDecisionMinPerArm: number;
+      transferInterpMin: number;
+      transferDecisionMin: number;
+      perFriendConcentrationCap: number;
+      minCategoryDepthForNegative: number;
+    };
+    scoreableClusters: { acceptedScoreable: number; rejectedScoreable: number; transferAcceptedScoreable: number };
+    concentration: { acceptedMaxShare: number; rejectedMaxShare: number; cap: number; capOk: boolean };
+    primaryRead: { verdict: string; boundary: number; needPerArm: number; note: string };
+    transferRead: { state: string; note: string };
+    perUser: Record<string, {
+      accepted: number; rejected: number; imageUsableAccepted: number;
+      primaryAcceptedScoreable: number; primaryRejectedScoreable: number;
+      transferAcceptedScoreable: number; clothingTypeDepth: number;
+    }>;
   };
   imageManifest: Record<string, { status: "resolved" | "unresolved"; file?: string; contentType?: string; sizeBytes?: number }>;
 }
 
 export function exportTrack2(opts: { db: DbLike; outDir: string; userFilter: unknown | null }): Promise<ExportManifest>;
 export const BUNDLE_VERSION: string;
+export const CERTIFICATE: {
+  primaryDecisionMinPerArm: number;
+  transferInterpMin: number;
+  transferDecisionMin: number;
+  perFriendConcentrationCap: number;
+  minCategoryDepthForNegative: number;
+};
+/** A training-example row as `exportTrack2` builds them — the shape `buildCertificate` reads. */
+export interface TrainingExampleLike {
+  user?: string;
+  label?: "accepted" | "rejected" | null;
+  items: Array<{ itemId: string; clothingType?: string | null; imageStatus?: string }>;
+  [key: string]: unknown;
+}
+export function buildCertificate(trainingExamples: TrainingExampleLike[]): ExportManifest["yield"];
 export function parseImageId(ref: unknown): string | null;
 
 /** §23-H61 latest-state collapse per {snapshotId, candidateId}; mirror of lib/latestFeedbackState.ts. */

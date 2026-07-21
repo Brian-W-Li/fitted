@@ -22,7 +22,7 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 // The export logic is a CommonJS core so this suite can require the real unit directly (one mongoose
 // instance, no ESM transform). export_track2.mjs is the thin CLI wrapper over it.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { exportTrack2 } = require("../scripts/exportTrack2Core.cjs") as typeof import("../scripts/exportTrack2Core.cjs");
+const { exportTrack2, buildCertificate, CERTIFICATE } = require("../scripts/exportTrack2Core.cjs") as typeof import("../scripts/exportTrack2Core.cjs");
 
 let harness: MongoHarness;
 let db: NonNullable<typeof mongoose.connection.db>;
@@ -193,6 +193,104 @@ describe("exportTrack2 — training truth is the immutable engineVisible copy", 
     expect(items.find((i) => i.itemId === "item1")?.name).toBe("Blue Tee");
     expect(items.find((i) => i.itemId === "item1")?.clothingType).toBe("top");
     expect(items.find((i) => i.itemId === "item2")?.name).toBe("Jeans");
+  });
+});
+
+describe("buildCertificate — scoreable-cluster certificate (the prereg decidability gate)", () => {
+  // A training-example row in the shape exportTrack2 emits. Images default resolved.
+  type Item = { itemId: string; clothingType?: string | null; imageStatus?: string };
+  const te = (user: string, label: "accepted" | "rejected" | null, items: Item[]) => ({
+    user, label, items: items.map((i) => ({ imageStatus: "resolved", ...i })),
+  });
+  const pair = (a: string, b: string): Item[] => [
+    { itemId: a, clothingType: "top" }, { itemId: b, clothingType: "bottom" },
+  ];
+
+  it("excludes singletons and unresolved-image outfits from the scoreable count", async () => {
+    const rows = [
+      te("u", "accepted", pair("t1", "b1")), // scoreable
+      te("u", "accepted", [{ itemId: "solo", clothingType: "top" }]), // 1 item → not pairwise-sized
+      te("u", "accepted", [{ itemId: "t2", clothingType: "top" }, { itemId: "b2", clothingType: "bottom", imageStatus: "unresolved" }]), // image gap
+    ];
+    const cert = buildCertificate(rows);
+    expect(cert.scoreableClusters.acceptedScoreable).toBe(1);
+  });
+
+  it("dedups re-rolled identical item sets within an arm (lineage inflation guard)", async () => {
+    const rows = [
+      te("u", "accepted", pair("t1", "b1")),
+      te("u", "accepted", pair("b1", "t1")), // same set, different order → one signature
+      te("u", "accepted", pair("t1", "b1")), // exact re-roll → still one
+    ];
+    expect(buildCertificate(rows).scoreableClusters.acceptedScoreable).toBe(1);
+  });
+
+  it("counts transfer-scoreable only when a same-category negative exists; primary is NOT so filtered", async () => {
+    // Depth-1 world: each clothingType appears once → no corrupted negative constructible.
+    const depth1 = [te("u", "accepted", [{ itemId: "t1", clothingType: "top" }, { itemId: "b1", clothingType: "bottom" }])];
+    const c1 = buildCertificate(depth1);
+    expect(c1.scoreableClusters.acceptedScoreable).toBe(1); // primary does NOT require a negative
+    expect(c1.scoreableClusters.transferAcceptedScoreable).toBe(0); // transfer does
+
+    // Add a 2nd top + 2nd bottom → top/bottom now depth 2 → the outfit gains a negative.
+    const depth2 = [...depth1, te("u", "accepted", pair("t2", "b2"))];
+    const c2 = buildCertificate(depth2);
+    expect(c2.scoreableClusters.transferAcceptedScoreable).toBe(2);
+  });
+
+  it("verdict is UNDERPOWERED below 25/arm and DECIDABLE at ≥25 both arms with the concentration cap met", async () => {
+    const rows = [];
+    // Two friends, 13 distinct accepted + 13 distinct rejected each = 26/arm, max share 0.5 (== cap → OK).
+    for (const u of ["a", "b"]) {
+      for (let i = 0; i < 13; i++) rows.push(te(u, "accepted", pair(`${u}-ta-${i}`, `${u}-ba-${i}`)));
+      for (let i = 0; i < 13; i++) rows.push(te(u, "rejected", pair(`${u}-tr-${i}`, `${u}-br-${i}`)));
+    }
+    const cert = buildCertificate(rows);
+    expect(cert.scoreableClusters.acceptedScoreable).toBe(26);
+    expect(cert.scoreableClusters.rejectedScoreable).toBe(26);
+    expect(cert.concentration.capOk).toBe(true);
+    expect(cert.primaryRead.verdict).toBe("DECIDABLE");
+
+    // One fewer accepted arm → drops below 25 → UNDERPOWERED.
+    const thin = buildCertificate(rows.filter((_r, idx) => idx > 1)); // remove 2 accepted rows
+    expect(thin.scoreableClusters.acceptedScoreable).toBeLessThan(CERTIFICATE.primaryDecisionMinPerArm);
+    expect(thin.primaryRead.verdict).toBe("UNDERPOWERED (keep collecting)");
+  });
+
+  it("a single-friend cohort fails the concentration cap even with counts ≥25/arm", async () => {
+    const rows = [];
+    for (let i = 0; i < 26; i++) rows.push(te("solo", "accepted", pair(`ta-${i}`, `ba-${i}`)));
+    for (let i = 0; i < 26; i++) rows.push(te("solo", "rejected", pair(`tr-${i}`, `br-${i}`)));
+    const cert = buildCertificate(rows);
+    expect(cert.scoreableClusters.acceptedScoreable).toBe(26);
+    expect(cert.concentration.acceptedMaxShare).toBe(1); // one friend is the whole arm
+    expect(cert.concentration.capOk).toBe(false);
+    expect(cert.primaryRead.verdict).toBe("UNDERPOWERED (keep collecting)");
+  });
+
+  it("CERTIFICATE floors byte-equal the frozen preregistration.json (cross-runtime pin)", async () => {
+    // The prereg (ml-system/experiments/track2_transfer/preregistration.json) is the frozen home;
+    // this JS CERTIFICATE is the live consumer. They MUST agree — a silent floor drift here would
+    // change the decidability gate without touching the freeze. (pytest test_preregistration.py pins
+    // the same equality from the Python side.)
+    const prereg = JSON.parse(
+      readFileSync(resolve(__dirname, "../../ml-system/experiments/track2_transfer/preregistration.json"), "utf8"),
+    );
+    const ec = prereg.export_certificate as Record<string, number>;
+    for (const k of Object.keys(CERTIFICATE) as (keyof typeof CERTIFICATE)[]) {
+      expect(CERTIFICATE[k]).toBe(ec[k]);
+    }
+  });
+
+  it("transfer read state ladders <12 report-only → 12–24 suggestive → ≥25 decidable", async () => {
+    const mk = (n: number) => {
+      const rows = [];
+      for (let i = 0; i < n; i++) rows.push(te("u", "accepted", pair(`t${i}`, `b${i}`))); // all depth≥2 once n≥2
+      return buildCertificate(rows).transferRead.state;
+    };
+    expect(mk(8)).toMatch(/REPORT-ONLY/);
+    expect(mk(20)).toMatch(/SUGGESTIVE/);
+    expect(mk(30)).toMatch(/DECIDABLE/);
   });
 });
 

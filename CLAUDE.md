@@ -92,10 +92,13 @@ correctness/honesty batch — weather-by-number (H66), the two erasure-race guar
 partial-delete + client alert (H63), degrade logging, timeout clamp — reviewed (independent principal
 review: SHIP) + web-redeployed (`fitted-three.vercel.app` verified 200; Fly untouched → still 1 machine).
 Render path + erasure **re-verified live** on that build (gauntlet render → `bindable:true`; erasure → 0
-orphans). **Onboarding copy FINALIZED (runbook §8); the friend-#0 gauntlet is now optional.** Remaining:
-the **runbook §8 pre-recruit checklist** (2026-07-20 merit+dynamics audit — headlined by
-**pre-registering the re-measure decision rule** before any friend data exists, Spec §20 M6 row; +
-push/redeploy both halves, staggered onboarding, the cron monitor), then Brian recruits 3–5 friend
+orphans). **Onboarding copy FINALIZED (runbook §8); the friend-#0 gauntlet is now optional.** The
+**re-measure decision rule is now FROZEN** (2026-07-20, freeze-before-look) at
+`ml-system/experiments/track2_transfer/preregistration.md` (+ `.json` + `derive_power.py`);
+Fable-reviewed (SHIP-WITH-CHANGES, all folded); the `exportTrack2Core.cjs` verdict is hardened to
+the scoreable-cluster certificate; full rule single-homed in Spec §20 M6 row. Remaining on the
+**runbook §8 pre-recruit checklist**: push/redeploy both halves, staggered onboarding, the cron
+monitor; then Brian recruits 3–5 friend
 closets (out-of-session; ~3 guys/2 girls, ≥1 dress-heavy, engagement > gender) toward the M6/H26
 re-measure entry conditions (Spec §20/§23-H26). **Unblocked forward work while data collects:** extend
 H26 gate-B power (the frozen judge budget — `13,395` questions remain, cost-approved; fix §23-H56
