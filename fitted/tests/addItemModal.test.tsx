@@ -250,3 +250,50 @@ describe("AddItemModal — Category must be chosen (F2 corpus-integrity)", () =>
     expect((onSave.mock.calls[0][0] as { category: string }).category).toBe("footwear");
   });
 });
+
+describe("AddItemModal — edit can clear an optional select (Type/subCategory)", () => {
+  // Regression: on EDIT, clearing the Type dropdown back to "Select…" must reach the PATCH as an
+  // explicit "" (a clear), not be dropped. submitForm previously sent `subCategory || undefined`,
+  // so the "" collapsed to undefined, JSON.stringify dropped it, and the PATCH left the old Type in
+  // place — a silent no-op unlike pattern/layerRole, which carry the isEdit clear-branch. (Reachable
+  // now that REQFIELDS-1 makes subCategory optional; a valid item can carry an empty Type.)
+  // existingImagePath puts the modal in edit mode with a photo, so the primary "Save item" shows.
+  const editableItem = { ...validItem, subCategory: "t-shirt" };
+
+  it("clearing Type on edit sends subCategory:'' (explicit clear), not a dropped field", async () => {
+    const onSave = jest.fn((_i: unknown, _f: File | null) => true);
+    render(
+      <AddItemModal
+        onClose={() => {}}
+        onSave={onSave}
+        initialItem={editableItem}
+        existingImagePath="mongo:abc"
+        title="Edit clothing item"
+      />,
+    );
+    // The Type <select> currently displays the item's "t-shirt" value; set it back to "Select…" ("").
+    const typeSelect = screen.getByDisplayValue("T-Shirt") as HTMLSelectElement;
+    fireEvent.change(typeSelect, { target: { value: "" } });
+
+    await userEvent.click(screen.getByRole("button", { name: /save item/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    // The load-bearing assertion: "" is present in the payload (an explicit clear), not undefined.
+    expect((onSave.mock.calls[0][0] as { subCategory?: string }).subCategory).toBe("");
+  });
+
+  it("keeping Type on edit still sends the value", async () => {
+    const onSave = jest.fn((_i: unknown, _f: File | null) => true);
+    render(
+      <AddItemModal
+        onClose={() => {}}
+        onSave={onSave}
+        initialItem={editableItem}
+        existingImagePath="mongo:abc"
+        title="Edit clothing item"
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /save item/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0][0] as { subCategory?: string }).subCategory).toBe("t-shirt");
+  });
+});

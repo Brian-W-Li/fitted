@@ -368,6 +368,12 @@ read-back. All gated `TRACK2_LIVE_OK=1`; they write the live corpus + spend $, s
   (forced optional + ≥3 tops × ≥3 bottoms) and confirm `finish_reason != "length"`, or lower the
   rescue ask ceiling. (2026-07-21 audit-review finding.)
 - COSMETIC **SEAM-1/2** — client entry caps hand-copied (agree); edit sends `size:""`/`notes:""` (no UI).
+- COSMETIC **DASH-COPY-1** (2026-07-21 friend-ready sweep) — the Dashboard like/dislike failure copy is
+  generic ("Please try again"), while History has code-aware copy for the same `storage_limit` (400).
+  At the 2000-row per-user interaction ceiling a like can never succeed, so the generic copy invites an
+  infinite retry. **Not friend-reachable in the study window** (2000 append-only rows ≈ years of feedback);
+  `postFeedback` (`dashboard/page.tsx`) discards the response code, so a fix means plumbing the code through
+  to render History's ceiling message. Deferred; re-grade only if a friend ever nears the ceiling.
 - **2026-07-20 dynamics audit registrations** — three new §23 holes: **H67** (Atlas M0 aggregate
   capacity: base64 ×4/3 means ~4.8 at-cap image accounts fill the 512MB cluster; GenerationSnapshot
   has NO per-user ceiling unlike its three siblings), **H68** (service renders run ON the single ASGI

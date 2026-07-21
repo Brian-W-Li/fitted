@@ -561,9 +561,10 @@ export function AddItemModal({
         {
           name: name.trim(),
           category,
-          subCategory: subCategory || undefined,
           // Edit mode sends "" (an explicit clear) — `undefined` is dropped by JSON.stringify, so
-          // a mis-set pattern/layerRole could otherwise never be cleared via the PATCH.
+          // a mis-set subCategory/pattern/layerRole could otherwise never be cleared via the PATCH
+          // (subCategory is a <select>, so it carries no whitespace to trim, same as layerRole).
+          subCategory: isEdit ? subCategory : subCategory || undefined,
           pattern: isEdit ? pattern.trim() : pattern.trim() || undefined,
           colors: colorsToSave,
           layerRole: isEdit ? layerRole : layerRole || undefined,
