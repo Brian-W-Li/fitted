@@ -1,0 +1,55 @@
+{
+ "_README": "Gate-B POWER-EXTENSION read at the pre-frozen N_ext (gate_b_extension.json) \u2014 the results.md \u00a710 power lever, feeding the M6 entry condition (Spec \u00a720). A sequential follow-up estimate reported ALONGSIDE the frozen single-look metrics.json record (optional-stopping disclosure in the freeze file); it never rewrites the frozen H26 N=500 verdict. Letter applied verbatim from preregistration.json gates.B (inconsistent=miss adjudicates; the half convention is the conservative cross-check). This re-run INHERITS the sealed verdict letter (verdict = A AND B AND D; underpowered_is_no_go = true) \u2014 it does NOT re-litigate the prereg (\u00a723-H56 note 1): if `judge_above_chance` is false at N_ext the B-read is vacuous and, per the frozen letter, the underpowered corner still adjudicates NO-GO; the GO decision would rest on A AND D.",
+ "spike": "h26",
+ "stage": "EXT",
+ "n_ext": 1000,
+ "n_kept": 991,
+ "n_dropped": 9,
+ "delta": 0.05,
+ "fitb_trained_gateB_ext": {
+  "point": 0.6165489404641776,
+  "low": 0.58627648839556,
+  "high": 0.6468213925327951,
+  "b": 10000
+ },
+ "fitb_judge_gateB_ext": {
+  "point": 0.35721493440968716,
+  "low": 0.32694248234106965,
+  "high": 0.3874873864783047,
+  "b": 10000
+ },
+ "gate_B_diff_inconsistent_miss_ext": {
+  "ci": {
+   "point": 0.2593340060544905,
+   "low": 0.2260343087790111,
+   "high": 0.29868819374369326,
+   "b": 10000
+  },
+  "half_width": 0.036326942482341085,
+  "non_inferiority": true,
+  "powered": true,
+  "state": "pass"
+ },
+ "gate_B_diff_inconsistent_half_ext": {
+  "ci": {
+   "point": 0.07669021190716452,
+   "low": 0.05045408678102925,
+   "high": 0.11604439959636725,
+   "b": 10000
+  },
+  "half_width": 0.032795156407669,
+  "non_inferiority": true,
+  "powered": true,
+  "state": "pass"
+ },
+ "judge_above_chance": true,
+ "conventions_agree": true,
+ "_meta": {
+  "emitted_by": "gate_b_extension.py analyze",
+  "extension_freeze_sha256": "388bee648d409443d2ed9b9f7771ff7cfd91cfcc69a4df506af9d2ac71132841",
+  "original_ledger_sha256": "c001633491447b24458a1537cfbf901052742b214a4c6594d001e76532790138",
+  "extension_ledger_sha256": "407c51e77ccd38926923f92c46445fc0a5b66ce47f6af13902f271d02fb8110e",
+  "judge_addendum_sha256": "dff4a30cbbb4f6ba5fb1775623b364da4d5406642e2d7057adb8b68d6b127a08",
+  "checkpoint_sha256": "a172be27022d59b5cce7b64e68ec73e9709e8969a07b4311c502f77afe4b0659"
+ }
+}
