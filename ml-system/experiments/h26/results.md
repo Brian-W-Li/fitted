@@ -348,16 +348,28 @@ forbids). B's seed sensitivity is therefore disclosed as not re-measurable in-sp
   judged question budget shrinks the 0.0003 half-width overshoot — the cap was a cost choice,
   not a data limit; 13,395 frozen-ordered questions remain unjudged) and the **transfer entry
   condition** (re-measure the catalog→closet drop on powered real-ingestion data / friend
-  closets before any production commitment). The power lever is **built + frozen**:
-  `gate_b_extension.py` (freeze/run/analyze) judges questions `[500:N_ext]` of the SAME frozen
-  order into a SEPARATE `judge_runs_extension.ndjson` (keep-last, resume-safe) and analyzes the
-  concatenated ledger under the SAME sealed letter into `metrics_extension.json` — the frozen
-  N=500 record stays byte-identical (§23-H56). Frozen at **N_ext=1000** (projected half-width
-  ~0.0356, survives a 25% variance-inflation stress ≤ δ); the paid `run` (~$2) is pending.
-  Optional-stopping is disclosed: the extension was decided after the N=500 result and N_ext is
-  fixed once by power math (never "extend until it passes"). Under the NO-GO, the untrained zero-shot cosine
-  remains a deployable fallback for the seam — it shares all four systems properties; section 3
-  states exactly what the trained head adds over it.
+  closets before any production commitment).
+  - **Power lever — MET (2026-07-21, `metrics_extension.json`).** `gate_b_extension.py`
+    (freeze/run/analyze) judged questions `[500:1000]` of the SAME frozen order into a SEPARATE
+    `judge_runs_extension.ndjson` (keep-last, resume-safe) and analyzed the concatenated N=1000
+    ledger under the SAME sealed letter — the frozen N=500 record stays byte-identical (§23-H56).
+    At **N=1000** (991 kept / 9 dropped) the adjudicating (inconsistent=miss) diff is **+0.2593
+    [+0.2260, +0.2987], half-width 0.036327 ≤ δ=0.05 → PASS**; the half-convention cross-check
+    also passes (hw 0.032795) and the two agree; the judge stays non-vacuous (CI_low 0.327 > 0.25).
+    The projected 0.0356 held. So the **only** conjunct that made H26 NO-GO (gate B's power miss)
+    is closed at N=1000 — gate B, re-measured under the sealed letter, is powered-pass.
+    **This does NOT rewrite the frozen NO-GO** (section 2 is the sealed single-look record): it is
+    a *sequential* estimate (N_ext decided after the N=500 result, fixed once by power math, never
+    "extend until it passes"), reported alongside. **Robustness:** the second look formally lifts
+    one-sided α from 2.5% toward ~4%, but this is immaterial here — the continuation trigger was
+    *width*, not location (the N=500 CI_low sat ~10σ above −δ), and even a two-look Pocock-corrected
+    CI (~11% wider, hw ~0.040) stays powered and above +δ. One honesty note: the one-shot guarantee
+    is **per-freeze-file** — any hypothetical further extension needs its own dated freeze + sequential
+    caveat. **Transfer entry condition remains open** — M6 does not open on the power result alone;
+    it still requires re-measuring the catalog→closet transfer on real-ingestion / friend-closet data
+    (the frozen Track-2 re-measure prereg, Spec §20 M6 row).
+  - Under the frozen NO-GO, the untrained zero-shot cosine remains a deployable fallback for the seam
+    — it shares all four systems properties; section 3 states exactly what the trained head adds over it.
 - **Ingestion requirements surfaced**: EXIF orientation normalization (section 6); real-photo
   embedding cost is per-item-once and trivially batchable.
 - **The judge protocol** (frozen envelope, two-order K-sample collapse, scalar-only ledger) is
