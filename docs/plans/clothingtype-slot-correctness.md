@@ -7,7 +7,9 @@
 > migration does; F16 is load-bearing not a ride-along; the weather dimension is dead → H71). A final
 > re-audit round then caught that the D1 fold-in was itself buggy (the census was never delivered — the
 > `reasonHint` early-return + no replay source) and, after the fix below, returned **CONVERGED** (a
-> fresh pass with zero load-bearing findings — not a self-declared stop). Build ahead of the next
+> fresh pass with zero load-bearing findings — not a self-declared stop). Build-gate Fable go/no-go
+> 2026-07-23: **GO** — two pins folded in place (§4-B inversion pin, §6-C4 mechanism; + the §4-D wire
+> contract pinned). Build ahead of the next
 > recruit wave. Owner: this plan
 > (Track-2-adjacent, pre-recruit). Related: Spec §18 (W-track ingestion), §23-H52 (taxonomy legibility
 > rung-2), §23-H70 (coord/sets), §23-H71 (dead weather dimension — registered here).
@@ -101,6 +103,16 @@ grows coverage — do **not** hand-mirror. Regression test pins the adversarial 
 blazer/coat dress→dress, dress coat→outer, sweater/shirt/wrap dress→dress, dress shoes→shoes, dress
 pants→bottom, jumpsuit→dress, duster dress+layerRole=outer→outer, cargo skort→bottom), all traced clean.
 
+**Inversion pin (build-gate fold-in).** The existing expectation in `fitted/tests/deriveWarmth.test.ts`
+(~:199) pins `{category:"bottom", name:"wrap dress"} → dress` under the OLD §10.3 "name beats a coarse
+category" principle, which the `clothingType.ts` doc-comment (~:96-99) also states. Under the new order
+this case deliberately **INVERTS to `bottom`** — it is structurally identical to "suit dress" (bare-dress
+name vs `cat=bottom`). Flip that assertion and rewrite the doc-comment's §10.3 sentence in the same
+commit. The mirror-list "wrap/shirt/sweater dress→dress" entries are the **name-only** case (no
+structural signal), resolved at the bare-dress rung. Do **NOT** special-case compound-dress names to keep
+the old assertion green — that silently un-fixes the core case. Pin
+`{name:"duster dress", layerRole:"outer"} → outer_layer` (rung 4 beats bare-dress) in the same block.
+
 *Scope of B's conversion power (forward-lane count math, verified):* post-B Zhiyun's **daily** (8 valid
 outfits) and **skirt-rescue** (6) clear the `N_SURFACED=3` floor and convert; but her **single-top
 rescues** (8 of 13 renders) and **dress-rescue** still return honest **2-card "insufficient" partials** —
@@ -146,6 +158,14 @@ re-audit):**
   alone is honest and actionable (e.g. "add a bottom…"); only the extra census sentence is dropped, on
   rare paths. No snapshot-schema field; **never compute the census from `itemSnapshots`** (scoped pool →
   miscount). The composing guard is `census ? census + hint : hint`.
+
+**Pinned wire contract (build-gate fold-in):** the census field is
+`slotCensus?: Record<ClothingType, number>` — **optional** on both `BrowserFlags` and `RenderFlagsLike`
+(`flagsFromDoc` simply omits it on the two census-absent paths). Counts are computed in `mlRecommend.ts`
+from the **projected** wire wardrobe (post-`projectWardrobe`, ~:456) — never raw `wardrobeDocs`: a
+malformed row the projection drops must not be counted in a census the engine can't see. The
+friend-facing census **sentence** is composed in `recommendCopy.ts` (friend copy stays single-homed +
+unit-testable); the wire carries counts only.
 
 **Audit weight: NOT a light loop** — trust-boundary-adjacent wire with two non-obvious delivery traps.
 
@@ -215,7 +235,13 @@ Fable check before building:
 - **C3 — F16** (both `rescue.py` constants + pytest re-pins).
 - **C4 — live-rows diff + migration** — **the conversion lever.** Gated read-only diff + logged
   re-derive-and-PATCH. Heavier care (mutates live friend corpus); dry-run + before/after dump; Brian
-  runs it.
+  runs it. **Pinned mechanism (build-gate fold-in):** one tool, `fitted/scripts/migrate-clothingtype.ts`,
+  run under `npx tsx` (the `wipe-db.ts` pattern) so it imports the **real** `@/lib/clothingType` — never
+  a re-implemented cascade (the mirror-drift ban). Writes go via direct mongoose `$set` on `clothingType`
+  **only** (the track2-script-family pattern; the HTTP PATCH route would require minting the friend's
+  auth). Dry-run is the **default** (prints stored vs re-derived per row and exits without writing);
+  `--apply` gates the write; per-row before/after logged; a wipe-db-style host/db printout guards the
+  target.
 - **Docs (same session):** register §23-H71 (below); record the W-track rung-2 obligations (override +
   `clothingTypeSource` + H52 trap-guard) as the deferred unit; add the onboarding §5 items + Zhiyun
   win-back to runbook §8; confirm §23-H52 stays RESOLVED with rung-2's *surface* half now partial.

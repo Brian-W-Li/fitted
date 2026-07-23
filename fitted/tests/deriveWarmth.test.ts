@@ -150,10 +150,38 @@ describe("deriveClothingType (the §10.3 ingestion classifier)", () => {
   });
 
   it("honors the first-match cascade precedence", () => {
-    // dress (rung 1) beats a bottom category (rung 2)
-    expect(deriveClothingType({ category: "bottom", name: "wrap dress" })).toBe("dress");
+    // a structural bottom category (rung 2) beats a bare-dress NAME (rung 5) — the deliberate
+    // INVERSION of the old "name beats a coarse category" rule (the "suit dress" fix)
+    expect(deriveClothingType({ category: "bottom", name: "wrap dress" })).toBe("bottom");
     // shoes (rung 3) beats layerRole=="outer" (rung 4) — the surprising one
     expect(deriveClothingType({ category: "footwear", layerRole: "outer" })).toBe("shoes");
+  });
+
+  it("lets structural signals beat the bare-dress guess (the 'suit dress' mis-slot fix)", () => {
+    // the live Zhiyun row: a suit-set SKIRT whose set-name leaked "dress" — her only bottom,
+    // silently blinding the engine (docs/plans/clothingtype-slot-correctness.md §1/§2)
+    expect(
+      deriveClothingType({ category: "bottom", subCategory: "skirt", name: "suit dress" }),
+    ).toBe("bottom");
+    // name-only "suit dress" is genuinely unresolvable → the bare-dress guess stands (plan §3)
+    expect(deriveClothingType({ name: "suit dress" })).toBe("dress");
+    // layerRole is a deliberate human structural choice — beats the bare-dress guess (rung 4 > 5)
+    expect(deriveClothingType({ name: "duster dress", layerRole: "outer" })).toBe("outer_layer");
+    // but [outer-noun+"dress"] compounds are DRESSES — bare-dress (rung 5) beats the outerwear
+    // NAME keywords (rung 6)…
+    expect(deriveClothingType({ name: "blazer dress" })).toBe("dress");
+    expect(deriveClothingType({ name: "coat dress" })).toBe("dress");
+    // …while the adjectival direction stays outerwear (head-noun-last)
+    expect(deriveClothingType({ name: "dress coat" })).toBe("outer_layer");
+  });
+
+  it("classifies the skirt-adjacent bottom keywords (skort/culottes/capris)", () => {
+    expect(deriveClothingType({ name: "cargo skort" })).toBe("bottom");
+    expect(deriveClothingType({ name: "pleated culottes" })).toBe("bottom");
+    expect(deriveClothingType({ name: "linen capris" })).toBe("bottom");
+    // "dress <new-noun>" lands on bottom (rung 2 beats the bare-dress rung; the derived
+    // adjectival guard also grows these nouns — belt-and-braces, covered by the it.each below)
+    expect(deriveClothingType({ name: "dress capris" })).toBe("bottom");
   });
 
   it("handles closed-compound garments that word-boundary would otherwise miss", () => {
@@ -194,8 +222,10 @@ describe("deriveClothingType (the §10.3 ingestion classifier)", () => {
   });
 
   it("still classifies a genuine 'dress' (head noun) as dress", () => {
-    // "dress" as the head noun — including when miscategorized — stays a one-piece (§10.3).
-    expect(deriveClothingType({ category: "bottom", name: "wrap dress" })).toBe("dress");
+    // "dress" as the head noun with NO structural signal stays a one-piece — the name-only
+    // case, resolved at the bare-dress rung. (The miscategorized cat=bottom variant now
+    // deliberately inverts to bottom — see the precedence test above.)
+    expect(deriveClothingType({ name: "wrap dress" })).toBe("dress");
     expect(deriveClothingType({ name: "shirt dress" })).toBe("dress");
     expect(deriveClothingType({ name: "sweater dress" })).toBe("dress");
     expect(deriveClothingType({ name: "maxi dress" })).toBe("dress");

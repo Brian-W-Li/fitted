@@ -474,12 +474,16 @@ one-piece HEAD noun ("wrap dress", "shirt dress") and a common MODIFIER ("dress 
 "dress pants"). A naïve whole-word `dress` match mis-partitions the **"Dress Shoes"** footwear subcategory
 (a real upload-form option) as a one-piece. The principle is the **head-noun-last rule of English compounds**:
 "dress X" is an X; "X dress" is a dress. The classifier matches `dress`/`dresses` as a one-piece only when it
-is **not immediately followed by a garment noun**; a head-noun or standalone "dress" — including a
-miscategorized "wrap dress" — still classifies as `dress` (preserving "name beats a coarse category").
+is **not immediately followed by a garment noun**; a head-noun or standalone "dress" with no structural
+signal ("shirt dress", name-only "wrap dress") still classifies as `dress`. **Superseded in part
+(2026-07-23):** the original "name beats a coarse category" precedence (a miscategorized cat=bottom
+"wrap dress" → dress) was deliberately INVERTED by `docs/plans/clothingtype-slot-correctness.md` §4-B —
+structural signals (category equality, `layerRole`, bottom/shoe nouns) now beat the bare-dress name
+guess (the live "suit dress" mis-slot fix); that plan owns the current cascade order.
 `jumpsuit`/`romper`/`sundress`/`gown`/`frock` are never adjectival → matched unconditionally (the closed
 compound `sundress` also dodges the `\bdress\b` boundary, like the bottoms rung's `sweatpants`). **Do not
-"simplify" this back toward a category-authoritative or cascade-reorder rule** — both regress real one-pieces
-("shirt dress"/"sweater dress" → top). The modifier noun set is **derived from the rung keyword arrays**
+"simplify" this to a fully category-authoritative rule that ignores names** — that regresses real
+one-pieces ("shirt dress"/"sweater dress" → top). The modifier noun set is **derived from the rung keyword arrays**
 (`SHOE_KEYWORDS`/`BOTTOM_KEYWORDS`/`OUTER_KEYWORDS`) so it cannot drift out of sync; a drift-guard test
 (`deriveWarmth.test.ts`) iterates those arrays asserting `"dress <rung-noun>" ≠ dress`. (`lib/clothingType.ts`
 `ADJECTIVAL_DRESS`.)

@@ -40,6 +40,9 @@ export const BOTTOM_KEYWORDS = [
   // the bottom rung runs before the outer rung, so a bare "cargo" would mis-slot "Cargo
   // Jacket"/"Cargo Vest" as bottom (whole-word matching keeps "cargos" from matching those).
   "cargos",
+  // Skirt-adjacent / cropped-trouser nouns ("capris" plural-only, like "cargos"). Adding here
+  // auto-extends the adjectival-"dress" guard below — do not hand-mirror.
+  "skort", "culottes", "capris",
 ];
 export const SHOE_KEYWORDS = [
   "shoes", "sneakers", "boots", "sandals", "loafers", "heels", "flats",
@@ -94,9 +97,16 @@ const BARE_DRESS = /\bdress(es)?\b/;
  *
  * "dress" counts as a one-piece only when it is NOT immediately followed by a garment noun
  * (the head-noun-last rule — see ADJECTIVAL_DRESS), so the real "Dress Shoes" footwear option
- * is not mis-partitioned, while a miscategorized "wrap dress" still → dress (§10.3 "name
- * beats a coarse category"). The modifier noun set is derived from the rung vocabularies so
- * it cannot drift out of sync.
+ * is not mis-partitioned. Precedence principle (the "suit dress" mis-slot fix,
+ * docs/plans/clothingtype-slot-correctness.md §4-B): STRUCTURAL signals — category equality,
+ * `layerRole`, bottom/shoe nouns (no dress is named with "skirt"/"heels" as head noun) — beat
+ * the bare-dress NAME guess, so a "suit dress" filed under category=bottom/sub=skirt is the
+ * skirt it structurally is, not the dress its set-name suggests. The bare-dress guess in turn
+ * beats the outerwear name-keywords, because [outer-noun+"dress"] compounds (blazer dress,
+ * coat dress) are dresses while a real outer garment carrying a bare non-adjectival "dress"
+ * token essentially never occurs. A name-only "wrap dress" (no structural signal) still →
+ * dress. The modifier noun set is derived from the rung vocabularies so it cannot drift out
+ * of sync.
  *
  * Mid-layer knits (cardigan/hoodie/fleece) collapse to "top" UNLESS layerRole=="outer"
  * wins (the §10.3 collapse rule): a knit worn as the only upper layer is a valid base top.
@@ -120,16 +130,21 @@ export function deriveClothingType(input: {
   const has = (words: string[]) => mentionsAny(hay, words);
   const isOnePieceDress = BARE_DRESS.test(hay) && !ADJECTIVAL_DRESS.test(hay);
 
-  // 1. dress (one-piece): explicit category, an unconditional one-piece keyword, or a
-  //    non-adjectival "dress".
-  if (cat === "one piece" || has(ONE_PIECE_KEYWORDS) || isOnePieceDress) return "dress";
+  // 1. dress (one-piece, STRUCTURAL only): explicit category or an unconditional one-piece
+  //    keyword. The bare-dress NAME guess deliberately lives lower (rung 5).
+  if (cat === "one piece" || has(ONE_PIECE_KEYWORDS)) return "dress";
   // 2. bottom (closed compounds listed explicitly — whole-word matching means "sweatpants"
   //    does NOT match "pants"; two-word "sweat pants" already would).
   if (["bottom", "bottoms"].includes(cat) || has(BOTTOM_KEYWORDS)) return "bottom";
   // 3. shoes
   if (cat === "footwear" || has(SHOE_KEYWORDS)) return "shoes";
-  // 4. outer_layer — explicit layerRole=="outer" wins, else clear outerwear names.
-  if (layerRole === "outer" || has(OUTER_KEYWORDS)) return "outer_layer";
-  // 5/6. top (incl. the mid-collapse knits) and the out-of-ontology default.
+  // 4. outer_layer by layerRole — a deliberate human structural choice beats any name guess.
+  if (layerRole === "outer") return "outer_layer";
+  // 5. bare non-adjectival "dress" name — above the outerwear NAME keywords so
+  //    [outer-noun+"dress"] compounds (blazer/coat dress) stay dresses.
+  if (isOnePieceDress) return "dress";
+  // 6. clear outerwear names.
+  if (has(OUTER_KEYWORDS)) return "outer_layer";
+  // 7. top (incl. the mid-collapse knits) and the out-of-ontology default.
   return "top";
 }
