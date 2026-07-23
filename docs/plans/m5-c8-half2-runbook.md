@@ -450,6 +450,47 @@ phone's just handy for snapping clothes on the spot.
 
 Full session context: `docs/sessions/2026-07-18-track2-friend-ready.md` (trust re-grade table + gauntlet).
 
+### clothingType slot-correctness rollout (2026-07-23 — run BEFORE the next recruit wave)
+
+Code is BUILT + audited on `main` (`docs/plans/clothingtype-slot-correctness.md`, C1–C4). The rollout
+order is load-bearing (the plan's §6): **web redeploy → migrate → Fly redeploy → re-invite.** Running
+the migration BEFORE the web redeploy re-breaks on her next modal edit (the old deployed classifier
+re-derives the row back to `dress`).
+
+1. **Push + web redeploy** (`git push origin main` → Vercel builds the fork; verify per "Pre-friend
+   deploy re-verify" above — the one-render `bindable:true` gate).
+2. **Migrate the live rows** (the conversion lever — this is what actually unblocks Zhiyun):
+   ```sh
+   cd fitted
+   # DRY-RUN first (no writes) — against the LIVE Atlas, same URI pattern as the export:
+   MONGODB_URI="$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" npx tsx scripts/migrate-clothingtype.ts
+   # EXPECTED: exactly 1 flagged row — Zhiyun's "suit dress", stored=dress → derived=bottom (the
+   # verified 1-of-20 whole-corpus replay). If MORE rows appear, STOP and read them before applying.
+   MONGODB_URI="$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" npx tsx scripts/migrate-clothingtype.ts --apply
+   ```
+   `--apply` writes a timestamped backup JSON (pre-migration values) next to the script; the write is
+   `$set clothingType` only, guarded against concurrent edits.
+3. **Fly redeploy** (per Ops notes above; stays 1 machine) — ships the F16 honest hints. Not on the
+   conversion critical path, but ship it before re-inviting her (top/dress rescues still return
+   2-card partials, and the OLD copy's "try again" is the loop she bounced on).
+4. **Re-invite Zhiyun (win-back acceptance test):** the finalized onboarding message (above) + one
+   honest line that her closet had a filing bug on our side which is fixed. Acceptance = she gets
+   surfaced outfits on daily + skirt-rescue and rates ≥1. Her single-top/dress rescues remain honest
+   2-card partials until her closet grows (no classifier can change that — only more items).
+
+**Onboarding guidance for the recruit wave (plan §5 — nudges, never gates; §18 anti-guilt posture):**
+- **Steer new friends to DAILY first, not rescue-first** — daily clears the `N_SURFACED=3` floor on a
+  modest closet; a single-item rescue structurally caps at 2 outfits until the closet grows.
+- **Minimum-closet ask in the onboarding message:** ≥2 tops, **≥2 bottoms, ≥1 pair of shoes** — the
+  single change that lifts every mode over the floor (shoes alone lift each single-top rescue 2→4).
+  Honest ask in the message, never an app gate (REQFIELDS-1 posture).
+- **Dress-heavy recruit caveat:** dress-rescue is structurally ≤2 outfits per dress — a dress-heavy
+  closet still needs bottoms + shoes to yield; recruit them, but set the expectation.
+- **Yield realism vs the prereg:** at ~1–4 ratings per converting friend, 3–5 friends may miss the
+  ≥25+≥25 scoreable-cluster bar — recruit MORE closets than the minimum, prompt "rate what you see,"
+  and prefer friends who'll engage over hitting a gender mix. (Informs recruiting only; the frozen
+  decision rule is untouched.)
+
 ## Rollback (pinned — honest)
 - **Immediate safe state:** `USE_ML_SHORTLISTER` off/unset → §A **degraded empty state** (no
   recommendations, but no errors/leaks). The flag alone disables the vertical — no redeploy needed.

@@ -1,6 +1,7 @@
 # clothingType slot correctness — the "suit dress" mis-slot fix
 
-> **Status: PLANNED (2026-07-22) — CONVERGED.** Decisions Fable-reviewed (2 rounds) THEN
+> **Status: BUILT (2026-07-23) — C1–C4 code landed + audited; the deploys, the live-DB migration
+> run, and the re-invite remain Brian's (the §6 rollout ordering).** Decisions Fable-reviewed (2 rounds) THEN
 > convergence-audited by three independent lanes (adjacent / orthogonal / forward) against the whole
 > live corpus + real source, which corrected the plan on load-bearing points a single "STABLE" had
 > missed (D1 is a wire change not a copy edit; B does not convert the failing friend on its own — the
@@ -78,12 +79,13 @@ ambiguity tell**.
 
 ## 4. Decisions (resolved)
 
-**A — Layered, not one mechanism. [SHIP]** L1 + a visibility slice of L2 + a census slice of L3 ship
+**A — Layered, not one mechanism. [LANDED — C1+C2]** L1 + a visibility slice of L2 + a census slice of L3 ship
 now; full override, persisted conflict flag, VLM classify, coord-sets deferred. Effort caveat below is
 corrected: **D1 is not a light-loop copy edit** — it carries most of the *generalizing* value and is a
 wire change.
 
-**B — Precedence fix (L1 core). [SHIP — surgical, but future-ingestion-only]** New cascade order:
+**B — Precedence fix (L1 core). [IMPLEMENTED — C1, `fitted/lib/clothingType.ts`, commit `9f86204e`;
+future-ingestion-only, the stored rows land at C4]** Cascade order:
 
 1. one-piece-structural: `cat==="one piece"` ∥ `ONE_PIECE_KEYWORDS`
 2. bottom: `cat∈{bottom,bottoms}` ∥ `BOTTOM_KEYWORDS` — **add `skort`, `culottes`, `capris`**
@@ -120,7 +122,8 @@ with 1 bottom + 0 shoes a single forced top/dress forms only 2 distinct outfits 
 below the floor. **No classifier fix changes that; only more items (a 2nd bottom or shoes) do.** So B
 converts the convertible modes; the rest depend on F16 (honest copy) + onboarding (§6).
 
-**C — Visibility now; full override → W-track. [SHIP]** Pre-recruit ships **visibility only**: a
+**C — Visibility now; full override → W-track. [IMPLEMENTED — C2, the chip in
+`fitted/app/(app)/wardrobe/page.tsx` (Basics section, `files-as-chip`), commit `93d81692`]** Pre-recruit ships **visibility only**: a
 client-side *"Files as: <Bottom>"* chip on the add/edit form, computed from the same `deriveClothingType`
 (pure TS import) off **live form state** (not the stored item), so the contradiction (cat=bottom/sub=skirt
 vs "Files as: Dress") is visible *before* save. No PATCH change, no schema, no second enum. Deferred to
@@ -128,7 +131,9 @@ the W-track rung-2 unit: the full **override** ("Worn as: Top/Bottom/Full outfit
 land **with** a `clothingTypeSource: "derived"|"user"` provenance bit (echo user-set values only) **and**
 the §23-H52 trap-guard text reconciled in the same commit.
 
-**D — Slot census (D1) + persisted flag (D2 deferred). [SHIP D1 — re-specified as a WIRE change]**
+**D — Slot census (D1) + persisted flag (D2 deferred). [D1 IMPLEMENTED — C2, commit `93d81692`:
+`mlRecommend.ts` (projected-wardrobe count → live wireFlags) + `mlSnapshotMerge.ts` (optional
+`BrowserFlags.slotCensus`) + `recommendCopy.ts` (the composed dual-remedy sentence)]**
 Adjacent + orthogonal lanes proved D1 as originally written ("edit `recommendCopy.ts` + light loop") is
 under-specified: the per-`clothingType` counts do not exist where the copy runs. `emptyStateMessage`
 takes only `RenderFlagsLike` (no counts, `recommendCopy.ts:8-13`), `BrowserFlags` has none
@@ -179,12 +184,13 @@ D2 (persisted conflict flag) → W-track; the "Files as" chip delivers the inges
 empties, and her remaining pain is the `insufficient` partial path (owned by F16). **D1 is defense for
 the NEXT genuinely-bottomless friend**, which the corpus proves is a real, common case.
 
-**E — Scope boundaries. [SHIP]** Coord/suit **sets** → §23-**H70** (M6 edge-graph, not a new type).
+**E — Scope boundaries. [STANDING]** Coord/suit **sets** → §23-**H70** (M6 edge-graph, not a new type).
 VLM classify stays §18 `[STAGED]`. Filter-key migration stays deferred (H52).
 
 ### Load-bearing companions (NOT ride-alongs — the convergence audit promoted these)
 
-- **F16 — the futile "try again" [LOAD-BEARING].** Post-B, Zhiyun's most-used modes (single-top /
+- **F16 — the futile "try again" [IMPLEMENTED — C3, `rescue.py` both constants + the pytest
+  retry-language ban, commit `513d7cf2`].** Post-B, Zhiyun's most-used modes (single-top /
   dress rescue) still return 2-card `insufficient` partials, and the current hint ends *"…or try
   again"* — the exact futile re-roll she bounced on (a combinatorially-capped closet can't produce
   more by retrying). It is **two** engine constants — `_INSUFFICIENT_AFTER_GENERATION_HINT` and
@@ -194,7 +200,9 @@ VLM classify stays §18 `[STAGED]`. Filter-key migration stays deferred (H52).
   daily broken); drop "try again", say *"add a few more pieces for more looks."* Single-home = Python
   (the engine owns the string; Next surfaces it verbatim in both `emptyStateMessage` and
   `partialRenderHint`). Re-pin the pytest string assertions.
-- **Live-rows migration [THE conversion lever, not a ride-along].** Because the render path reads
+- **Live-rows migration [TOOL BUILT — C4, `fitted/scripts/migrate-clothingtype.ts` + the
+  behavioral suite `tests/migrateClothingType.test.ts`; the live RUN is Brian's, post-web-redeploy].**
+  Because the render path reads
   stored `clothingType`, this is what actually unblocks Zhiyun. After B lands: a **read-only** diff of
   stored vs post-B re-derived `clothingType` over the live DB (all stored values are currently derived
   → clean to interpret), then a **logged re-derive-and-PATCH** migration of the flagged rows. Safe
@@ -227,24 +235,28 @@ Fable check before building:
 
 ## 6. Build ladder + rollout (corrected ordering)
 
-- **C1 — B** (`lib/clothingType.ts` reorder + skort/culottes/capris + doc-comment principle +
-  adversarial regression set + drift-guard still green). Light loop (pure function, strong test).
-- **C2 — D1 census (WIRE) + C visibility chip.** The route→`BrowserFlags`→`flagsFromDoc`→copy census
-  (dual-remedy, both empty branches, anti-guilt) + the "Files as" chip (live form state). **Heavier
-  than light** — behavioral test over the wire, not just the copy unit.
-- **C3 — F16** (both `rescue.py` constants + pytest re-pins).
-- **C4 — live-rows diff + migration** — **the conversion lever.** Gated read-only diff + logged
-  re-derive-and-PATCH. Heavier care (mutates live friend corpus); dry-run + before/after dump; Brian
-  runs it. **Pinned mechanism (build-gate fold-in):** one tool, `fitted/scripts/migrate-clothingtype.ts`,
+- **C1 — B ✅ (commit `9f86204e`)** (`lib/clothingType.ts` reorder + skort/culottes/capris +
+  doc-comment principle + adversarial regression set + drift-guard green; both wrap-dress pins
+  inverted; the stale M4-plan trap-guard reconciled). Light loop ran clean (1 doc finding fixed).
+- **C2 — D1 census (WIRE) + C visibility chip ✅ (commit `93d81692`).** The
+  route→`BrowserFlags`→copy census (dual-remedy, both empty branches, anti-guilt, live-path only)
+  + the "Files as" chip (live form state). Deep review clean (0 load-bearing; 3 nits folded).
+- **C3 — F16 ✅ (commit `513d7cf2`)** (both `rescue.py` constants + the pytest retry-language ban).
+- **C4 — live-rows diff + migration** — **the conversion lever.** TOOL BUILT ✅
+  (`fitted/scripts/migrate-clothingtype.ts` + behavioral suite over real mongod:
+  exactly-one-row diff on the corpus shape, clothingType-only write, optimistic edit guard,
+  idempotence); the live RUN is Brian's, after the web redeploy (runbook §8). **Pinned mechanism
+  (build-gate fold-in):** one tool, `fitted/scripts/migrate-clothingtype.ts`,
   run under `npx tsx` (the `wipe-db.ts` pattern) so it imports the **real** `@/lib/clothingType` — never
   a re-implemented cascade (the mirror-drift ban). Writes go via direct mongoose `$set` on `clothingType`
   **only** (the track2-script-family pattern; the HTTP PATCH route would require minting the friend's
   auth). Dry-run is the **default** (prints stored vs re-derived per row and exits without writing);
   `--apply` gates the write; per-row before/after logged; a wipe-db-style host/db printout guards the
   target.
-- **Docs (same session):** register §23-H71 (below); record the W-track rung-2 obligations (override +
-  `clothingTypeSource` + H52 trap-guard) as the deferred unit; add the onboarding §5 items + Zhiyun
-  win-back to runbook §8; confirm §23-H52 stays RESOLVED with rung-2's *surface* half now partial.
+- **Docs ✅ (2026-07-23):** §23-H71 registered (spec `:1314`); the W-track rung-2 deferred unit
+  (override + `clothingTypeSource` + H52 echo trap-guard) recorded in spec §18 + the H52 row (both
+  note the chip shipped the visibility half); the rollout runbook + onboarding §5 items + Zhiyun
+  win-back added to runbook §8 ("clothingType slot-correctness rollout"); §23-H52 stays RESOLVED.
 
 **Rollout ordering (corrected by the forward lane):**
 - The **conversion-critical lever is C4 (the migration), not B** — B alone leaves Zhiyun's stored row
