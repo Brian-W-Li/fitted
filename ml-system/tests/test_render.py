@@ -160,14 +160,17 @@ def test_daily_drops_missing_stylemove_but_does_not_apply_rescue_forced_item_dro
 
 
 def test_insufficient_after_generation_hints_are_honest():
-    # F1: the post-generation hints must NOT tell the user to "try regenerating" (misleading on a thin
-    # closet — combinatorially capped, so a re-roll only re-spends), and DAILY must not say "this item"
-    # (it has no forced item). Both lead with the actionable "add … more pieces/items" advice.
-    assert "try regenerating" not in _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT
-    assert "try regenerating" not in _INSUFFICIENT_AFTER_GENERATION_HINT
+    # F1 + F16 (clothingtype-slot-correctness §4-F16): the post-generation hints must carry NO retry
+    # invitation of ANY kind — "try regenerating" AND "try again" — because a thin closet is
+    # combinatorially capped, so a re-roll only re-spends (the live case study bounced on exactly
+    # that loop: 13 renders, 0 ratings). DAILY must not say "this item" (it has no forced item).
+    # Both lead with the actionable "add … more pieces" advice.
+    for hint in (_DAILY_INSUFFICIENT_AFTER_GENERATION_HINT, _INSUFFICIENT_AFTER_GENERATION_HINT):
+        assert "try regenerating" not in hint
+        assert "try again" not in hint
+        assert "retry" not in hint
+        assert "add a few more" in hint
     assert "this item" not in _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT
-    assert "add a few more" in _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT
-    assert "add a few more" in _INSUFFICIENT_AFTER_GENERATION_HINT
 
 
 def test_daily_traced_stylemove_drop_uses_render_provenance_in_snapshot_payload():

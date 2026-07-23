@@ -745,16 +745,17 @@ _REPAIR_INSTRUCTION = (
 # honest partial still tells the user what happened, mirroring the pre-GPT sufficiency hint.
 # Intent-specific: the OLD single string said "wear this item … try regenerating", which is wrong for
 # DAILY (no forced item) AND misleading whenever the shortfall is structural (a thin closet is
-# combinatorially capped, so regenerating cannot conjure more distinct looks — it just re-spends). Lead
-# with the actionable "add a few more pieces" advice (honest for the common thin-closet case) and offer
-# "or try again" for the rarer stochastic miss.
+# combinatorially capped, so regenerating cannot conjure more distinct looks — it just re-spends).
+# F16 trap-guard (docs/plans/clothingtype-slot-correctness.md §4-F16): NO retry invitation of any
+# kind ("or try again" included) — on a capped closet the re-roll is futile, and the live case study
+# bounced on exactly that loop (13 renders, 0 ratings). The only honest advice is more pieces.
 _INSUFFICIENT_AFTER_GENERATION_HINT = (
     "couldn't find enough distinct ways to wear this piece right now — "
-    "add a few more items to pair it with, or try again"
+    "add a few more pieces to pair it with for more looks"
 )
 _DAILY_INSUFFICIENT_AFTER_GENERATION_HINT = (
     "couldn't put together enough distinct outfits right now — "
-    "add a few more pieces for more variety, or try again"
+    "add a few more pieces for more variety"
 )
 
 
