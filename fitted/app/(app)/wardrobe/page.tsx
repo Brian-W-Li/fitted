@@ -6,7 +6,7 @@ import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
 import { AddItemUploadStepActions } from "@/lib/addItemUploadStepActions";
 import { validateWardrobeForm, normalizeColor } from "@/lib/wardrobeValidation";
-import { type ClothingType } from "@/lib/clothingType";
+import { deriveClothingType, type ClothingType } from "@/lib/clothingType";
 import { applyWardrobePipeline } from "@/lib/wardrobeDisplayPipeline";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 
@@ -31,6 +31,15 @@ type WardrobeItem = {
 };
 
 // Values must match CV output (cv-service/cv.py) for pre-fill; display is Title Case in the UI.
+/** Friend-facing labels for the derived outfit slot (the "Files as" chip). */
+const SLOT_LABELS: Record<ClothingType, string> = {
+  top: "Top",
+  bottom: "Bottom",
+  dress: "Dress",
+  outer_layer: "Outer layer",
+  shoes: "Shoes",
+};
+
 const CATEGORY_OPTIONS = [
   { value: "top", label: "Top" },
   { value: "bottom", label: "Bottom" },
@@ -894,6 +903,20 @@ export function AddItemModal({
                   </select>
                 </div>
               </div>
+              {/* "Files as" chip (clothingtype-slot-correctness §4-C): the derived outfit slot,
+                  computed from LIVE form state via the real deriveClothingType — visibility only
+                  (no override yet; that is the W-track §18/H52 rung-2 unit). Makes a
+                  name-vs-structure contradiction visible BEFORE save (the "suit dress" tell).
+                  Hidden while the form is empty (a bare default "Top" would be noise). */}
+              {(category || subCategory || name.trim()) && (
+                <p className="text-xs text-slate-500" data-testid="files-as-chip">
+                  Files as:{" "}
+                  <span className="font-medium text-slate-700">
+                    {SLOT_LABELS[deriveClothingType({ category, subCategory, name, layerRole })]}
+                  </span>
+                  <span className="text-slate-400"> — the outfit slot the stylist plans around</span>
+                </p>
+              )}
             </section>
 
             {/* Colors */}

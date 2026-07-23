@@ -55,6 +55,91 @@ describe("emptyStateMessage (F15)", () => {
   });
 });
 
+describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-correctness §4-D)", () => {
+  const bottomless = { top: 5, bottom: 0, dress: 1, outer_layer: 1, shoes: 0 };
+
+  it("composes the census INTO the engine-hint branch (the hint alone would hide the diagnosis)", () => {
+    const msg = emptyStateMessage({
+      notEnoughItems: true,
+      reasonHint: "add a bottom to build an outfit around this top",
+      slotCensus: bottomless,
+    });
+    // honest description first, then BOTH remedies, then the engine hint verbatim
+    expect(msg).toMatch(/^Right now we can see 5 tops, 0 bottoms, 1 dress, 1 layer, and 0 pairs of shoes/);
+    expect(msg).toMatch(/actually a bottom, fix its details in your Wardrobe/);
+    expect(msg).toMatch(/add a bottom to build an outfit around this top$/);
+  });
+
+  it("rides the insufficientAfterGeneration empty branch too (both empties carry a hint)", () => {
+    const msg = emptyStateMessage({
+      insufficientAfterGeneration: true,
+      reasonHint: "add a few more items to pair it with",
+      slotCensus: bottomless,
+    });
+    expect(msg).toMatch(/^Right now we can see/);
+    expect(msg).toMatch(/add a few more items to pair it with$/);
+  });
+
+  it("still composes on a healthy empty with NO engine hint (belt-and-braces fallbacks)", () => {
+    const msg = emptyStateMessage({ notEnoughItems: true, slotCensus: bottomless });
+    expect(msg).toMatch(/^Right now we can see/);
+    expect(msg).toMatch(/few more pieces/i);
+  });
+
+  it("no top/bottom gap → no census sentence (a false-premise diagnosis is worse than none)", () => {
+    const msg = emptyStateMessage({
+      insufficientAfterGeneration: true,
+      reasonHint: "add a few more items to pair it with",
+      slotCensus: { top: 2, bottom: 1, dress: 0, outer_layer: 0, shoes: 0 },
+    });
+    expect(msg).toBe("add a few more items to pair it with");
+  });
+
+  it("census absent (the replay/dedup paths) → the plain engine hint, unchanged", () => {
+    expect(
+      emptyStateMessage({ notEnoughItems: true, reasonHint: "add a bottom to build an outfit around this top" }),
+    ).toBe("add a bottom to build an outfit around this top");
+  });
+
+  it("NEVER decorates a machine-degraded state (an outage is not a closet problem)", () => {
+    const msg = emptyStateMessage({ reasonHint: "service_unavailable", slotCensus: bottomless });
+    expect(msg).toBe(MACHINE_REASON_COPY.service_unavailable);
+  });
+
+  it("names the right missing slot, with honest singulars/plurals", () => {
+    const topless = emptyStateMessage({
+      notEnoughItems: true,
+      reasonHint: "x",
+      slotCensus: { top: 0, bottom: 1, dress: 2, outer_layer: 0, shoes: 1 },
+    });
+    expect(topless).toMatch(/0 tops, 1 bottom, 2 dresses, 0 layers, and 1 pair of shoes/);
+    expect(topless).toMatch(/actually a top, fix/);
+
+    const both = emptyStateMessage({
+      notEnoughItems: true,
+      reasonHint: "x",
+      slotCensus: { top: 0, bottom: 0, dress: 2, outer_layer: 0, shoes: 0 },
+    });
+    expect(both).toMatch(/actually a top or a bottom, fix/);
+  });
+
+  it("a fully-empty closet gets NO census ('one of these' would have no referent)", () => {
+    const msg = emptyStateMessage({
+      notEnoughItems: true,
+      slotCensus: { top: 0, bottom: 0, dress: 0, outer_layer: 0, shoes: 0 },
+    });
+    expect(msg).toMatch(/few more pieces/i);
+    expect(msg).not.toMatch(/Right now we can see/);
+  });
+
+  it("anti-guilt trap-guard (§18): describes what WE see, never what the friend hasn't done", () => {
+    const msg = emptyStateMessage({ notEnoughItems: true, reasonHint: "x", slotCensus: bottomless });
+    // apostrophe-agnostic (straight OR typographic) so a future curly "you haven’t" can't slip the guard
+    expect(msg).not.toMatch(/you haven.{0,2}t|you didn.{0,2}t|yet to add/i);
+    expect(msg).toMatch(/^Right now we can see/);
+  });
+});
+
 describe("partialRenderHint (F16)", () => {
   it("surfaces the insufficient hint on a NON-empty partial render", () => {
     expect(partialRenderHint({ insufficientAfterGeneration: true }, 2)).toMatch(/more variety|couple of looks/i);

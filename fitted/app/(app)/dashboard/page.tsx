@@ -10,6 +10,7 @@ import { MAX_OCCASION_CHARS } from "@/lib/mlRequestAdapter";
 import { isEmptyDegradedRender } from "@/lib/renderResultGuards";
 import { useDislikeEnrich } from "@/lib/useDislikeEnrich";
 import { emptyStateMessage, recommendErrorMessage, partialRenderHint } from "@/lib/recommendCopy";
+import type { ClothingType } from "@/lib/clothingType";
 import { reconcileShownFeedback, buildActionByKey, type HistoryActionRow } from "@/lib/feedbackReconcile";
 
 // ============================================================================
@@ -52,6 +53,9 @@ interface RenderFlags {
   insufficientAfterGeneration: boolean;
   spreadCollapsed: boolean;
   reasonHint: string | null;
+  /** D1 slot census — live renders only (replay/dedup responses omit it); read by
+   *  emptyStateMessage's dual-remedy sentence. */
+  slotCensus?: Partial<Record<ClothingType, number>>;
 }
 
 interface RenderResult {

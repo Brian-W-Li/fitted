@@ -5,11 +5,44 @@
  * way forward (F15; the empty-state /wardrobe link is F10, in the dashboard JSX).
  */
 
+import type { ClothingType } from "@/lib/clothingType";
+
 export interface RenderFlagsLike {
   notEnoughItems?: boolean;
   insufficientAfterGeneration?: boolean;
   spreadCollapsed?: boolean;
   reasonHint?: string | null;
+  /** D1 per-slot closet census — live renders only (see BrowserFlags in mlSnapshotMerge). */
+  slotCensus?: Partial<Record<ClothingType, number>> | null;
+}
+
+/** D1 dual-remedy census sentence (clothingtype-slot-correctness §4-D). Emitted only when the
+ *  census shows a structural gap the friend can act on (zero tops or zero bottoms — the two slots
+ *  every two-piece outfit needs); otherwise the engine hint stands alone. The wall has TWO
+ *  entrances — a mislabeled item (Zhiyun's skirt typed dress) and a genuinely absent slot — so the
+ *  remedy names both: fix a mislabel in the Wardrobe, or add the missing piece. Anti-guilt (§18):
+ *  honest description of what WE see, never "you haven't added…". */
+function slotCensusSentence(census: RenderFlagsLike["slotCensus"]): string | null {
+  if (!census) return null;
+  const n = (t: ClothingType) => {
+    const v = census[t];
+    return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0;
+  };
+  const tops = n("top");
+  const bottoms = n("bottom");
+  if (tops > 0 && bottoms > 0) return null; // no top/bottom gap — a census sentence would be a false premise
+  // A fully-empty closet needs no diagnosis ("if one of these…" would have no referent) — the
+  // base empty-state copy already says to add pieces.
+  if (tops + bottoms + n("dress") + n("outer_layer") + n("shoes") === 0) return null;
+  const count = (v: number, singular: string, plural = `${singular}s`) =>
+    `${v} ${v === 1 ? singular : plural}`;
+  const description =
+    `Right now we can see ${count(tops, "top")}, ${count(bottoms, "bottom")}, ` +
+    `${count(n("dress"), "dress", "dresses")}, ${count(n("outer_layer"), "layer")}, and ` +
+    `${count(n("shoes"), "pair of shoes", "pairs of shoes")} in your closet.`;
+  const missing =
+    tops === 0 && bottoms === 0 ? "a top or a bottom" : bottoms === 0 ? "a bottom" : "a top";
+  return `${description} If one of these is actually ${missing}, fix its details in your Wardrobe — or add one you don’t have yet.`;
 }
 
 /** Machine reason codes a DEGRADED render carries in `reasonHint` (all healthy flags false) → friendly
@@ -26,16 +59,26 @@ export const MACHINE_REASON_COPY: Record<string, string> = {
   engine_failure: "Something went wrong generating outfits. Please try again.",
 };
 
-/** The message for a render that surfaced no outfits (F15). Engine prose advice wins when present. */
+/** The message for a render that surfaced no outfits (F15). Engine prose advice wins when present.
+ *  On HEALTHY empties the D1 census sentence is composed BEFORE the base message (it must ride the
+ *  engine-hint branch — the engine always sets `reasonHint` on the empties D1 targets, so a census
+ *  bolted onto the later fallbacks alone would never be reached). Machine-degraded states never get
+ *  the census: closet counts would misdiagnose a service outage as a closet problem. */
 export function emptyStateMessage(flags: RenderFlagsLike | undefined | null): string {
   const f = flags ?? {};
   const healthy = Boolean(f.notEnoughItems || f.insufficientAfterGeneration);
-  if (healthy && f.reasonHint) return f.reasonHint; // genuine advice from the engine
-  if (f.reasonHint && MACHINE_REASON_COPY[f.reasonHint]) return MACHINE_REASON_COPY[f.reasonHint];
-  if (f.notEnoughItems) {
-    return "Your closet needs a few more pieces before the stylist can build a full outfit — add some, then try again.";
+  const census = healthy ? slotCensusSentence(f.slotCensus) : null;
+  let base: string;
+  if (healthy && f.reasonHint) {
+    base = f.reasonHint; // genuine advice from the engine
+  } else if (f.reasonHint && MACHINE_REASON_COPY[f.reasonHint]) {
+    return MACHINE_REASON_COPY[f.reasonHint];
+  } else if (f.notEnoughItems) {
+    base = "Your closet needs a few more pieces before the stylist can build a full outfit — add some, then try again.";
+  } else {
+    base = "No outfits this time. Try a different occasion, or add a few more pieces to your closet.";
   }
-  return "No outfits this time. Try a different occasion, or add a few more pieces to your closet.";
+  return census ? `${census} ${base}` : base;
 }
 
 /** A partial render (1–2 shown, not zero) can still carry an "insufficient" note (F16). Returns the

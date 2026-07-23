@@ -42,6 +42,7 @@ import {
   type DegradedReasonHint,
 } from "@/lib/mlServiceClient";
 import { buildBehavioralRows } from "@/lib/mlBehavioralRows";
+import { CLOTHING_TYPES, type ClothingType } from "@/lib/clothingType";
 import { validateSnapshotPayload, PayloadContractError } from "@/lib/mlSnapshotValidation";
 import { writeSnapshotWithIdempotency } from "@/lib/mlSnapshotWrite";
 import {
@@ -600,11 +601,21 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     }
 
     // 12. §A/G15 browser projection from the in-memory merged doc (no post-Python DB refetch, H10).
+    // D1 slot census (clothingtype-slot-correctness §4-D): counted from the PROJECTED wire wardrobe —
+    // never raw wardrobeDocs (a malformed row the projection dropped must not be counted in a census
+    // the engine can't see) and never itemSnapshots (the SCOPED rescue pool → miscount). Rides the
+    // live render only; the §C.4 early-replay + dedup-loser paths have no census source and omit it,
+    // degrading emptyStateMessage to the plain engine hint there.
+    const slotCensus = Object.fromEntries(
+      CLOTHING_TYPES.map((t) => [t, 0]),
+    ) as Record<ClothingType, number>;
+    for (const item of wardrobe) slotCensus[item.clothingType as ClothingType] += 1;
     const wireFlags: BrowserFlags = {
       notEnoughItems: Boolean(flags?.notEnoughItems),
       insufficientAfterGeneration: Boolean(flags?.insufficientAfterGeneration),
       spreadCollapsed: Boolean(flags?.spreadCollapsed),
       reasonHint: flags?.reasonHint ?? null,
+      slotCensus,
     };
     return NextResponse.json(projectBrowserResponse(doc, snapshotId, wireFlags));
   } catch (error) {

@@ -297,3 +297,37 @@ describe("AddItemModal — edit can clear an optional select (Type/subCategory)"
     expect((onSave.mock.calls[0][0] as { subCategory?: string }).subCategory).toBe("t-shirt");
   });
 });
+
+describe("AddItemModal — 'Files as' slot chip (clothingtype-slot-correctness §4-C visibility)", () => {
+  it("derives Bottom for the suit-dress mis-slot shape (structural signals beat the name)", () => {
+    render(
+      <AddItemModal
+        onClose={() => {}}
+        onSave={() => true}
+        initialItem={{ ...validItem, name: "suit dress", category: "bottom", subCategory: "skirt" }}
+      />,
+    );
+    // The live-corpus failure shape: set-name "dress" over category=bottom/sub=skirt. The chip
+    // must show the ENGINE's slot so the contradiction is visible before save.
+    expect(screen.getByTestId("files-as-chip")).toHaveTextContent(/Files as:\s*Bottom/);
+  });
+
+  it("re-derives live as the category changes (the same real deriveClothingType, pre-save)", () => {
+    render(
+      <AddItemModal
+        onClose={() => {}}
+        onSave={() => true}
+        initialItem={{ ...validItem, name: "wrap dress", category: "one piece", subCategory: "" }}
+      />,
+    );
+    expect(screen.getByTestId("files-as-chip")).toHaveTextContent(/Files as:\s*Dress/);
+    const categorySelect = screen.getByDisplayValue("One piece") as HTMLSelectElement;
+    fireEvent.change(categorySelect, { target: { value: "bottom" } });
+    expect(screen.getByTestId("files-as-chip")).toHaveTextContent(/Files as:\s*Bottom/);
+  });
+
+  it("stays hidden on an empty form (a bare default 'Top' would be noise)", () => {
+    render(<AddItemModal onClose={() => {}} onSave={() => true} title="Add item" />);
+    expect(screen.queryByTestId("files-as-chip")).not.toBeInTheDocument();
+  });
+});

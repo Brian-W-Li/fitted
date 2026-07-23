@@ -21,6 +21,7 @@
  * Reference: docs/plans/m5-cutover.md §A/§C/§G/§G.1; docs/sessions/2026-07-08-m5-c5-seam6-route.md.
  */
 import { createHash } from "crypto";
+import type { ClothingType } from "@/lib/clothingType";
 import { RequestContractError, MAX_CONTROL_IDS, type GENERATOR_EXPECTATION } from "@/lib/mlRequestAdapter";
 import { PayloadContractError } from "@/lib/mlSnapshotValidation";
 import {
@@ -433,6 +434,11 @@ export interface BrowserFlags {
   insufficientAfterGeneration: boolean;
   spreadCollapsed: boolean;
   reasonHint: string | null;
+  /** D1 per-slot closet census (clothingtype-slot-correctness §4-D) — present on the LIVE render
+   *  only. The §C.4 replay + dedup-loser paths reconstruct flags from the stored doc, whose
+   *  itemSnapshots is the SCOPED rescue pool (a census from it would miscount), so they omit it
+   *  and the empty-state copy degrades to the plain engine hint. */
+  slotCensus?: Record<ClothingType, number>;
 }
 
 export interface BrowserShownEntry {

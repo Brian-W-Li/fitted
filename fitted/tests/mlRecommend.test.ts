@@ -397,6 +397,16 @@ describe("A-cluster — per-item wardrobe resilience (a malformed row never sink
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
   });
 
+  it("D1 slot census counts the PROJECTED wardrobe — a dropped malformed row is never counted", async () => {
+    // A corrupt "bottom" the projection drops: were the census taken from raw wardrobeDocs it
+    // would read 3 bottoms — a count the engine can't see, misdiagnosing the empty state.
+    await insertMalformed({ warmth: 11, clothingType: "bottom", name: "Ghost skirt" });
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Any;
+    expect(body.flags.slotCensus).toEqual({ top: 1, bottom: 2, dress: 0, outer_layer: 0, shoes: 1 });
+  });
+
   it("escalates to 422 forced_item_unusable when the rescue anchor itself is malformed (no spend, no write)", async () => {
     const badId = await insertMalformed({ warmth: 11 });
     let called = false;
@@ -533,13 +543,27 @@ describe("§C.4 idempotency + G5", () => {
 
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
     expect(secondBody.shown[0].snapshotId).toBe(firstBody.shown[0].snapshotId);
-    expect(secondBody.flags).toEqual(firstBody.flags);
+    // The LIVE render additionally carries the D1 slot census; the §C.4 replay reconstructs
+    // flags from the stored doc — whose itemSnapshots is the SCOPED pool, no honest census
+    // source — so it omits it (plan §4-D). Everything else round-trips identical.
+    const { slotCensus: liveCensus, ...liveRest } = firstBody.flags;
+    expect(liveCensus).toEqual({ top: 1, bottom: 2, dress: 0, outer_layer: 0, shoes: 1 });
+    expect(secondBody.flags).toEqual(liveRest);
     expect(secondBody.flags).toEqual({
       notEnoughItems: false,
       insufficientAfterGeneration: true,
       spreadCollapsed: true,
       reasonHint: "try regenerating",
     });
+  });
+
+  it("a live render's flags carry the full 5-slot census (zeros included) of the closet", async () => {
+    const res = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Any;
+    // The fixture closet is 1 top / 2 bottoms / 1 shoes — dress + outer_layer report as explicit
+    // zeros (the zeros ARE the census's point: "0 bottoms" is what the empty-state copy diagnoses).
+    expect(body.flags.slotCensus).toEqual({ top: 1, bottom: 2, dress: 0, outer_layer: 0, shoes: 1 });
   });
 
   it("requestId casing is canonicalized before lookup/write", async () => {
