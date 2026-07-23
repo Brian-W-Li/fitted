@@ -139,6 +139,18 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
     expect(msg).not.toMatch(/you haven.{0,2}t|you didn.{0,2}t|yet to add/i);
     expect(msg).toMatch(/^Right now we can see/);
   });
+
+  it("clamps hostile census values (negative/NaN/non-number) to 0 — never a '-1 tops' absurdity", () => {
+    const msg = emptyStateMessage({
+      notEnoughItems: true,
+      reasonHint: "x",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      slotCensus: { top: -1, bottom: NaN, dress: "2", outer_layer: 1, shoes: undefined } as any,
+    });
+    // top clamps to 0 → the top/bottom gap fires; every invalid count reads as 0, the valid layer count survives
+    expect(msg).toMatch(/^Right now we can see 0 tops, 0 bottoms, 0 dresses, 1 layer, and 0 pairs of shoes/);
+    expect(msg).not.toMatch(/-1|NaN/);
+  });
 });
 
 describe("partialRenderHint (F16)", () => {
