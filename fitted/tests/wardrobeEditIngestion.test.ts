@@ -97,12 +97,23 @@ describe("PATCH /api/wardrobe/[id] — M4 ingestion edit round-trip (behavioral,
     },
   );
 
-  it("normalizes an invalid clothingType on edit to top (never persists garbage)", async () => {
+  it("IGNORES an invalid clothingType on edit — the stored value survives (never coerced to top)", async () => {
     const id = await seedItem({ clothingType: "dress" });
     const res = await patch(id, { clothingType: "hat" });
     expect(res.status).toBe(200);
-    // "hat" would be rejected by the schema enum; a persisted "top" proves normalization ran.
-    expect((await readItem(id)).clothingType).toBe("top");
+    // The old normalizeClothingType coerce silently stored "top" here — the legacy coerce-to-top
+    // funnel resurfacing on the edit path. Garbage is now dropped, so the row keeps its value.
+    expect((await readItem(id)).clothingType).toBe("dress");
+  });
+
+  it("an invalid clothingType alongside a taxonomy change falls back to re-derivation (POST parity)", async () => {
+    const id = await seedItem({ clothingType: "top" });
+    // POST semantics: "falls back to classification when an invalid clothingType is supplied".
+    // Pre-fix, the coerced "top" string SUPPRESSED this re-derive branch — the identical body
+    // stored different types on POST vs PATCH.
+    const res = await patch(id, { clothingType: "sneaker", category: "footwear" });
+    expect(res.status).toBe(200);
+    expect((await readItem(id)).clothingType).toBe("shoes");
   });
 
   it("scopes the update to the owning user — a cross-user edit 404s and does not mutate the row", async () => {

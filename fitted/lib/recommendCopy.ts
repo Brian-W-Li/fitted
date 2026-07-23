@@ -5,7 +5,7 @@
  * way forward (F15; the empty-state /wardrobe link is F10, in the dashboard JSX).
  */
 
-import type { ClothingType } from "@/lib/clothingType";
+import { CLOTHING_TYPES, type ClothingType } from "@/lib/clothingType";
 
 export interface RenderFlagsLike {
   notEnoughItems?: boolean;
@@ -32,8 +32,9 @@ function slotCensusSentence(census: RenderFlagsLike["slotCensus"]): string | nul
   const bottoms = n("bottom");
   if (tops > 0 && bottoms > 0) return null; // no top/bottom gap — a census sentence would be a false premise
   // A fully-empty closet needs no diagnosis ("if one of these…" would have no referent) — the
-  // base empty-state copy already says to add pieces.
-  if (tops + bottoms + n("dress") + n("outer_layer") + n("shoes") === 0) return null;
+  // base empty-state copy already says to add pieces. Summed over the enum so a sixth slot value
+  // could never silently escape the emptiness check.
+  if (CLOTHING_TYPES.reduce((sum, t) => sum + n(t), 0) === 0) return null;
   const count = (v: number, singular: string, plural = `${singular}s`) =>
     `${v} ${v === 1 ? singular : plural}`;
   const description =
@@ -78,7 +79,9 @@ export function emptyStateMessage(flags: RenderFlagsLike | undefined | null): st
   } else {
     base = "No outfits this time. Try a different occasion, or add a few more pieces to your closet.";
   }
-  return census ? `${census} ${base}` : base;
+  // Capitalize the base's first letter when it follows the census sentence — the engine's hints
+  // are lowercase fragments, fine standalone but a typo-looking joint mid-paragraph.
+  return census ? `${census} ${base.charAt(0).toUpperCase()}${base.slice(1)}` : base;
 }
 
 /** A partial render (1–2 shown, not zero) can still carry an "insufficient" note (F16). Returns the

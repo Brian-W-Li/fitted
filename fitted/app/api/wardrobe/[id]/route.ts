@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import { deriveClothingType, normalizeClothingType } from "@/lib/clothingType";
+import { CLOTHING_TYPES, deriveClothingType, type ClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
 import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 import { validateWardrobePatchPayload } from "@/lib/wardrobeRequestValidation";
@@ -72,8 +72,15 @@ export async function PATCH(
 
     const { update, suppliedWarmth, hasSuppliedWarmth, warmthDrivingFieldsChanged } =
       validation.value;
-    if (typeof update.clothingType === "string") {
-      update.clothingType = normalizeClothingType(update.clothingType);
+    if (
+      typeof update.clothingType === "string" &&
+      !CLOTHING_TYPES.includes(update.clothingType as ClothingType)
+    ) {
+      // An invalid explicit clothingType is IGNORED (key deleted) so the taxonomy re-derive below
+      // can still run — mirroring the POST route's invalid-falls-back-to-classification semantics.
+      // The old normalizeClothingType coerce here silently stored "top" AND suppressed the
+      // re-derive (the legacy coerce-to-top funnel this module's vocabulary replaced).
+      delete update.clothingType;
     }
 
     // warmth (§6.1): stored, NOT read-time-derived — so an edit must not leave it stale, since it

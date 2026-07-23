@@ -566,6 +566,25 @@ describe("§C.4 idempotency + G5", () => {
     expect(body.flags.slotCensus).toEqual({ top: 1, bottom: 2, dress: 0, outer_layer: 0, shoes: 1 });
   });
 
+  it("a re-roll carrying controls OMITS the census — a controls-caused empty must not be misdiagnosed", async () => {
+    // The engine's "your locks and dislikes rule out every outfit" state rides notEnoughItems; a
+    // census's fix-a-mislabel/add-a-piece remedy would be a false diagnosis there. Census defends
+    // FIRST-render walls, which never carry controls (controls are re-roll-only — root_controls).
+    const parent = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    const parentId = ((await parent.json()) as Any).shown[0].snapshotId;
+    const res = await mlRecommend(
+      req({
+        requestId: uuid(),
+        parentSnapshotId: parentId,
+        controls: { lockedItemIds: [itemIds.top], dislikedItemIds: [] },
+      }),
+      makeDeps(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Any;
+    expect(body.flags.slotCensus).toBeUndefined();
+  });
+
   it("requestId casing is canonicalized before lookup/write", async () => {
     const rid = uuid();
     const first = await mlRecommend(req({ requestId: rid.toUpperCase(), occasion: "brunch" }), makeDeps());

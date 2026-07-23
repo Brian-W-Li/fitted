@@ -908,7 +908,7 @@ export function AddItemModal({
                   (no override yet; that is the W-track §18/H52 rung-2 unit). Makes a
                   name-vs-structure contradiction visible BEFORE save (the "suit dress" tell).
                   Hidden while the form is empty (a bare default "Top" would be noise). */}
-              {(category || subCategory || name.trim()) && (
+              {(category || subCategory || layerRole || name.trim()) && (
                 <p className="text-xs text-slate-500" data-testid="files-as-chip">
                   Files as:{" "}
                   <span className="font-medium text-slate-700">

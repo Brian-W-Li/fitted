@@ -94,11 +94,13 @@ describe("migrate-clothingtype — applyDiff (the guarded targeted write)", () =
   it("optimistic guard: a row edited between scan and write is SKIPPED, never clobbered", async () => {
     const { suitDress } = await seedCloset();
     const diffs = collectDiffs(await fetchLean());
-    // A friend's edit lands mid-migration (e.g. they corrected it to bottom themselves).
-    await WardrobeItem.updateOne({ _id: suitDress._id }, { $set: { clothingType: "bottom" } });
+    // A friend's edit lands mid-migration — to a value DIFFERENT from what we'd write, so this
+    // test cannot pass coincidentally via Mongo's same-value modifiedCount=0 (an unguarded
+    // unconditional $set would clobber "outer_layer" with "bottom" and redden here).
+    await WardrobeItem.updateOne({ _id: suitDress._id }, { $set: { clothingType: "outer_layer" } });
     expect(await applyDiff(WardrobeItem, diffs[0])).toBe(false);
     expect(
       (await WardrobeItem.findById(suitDress._id).lean<Record<string, unknown>>())!.clothingType,
-    ).toBe("bottom");
+    ).toBe("outer_layer");
   });
 });

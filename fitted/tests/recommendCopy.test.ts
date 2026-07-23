@@ -64,10 +64,11 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
       reasonHint: "add a bottom to build an outfit around this top",
       slotCensus: bottomless,
     });
-    // honest description first, then BOTH remedies, then the engine hint verbatim
+    // honest description first, then BOTH remedies, then the engine hint (first letter
+    // capitalized by the composer — the engine's fragments are lowercase)
     expect(msg).toMatch(/^Right now we can see 5 tops, 0 bottoms, 1 dress, 1 layer, and 0 pairs of shoes/);
     expect(msg).toMatch(/actually a bottom, fix its details in your Wardrobe/);
-    expect(msg).toMatch(/add a bottom to build an outfit around this top$/);
+    expect(msg).toMatch(/Add a bottom to build an outfit around this top$/);
   });
 
   it("rides the insufficientAfterGeneration empty branch too (both empties carry a hint)", () => {
@@ -77,7 +78,7 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
       slotCensus: bottomless,
     });
     expect(msg).toMatch(/^Right now we can see/);
-    expect(msg).toMatch(/add a few more items to pair it with$/);
+    expect(msg).toMatch(/Add a few more items to pair it with$/);
   });
 
   it("still composes on a healthy empty with NO engine hint (belt-and-braces fallbacks)", () => {

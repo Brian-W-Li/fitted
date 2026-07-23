@@ -48,3 +48,6 @@ track2-export/
 track2-export-roundtrip/
 track2-export-postdelete/
 track2-monitor.log
+
+# clothingType migration backups (live friend data — never commit)
+scripts/migrate-clothingtype.backup.*.json

@@ -1080,7 +1080,10 @@ across three milestones:
   the slot from live form state (`clothingtype-slot-correctness` §4-C). The **correction** slice — the
   "Worn as" override — still lands here, and must ship WITH a `clothingTypeSource: "derived"|"user"`
   provenance bit (echo user-set values only) plus the H52 echo trap-guard reconciled in the same
-  commit. **Then, and
+  commit — AND must teach `fitted/scripts/migrate-clothingtype.ts` to skip `clothingTypeSource:
+  "user"` rows in that same commit (today every stored value is machine-derived, so its
+  stored≠derived diff is safe; a user override would read as a stale derivation and be reverted
+  on a re-run). **Then, and
   only then, revisit whether the wardrobe UI filter key should migrate `category`→`clothingType`** — doing
   that migration *before* correction exists is strictly worse (it makes a wrong derivation silently
   authoritative, hiding a mis-derived item from every filter with no recourse). Decide the filter-key

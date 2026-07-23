@@ -10,18 +10,30 @@
  * Run (from fitted/):
  *   npx tsx scripts/migrate-clothingtype.ts            # DRY-RUN (default): per-row diff, no writes
  *   npx tsx scripts/migrate-clothingtype.ts --apply    # write the flagged rows ($set clothingType only)
+ * A bare run targets whatever MONGODB_URI resolves to (often localhost dev) — for the LIVE Atlas
+ * corpus use the runbook §8 recipe, which prefixes MONGODB_URI with the .env.local Atlas value
+ * (an env var always beats .env.local here). ALWAYS read the printed host/db before --apply.
  *
  * Safety posture (this touches the LIVE friend corpus):
  *   - dry-run is the default; --apply is the only write gate;
  *   - the connected host + db + row counts are printed before anything else;
  *   - --apply first writes a timestamped JSON backup of every row it is about to change
- *     (id, user, name, stored value) so the change is mechanically reversible;
- *   - writes are `$set: { clothingType }` ONLY (never name/category/warmth/anything else), with
- *     runValidators so the 5-value schema enum still guards the value.
+ *     (id, user, name, stored value) so the change is mechanically reversible — the backup is
+ *     gitignored (live friend data; delete it once the run is verified);
+ *   - writes `$set: { clothingType }` and nothing else — though Mongoose timestamps still bump
+ *     `updatedAt`, so a migrated row surfaces at the top of the friend's wardrobe list (honest
+ *     visibility of the correction, noted so nobody chases it as a bug).
  *
  * Ordering trap (plan §6): run this AFTER the C1 web redeploy — on the old deployed classifier a
  * friend's next modal edit would re-derive the row right back (the PATCH route re-derives whenever
  * a taxonomy field is present without an explicit clothingType).
+ *
+ * ⚠ Forward-compat trap-guard (spec §18/H52): stored≠derived is only interpretable as "stale
+ * derivation" while EVERY stored value is machine-derived — true today. The moment the W-track
+ * override lands a user-set clothingType (`clothingTypeSource: "user"`), a user correction IS a
+ * stored≠derived row, and a re-run of this tool with --apply would revert human corrections to the
+ * machine guess. That unit must teach this tool to skip `clothingTypeSource: "user"` rows in the
+ * SAME commit, or retire it.
  */
 import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
@@ -101,9 +113,11 @@ export function collectDiffs(rows: WardrobeRowLean[]): RowDiff[] {
  *  holds the value the scan diffed against (a friend editing mid-migration must not be clobbered).
  *  Returns true when the row was updated, false when the guard skipped it. */
 export async function applyDiff(model: typeof WardrobeItem, d: RowDiff): Promise<boolean> {
+  // `{clothingType: null}` matches BOTH a missing field and an explicit null — `$exists:false`
+  // would re-flag an explicit-null row forever ("skipped" on every run).
   const filter: Record<string, unknown> =
     d.stored === "(unset)"
-      ? { _id: d.id, clothingType: { $exists: false } }
+      ? { _id: d.id, clothingType: null }
       : { _id: d.id, clothingType: d.stored };
   const res = await model.updateOne(
     filter,

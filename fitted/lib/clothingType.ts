@@ -32,6 +32,12 @@ export function normalizeClothingType(value: unknown): ClothingType {
 // (below) is DERIVED from them instead of hand-mirrored — a keyword added to a rung is
 // automatically a noun that "dress" can modify, so the "Dress Shoes → dress" footgun cannot
 // silently reopen. The rung groups are exported for the drift-guard test.
+// ⚠ Accepted asymmetry (clothingtype-slot-correctness §4-B): these tokens stay at rung 1, ABOVE
+// the structural rungs, unlike the bare-"dress" guess (rung 5). "dress" demanded demotion because
+// it doubles as a set-name leak ("suit dress" = a skirt) and a modifier ("dress shoes"); these
+// five are near-unambiguous one-piece head nouns that essentially never name a non-one-piece
+// garment ("gown skirt" is vanishingly rare, "suit dress" was a real live row). Do not demote
+// them without a real mis-slot case.
 const ONE_PIECE_KEYWORDS = ["jumpsuit", "romper", "sundress", "gown", "frock"];
 export const BOTTOM_KEYWORDS = [
   "pants", "sweatpants", "joggers", "snowpants", "jeggings", "jeans",

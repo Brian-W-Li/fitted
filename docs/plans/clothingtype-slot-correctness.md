@@ -99,7 +99,12 @@ Principle to pin in the doc-comment: *structural signals (category equality, `la
 nouns — no dress is named with "skirt"/"heels" as head noun) beat the bare-dress guess; the bare-dress
 guess beats the outerwear name-keywords, because `[outer-noun+"dress"]` compounds (blazer/coat dress)
 are dresses while a real outer garment with a bare non-adjectival "dress" token essentially never
-occurs.* Free property (verified): `DRESS_MODIFIER_NOUNS` is derived from the rung vocabularies, so the
+occurs.* (The matcher is whole-word and position-blind — the principle holds because counterexample
+names are vanishingly rare, not because head-noun position is checked.) **Accepted asymmetry
+(heavy-audit fold-in):** `ONE_PIECE_KEYWORDS` (jumpsuit/romper/sundress/gown/frock) stays at rung 1
+ABOVE the structural rungs — unlike "dress" these are near-unambiguous one-piece head nouns that
+essentially never leak onto a non-one-piece garment ("gown skirt" is hypothetical; "suit dress" was a
+real live row); trap-guarded in the code + pinned by test, demote only on a real mis-slot case. Free property (verified): `DRESS_MODIFIER_NOUNS` is derived from the rung vocabularies, so the
 3 new bottom keywords auto-extend the adjectival guard ("dress capris"→bottom) and the drift-guard test
 grows coverage — do **not** hand-mirror. Regression test pins the adversarial mirrors (suit dress→bottom,
 blazer/coat dress→dress, dress coat→outer, sweater/shirt/wrap dress→dress, dress shoes→shoes, dress
@@ -170,7 +175,11 @@ re-audit):**
 from the **projected** wire wardrobe (post-`projectWardrobe`, ~:456) — never raw `wardrobeDocs`: a
 malformed row the projection drops must not be counted in a census the engine can't see. The
 friend-facing census **sentence** is composed in `recommendCopy.ts` (friend copy stays single-homed +
-unit-testable); the wire carries counts only.
+unit-testable); the wire carries counts only. **Control-free renders only (heavy-audit fold-in):** a
+controls re-roll can hit the engine's "your locks and dislikes rule out every outfit" state, which
+rides `notEnoughItems` — the census's fix-a-mislabel/add-a-piece remedy would be a false diagnosis
+there, so `mlRecommend` omits `slotCensus` whenever the request carries locks/dislikes (the census
+defends FIRST-render walls, which never carry controls).
 
 **Audit weight: NOT a light loop** — trust-boundary-adjacent wire with two non-obvious delivery traps.
 
@@ -194,7 +203,7 @@ VLM classify stays §18 `[STAGED]`. Filter-key migration stays deferred (H52).
   dress rescue) still return 2-card `insufficient` partials, and the current hint ends *"…or try
   again"* — the exact futile re-roll she bounced on (a combinatorially-capped closet can't produce
   more by retrying). It is **two** engine constants — `_INSUFFICIENT_AFTER_GENERATION_HINT` and
-  `_DAILY_INSUFFICIENT_AFTER_GENERATION_HINT` (`rescue.py:751,755`), verified to be the *complete* set
+  `_DAILY_INSUFFICIENT_AFTER_GENERATION_HINT` (`rescue.py:752,756`), verified to be the *complete* set
   of "try again" strings (the "try regenerating" seen in bkup's 07-19 renders is the OLD string,
   `rescue.py:746` comment — his data predates the 07-21 redeploy). Fix **both** (a half-fix leaves
   daily broken); drop "try again", say *"add a few more pieces for more looks."* Single-home = Python

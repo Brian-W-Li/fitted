@@ -468,8 +468,10 @@ re-derives the row back to `dress`).
    # verified 1-of-20 whole-corpus replay). If MORE rows appear, STOP and read them before applying.
    MONGODB_URI="$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" npx tsx scripts/migrate-clothingtype.ts --apply
    ```
-   `--apply` writes a timestamped backup JSON (pre-migration values) next to the script; the write is
-   `$set clothingType` only, guarded against concurrent edits.
+   `--apply` writes a timestamped backup JSON (pre-migration values) next to the script — it holds
+   live friend data; it is gitignored, and **delete it once the run is verified**. The write is
+   `$set clothingType` only, guarded against concurrent edits (Mongoose still bumps `updatedAt`, so
+   the corrected row surfaces at the top of her wardrobe list — expected, not a bug).
 3. **Fly redeploy** (per Ops notes above; stays 1 machine) — ships the F16 honest hints. Not on the
    conversion critical path, but ship it before re-inviting her (top/dress rescues still return
    2-card partials, and the OLD copy's "try again" is the loop she bounced on).

@@ -175,6 +175,14 @@ describe("deriveClothingType (the §10.3 ingestion classifier)", () => {
     expect(deriveClothingType({ name: "dress coat" })).toBe("outer_layer");
   });
 
+  it("keeps the unambiguous one-piece keywords ABOVE the structural rungs (accepted asymmetry)", () => {
+    // Unlike bare "dress" (demoted to rung 5 — it doubles as a set-name leak and a modifier),
+    // gown/jumpsuit/romper/sundress/frock essentially never name a non-one-piece garment, so
+    // they win even over a bottom category (clothingType.ts trap-guard above ONE_PIECE_KEYWORDS).
+    expect(deriveClothingType({ category: "bottom", name: "ball gown skirt" })).toBe("dress");
+    expect(deriveClothingType({ category: "bottom", name: "linen jumpsuit" })).toBe("dress");
+  });
+
   it("classifies the skirt-adjacent bottom keywords (skort/culottes/capris)", () => {
     expect(deriveClothingType({ name: "cargo skort" })).toBe("bottom");
     expect(deriveClothingType({ name: "pleated culottes" })).toBe("bottom");

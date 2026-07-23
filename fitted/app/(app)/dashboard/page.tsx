@@ -1168,8 +1168,10 @@ function DashboardInner() {
         {result && shown.length === 0 && !inFlight && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center border border-slate-200">
             <p className="text-slate-600">{emptyStateMessage(result.flags)}</p>
-            {/* F10 — a notEnoughItems dead-end must offer the way out (the wardrobe), not just describe it. */}
-            {result.flags?.notEnoughItems && (
+            {/* F10 — a healthy-empty dead-end must offer the way out (the wardrobe), not just
+                describe it. Both empty shapes qualify: notEnoughItems AND the post-GPT
+                zero-survivor insufficient state (its hint also says "add more pieces"). */}
+            {(result.flags?.notEnoughItems || result.flags?.insufficientAfterGeneration) && (
               <a
                 href="/wardrobe"
                 className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"

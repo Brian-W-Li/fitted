@@ -605,7 +605,12 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     // never raw wardrobeDocs (a malformed row the projection dropped must not be counted in a census
     // the engine can't see) and never itemSnapshots (the SCOPED rescue pool → miscount). Rides the
     // live render only; the §C.4 early-replay + dedup-loser paths have no census source and omit it,
-    // degrading emptyStateMessage to the plain engine hint there.
+    // degrading emptyStateMessage to the plain engine hint there. CONTROL-FREE renders only: on a
+    // controls re-roll an empty can be controls-caused (the engine's "your locks and dislikes rule
+    // out every outfit" state rides notEnoughItems), and the census's fix-a-mislabel/add-a-piece
+    // remedy would be a false diagnosis there — the census defends FIRST-render walls, which never
+    // carry controls.
+    const hasControls = controls.lockedItemIds.length > 0 || controls.dislikedItemIds.length > 0;
     const slotCensus = Object.fromEntries(
       CLOTHING_TYPES.map((t) => [t, 0]),
     ) as Record<ClothingType, number>;
@@ -615,7 +620,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       insufficientAfterGeneration: Boolean(flags?.insufficientAfterGeneration),
       spreadCollapsed: Boolean(flags?.spreadCollapsed),
       reasonHint: flags?.reasonHint ?? null,
-      slotCensus,
+      ...(hasControls ? {} : { slotCensus }),
     };
     return NextResponse.json(projectBrowserResponse(doc, snapshotId, wireFlags));
   } catch (error) {

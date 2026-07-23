@@ -6,9 +6,10 @@
  * false` veto WIRING in the dashboard's runRender is client-component code and is NOT covered
  * by the predicate's truth-table test.
  *
- * A degraded-but-shown render (partial results) and a bindable-but-empty one (a valid empty
- * daily render, e.g. notEnoughItems on a root request) are both NOT vetoed — the veto is only
- * for the nothing-to-show degradation that would wipe a good screen.
+ * A degraded-but-shown render (partial results) is NOT vetoed. Note "bindable-but-empty" is an
+ * impossible state (bindable ⇔ nSurfaced>0 ⇔ shown non-empty — the mlSnapshotMerge projection),
+ * so EVERY empty render is vetoed — including a valid notEnoughItems empty on a re-roll, which
+ * is correct: the old screen is kept and the empty-state hint shows in the error slot.
  */
 export function isEmptyDegradedRender(r: {
   bindable: boolean;
