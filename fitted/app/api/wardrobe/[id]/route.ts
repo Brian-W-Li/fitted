@@ -117,7 +117,8 @@ export async function PATCH(
     // clothingType). Driving fields are the STRUCTURED taxonomy inputs only (category/subCategory/
     // layerRole) — deliberately NOT `name`: a bare rename must never clobber an explicitly-set
     // clothingType (the W-track correction path; pinned by the edit-ingestion test). An explicit
-    // valid clothingType in the body (normalized above) still wins outright.
+    // VALID clothingType in the body still wins outright (an invalid one was deleted above, so
+    // it falls through to this re-derivation instead of being coerced).
     // ⚠ Scope of that guarantee: the trigger is key-PRESENCE, and the UI edit modal sends the
     // taxonomy fields on every save — so every modal edit re-derives, and the no-clobber promise
     // protects API-shaped renames only. Benign while nothing sets an explicit divergent type; the
