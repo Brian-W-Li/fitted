@@ -218,18 +218,19 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **✅ BOTH halves redeployed 2026-07-21 (pre-recruit checklist item 2) — the audited HEAD is now the
-  collecting build.** Live web = `origin/main` `734ea85e` via `npx vercel --prod` from `fitted/` → aliased
-  `fitted-three.vercel.app`, verified **200**. Fly render service = image
-  `deployment-01KY3AR1TAZS67900TCCHW20FE` via `fly deploy` from `ml-system/`, **`fly scale show` = exactly
-  1 machine** (rolling update reused the single machine — no HA machine spawned; G1 held), `/readyz` green
-  (fittedCore 0.5.0, prompt m5-c1.v1). This build first ships `217a6ee3`'s behavior-preserving cross-runtime
-  pins (warmth band + token default single-homed + pinned TS↔Python) — independently audit-reviewed 2026-07-21
-  (no load-bearing findings) and exercised end-to-end by the gate below. **Render path RE-VERIFIED live on the
-  2026-07-21 build** — `track2-gauntlet.mjs run college-male-minimal` seeded 7 items → daily renders
-  200/3-candidates + reroll 200 + feedback recorded (accepted+rejected → proves `bindable:true`), then erased +
-  independently read back **0 orphans** across all corpus collections (throwaway-account erasure previously
-  PASSED live, 22 rows → 0 + Firebase auth gone). **Onboarding copy FINALIZED (below).**
+- **✅ CURRENT LIVE BUILD (2026-07-25) — web redeployed to HEAD; Fly unchanged.** Live web =
+  `origin/main` `46857aab` (deploy `fitted-96uzl05hl` / `dpl_GxkU8bDp6dUPdbdV7YR2pYHXbH9U`) via
+  `npx vercel --prod` from `fitted/` → aliased `fitted-three.vercel.app`, verified **200**. This ships the
+  2026-07-24 correctness batch: recommend `imageUrl` drop≡accept + `weatherRaw` out of render identity +
+  timeout floor (`de661396`), wardrobe 404 on a malformed item id (`90c1176d`), the export §5 author/
+  test-account exclusion (`da4144eb`), and the verify comment/imageUrl-pin (`46857aab`). Fly render service =
+  UNCHANGED from the 2026-07-23 clothingType rollout, image `deployment-01KY997XRS7ZK8QMQ3BXQ3MWWV` (F16
+  honest hints), **`fly scale show` = exactly 1 machine** (G1 held), `/readyz` green (fittedCore 0.5.0,
+  prompt m5-c1.v1) — none of the 07-24 batch touched `ml-system/service`, so no Fly redeploy was needed.
+  **Render path RE-VERIFIED live on the 2026-07-25 build** — `track2-gauntlet.mjs run college-male-minimal`
+  seeded 7 items → daily "class on campus" 200/3-candidates + reroll 200 + "casual weekend" 200/3 + feedback
+  recorded (accepted+rejected → proves `bindable:true`), then erased via `track2-erasure-check.mjs` +
+  read back **0 orphans** (20 rows → 0, Firebase auth gone). **Onboarding copy FINALIZED (below).**
   **Pre-recruit checklist (2026-07-20 merit+dynamics audit — do these BEFORE the first onboarding
   message; recruiting starts an unrepeatable clock):**
   1. **✅ DONE (2026-07-20) — Pre-registered the re-measure decision rule** (the single highest-
