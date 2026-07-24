@@ -6,7 +6,10 @@ and this file is the reproducible source). Pure standard library on purpose (onl
 result is arithmetic, not a simulation, so it must run anywhere with zero heavy deps and no venv.
 
 Run: `python derive_power.py`  -> prints the frozen tables + writes `power_derivation.json`
-(the machine-readable numbers `preregistration.json` mirrors and `tests/test_power.py` pins).
+(the machine-readable numbers `preregistration.json` mirrors and `tests/test_preregistration.py`
+pins). `main(out_path=...)` lets that test re-derive into a tmp file and assert byte-for-byte
+equality against the committed artifact WITHOUT overwriting the frozen one (the CLI default still
+writes the committed location, so `python derive_power.py` is byte-identical to before).
 
 The three questions it answers, each stated in the doc:
 
@@ -72,7 +75,7 @@ def min_balanced_n_to_exclude(boundary: float, true_auc: float, n_cap: int = 400
     return None
 
 
-def main() -> dict:
+def main(out_path: str | None = None) -> dict:
     out: dict = {"anchors": {
         "catalog_pair_auc": CATALOG_PAIR_AUC, "chance": CHANCE,
         "healthy_floor": HEALTHY_FLOOR, "drop_healthy_max": DROP_HEALTHY_MAX, "z95": Z95,
@@ -166,10 +169,12 @@ def main() -> dict:
         print(f"  true AUC {a:.4f} -> min N per arm = {shown}")
     out["min_n_to_exclude_healthy_from_below"] = excl_hi
 
-    here = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(here, "power_derivation.json"), "w") as f:
+    if out_path is None:
+        here = os.path.dirname(os.path.abspath(__file__))
+        out_path = os.path.join(here, "power_derivation.json")
+    with open(out_path, "w") as f:
         json.dump(out, f, indent=2)
-    print("\nwrote power_derivation.json")
+    print(f"\nwrote {out_path}")
     return out
 
 
