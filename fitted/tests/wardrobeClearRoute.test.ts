@@ -150,6 +150,18 @@ describe("DELETE /api/wardrobe/clear — behavioral, real Mongo", () => {
     expect(await WardrobeItem.countDocuments({ user: userId })).toBe(2); // nothing cleared
   });
 
+  it("401s an invalid/expired token (not 500) without deleting anything", async () => {
+    const userId = await seedUser("firebase-uid");
+    await seedWardrobe(userId, 2);
+
+    setToken(null); // verifyIdToken rejects — must be a client 401, never a server 500
+    const res = await DELETE(makeRequest());
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("Invalid or expired token");
+    expect(await WardrobeItem.countDocuments({ user: userId })).toBe(2); // nothing cleared
+    expect(await WardrobeImage.countDocuments({ user: userId })).toBe(2);
+  });
+
   it("401s a valid token whose user does not exist (no rows to own → nothing deleted)", async () => {
     // A stray item under some other id must survive an unknown caller.
     const strayOwner = new Types.ObjectId().toString();
