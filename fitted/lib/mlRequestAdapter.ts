@@ -131,12 +131,16 @@ export interface WardrobeItemSource {
 
 /** §15.2 image resolution: `imageUrl → else resolve imagePath → else ""`. Pure — the deployed
  *  `mongo:<id>` path maps to the `/api/images/<id>` route (imageStorage.ts / dashboard), no DB read.
- *  An over-cap result (a data-URI or a very long signed URL) is dropped to "" rather than emitted:
- *  the service rejects an over-`MAX_IMAGE_URL_CHARS` imageUrl for the whole render, and no-image is a
- *  legitimate projection (§15.2), so this keeps one bad-URL item from making a closet unrenderable. */
+ *  An over-cap OR ill-formed result (a data-URI, a very long signed URL, or a stored URL carrying a
+ *  lone surrogate) is dropped to "" rather than emitted: the service rejects both an
+ *  over-`MAX_IMAGE_URL_CHARS` imageUrl AND — via `_require_utf8` — a non-UTF-8 one for the WHOLE
+ *  render, and no-image is a legitimate projection (§15.2). Drop-predicate ≡ accept-predicate: this
+ *  is the same isWellFormed guard `name` and the tags apply, so one bad-URL item never bricks a
+ *  closet with a false "rephrase the occasion" degrade. */
 function resolveImageUrl(item: WardrobeItemSource): string {
   const resolved = resolveRawImageUrl(item);
-  return resolved.length > MAX_IMAGE_URL_CHARS ? "" : resolved;
+  if (resolved.length > MAX_IMAGE_URL_CHARS || !resolved.isWellFormed()) return "";
+  return resolved;
 }
 function resolveRawImageUrl(item: WardrobeItemSource): string {
   if (typeof item.imageUrl === "string" && item.imageUrl) return item.imageUrl;

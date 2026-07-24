@@ -90,17 +90,24 @@ export function normalizeControls(controls: unknown): NormalizedControls {
 }
 
 // ---------------------------------------------------------------------------
-// §C.4/G5 render identity — the client-controlled + deterministic request-shaping set. seedDate is
-// DELIBERATELY EXCLUDED (it is server-clock-derived and rolls over at 00:00 UTC on a legit retry).
-// Weather STAYS in the set — it is resolved ONCE per Generate action and frozen (the F10 envelope),
-// never re-fetched on a retry, so it is deterministic (§F/§C.4 reconciliation).
+// §C.4/G5 render identity — the request-shaping set used ONLY to decide whether a retry under the
+// same requestId is the SAME render (→ replay the winner) or a genuinely different one (→ 409). Two
+// deliberate exclusions:
+//   • seedDate — server-clock-derived, rolls over at 00:00 UTC on a legit retry.
+//   • weatherRaw — a human-readable provenance string ("Partly cloudy, 22°C") that does NOT shape
+//     generation (the seed/cache key uses the bucketed `weather`, never the raw text). On a geo
+//     resume the route re-resolves weather live, and the volatile raw string changes across
+//     open-meteo refreshes (~15 min) even when the bucket is unchanged; keeping it in the identity
+//     made an otherwise-identical resume false-409 and orphan its paid render. weatherRaw is still
+//     re-asserted by the SEPARATE authorship cross-check (the service must echo what Next sent) —
+//     it just isn't an idempotency discriminator. The bucketed `weather` STAYS: it genuinely shapes
+//     the render, so a rare bucket-boundary flip on resume is a real difference (§23-H73 residual).
 // ---------------------------------------------------------------------------
 export interface RenderIdentity {
   user: string;
   intent: string;
   occasion: string;
   weather: string;
-  weatherRaw: string | null;
   location: string | null;
   forcedItemId: string | null;
   wardrobeVersion: number;
@@ -118,7 +125,6 @@ export function makeRenderIdentity(f: {
   intent: unknown;
   occasion: unknown;
   weather: unknown;
-  weatherRaw?: unknown;
   location?: unknown;
   forcedItemId?: unknown;
   wardrobeVersion: unknown;
@@ -132,7 +138,6 @@ export function makeRenderIdentity(f: {
     intent: String(f.intent ?? ""),
     occasion: String(f.occasion ?? ""),
     weather: String(f.weather ?? ""),
-    weatherRaw: s(f.weatherRaw),
     location: s(f.location),
     forcedItemId: s(f.forcedItemId),
     wardrobeVersion: Number(f.wardrobeVersion ?? 0),
@@ -153,7 +158,6 @@ export function identityMatches(a: RenderIdentity, b: RenderIdentity): boolean {
     a.intent === b.intent &&
     a.occasion === b.occasion &&
     a.weather === b.weather &&
-    a.weatherRaw === b.weatherRaw &&
     a.location === b.location &&
     a.forcedItemId === b.forcedItemId &&
     a.wardrobeVersion === b.wardrobeVersion &&
