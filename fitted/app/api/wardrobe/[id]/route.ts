@@ -52,7 +52,9 @@ export async function PATCH(
     const { userId } = userResult;
     const { id: itemId } = await params;
     // A non-ObjectId path segment can't be any user's item — 404 cleanly instead of letting the
-    // Mongoose cast throw into the generic 500 (mirrors the images/[imageId] guard).
+    // Mongoose cast throw into the generic 500. This route is auth-required + self-scoped, so a bare
+    // "Item not found" 404 leaks no existence oracle. (The image-serving route images/[imageId] guards
+    // the same way but returns 400 "Invalid image id" — the guard shape is shared, the status is not.)
     if (!mongoose.isValidObjectId(itemId)) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
     }

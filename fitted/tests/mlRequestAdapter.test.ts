@@ -193,6 +193,14 @@ describe("item map (§15.2) + control caps", () => {
     expect(projectOne({ ...sampleItem, imageUrl: atCap }).imageUrl).toBe(atCap);
   });
 
+  it('drops an ill-formed (lone-surrogate) imageUrl to "" — drop-predicate ≡ accept-predicate (⚠ mirror obligation)', () => {
+    // The service's _require_utf8 rejects a non-UTF-8 imageUrl for the WHOLE render, same as over-cap.
+    // A stored URL carrying a lone surrogate (curl-era row) must drop to "" — a well-formed URL survives.
+    expect(projectOne({ ...sampleItem, imageUrl: "https://cdn/x\ud83dbad.jpg" }).imageUrl).toBe("");
+    const good = "https://cdn/ok.jpg";
+    expect(projectOne({ ...sampleItem, imageUrl: good }).imageUrl).toBe(good);
+  });
+
   it("sanitizes tags so one bad tag never makes a closet unrenderable (⚠ mirror obligation)", () => {
     // The service _string_list rejects a blank/whitespace or over-60-char tag for the WHOLE render.
     const wire = projectOne({
