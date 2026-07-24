@@ -457,6 +457,14 @@ order is load-bearing (the plan's §6): **web redeploy → migrate → Fly redep
 the migration BEFORE the web redeploy re-breaks on her next modal edit (the old deployed classifier
 re-derives the row back to `dress`).
 
+**Rollout status (2026-07-24): steps 1–3 DONE; step 4 (re-invite) is Brian's, and unblocked.**
+Web half pushed + redeployed at `origin/main` `33c3743a` (deploy `fitted-3j576ozpf`, 17/17 live checks).
+Migration `--apply` corrected the 1 flagged live row (Zhiyun's "suit dress" `dress → bottom`); the same
+dry-run now reports 0 rows disagree (idempotent). Fly redeployed from `ml-system/` (image
+`deployment-01KY997XRS7ZK8QMQ3BXQ3MWWV`, rolling in-place on the single machine — `fly scale show` = 1,
+`/readyz` green) shipping the F16 honest hints. The recipe below stays as the trap-guard reference (order,
+the `clothingTypeSource:"user"` re-run hazard, the backup-delete step).
+
 1. **Push + web redeploy** (`git push origin main` → Vercel builds the fork; verify per "Pre-friend
    deploy re-verify" above — the one-render `bindable:true` gate).
 2. **Migrate the live rows** (the conversion lever — this is what actually unblocks Zhiyun):
