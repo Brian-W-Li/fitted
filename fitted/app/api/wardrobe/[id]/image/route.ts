@@ -60,6 +60,11 @@ export async function POST(
     const { id: wardrobeItemId } = await params;
     const userId = userResult.userId;
 
+    // A non-ObjectId path segment matches no item — 404 before the Mongoose cast throws a generic 500.
+    if (!OBJECT_ID_RE.test(wardrobeItemId)) {
+      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
+
     if (!allowRequest(`wardrobe-image:${userId}`, UPLOAD_RATE_MAX, UPLOAD_RATE_WINDOW_MS)) {
       return NextResponse.json(
         { error: "Too many photo uploads at once — wait a moment and try again" },

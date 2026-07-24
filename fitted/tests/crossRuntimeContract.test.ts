@@ -251,6 +251,19 @@ describe("cross-runtime enums (TS == contract_fields.json crossRuntime.enums)", 
       expect(schemaActions).toContain(action);
     }
   });
+
+  // GenerationSnapshot.intent is likewise a deliberate SUPERSET: outfit_upgrade/translate are
+  // [STAGED] intents the live route never sends (SUPPORTED_INTENTS = daily/rescue_item). The live set
+  // must stay writable — dropping daily or rescue_item from the schema enum would write-reject the
+  // real render the route just paid for. Pin superset, not equality (the staged members may exist).
+  it("GenerationSnapshot.intent schema enum ⊇ the mirrored live intents", () => {
+    const schemaIntents =
+      (GenerationSnapshot.schema.path("intent") as { enumValues?: string[] }).enumValues ?? [];
+    expect(schemaIntents.length).toBeGreaterThan(0);
+    for (const intent of enums.intent) {
+      expect(schemaIntents).toContain(intent);
+    }
+  });
 });
 
 describe("cross-runtime candidate/role schema enums (Mongoose == contract_fields.json crossRuntime.schemaEnums)", () => {

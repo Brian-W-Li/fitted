@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { CLOTHING_TYPES, deriveClothingType, type ClothingType } from "@/lib/clothingType";
@@ -50,6 +51,11 @@ export async function PATCH(
 
     const { userId } = userResult;
     const { id: itemId } = await params;
+    // A non-ObjectId path segment can't be any user's item — 404 cleanly instead of letting the
+    // Mongoose cast throw into the generic 500 (mirrors the images/[imageId] guard).
+    if (!mongoose.isValidObjectId(itemId)) {
+      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
     let body: unknown;
     try {
       body = await request.json();
@@ -201,6 +207,9 @@ export async function DELETE(
 
     const { userId } = userResult;
     const { id: itemId } = await params;
+    if (!mongoose.isValidObjectId(itemId)) {
+      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
 
     const { WardrobeItem, WardrobeImage, GenerationSnapshot } = await initDatabase();
 

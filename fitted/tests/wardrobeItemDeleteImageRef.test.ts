@@ -114,4 +114,11 @@ describe("DELETE /api/wardrobe/[id] — image cascade honors snapshot references
     expect(res.status).toBe(200);
     expect(await WardrobeImage.countDocuments({ _id: new Types.ObjectId(imageId) })).toBe(0); // deleted
   });
+
+  it("404s a malformed (non-ObjectId) item id instead of a Mongoose CastError 500", async () => {
+    await seedUser("firebase-uid");
+    const res = await DELETE("not-an-object-id");
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("Item not found");
+  });
 });
