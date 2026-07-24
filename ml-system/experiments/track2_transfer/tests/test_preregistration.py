@@ -58,6 +58,26 @@ def test_export_certificate_matches_across_runtimes():
         assert js[key] == ec[key], f"floor drift on {key}: JS={js[key]} vs prereg.json={ec[key]}"
 
 
+def test_export_implements_the_frozen_author_exclusion():
+    """The §5 author exclusion is a FROZEN eligibility rule (freeze-before-look): the operator's own
+    closet is excluded from the headline pool. Two guards, because the numeric-floor pin above is blind
+    to eligibility logic: (1) the frozen rule must still be stated in the prereg, and (2) the live
+    consumer (exportTrack2Core.cjs) must actually implement an exclusion path — a `buildCertificate`
+    that ignores its exclusion argument would silently re-admit self-labeled rows to the Look-1 trigger.
+    The behavioral proof that the exclusion COUNTS correctly lives in fitted/tests/exportTrack2.test.ts;
+    this is the cross-runtime freeze-letter pin."""
+    prereg = json.loads(_load(PREREG_JSON))
+    elig = prereg["export_certificate"]["eligibility"]
+    assert "author_excluded" in elig, "the frozen §5 author-exclusion rule vanished from the prereg"
+    assert "excluded from the headline pool" in elig["author_excluded"]
+    cjs = _load(EXPORT_CJS)
+    # buildCertificate must take + honor an exclusion set, and the driver-facing resolver must exist.
+    assert "function buildCertificate(trainingExamples, excludedUsers" in cjs
+    assert "excludedUsers.has(u)" in cjs, "buildCertificate does not filter the headline pool by exclusions"
+    assert "async function resolveExcludedUsers(" in cjs
+    assert "track2test_" in cjs, "the synthetic-account exclusion marker is missing from the resolver"
+
+
 def test_derivation_reproduces_committed_numbers(tmp_path):
     # Re-derive into a TMP path so the committed frozen artifact is NEVER rewritten by the test.
     tmp_out = tmp_path / "power_derivation.json"

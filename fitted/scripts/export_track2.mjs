@@ -3,8 +3,15 @@
  * JSONL bundle + an images dir out, joining the four owned collections into a training shape.
  *
  *   node scripts/export_track2.mjs --uri "<mongo uri>" [--authId <firebase-uid>] [--out <dir>]
+ *     [--operatorAuthId <brian-firebase-uid>]
  *   # or rely on MONGODB_URI_ATLAS from .env.local:
- *   node scripts/export_track2.mjs --out ./track2-export
+ *   node scripts/export_track2.mjs --out ./track2-export --operatorAuthId <brian-firebase-uid>
+ *
+ * `--operatorAuthId` is the prereg §5 author exclusion: Brian-as-friend-#0's closet is reported
+ * separately and never enters the headline certificate pool (the Look-1 trigger). `track2test_*`
+ * synthetic accounts are always excluded regardless. Pass it on every real M6 export; the runbook
+ * §8 export command carries it. The bundle FILES still contain every user's rows — only the
+ * decidability certificate (`manifest.yield`) is exclusion-filtered.
  *
  * Why this exists: if friends deliver data and it can't leave Atlas in a training shape, Track 2
  * succeeds operationally and fails terminally. This is the missing bridge (verified absent before
@@ -46,10 +53,26 @@ async function main() {
   const uri = arg("uri", process.env.MONGODB_URI_ATLAS || process.env.MONGODB_URI);
   const outDir = resolve(arg("out", "./track2-export"));
   const authId = arg("authId", null);
+  const operatorAuthId = arg("operatorAuthId", process.env.TRACK2_OPERATOR_AUTH_ID || null);
   if (!uri) throw new Error("no Mongo URI (pass --uri or set MONGODB_URI_ATLAS)");
 
   await mongoose.connect(uri);
   const db = mongoose.connection.db;
+  // Echo the resolved host so a dev-DB bundle is never mistaken for the live corpus at a Look trigger.
+  const host = (() => {
+    try {
+      return new URL(uri.replace(/^mongodb\+srv:/, "https:").replace(/^mongodb:/, "http:")).host;
+    } catch {
+      return "unparseable-uri";
+    }
+  })();
+  console.log(`Connected → ${host}${authId ? ` (authId filter ${authId})` : ""}`);
+  if (!operatorAuthId) {
+    console.warn(
+      "⚠  no --operatorAuthId (and no TRACK2_OPERATOR_AUTH_ID) — the certificate will NOT exclude the " +
+        "operator's own closet (prereg §5). Pass it for a real M6 decidability read.",
+    );
+  }
   let userFilter = null;
   if (authId) {
     const u = await db.collection("users").findOne({ authProvider: "firebase", authId });
@@ -58,7 +81,7 @@ async function main() {
     }
     userFilter = u ? u._id : new mongoose.Types.ObjectId(); // a non-matching id → empty export
   }
-  const manifest = await exportTrack2({ db, outDir, userFilter });
+  const manifest = await exportTrack2({ db, outDir, userFilter, operatorAuthId });
   console.log(`Exported → ${outDir}`);
   console.log(JSON.stringify(manifest.counts, null, 2));
   await mongoose.disconnect();

@@ -22,7 +22,7 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 // The export logic is a CommonJS core so this suite can require the real unit directly (one mongoose
 // instance, no ESM transform). export_track2.mjs is the thin CLI wrapper over it.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { exportTrack2, buildCertificate, CERTIFICATE } = require("../scripts/exportTrack2Core.cjs") as typeof import("../scripts/exportTrack2Core.cjs");
+const { exportTrack2, buildCertificate, resolveExcludedUsers, CERTIFICATE } = require("../scripts/exportTrack2Core.cjs") as typeof import("../scripts/exportTrack2Core.cjs");
 
 let harness: MongoHarness;
 let db: NonNullable<typeof mongoose.connection.db>;
@@ -70,7 +70,7 @@ afterEach(async () => {
   // We insert into raw driver collections (no Mongoose models registered), which harness.clear()
   // — it iterates mongoose.connection.collections — cannot see. Clear them at the driver level.
   await Promise.all(
-    ["generationsnapshots", "wardrobeitems", "outfitinteractions", "wardrobeimages"].map((c) => db.collection(c).deleteMany({})),
+    ["generationsnapshots", "wardrobeitems", "outfitinteractions", "wardrobeimages", "users"].map((c) => db.collection(c).deleteMany({})),
   );
   rmSync(outDir, { recursive: true, force: true });
 });
@@ -291,6 +291,128 @@ describe("buildCertificate — scoreable-cluster certificate (the prereg decidab
     expect(mk(8)).toMatch(/REPORT-ONLY/);
     expect(mk(20)).toMatch(/SUGGESTIVE/);
     expect(mk(30)).toMatch(/DECIDABLE/);
+  });
+});
+
+describe("buildCertificate — prereg §5 author/test-account exclusion", () => {
+  type Item = { itemId: string; clothingType?: string | null; imageStatus?: string };
+  const te = (user: string, label: "accepted" | "rejected" | null, items: Item[]) => ({
+    user, label, items: items.map((i) => ({ imageStatus: "resolved", ...i })),
+  });
+  const pair = (a: string, b: string): Item[] => [
+    { itemId: a, clothingType: "top" }, { itemId: b, clothingType: "bottom" },
+  ];
+
+  it("an excluded operator closet counts under yield.excluded, never in the headline pool or the friends count", async () => {
+    const rows = [
+      te("friend", "accepted", pair("t1", "b1")),
+      te("op", "accepted", pair("t2", "b2")),
+      te("op", "rejected", pair("t3", "b3")),
+    ];
+    const cert = buildCertificate(rows, new Map([["op", "operator"]]));
+    // Headline pool sees ONLY the friend — the operator's rows are quarantined.
+    expect(cert.scoreableClusters.acceptedScoreable).toBe(1);
+    expect(cert.scoreableClusters.rejectedScoreable).toBe(0);
+    expect(cert.friends).toBe(1);
+    expect(cert.perUser).toHaveProperty("friend");
+    expect(cert.perUser).not.toHaveProperty("op");
+    // But the operator IS reported separately with its real counts + reason.
+    expect(cert.excluded.users.op.reason).toBe("operator");
+    expect(cert.excluded.users.op.primaryAcceptedScoreable).toBe(1);
+    expect(cert.excluded.users.op.primaryRejectedScoreable).toBe(1);
+  });
+
+  it("excluding a prolific operator restores an honest concentration cap (the freeze-integrity bite)", async () => {
+    const rows = [];
+    // One real friend with a thin arm + an operator who would dominate if counted.
+    for (let i = 0; i < 26; i++) rows.push(te("op", "accepted", pair(`op-ta-${i}`, `op-ba-${i}`)));
+    for (let i = 0; i < 26; i++) rows.push(te("op", "rejected", pair(`op-tr-${i}`, `op-br-${i}`)));
+    for (let i = 0; i < 3; i++) rows.push(te("friend", "accepted", pair(`f-ta-${i}`, `f-ba-${i}`)));
+    // Without exclusion the operator alone would clear 25/arm and (as the sole big arm) fail the cap
+    // — but it would still be COUNTED, wrongly firing/among the Look-1 pool. Excluded, the pool is
+    // just the thin friend arm → honestly UNDERPOWERED.
+    const cert = buildCertificate(rows, new Map([["op", "operator"]]));
+    expect(cert.scoreableClusters.acceptedScoreable).toBe(3);
+    expect(cert.scoreableClusters.rejectedScoreable).toBe(0);
+    expect(cert.primaryRead.verdict).toBe("UNDERPOWERED (keep collecting)");
+    expect(cert.friends).toBe(1);
+  });
+
+  it("resolveExcludedUsers picks up track2test_* accounts and the operator authId from the users collection", async () => {
+    const opId = oid();
+    const testId = oid();
+    const friendId = oid();
+    await db.collection("users").insertMany([
+      { _id: opId, authProvider: "firebase", authId: "brian-operator-uid" },
+      { _id: testId, authProvider: "firebase", authId: "track2test_smoke" },
+      { _id: friendId, authProvider: "firebase", authId: "real-friend-uid" },
+    ]);
+    const { excluded, operatorResolved } = await resolveExcludedUsers(db, "brian-operator-uid");
+    expect(operatorResolved).toBe(true);
+    expect(excluded.get(String(opId))).toBe("operator");
+    expect(excluded.get(String(testId))).toBe("test_account");
+    expect(excluded.has(String(friendId))).toBe(false);
+    // No operator authId → only the synthetic test account is excluded, operatorResolved false.
+    const none = await resolveExcludedUsers(db, null);
+    expect(none.operatorResolved).toBe(false);
+    expect(none.excluded.has(String(opId))).toBe(false);
+    expect(none.excluded.get(String(testId))).toBe("test_account");
+    await db.collection("users").deleteMany({});
+  });
+
+  it("end-to-end: exportTrack2 with operatorAuthId excludes the operator's snapshot rows from the certificate", async () => {
+    const opId = oid();
+    const friendId = oid();
+    await db.collection("users").insertMany([
+      { _id: opId, authProvider: "firebase", authId: "op-uid" },
+      { _id: friendId, authProvider: "firebase", authId: "friend-uid" },
+    ]);
+    const opSnap = makeSnapshot(opId, oid().toString(), oid().toString());
+    const friendSnap = makeSnapshot(friendId, oid().toString(), oid().toString());
+    await db.collection("generationsnapshots").insertMany([opSnap, friendSnap]);
+    await db.collection("outfitinteractions").insertMany([
+      { _id: oid(), user: opId, snapshotId: opSnap._id, candidateId: "cand1", action: "accepted", createdAt: new Date("2026-07-18T10:00:00Z") },
+      { _id: oid(), user: friendId, snapshotId: friendSnap._id, candidateId: "cand1", action: "accepted", createdAt: new Date("2026-07-18T10:00:00Z") },
+    ]);
+
+    const manifest = await exportTrack2({ db, outDir, userFilter: null, operatorAuthId: "op-uid" });
+
+    // Both users' rows are in the bundle FILES (exclusion is certificate-only)…
+    expect(manifest.counts.snapshots).toBe(2);
+    // …but the certificate's headline pool excludes the operator.
+    expect(manifest.exclusions.operatorResolved).toBe(true);
+    expect(manifest.exclusions.excludedUserCount).toBe(1);
+    expect(manifest.yield.friends).toBe(1);
+    expect(manifest.yield.perUser).not.toHaveProperty(String(opId));
+    expect(manifest.yield.excluded.users[String(opId)].reason).toBe("operator");
+    await db.collection("users").deleteMany({});
+  });
+});
+
+describe("exportTrack2 — join-drop accounting", () => {
+  it("counts a shown candidate id with no candidate row instead of dropping it silently", async () => {
+    const user = oid();
+    const snap = makeSnapshot(user, oid().toString(), oid().toString());
+    snap.shownCandidateIds = ["cand1", "ghost"]; // 'ghost' has no matching candidate
+    await db.collection("generationsnapshots").insertOne(snap);
+    const manifest = await exportTrack2({ db, outDir, userFilter: null });
+    expect(manifest.counts.shownCandidateIdsUnmatched).toBe(1);
+    expect(manifest.counts.trainingExamples).toBe(1);
+  });
+
+  it("counts a §H61 label that binds to no exported training example", async () => {
+    const user = oid();
+    const snap = makeSnapshot(user, oid().toString(), oid().toString());
+    await db.collection("generationsnapshots").insertOne(snap);
+    await db.collection("outfitinteractions").insertMany([
+      // Binds a shown candidate → consumed (has a training example).
+      { _id: oid(), user, snapshotId: snap._id, candidateId: "cand1", action: "accepted", createdAt: new Date("2026-07-18T10:00:00Z") },
+      // Binds a candidate that was never shown → a dangling label, must be counted.
+      { _id: oid(), user, snapshotId: snap._id, candidateId: "never-shown", action: "rejected", createdAt: new Date("2026-07-18T10:00:00Z") },
+    ]);
+    const manifest = await exportTrack2({ db, outDir, userFilter: null });
+    expect(manifest.counts.interactionsLatest).toBe(2);
+    expect(manifest.counts.labelsWithoutTrainingExample).toBe(1);
   });
 });
 

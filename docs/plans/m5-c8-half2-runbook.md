@@ -335,12 +335,18 @@ zero friend yield you only notice by watching. After ANY redeploy, before the ne
 
 **Pull the corpus (M6 export, read-only):**
 ```sh
-cd fitted && node scripts/export_track2.mjs --uri "$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" --out ./track2-export
+cd fitted && node scripts/export_track2.mjs --uri "$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" \
+  --out ./track2-export --operatorAuthId "<Brian's Firebase uid>"
 ```
 → `manifest.json` (counts + a `yield` block with the decidability verdict vs the 30–60 bar), snapshots /
 wardrobe / interactions_latest (§H61) / training_examples JSONL + `images/`. The manifest's `yield` IS the
-yield artifact (one home, no drift). A **deleted friend exports zero** (erasure). Round-trip proven live:
-`node scripts/track2-export-roundtrip.mjs` (incl. a D2-retained photo of a deleted item).
+yield artifact (one home, no drift). **Always pass `--operatorAuthId`** (prereg §5 author exclusion — the
+operator's own closet is reported under `yield.excluded`, never in the headline pool that fires the
+Look-1 trigger; `track2test_*` synthetic accounts are always excluded). The bundle FILES still carry every
+user's rows; only the `yield` certificate is exclusion-filtered. The command re-wipes `images/` each run,
+so a re-export after an erasure leaves no stale photos on disk. A **deleted friend exports zero**
+(erasure). Round-trip proven live: `node scripts/track2-export-roundtrip.mjs` (incl. a D2-retained photo
+of a deleted item).
 
 **Content monitor:** `cd fitted && npx jest outfitLint` — the deterministic mechanical-absurdity checker
 (two-bottoms / dress-with-separates / formality-clash / …). A rising hit-rate = stylist-quality

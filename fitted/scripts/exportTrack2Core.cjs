@@ -7,7 +7,7 @@
  * `export_track2.mjs` is the thin CLI wrapper that owns arg-parsing + the Mongo connection and
  * re-exports these. See exportTrack2Core.d.cts for the export-bundle contract.
  */
-const { mkdirSync, writeFileSync } = require("fs");
+const { mkdirSync, writeFileSync, rmSync } = require("fs");
 const { resolve } = require("path");
 const mongoose = require("mongoose");
 
@@ -98,7 +98,7 @@ function parseImageId(ref) {
  * always present), deduped by itemId — the H26 closet probe skipped 25/39 pairs exactly for lack of a
  * same-category negative, so depth is a first-class eligibility gate, not an afterthought.
  */
-function buildCertificate(trainingExamples) {
+function buildCertificate(trainingExamples, excludedUsers = new Map()) {
   // Pass 1 — per-user category depth (distinct itemIds per clothingType) over ALL rendered items.
   const depth = {}; // user -> clothingType -> Set(itemId)
   for (const t of trainingExamples) {
@@ -152,7 +152,19 @@ function buildCertificate(trainingExamples) {
     }]),
   );
 
-  const sum = (f) => Object.values(perUserOut).reduce((a, v) => a + f(v), 0);
+  // Prereg §5 exclusions: the operator's own closet (Brian-as-friend-#0) and track2test_* synthetic
+  // accounts are REPORTED SEPARATELY and never enter the headline arms, concentration shares, or the
+  // friends count — a self-labeled or synthetic arm must not fire the Look-1 trigger.
+  const headline = Object.fromEntries(
+    Object.entries(perUserOut).filter(([u]) => !excludedUsers.has(u)),
+  );
+  const excludedOut = Object.fromEntries(
+    Object.entries(perUserOut)
+      .filter(([u]) => excludedUsers.has(u))
+      .map(([u, v]) => [u, { reason: excludedUsers.get(u), ...v }]),
+  );
+
+  const sum = (f) => Object.values(headline).reduce((a, v) => a + f(v), 0);
   const acceptedScoreable = sum((v) => v.primaryAcceptedScoreable);
   const rejectedScoreable = sum((v) => v.primaryRejectedScoreable);
   const transferScoreable = sum((v) => v.transferAcceptedScoreable);
@@ -162,7 +174,7 @@ function buildCertificate(trainingExamples) {
   // may not rest on one prolific friend). 1.0 for a single-user export → capOk false by construction.
   const maxShare = (total, f) => {
     if (total <= 0) return 0;
-    const top = Math.max(0, ...Object.values(perUserOut).map(f));
+    const top = Math.max(0, ...Object.values(headline).map(f));
     return top / total;
   };
   const acceptedMaxShare = maxShare(acceptedScoreable, (v) => v.primaryAcceptedScoreable);
@@ -180,7 +192,7 @@ function buildCertificate(trainingExamples) {
         : "REPORT-ONLY (<12 source-outfits)";
 
   return {
-    friends: Object.keys(perUser).length,
+    friends: Object.keys(headline).length,
     // Continuity readout (the onboarding message's ≥30 image-usable bar) — kept, but NOT the decision.
     cohortImageUsableAcceptedOutfits: cohortImageUsable,
     // The decision-relevant certificate (the prereg's two reads).
@@ -198,13 +210,43 @@ function buildCertificate(trainingExamples) {
       state: transferState,
       note: "catalog→closet pair-AUC, two-boundary directional {above-chance 0.50 / below-healthy 0.70}; REPORTED, never gates; the 0.70 healthy floor is structurally unpassable and retired as a gate",
     },
-    perUser: perUserOut,
+    perUser: headline,
+    excluded: {
+      note: "prereg §5 — operator closet + track2test_* synthetic accounts: reported separately, never in the headline pool",
+      users: excludedOut,
+    },
   };
 }
 
+/**
+ * Prereg §5 exclusion resolution — authId-based, from the users collection. `track2test_*` synthetic
+ * accounts are always excluded; the operator (Brian-as-friend-#0) is excluded when `operatorAuthId`
+ * resolves to a user. An erased account has no user row, so it resolves to nothing — its data rows
+ * are already gone. Only the CERTIFICATE pool is filtered; the raw bundle files are not.
+ */
+async function resolveExcludedUsers(db, operatorAuthId) {
+  const excluded = new Map(); // user _id string -> reason
+  const testUsers = await db.collection("users").find({ authId: { $regex: "^track2test_" } }).toArray();
+  for (const u of testUsers) excluded.set(String(u._id), "test_account");
+  let operatorResolved = false;
+  if (operatorAuthId) {
+    const op = await db.collection("users").findOne({ authProvider: "firebase", authId: operatorAuthId });
+    if (op) {
+      excluded.set(String(op._id), "operator");
+      operatorResolved = true;
+    }
+  }
+  return { excluded, operatorResolved };
+}
+
 /** Core export. Returns a summary object; writes the bundle to `outDir`. */
-async function exportTrack2({ db, outDir, userFilter }) {
+async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
+  // The images dir accretes across runs (files are written additively by imageId, jsonl files are
+  // overwritten) — a re-export into the same dir after a friend's erasure must not leave their
+  // photos on disk under a clean manifest. The bundle dir is generated output; wipe images/ first.
+  rmSync(resolve(outDir, "images"), { recursive: true, force: true });
   mkdirSync(resolve(outDir, "images"), { recursive: true });
+  const { excluded: excludedUsers, operatorResolved } = await resolveExcludedUsers(db, operatorAuthId);
   const snapMatch = { redacted: { $ne: true }, ...(userFilter ? { user: userFilter } : {}) };
   const rowMatch = userFilter ? { user: userFilter } : {};
 
@@ -212,8 +254,8 @@ async function exportTrack2({ db, outDir, userFilter }) {
   const wardrobe = await db.collection("wardrobeitems").find(rowMatch).toArray();
   const interactions = await db.collection("outfitinteractions").find(rowMatch).toArray();
 
-  // Resolve every image reference found in snapshot itemSnapshots (engineVisible.imageUrl +
-  // generatorVisible/evidence imageRef), dedup by imageId.
+  // Resolve every image reference found in snapshot itemSnapshots — engineVisible.imageUrl, the
+  // training-truth home (parseImageId also accepts the `mongo:<id>` evidence form) — dedup by imageId.
   const imageRefs = new Set();
   for (const s of snapshots) {
     for (const it of s.itemSnapshots ?? []) {
@@ -241,13 +283,22 @@ async function exportTrack2({ db, outDir, userFilter }) {
   const latestByKey = pickLatestPerCandidate(interactions);
 
   // Training examples: one row per SHOWN candidate, joined to its immutable item features + images.
+  // Join drops are COUNTED, never silent: a nonzero shownCandidateIdsUnmatched means a shown id had
+  // no candidate row (a write-path bug); a nonzero labelsWithoutTrainingExample means a §H61 label
+  // bound to no exported example (a redacted/missing snapshot, or a binding-format drift that would
+  // otherwise null every label and read as a quiet "keep collecting").
   const trainingExamples = [];
+  let shownUnmatched = 0;
+  const consumedLabelKeys = new Set();
   for (const s of snapshots) {
     const evById = new Map((s.itemSnapshots ?? []).map((it) => [it.itemId, it.engineVisible ?? {}]));
     const candById = new Map((s.candidates ?? []).map((c) => [c.candidateId, c]));
     for (const cid of s.shownCandidateIds ?? []) {
       const cand = candById.get(cid);
-      if (!cand) continue;
+      if (!cand) {
+        shownUnmatched += 1;
+        continue;
+      }
       const items = (cand.items ?? []).map((ci) => {
         const ev = evById.get(ci.itemId) ?? {};
         const imgId = parseImageId(ev.imageUrl);
@@ -263,7 +314,9 @@ async function exportTrack2({ db, outDir, userFilter }) {
           imageStatus: img ? img.status : "none",
         };
       });
-      const fb = latestByKey.get(`${s._id.toString()}::${cid}`);
+      const labelKey = `${s._id.toString()}::${cid}`;
+      const fb = latestByKey.get(labelKey);
+      if (fb) consumedLabelKeys.add(labelKey);
       trainingExamples.push({
         snapshotId: s._id.toString(),
         candidateId: cid,
@@ -298,11 +351,16 @@ async function exportTrack2({ db, outDir, userFilter }) {
   // The prereg (`experiments/track2_transfer/preregistration.md`) defines two reads; this block
   // certifies each against its frozen floor (CERTIFICATE, above). An outfit (training example) is
   // NOT scoreable just because it exists — it must clear the eligibility gates the reads require.
-  const yieldReadout = buildCertificate(trainingExamples);
+  const yieldReadout = buildCertificate(trainingExamples, excludedUsers);
 
   const manifest = {
     bundleVersion: BUNDLE_VERSION,
     userFilter: userFilter ? userFilter.toString() : null,
+    exclusions: {
+      operatorAuthId: operatorAuthId ?? null,
+      operatorResolved,
+      excludedUserCount: excludedUsers.size,
+    },
     counts: {
       snapshots: snapshots.length,
       wardrobeItems: wardrobe.length,
@@ -310,6 +368,8 @@ async function exportTrack2({ db, outDir, userFilter }) {
       interactionsLatest: latestByKey.size,
       trainingExamples: trainingExamples.length,
       trainingExamplesLabeled: labeled,
+      shownCandidateIdsUnmatched: shownUnmatched,
+      labelsWithoutTrainingExample: latestByKey.size - consumedLabelKeys.size,
       imagesReferenced: imageRefs.size,
       imagesResolved: resolvedImages,
       imagesUnresolved: imageRefs.size - resolvedImages,
@@ -318,6 +378,8 @@ async function exportTrack2({ db, outDir, userFilter }) {
       trainingTruth: "itemSnapshots[].engineVisible (immutable render-time copy); NOT live WardrobeItem",
       label: "accepted|rejected|null — §H61 latest-state per {snapshotId,candidateId}",
       redactedExcluded: true,
+      redactedScope:
+        "snapshots.jsonl + training_examples only; interactions_raw/wardrobe are user-scoped, so a label bound to a redacted snapshot still appears in interactions_raw (and counts in labelsWithoutTrainingExample)",
       imageRefFormat: "mongo:<imageId> or /api/images/<imageId> → wardrobeimages.base64 (D2-retained images survive item delete)",
     },
     yield: yieldReadout,
@@ -327,4 +389,4 @@ async function exportTrack2({ db, outDir, userFilter }) {
   return manifest;
 }
 
-module.exports = { exportTrack2, BUNDLE_VERSION, CERTIFICATE, buildCertificate, parseImageId, pickLatestPerCandidate };
+module.exports = { exportTrack2, BUNDLE_VERSION, CERTIFICATE, buildCertificate, resolveExcludedUsers, parseImageId, pickLatestPerCandidate };

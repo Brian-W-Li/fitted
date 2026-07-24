@@ -13,9 +13,16 @@ export interface DbLike {
   };
 }
 
+export interface PerUserYield {
+  accepted: number; rejected: number; imageUsableAccepted: number;
+  primaryAcceptedScoreable: number; primaryRejectedScoreable: number;
+  transferAcceptedScoreable: number; clothingTypeDepth: number;
+}
+
 export interface ExportManifest {
   bundleVersion: string;
   userFilter: string | null;
+  exclusions: { operatorAuthId: string | null; operatorResolved: boolean; excludedUserCount: number };
   counts: {
     snapshots: number;
     wardrobeItems: number;
@@ -23,6 +30,8 @@ export interface ExportManifest {
     interactionsLatest: number;
     trainingExamples: number;
     trainingExamplesLabeled: number;
+    shownCandidateIdsUnmatched: number;
+    labelsWithoutTrainingExample: number;
     imagesReferenced: number;
     imagesResolved: number;
     imagesUnresolved: number;
@@ -31,6 +40,7 @@ export interface ExportManifest {
     trainingTruth: string;
     label: string;
     redactedExcluded: boolean;
+    redactedScope: string;
     imageRefFormat: string;
   };
   yield: {
@@ -48,16 +58,18 @@ export interface ExportManifest {
     concentration: { acceptedMaxShare: number; rejectedMaxShare: number; cap: number; capOk: boolean };
     primaryRead: { verdict: string; boundary: number; needPerArm: number; note: string };
     transferRead: { state: string; note: string };
-    perUser: Record<string, {
-      accepted: number; rejected: number; imageUsableAccepted: number;
-      primaryAcceptedScoreable: number; primaryRejectedScoreable: number;
-      transferAcceptedScoreable: number; clothingTypeDepth: number;
-    }>;
+    perUser: Record<string, PerUserYield>;
+    excluded: { note: string; users: Record<string, PerUserYield & { reason: string }> };
   };
   imageManifest: Record<string, { status: "resolved" | "unresolved"; file?: string; contentType?: string; sizeBytes?: number }>;
 }
 
-export function exportTrack2(opts: { db: DbLike; outDir: string; userFilter: unknown | null }): Promise<ExportManifest>;
+export function exportTrack2(opts: {
+  db: DbLike;
+  outDir: string;
+  userFilter: unknown | null;
+  operatorAuthId?: string | null;
+}): Promise<ExportManifest>;
 export const BUNDLE_VERSION: string;
 export const CERTIFICATE: {
   primaryDecisionMinPerArm: number;
@@ -73,7 +85,14 @@ export interface TrainingExampleLike {
   items: Array<{ itemId: string; clothingType?: string | null; imageStatus?: string }>;
   [key: string]: unknown;
 }
-export function buildCertificate(trainingExamples: TrainingExampleLike[]): ExportManifest["yield"];
+export function buildCertificate(
+  trainingExamples: TrainingExampleLike[],
+  excludedUsers?: Map<string, string>,
+): ExportManifest["yield"];
+export function resolveExcludedUsers(
+  db: DbLike,
+  operatorAuthId: string | null,
+): Promise<{ excluded: Map<string, string>; operatorResolved: boolean }>;
 export function parseImageId(ref: unknown): string | null;
 
 /** §23-H61 latest-state collapse per {snapshotId, candidateId}; mirror of lib/latestFeedbackState.ts. */
