@@ -90,7 +90,7 @@ async function main() {
   const interaction = await OutfitInteraction.create({
     user: testUser._id,
     items: createdItems.map((i) => i._id),
-    action: "saved",
+    action: "accepted",
     rating: 5,
     feedback: "Love this outfit!",
     context: { weather: "sunny", temperatureF: 72, occasion: "casual" },

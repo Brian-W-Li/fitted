@@ -293,6 +293,12 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
 - **Corpus health:** re-certify the growing friend corpus any time with the gated read-back verifier
   (runs the real payload validator + lineage/join/orphan/degenerate checks over the live DB, read-only):
   `cd fitted && CORPUS_READBACK_URI="$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" npx jest corpusReadback --runInBand`
+- **The two env-gated jest suites never run in `npm test`** (they self-skip without their env) — run them
+  MANUALLY after any deploy-adjacent change, because they are the ONLY home of checks the unit suite cannot cover:
+  `corpusReadback.integration` (needs `CORPUS_READBACK_URI`; the command above) is corpus-scale
+  lineage/join/orphan/erasure verification over the live DB, and `localServiceSmoke.integration` (needs
+  `ML_SMOKE_URL` + `ML_SMOKE_KEY`; §4 "Local backend smoke") is the real Next↔service composition on a live
+  `gpt-5.4-mini`. A green `npm test` says nothing about either.
 - **Spend:** OpenAI usage dashboard (the $10 cap is the hard backstop); `fly status`/`fly logs --app
   fitted-render-service`; Vercel logs via the project's Inspect URL.
 - **Machine count must stay 1** (`fly scale show`) — >1 silently multiplies the rate ceiling (G1).
