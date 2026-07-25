@@ -160,12 +160,14 @@ export async function POST(
       );
     }
 
-    // 4) Budget admitted — delete the old image UNLESS a snapshot references it (then keep it).
-    if (oldImageId && !oldImageReferenced) {
-      await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
-    }
-
-    // 5) Store new image
+    // 4) Store the new image FIRST. Ordering is load-bearing: `uploadWardrobeImage` can throw on a
+    // reachable input — a HEIC file renamed `.jpg` reports `type: "image/jpeg"`, passes the client
+    // allowlist, survives the client downscale (which can't decode it, so it forwards the ORIGINAL
+    // bytes), and then fails the server's magic-byte sniff with "Unsupported image type". Deleting
+    // the old image before this call destroyed a real, irreplaceable friend photo and left
+    // `imagePath` dangling at a deleted row. That matters more since the photo-failure notice
+    // (§23-H77(a)) makes "retry the photo from Edit" the advertised remedy, routing friends through
+    // this exact path. Store → repoint → delete: every failure now leaves the old photo intact.
     const { imagePath } = await uploadWardrobeImage({
       userId,
       wardrobeItemId,
@@ -173,11 +175,20 @@ export async function POST(
       contentType,
     });
 
-    // 6) Update wardrobe item with new pointer
+    // 5) Repoint the item at the new image before removing the old one, so no window exists in
+    // which `imagePath` names a row that is already gone.
     await WardrobeItem.updateOne(
       { _id: wardrobeItemId, user: userId },
       { $set: { imagePath } }
     ).exec();
+
+    // 6) Only now drop the superseded image — UNLESS a snapshot references it (§D2/REPLACE-1 keeps
+    // it as corpus provenance). Both images coexist briefly, so a replace can transiently exceed
+    // MAX_USER_IMAGE_BYTES by the old image's size; that is a courtesy budget, and a few seconds of
+    // overshoot is a trade we take over destroying a photo on a failed store.
+    if (oldImageId && !oldImageReferenced) {
+      await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
+    }
 
     // Erasure-race close (§23-H43): if the account was deleted while this authed upload was in flight,
     // the new WardrobeImage row (real photo bytes) must not survive "delete me". Mirror the writer-side

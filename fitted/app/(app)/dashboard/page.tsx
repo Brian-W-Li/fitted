@@ -647,11 +647,15 @@ function DashboardInner() {
   // bail. Now we say why first and only ask when they tap. Denial stays graceful: geoCoords is purely
   // additive to the render (startGenerate spreads lat/lon only when present), so declining costs the
   // weather signal and nothing else.
-  const [geoStatus, setGeoStatus] = useState<"idle" | "asking" | "granted" | "denied">("idle");
+  // "unsupported" is distinct from "denied": a browser with no geolocation API can never succeed, so
+  // offering it a "Try again" would be a button that provably cannot work.
+  const [geoStatus, setGeoStatus] = useState<
+    "idle" | "asking" | "granted" | "denied" | "unsupported"
+  >("idle");
 
   const requestGeo = useCallback(() => {
     if (!navigator?.geolocation) {
-      setGeoStatus("denied");
+      setGeoStatus("unsupported");
       return;
     }
     setGeoStatus("asking");
@@ -709,7 +713,7 @@ function DashboardInner() {
       return;
     }
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const token = await firebaseUser.getIdToken();
         const res = await fetch("/api/wardrobe", { headers: { Authorization: `Bearer ${token}` } });
@@ -719,9 +723,22 @@ function DashboardInner() {
       } catch {
         // Best-effort: staying at `null` just means no signpost, never a wrong one.
       }
-    })();
+    };
+    void load();
+    // Re-check when the page is shown again. The signpost's CTA is a plain <a> to /wardrobe (a full
+    // document navigation), so a friend who taps it, adds their clothes, and hits Back gets the page
+    // restored from the bfcache with React state intact and no effect re-run — leaving "First: add a
+    // few clothes" on screen for a closet that is no longer empty. `pageshow` fires on bfcache
+    // restore (where `visibilitychange` does not), so both are needed.
+    const recheck = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener("pageshow", recheck);
+    document.addEventListener("visibilitychange", recheck);
     return () => {
       cancelled = true;
+      window.removeEventListener("pageshow", recheck);
+      document.removeEventListener("visibilitychange", recheck);
     };
   }, [firebaseUser]);
 
@@ -1203,6 +1220,14 @@ function DashboardInner() {
           <div className="text-xs text-slate-500">
             {geoStatus === "granted" ? (
               <span>Using your location for local weather.</span>
+            ) : geoStatus === "unsupported" ? (
+              // No retry offered — this browser has no geolocation API, so a "Try again" would be a
+              // button that can never succeed. Give the same compensating advice as the denial.
+              <span>
+                This browser can&apos;t share a location, so outfits are picked without today&apos;s
+                weather. Mention it in the event description (e.g. &quot;it&apos;s cold out&quot;) and
+                the stylist will factor it in.
+              </span>
             ) : geoStatus === "denied" ? (
               <span>
                 No location — outfits are picked without today&apos;s weather. Mention it in the event

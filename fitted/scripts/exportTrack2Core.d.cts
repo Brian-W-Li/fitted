@@ -35,6 +35,10 @@ export interface ExportManifest {
     imagesReferenced: number;
     imagesResolved: number;
     imagesUnresolved: number;
+    /** Item slots carrying no image reference at all — invisible to the three counters above. */
+    itemSlotsWithoutImageRef: number;
+    /** Labeled examples excluded from the scoreable arms purely for image reasons. */
+    labeledExamplesNotImageUsable: number;
   };
   schemaNotes: {
     trainingTruth: string;

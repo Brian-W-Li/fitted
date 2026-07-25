@@ -17,8 +17,9 @@ export interface RenderFlagsLike {
 }
 
 /** D1 dual-remedy census sentence (clothingtype-slot-correctness §4-D). Emitted only when the
- *  census shows a structural gap the friend can act on (zero tops or zero bottoms — the two slots
- *  every two-piece outfit needs); otherwise the engine hint stands alone. The wall has TWO
+ *  census shows a structural gap the friend can act on: a missing top or bottom AND no dress to
+ *  serve as a base instead (the engine sizes its ask as `tops × bottoms + dresses`, so a dress-only
+ *  closet is buildable and has no gap to report); otherwise the engine hint stands alone. The wall has TWO
  *  entrances — a mislabeled item (Zhiyun's skirt typed dress) and a genuinely absent slot — so the
  *  remedy names both: fix a mislabel in the Wardrobe, or add the missing piece. Anti-guilt (§18):
  *  honest description of what WE see, never "you haven't added…". */
@@ -31,13 +32,6 @@ function slotCensusSentence(census: RenderFlagsLike["slotCensus"]): string | nul
   const tops = n("top");
   const bottoms = n("bottom");
   if (tops > 0 && bottoms > 0) return null; // no top/bottom gap — a census sentence would be a false premise
-  // A dress is a COMPLETE base on its own, not a half-outfit: the engine sizes its ask as
-  // `tops × bottoms + dresses` (fitted_core/sampler.py `candidate_requested`), so a dress-only
-  // closet is structurally buildable and its empty render is NOT a missing-slot problem. Telling a
-  // dress owner to "add a top or a bottom" would diagnose a gap they don't have and send them
-  // shopping for pieces the stylist never needed. Only diagnose the top/bottom gap when it is the
-  // ACTUAL structural blocker — i.e. when there is no dress base either.
-  if (tops === 0 && bottoms === 0 && n("dress") > 0) return null;
   // A fully-empty closet needs no diagnosis ("if one of these…" would have no referent) — the
   // base empty-state copy already says to add pieces. Summed over the enum so a sixth slot value
   // could never silently escape the emptiness check.
@@ -50,6 +44,18 @@ function slotCensusSentence(census: RenderFlagsLike["slotCensus"]): string | nul
     `${count(n("shoes"), "pair of shoes", "pairs of shoes")} in your closet.`;
   const missing =
     tops === 0 && bottoms === 0 ? "a top or a bottom" : bottoms === 0 ? "a bottom" : "a top";
+  // A dress is a COMPLETE base on its own, not a half-outfit: the engine sizes its ask as
+  // `tops × bottoms + dresses` (fitted_core/sampler.py `candidate_requested`). So for a closet with
+  // dresses but NO tops and NO bottoms, the "or add one you don't have yet" half is a false
+  // premise — nothing is structurally missing, and it would send that friend shopping for pieces
+  // the stylist never needed. The MISLABEL half still applies, and applies with FORCE: zero tops
+  // AND zero bottoms alongside several dresses is the signature of everything-filed-as-dress
+  // (Zhiyun's skirt typed dress), not of a genuine dress-only wardrobe. So keep the description —
+  // it is the only place that mislabel becomes visible to the friend — and drop only the shopping
+  // clause. Suppressing the whole sentence would blind the very case it was written to catch.
+  if (tops === 0 && bottoms === 0 && n("dress") > 0) {
+    return `${description} If any of those is actually ${missing}, fix its details in your Wardrobe and try again.`;
+  }
   return `${description} If one of these is actually ${missing}, fix its details in your Wardrobe — or add one you don’t have yet.`;
 }
 

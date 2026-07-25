@@ -447,3 +447,70 @@ describe("exportTrack2 — userFilter scoping", () => {
     expect(readJsonl(outDir, "interactions_raw.jsonl").map((i) => String(i.user))).toEqual([String(userA)]);
   });
 });
+
+describe("exportTrack2 — photo-less items are COUNTED, not silently invisible (§23-H77(a))", () => {
+  it("reports item slots with no image ref, and labeled examples excluded for image reasons", async () => {
+    // The blindness this closes: `imagesReferenced/Resolved/Unresolved` only ever see ids that WERE
+    // referenced, so an item saved photo-less (deliberately, or because its upload failed) appeared
+    // in NO counter. A corpus quietly losing photos therefore reported a clean bill of health, while
+    // `imageUsable` — which requires EVERY item in an outfit to resolve — silently dropped each
+    // affected outfit from both scoreable arms.
+    const user = oid();
+    const imageId1 = oid().toString();
+    const snap = makeSnapshot(user, imageId1, oid().toString());
+    // item2 has NO imageUrl at all — the photo-less shape.
+    snap.itemSnapshots[1].engineVisible.imageUrl = "";
+    await db.collection("generationsnapshots").insertOne(snap);
+    const bytes = Buffer.from("fake-png-bytes");
+    await db.collection("wardrobeimages").insertOne({
+      _id: new mongoose.Types.ObjectId(imageId1),
+      base64: bytes.toString("base64"),
+      contentType: "image/png",
+      sizeBytes: bytes.length,
+    });
+    // Label it so the "excluded from a scoreable arm" counter has something to count.
+    await db.collection("outfitinteractions").insertOne({
+      _id: oid(),
+      user,
+      snapshotId: snap._id,
+      candidateId: "cand1",
+      action: "accepted",
+      createdAt: new Date(),
+    });
+
+    const manifest = await exportTrack2({ db, outDir, userFilter: null });
+
+    // The old counters still read "clean" — only one image was ever referenced, and it resolved.
+    expect(manifest.counts.imagesUnresolved).toBe(0);
+    // …which is exactly why these two exist.
+    expect(manifest.counts.itemSlotsWithoutImageRef).toBe(1);
+    expect(manifest.counts.labeledExamplesNotImageUsable).toBe(1);
+  });
+
+  it("a fully-photographed labeled example counts zero on both new counters", async () => {
+    const user = oid();
+    const imageId1 = oid().toString();
+    const imageId2 = oid().toString();
+    const snap = makeSnapshot(user, imageId1, imageId2);
+    // makeSnapshot's second item uses the `mongo:` form — normalize both to the served form.
+    snap.itemSnapshots[1].engineVisible.imageUrl = `/api/images/${imageId2}`;
+    await db.collection("generationsnapshots").insertOne(snap);
+    const bytes = Buffer.from("fake-png-bytes");
+    await db.collection("wardrobeimages").insertMany([
+      { _id: new mongoose.Types.ObjectId(imageId1), base64: bytes.toString("base64"), contentType: "image/png", sizeBytes: bytes.length },
+      { _id: new mongoose.Types.ObjectId(imageId2), base64: bytes.toString("base64"), contentType: "image/png", sizeBytes: bytes.length },
+    ]);
+    await db.collection("outfitinteractions").insertOne({
+      _id: oid(),
+      user,
+      snapshotId: snap._id,
+      candidateId: "cand1",
+      action: "accepted",
+      createdAt: new Date(),
+    });
+
+    const manifest = await exportTrack2({ db, outDir, userFilter: null });
+    expect(manifest.counts.itemSlotsWithoutImageRef).toBe(0);
+    expect(manifest.counts.labeledExamplesNotImageUsable).toBe(0);
+  });
+});

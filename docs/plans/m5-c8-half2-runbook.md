@@ -205,7 +205,9 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
 2. Wardrobe → add items **manually** (CV is off): **photo + name + category for every item** — the
    photos are the point (they feed the ML measurement; the app downscales client-side, ~1MB each).
    Aim for **~15+ items with at least 2 per category** across tops/bottoms/shoes (outerwear too);
-   honest names/colors/occasions make both the recommendations and the corpus better.
+   **if you mostly wear dresses, add those plus a couple of pairs of shoes** — a dress is a complete
+   outfit base on its own, so a dress-heavy closet works, it just needs shoes to build around.
+   Honest names/colors/occasions make both the recommendations and the corpus better.
 3. Dashboard → daily render (pick an occasion) or rescue (pick an item to build around); re-roll and
    like/dislike freely — every render persists a snapshot, every reaction binds to it. **Make honest
    feedback a habit** (like what you'd actually wear, dislike what you wouldn't): the accepted/rejected
@@ -537,12 +539,42 @@ render service is untouched (leave it at 1 machine).**
    best-effort GET `/api/wardrobe` on mount; `null` (loading/failed) is deliberately distinct from 0,
    so an existing friend never sees the CTA.
 
-**Deploy:** `git push origin main` → Vercel builds the fork → verify per "Pre-friend deploy re-verify"
-(the one-render `bindable:true` gate). No migration, no Fly redeploy, no env change.
+**Deploy:** push, then deploy **from the CLI** — this project does NOT deploy on git push (Ops notes
+above): `git push origin main`, then `cd fitted && npx vercel --prod` (never from the repo ROOT — both
+directories are named `fitted` and a root deploy blows the free-tier file quota). Then verify per
+"Pre-friend deploy re-verify" (the one-render `bindable:true` gate). No migration, no Fly redeploy,
+no env change.
+
+**What the convergence rounds added beyond the six** (three rounds; each found real defects in the
+previous round's fixes, so the list below IS part of the pass, not polish):
+- **Photo integrity.** The image route replaced photos **delete-then-store**, so a store that threw —
+  reachable via a HEIC file renamed `.jpg`, which passes the client allowlist and fails the server's
+  magic-byte sniff — destroyed the friend's original photo and left `imagePath` dangling. Now
+  store → repoint → delete. This mattered more because H77(a) makes "retry the photo from Edit" the
+  advertised remedy, routing friends straight through it.
+- **EXIF.** `prepareImageForUpload`'s decode fallback re-encoded with EXIF *unapplied* and then
+  stripped the tag, so `exif_transpose` at M6 embed time (§23-H53) became a no-op on a sideways
+  photo — silent, unrecoverable corpus damage, widened ~8× by the 40MB pick ceiling. The fallback
+  now returns the ORIGINAL (EXIF intact, therefore still correctable downstream).
+- **Un-uploadable photos fail at PICK**, with the screenshot remedy, instead of after the item is
+  created — the previous shape promised "it will still upload" about a file the 4MB gate would
+  deterministically reject.
+- **The photo-failure record outlives the modal** (a page-level list): the in-modal notice died on
+  unmount and the red banner was cleared by the next successful save, so on a 15-item batch every
+  trace was gone by the time the friend went to fix it.
+- **The slot census is dress-aware** but keeps its *description*: zero tops + zero bottoms + several
+  dresses is the everything-filed-as-dress signature (Zhiyun), so suppressing the whole sentence
+  would have blinded the case the census exists to catch. Only the "go buy one" clause is dropped.
+- Also: run-on warning copy (`endSentence`), a "Preparing preview…" state so the no-preview line
+  can't flash on every ordinary photo, the CV path downscaling before upload, `closetCount`
+  re-checked on bfcache restore, and a geolocation-unsupported state that no longer offers a retry
+  that cannot work.
 
 **Deliberately deferred to a follow-up** (registered, not lost): "Files as" wording;
-edit-clears-size/notes (latent, no UI field today); census-only-for-top/bottom; occasion-required
-default; eye-toggle mobile label.
+edit-clears-size/notes (latent, no UI field today); occasion-required default; eye-toggle mobile
+label. — "census-only-for-top/bottom" is **no longer on this list**: its dress half LANDED (the
+census no longer diagnoses a top/bottom gap for a dress-only closet, `lib/recommendCopy.ts`); what
+remains deferred is only that the census still *describes* the closet in top/bottom terms.
 
 ## Rollback (pinned — honest)
 - **Immediate safe state:** `USE_ML_SHORTLISTER` off/unset → §A **degraded empty state** (no

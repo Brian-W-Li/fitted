@@ -125,19 +125,25 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
     expect(both).toMatch(/actually a top or a bottom, fix/);
   });
 
-  it("a DRESS-only closet gets no top/bottom diagnosis — a dress is a complete base", () => {
+  it("a DRESS-only closet keeps the census but drops the SHOPPING half of the remedy", () => {
     // The engine sizes its ask as `tops × bottoms + dresses` (fitted_core/sampler.py
-    // `candidate_requested`), so dresses alone are structurally buildable. Telling that owner to
-    // "add a top or a bottom" invents a gap they don't have and sends them shopping for pieces the
-    // stylist never needed — the same dress-blindness the friend-facing closet-minimum copy had.
+    // `candidate_requested`), so dresses alone are structurally buildable — "add a top or a bottom"
+    // would invent a gap and send that owner shopping for pieces the stylist never needed.
+    // But the DESCRIPTION must survive: zero tops AND zero bottoms alongside several dresses is the
+    // signature of everything-filed-as-dress (Zhiyun's skirt typed dress), and the counts are the
+    // only place that mislabel becomes visible. Suppressing the whole sentence would blind the very
+    // case the census exists to catch — the two-entrance rule in the function's own contract.
     const msg = emptyStateMessage({
       insufficientAfterGeneration: true,
       reasonHint: "we couldn't pull a full look together this time",
       slotCensus: { top: 0, bottom: 0, dress: 3, outer_layer: 0, shoes: 2 },
     });
-    expect(msg).not.toMatch(/actually a top or a bottom/);
-    expect(msg).not.toMatch(/Right now we can see/);
-    // The engine's own advice still stands alone.
+    // The mislabel entrance stays open, counts and all.
+    expect(msg).toMatch(/Right now we can see 0 tops, 0 bottoms, 3 dresses/);
+    expect(msg).toMatch(/If any of those is actually a top or a bottom, fix its details/);
+    // …but the shopping instruction is gone — nothing is structurally missing.
+    expect(msg).not.toMatch(/add one you/);
+    // The engine's own advice still rides along.
     expect(msg).toMatch(/couldn't pull a full look together/);
   });
 

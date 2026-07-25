@@ -27,6 +27,39 @@ const validItem = {
   occasions: [] as string[],
 };
 
+/** Give jsdom a WORKING image downscaler for the duration of `run`, then restore exactly what was
+ *  there before. jsdom ships no `createImageBitmap` and no canvas encoder, so without this
+ *  `prepareImageForUpload` always falls back to the original file — which silently inverts any test
+ *  about size gating (a "large file is accepted" test would really be exercising the rejection
+ *  path). Restores by hand: these are plain prototype assignments, which `jest.restoreAllMocks()`
+ *  does NOT undo, so leaving them installed leaks a mocked `getContext` into every later describe. */
+let restoreDownscaler: (() => void) | null = null;
+function installWorkingDownscaler() {
+  const g = globalThis as Record<string, unknown>;
+  const hadCreate = "createImageBitmap" in g;
+  const origCreate = g.createImageBitmap;
+  const origGetContext = HTMLCanvasElement.prototype.getContext;
+  const origToBlob = HTMLCanvasElement.prototype.toBlob;
+  g.createImageBitmap = jest.fn(async () => ({ width: 4000, height: 3000, close: () => {} }));
+  HTMLCanvasElement.prototype.getContext = (() => ({ drawImage: () => {} })) as never;
+  HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
+    cb(new Blob([new Uint8Array(4096)], { type: "image/jpeg" })); // ~4KB "downscaled" result
+  } as never;
+  // Restored in afterEach, NOT synchronously after the pick: the downscale is consumed inside the
+  // preview effect's async continuation, so tearing the stubs down before that await resolves would
+  // silently hand the component the real (absent) jsdom implementations.
+  restoreDownscaler = () => {
+    if (hadCreate) g.createImageBitmap = origCreate;
+    else delete g.createImageBitmap;
+    HTMLCanvasElement.prototype.getContext = origGetContext;
+    HTMLCanvasElement.prototype.toBlob = origToBlob;
+  };
+}
+afterEach(() => {
+  restoreDownscaler?.();
+  restoreDownscaler = null;
+});
+
 describe("AddItemModal — harness smoke", () => {
   it("renders the confirm/save form with the required-field sections", () => {
     render(<AddItemModal onClose={() => {}} onSave={() => true} title="Add item" />);
@@ -448,16 +481,22 @@ describe("AddItemModal — pick-time size ceiling (§23-H77(b))", () => {
     // The dead end: an 8MB iPhone JPEG (exactly what the app's own "Camera → Most Compatible"
     // advice produces) was rejected at pick, so prepareImageForUpload never ran and the friend got
     // a remedy-free "Max image size is 5MB."
+    //
+    // The stub is REQUIRED, not decoration: jsdom has no createImageBitmap, so without it the
+    // downscale falls back to the 8MB original, which now trips the MAX_UPLOAD_BYTES gate and the
+    // pick is rejected — i.e. the unstubbed version of this test asserts the OPPOSITE of what a
+    // real browser does, and passes only because `waitFor` samples before the async rejection lands.
+    installWorkingDownscaler();
     const { container } = render(
       <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
     );
     pick(container, sizedFile(8 * 1024 * 1024));
-    // Accepted → the photo path is live (D1 primary save), and no error is shown.
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^save item$/i })).toBeInTheDocument(),
-    );
+    // Accepted → the photo path is live (D1 primary save) and the thumbnail is built.
+    expect(await screen.findByAltText("Item photo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save item$/i })).toBeInTheDocument();
     expect(screen.queryByText(/Max image size is 5MB/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/larger than we can handle/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/too large to upload/i)).not.toBeInTheDocument();
   });
 
   it("still rejects a file past the sanity ceiling, and says how big it was", async () => {
@@ -474,90 +513,84 @@ describe("AddItemModal — pick-time size ceiling (§23-H77(b))", () => {
 describe("AddItemModal — the preview renders from the DOWNSCALED copy (§23-H77(b) memory guard)", () => {
   // Raising the pick ceiling to 40MB made the preview the memory risk: a base64 data URL is ~4/3 the
   // file size and lives as a plain string in React state, so previewing a raw 40MB pick would be
-  // ~53MB — enough to kill an iOS tab. jsdom has no createImageBitmap/canvas encoder, so these stub
-  // a WORKING downscaler; without the stubs prepareImageForUpload falls back to the original and the
-  // distinction under test would be invisible (which is exactly how this shipped unpinned).
-  const BIG = 3 * 1024 * 1024; // over the 400KB skip-threshold, so the downscale actually runs
-  let origCreate: unknown;
-  let origToBlob: unknown;
-
-  beforeEach(() => {
-    origCreate = (globalThis as Record<string, unknown>).createImageBitmap;
-    origToBlob = HTMLCanvasElement.prototype.toBlob;
-    (globalThis as Record<string, unknown>).createImageBitmap = jest.fn(async () => ({
-      width: 4000,
-      height: 3000,
-      close: () => {},
-    }));
-    HTMLCanvasElement.prototype.getContext = jest.fn(() => ({ drawImage: () => {} })) as never;
-    // The "downscaled" result: two orders of magnitude smaller than the original.
-    HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
-      cb(new Blob([new Uint8Array(4096)], { type: "image/jpeg" }));
-    } as never;
-  });
-  afterEach(() => {
-    (globalThis as Record<string, unknown>).createImageBitmap = origCreate;
-    HTMLCanvasElement.prototype.toBlob = origToBlob as never;
-    jest.restoreAllMocks();
-  });
-
-  function sizedFile(bytes: number) {
-    const f = new File(["x"], "big.jpg", { type: "image/jpeg" });
-    Object.defineProperty(f, "size", { value: bytes });
-    return f;
-  }
+  // ~53MB — enough to kill an iOS tab.
+  //
+  // REAL BYTES ARE MANDATORY HERE. An earlier version of this pin used a File with one real byte and
+  // a faked `size` property; FileReader reads real bytes, so BOTH the original and the downscaled
+  // copy produced a ~28-character data URL and the length assertion could not tell them apart — the
+  // pin was green while measuring nothing. 600KB of real bytes puts the original's data URL near
+  // 800,000 chars against ~5,500 for the stubbed 4KB downscale, so the bound below genuinely bites.
+  const realFile = (bytes: number, name = "big.jpg") =>
+    new File([new Uint8Array(bytes)], name, { type: "image/jpeg" });
 
   it("holds the SMALL re-encoded data URL, not one derived from the multi-MB original", async () => {
+    installWorkingDownscaler();
     const { container } = render(
       <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
     );
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedFile(BIG)] } });
+    // 600KB: over the 400KB skip-threshold, so the downscale genuinely runs.
+    fireEvent.change(input, { target: { files: [realFile(600 * 1024)] } });
 
     const img = (await screen.findByAltText("Item photo")) as HTMLImageElement;
-    // 4KB downscaled → a base64 URL in the low thousands of chars. The 3MB original would yield
-    // ~4,000,000 — so this bound fails loudly if the preview ever reverts to the raw file.
     expect(img.src.startsWith("data:")).toBe(true);
+    // ~5.5K for the downscaled copy vs ~800K for the original — a revert to `readAsDataURL(imageFile)`
+    // reddens this by two orders of magnitude.
     expect(img.src.length).toBeLessThan(100_000);
-    // And the downscaler was genuinely exercised (not skipped by the <400KB early return).
-    expect((globalThis as Record<string, unknown>).createImageBitmap).toHaveBeenCalled();
   });
 
-  it("skips the preview entirely when the downscale FAILS on a huge file (no ~53MB string)", async () => {
-    // Decode failure → prepareImageForUpload returns the ORIGINAL. A 20MB original must not become
-    // a data URL; the photo is still selected and still uploads.
-    (globalThis as Record<string, unknown>).createImageBitmap = jest.fn(async () => {
-      throw new Error("decode OOM");
-    });
+  it("a huge file whose downscale FAILS is rejected, so no ~53MB data URL is ever built", async () => {
+    // jsdom has no createImageBitmap, so prepareImageForUpload falls back to the ORIGINAL — the real
+    // browser case (old iOS Safari / a decode OOM). The original is over the upload gate, so the
+    // pick is refused outright rather than previewed or silently attached.
     const { container } = render(
       <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
     );
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedFile(20 * 1024 * 1024)] } });
+    fireEvent.change(input, { target: { files: [realFile(5 * 1024 * 1024, "huge.jpg")] } });
 
-    // The pick was accepted (photo path live) …
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^save item$/i })).toBeInTheDocument(),
-    );
-    // … but no preview image was ever built from the oversized original.
+    expect(await screen.findByText(/too large to upload/i)).toBeInTheDocument();
+    // No preview image, and nothing left attached to be saved under a false promise.
     expect(screen.queryByAltText("Item photo")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save without a photo/i })).toBeInTheDocument();
   });
 });
 
 describe("AddItemModal — a pending photo is never misrepresented by the STORED one", () => {
   // Convergence-round finding: `photoPreviewSrc` used to be `previewUrl ?? existingPhotoUrl`. A
-  // preview can legitimately be absent (skipped above MAX_PREVIEW_BYTES, or a decode failure on a
-  // browser with no createImageBitmap), and the fallback then rendered the item's OLD stored photo
-  // while a DIFFERENT pending file was what would upload — a positively false claim about the save,
-  // worse than showing no thumbnail. jsdom has no createImageBitmap, so the fallback path is the
-  // default here: prepareImageForUpload returns the original, and a 20MB original is preview-skipped.
+  // preview can legitimately be absent (still building, or a FileReader error), and the fallback
+  // then rendered the item's OLD stored photo while a DIFFERENT pending file was what would upload
+  // — a positively false claim about the save, worse than showing no thumbnail.
   function sizedFile(bytes: number, name = "new.jpg") {
     const f = new File(["x"], name, { type: "image/jpeg" });
     Object.defineProperty(f, "size", { value: bytes });
     return f;
   }
 
-  it("EDIT: picking an un-previewable replacement does not keep showing the stored photo", async () => {
+  /** Force the settled no-preview state on an otherwise-uploadable file: a FileReader that errors.
+   *  (The other route to a missing preview — an oversized post-downscale file — is now REJECTED at
+   *  pick, see the next describe.) The stub must stay installed across the effect's `await
+   *  prepareImageForUpload(...)`, because `new FileReader()` is constructed AFTER that await —
+   *  restoring it synchronously would let the real reader run and the preview would succeed. */
+  let origFileReader: typeof FileReader;
+  function installFailingFileReader() {
+    origFileReader = global.FileReader;
+    class ErroringReader {
+      onerror: (() => void) | null = null;
+      onload: (() => void) | null = null;
+      result: string | null = null;
+      readAsDataURL() {
+        setTimeout(() => this.onerror?.(), 0);
+      }
+    }
+    (global as Record<string, unknown>).FileReader = ErroringReader as never;
+  }
+  afterEach(() => {
+    if (origFileReader) (global as Record<string, unknown>).FileReader = origFileReader as never;
+  });
+
+  it("EDIT: a replacement whose preview fails does NOT keep showing the stored photo", async () => {
+    installFailingFileReader();
     const { container } = render(
       <AddItemModal
         onClose={() => {}}
@@ -568,14 +601,16 @@ describe("AddItemModal — a pending photo is never misrepresented by the STORED
     );
     // Pre-condition: the stored photo is on screen.
     expect((screen.getByAltText("Item photo") as HTMLImageElement).src).toContain("/api/images/abc123");
-
+    // A small file (under the 400KB re-encode skip) so the downscale is a no-op and the ONLY
+    // reason there is no preview is the reader error.
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedFile(20 * 1024 * 1024)] } });
+    fireEvent.change(input, { target: { files: [sizedFile(1024)] } });
 
     // The stored image must be GONE — it is not what would be saved.
     await waitFor(() => expect(screen.queryByAltText("Item photo")).not.toBeInTheDocument());
-    // …and the pending file is honestly announced instead of silently vanishing.
-    expect(screen.getByText(/Photo selected/i)).toHaveTextContent(/new\.jpg/);
+    // …and once the preview attempt SETTLES (it reports "Preparing preview…" until then), the
+    // pending file is honestly announced instead of silently vanishing.
+    expect(await screen.findByText(/Photo selected/i)).toHaveTextContent(/new\.jpg/);
     // The enlarge hint must not point at an image that isn't rendered.
     expect(screen.queryByText(/Tap the photo to enlarge/i)).not.toBeInTheDocument();
   });
@@ -592,15 +627,138 @@ describe("AddItemModal — a pending photo is never misrepresented by the STORED
     expect((screen.getByAltText("Item photo") as HTMLImageElement).src).toContain("/api/images/abc123");
   });
 
-  it("ADD: an un-previewable pick still reads as attached, not as a failed pick", async () => {
+  it("ADD: a pick whose preview fails still reads as attached, not as a failed pick", async () => {
+    installFailingFileReader();
     const { container } = render(
       <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
     );
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedFile(20 * 1024 * 1024)] } });
+    fireEvent.change(input, { target: { files: [sizedFile(1024)] } });
 
     await waitFor(() => expect(screen.getByText(/Photo selected/i)).toBeInTheDocument());
     // The photo path is live — D1's primary save, not the photo-less secondary action.
     expect(screen.getByRole("button", { name: /^save item$/i })).toBeInTheDocument();
+  });
+});
+
+describe("AddItemModal — an un-uploadable photo is rejected AT PICK, not after the item is created", () => {
+  // The convergence-round defect this closes: the modal used to say "Photo selected … it will still
+  // upload" for a file whose post-downscale size exceeded the 4MB upload gate. That promise was
+  // deterministically false — the friend saved, the item was created, the photo threw, and the
+  // retry looped on the same unusable file. jsdom has no createImageBitmap, so prepareImageForUpload
+  // falls back to the original here, which is exactly the real-world failure (old iOS Safari / a
+  // decode OOM) this guards.
+  function sizedFile(bytes: number, name = "huge.jpg") {
+    const f = new File(["x"], name, { type: "image/jpeg" });
+    Object.defineProperty(f, "size", { value: bytes });
+    return f;
+  }
+
+  it("rejects it with the screenshot remedy and does NOT leave it attached", async () => {
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedFile(12 * 1024 * 1024)] } });
+
+    // Told at pick time, with a remedy that actually works.
+    expect(await screen.findByText(/too large to upload/i)).toHaveTextContent(
+      /take a screenshot/i,
+    );
+    // NOT attached: no false "Photo selected", and the form is back on the photo-less footer, so a
+    // save cannot silently create a photo-less item under a promise that it uploaded.
+    expect(screen.queryByText(/Photo selected/i)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /save without a photo/i })).toBeInTheDocument(),
+    );
+  });
+
+  it("a normal phone photo is unaffected — it downscales and previews", async () => {
+    // A working downscaler (jsdom has none, so stub it) turns a 3MB pick into ~4KB: well under the
+    // gate, so it must sail through. Pins that the gate is on the POST-downscale size, not the pick.
+    (globalThis as Record<string, unknown>).createImageBitmap = jest.fn(async () => ({
+      width: 4000,
+      height: 3000,
+      close: () => {},
+    }));
+    HTMLCanvasElement.prototype.getContext = jest.fn(() => ({ drawImage: () => {} })) as never;
+    HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
+      cb(new Blob([new Uint8Array(4096)], { type: "image/jpeg" }));
+    } as never;
+    try {
+      const { container } = render(
+        <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+      );
+      const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+      fireEvent.change(input, { target: { files: [sizedFile(3 * 1024 * 1024, "phone.jpg")] } });
+
+      expect(await screen.findByAltText("Item photo")).toBeInTheDocument();
+      expect(screen.queryByText(/too large to upload/i)).not.toBeInTheDocument();
+    } finally {
+      delete (globalThis as Record<string, unknown>).createImageBitmap;
+      jest.restoreAllMocks();
+    }
+  });
+});
+
+describe("AddItemModal — the §I client-state gate (a FAILED save must not discard the friend's input)", () => {
+  // Lane-C finding: the `string` and `false` outcomes of the onSave contract had NO test anywhere in
+  // the repo, even though this pass rewrote that union and reordered the branch chain. Deleting the
+  // string branch made every failed save look like a success — modal closes, a fully-typed item is
+  // destroyed, nothing said — which is the original §I defect the contract exists to prevent.
+  const withPhoto = () => new File(["x"], "tee.jpg", { type: "image/jpeg" });
+
+  it("a STRING result keeps the modal open, shows it in-modal, and preserves every field", async () => {
+    const onClose = jest.fn();
+    render(
+      <AddItemModal
+        onClose={onClose}
+        onSave={() => "Item name already exists."}
+        initialItem={validItem}
+        pendingAddFile={withPhoto()}
+        addStep="form"
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^save item$/i }));
+
+    // Shown INSIDE the modal — the page banner sits behind the z-40 overlay.
+    expect(await screen.findByText(/Item name already exists\./)).toBeInTheDocument();
+    // Still open, input intact: re-typing a 12-field form because of a transient 500 is the defect.
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByPlaceholderText(/blue denim jacket/i) as HTMLInputElement).value).toBe("Blue tee");
+  });
+
+  it("a FALSE result also keeps the modal open (silent failure, input still preserved)", async () => {
+    const onClose = jest.fn();
+    render(
+      <AddItemModal
+        onClose={onClose}
+        onSave={() => false}
+        initialItem={validItem}
+        pendingAddFile={withPhoto()}
+        addStep="form"
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^save item$/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^save item$/i })).toBeEnabled());
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByPlaceholderText(/blue denim jacket/i) as HTMLInputElement).value).toBe("Blue tee");
+  });
+
+  it("a failed 'Save & add another' does NOT reset the form (the next item must not eat this one)", async () => {
+    render(
+      <AddItemModal
+        onClose={() => {}}
+        onSave={() => "Server unavailable."}
+        initialItem={validItem}
+        pendingAddFile={withPhoto()}
+        addStep="form"
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /save & add another/i }));
+    expect(await screen.findByText(/Server unavailable\./)).toBeInTheDocument();
+    // The reset is reserved for SUCCESS; blanking here would lose the item that just failed to save.
+    expect((screen.getByPlaceholderText(/blue denim jacket/i) as HTMLInputElement).value).toBe("Blue tee");
+    expect(screen.queryByTestId("photo-warnings")).not.toBeInTheDocument();
   });
 });

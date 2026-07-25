@@ -373,6 +373,23 @@ async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
       imagesReferenced: imageRefs.size,
       imagesResolved: resolvedImages,
       imagesUnresolved: imageRefs.size - resolvedImages,
+      // Item slots carrying NO image reference at all (`imageStatus: "none"`) — an item saved
+      // photo-less, whether deliberately or because its upload failed (§23-H77(a)). These are
+      // invisible to the three counters above, which only see ids that WERE referenced, so without
+      // this a corpus quietly losing photos reports a clean bill of health. It matters more than the
+      // raw count suggests: `imageUsable` requires EVERY item in an outfit to resolve, so one
+      // photo-less item disqualifies every outfit containing it from both scoreable arms.
+      itemSlotsWithoutImageRef: trainingExamples.reduce(
+        (sum, t) => sum + t.items.filter((i) => i.imageStatus === "none").length,
+        0,
+      ),
+      // Labeled examples excluded from the scoreable clusters purely for image reasons — the
+      // headline number an operator should watch while friends are adding closets.
+      labeledExamplesNotImageUsable: trainingExamples.filter(
+        (t) =>
+          t.label != null &&
+          !(t.items.length > 0 && t.items.every((i) => i.imageStatus === "resolved")),
+      ).length,
     },
     schemaNotes: {
       trainingTruth: "itemSnapshots[].engineVisible (immutable render-time copy); NOT live WardrobeItem",

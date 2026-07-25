@@ -157,10 +157,12 @@ describe("wardrobe page — the EDIT path signals a lost photo too (§23-H77(a))
     await userEvent.click(await screen.findByRole("button", { name: /^save item$/i }));
 
     // Visible once the modal closes, and it distinguishes "photo failed" from "edit failed" —
-    // otherwise "try again" reads as redo-the-edit.
-    const banner = await screen.findByText(/your item changes were saved/i);
-    expect(banner).toHaveTextContent(/Too many photo uploads/);
-    expect(banner).toHaveTextContent(/retry the photo from Edit/i);
+    // otherwise "try again" reads as redo-the-edit. Scoped to the PERSISTENT list, because the same
+    // text also appears in the transient red banner (which the next successful save clears).
+    const list = await screen.findByTestId("photo-failures");
+    expect(list).toHaveTextContent(/your item changes were saved/i);
+    expect(list).toHaveTextContent(/Too many photo uploads/);
+    expect(list).toHaveTextContent(/retry the photo from Edit/i);
   });
 
   it("a successful edit upload shows no banner", async () => {
@@ -176,5 +178,47 @@ describe("wardrobe page — the EDIT path signals a lost photo too (§23-H77(a))
       expect(screen.queryByRole("button", { name: /^save item$/i })).not.toBeInTheDocument(),
     );
     expect(screen.queryByText(/your item changes were saved/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("wardrobe page — the photo-failure record OUTLIVES the modal (§23-H77(a))", () => {
+  // Convergence finding: the in-modal amber list is component state, so it died on unmount — i.e. at
+  // the end of every batch — and the page-level red banner was wiped by the next successful save
+  // (handleAddItem's setError(null)). On a 15-item add where item 1's photo failed and the rest
+  // succeeded, the friend closed the modal to go fix it and found NO record of which item to fix.
+  it("survives a later CLEAN save and the modal closing", async () => {
+    let failNext = true;
+    global.fetch = jest.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/cv/status") return ok({ available: false, reason: "not_configured" });
+      if (u === "/api/wardrobe" && (init?.method ?? "GET") === "GET") return ok({ items: [] });
+      if (u === "/api/wardrobe" && init?.method === "POST") {
+        return ok({ item: { _id: "item123", name: "Blue tee", category: "top", colors: [] } });
+      }
+      if (/^\/api\/wardrobe\/item123\/image$/.test(u)) {
+        if (failNext) {
+          failNext = false;
+          return { ok: false, status: 429, json: async () => ({ error: "Too many photo uploads" }) } as Response;
+        }
+        return ok({ imagePath: "mongo:img1" });
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+
+    const { container } = render(<WardrobePage />);
+    await reachConfirmFormWithPhoto(container, "Blue tee");
+    await userEvent.click(screen.getByRole("button", { name: /save & add another/i }));
+    await screen.findByTestId("photo-warnings"); // in-modal, mid-batch
+
+    // Item 2 saves cleanly and CLOSES the modal — the two events that used to erase the record.
+    await userEvent.type(await screen.findByPlaceholderText(/blue denim jacket/i), "Grey jeans");
+    fireEvent.change(screen.getByDisplayValue("Select a category…"), { target: { value: "bottom" } });
+    await userEvent.click(screen.getByRole("button", { name: /save without a photo/i }));
+
+    // The modal is gone, the red banner was cleared by the clean save — the record still stands.
+    await waitFor(() => expect(screen.queryByTestId("photo-warnings")).not.toBeInTheDocument());
+    const list = screen.getByTestId("photo-failures");
+    expect(list).toHaveTextContent(/Blue tee/);
+    expect(list).toHaveTextContent(/One item saved without its photo/i);
   });
 });

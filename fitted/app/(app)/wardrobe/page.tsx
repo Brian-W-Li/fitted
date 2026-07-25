@@ -93,10 +93,21 @@ const CV_GUIDE_DISMISS_FOREVER_KEY = "fitted-cv-guide-dismiss-forever-v1";
  *  needs to exclude files no phone camera produces (~40MB is ~6× a max-quality 12MP JPEG). */
 const MAX_PICK_BYTES = 40 * 1024 * 1024;
 
-/** Ceiling on what may become a base64 `data:` URL in React state for the on-screen preview. A data
- *  URL is ~4/3 the file size and lives as a plain string, so this bounds the preview at ~11MB even
- *  when the downscale falls back to the original file. */
-const MAX_PREVIEW_BYTES = 8 * 1024 * 1024;
+/** The REAL upload limit, applied to the POST-downscale file. Vercel rejects request bodies over
+ *  ~4.5MB at the platform edge, so anything bigger fails with an opaque 413. Single-homed here
+ *  because it is enforced twice: once at pick time (the preview effect, which is the first place
+ *  the post-downscale size exists) and once in `uploadWardrobeItemImage` as the backstop for a save
+ *  that races the downscale. A surviving file is ≤4MB, so its data-URL preview is ≤~5.3MB — no
+ *  separate preview ceiling is needed. */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+/** Shared by the pick-time rejection and the upload backstop so a friend never sees two different
+ *  explanations for the same limit. States no CAUSE: this fires precisely when the downscale could
+ *  NOT run (no `createImageBitmap`, a decode failure, a re-encode that didn't shrink), so "even
+ *  after compression" would name the one thing that didn't happen. A screenshot is the remedy that
+ *  always works — it re-encodes at screen resolution, far under the cap. */
+const TOO_LARGE_TO_UPLOAD_MSG =
+  "That photo is too large to upload — take a screenshot of it and upload the screenshot instead.";
 
 // F11 — a bare "only JPEG/PNG/WEBP" silently blocks a friend on iPhone, whose photos are HEIC by
 // default (→ zero corpus yield). Tell them how to get an accepted file. (Note: iOS Safari often
@@ -657,9 +668,15 @@ export function AddItemModal({
   // Step 1: Add flow — upload photo only
   const [dragOver, setDragOver] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // "Still building" is a THIRD state, distinct from "no preview". The downscale is a full decode +
+  // canvas re-encode of a 12MP photo — seconds on a phone — so without this every ordinary pick
+  // would flash a settled-negative "no preview to show" before the thumbnail appears, once per item
+  // on a 15-item batch. Report progress, not a false conclusion.
+  const [previewPending, setPreviewPending] = useState(false);
   useEffect(() => {
     if (!imageFile) {
       setPreviewUrl(null);
+      setPreviewPending(false);
       return;
     }
     // Hold the picked photo as a base64 data URL (a plain string in React state), NOT a `blob:`
@@ -670,31 +687,41 @@ export function AddItemModal({
     // long background still resets everything; that is a separate draft-persistence concern, not this
     // blob-reclaim bug.)
     let cancelled = false;
+    // Drop the previous file's preview immediately. The downscale below is async (a 12MP decode +
+    // re-encode is seconds on a phone), and leaving the old data URL up would show photo A while
+    // photo B is the pending save — the same lie as falling back to the stored image.
+    setPreviewUrl(null);
+    setPreviewPending(true);
     // Preview the DOWNSCALED copy, not the original. Since the pick ceiling rose to MAX_PICK_BYTES
     // (§23-H77(b)) a base64 data URL of the raw file could be ~53MB of React state on a phone —
-    // enough to kill an iOS tab. prepareImageForUpload self-skips files under 400KB and falls back
-    // to the original on any decode failure, so this is bounded, not lossy. (Preview only; the
-    // upload still re-derives its own copy, so `imageFile` identity is untouched — the CV-crop
-    // path below compares `imageFile === addPendingFile`.)
+    // enough to kill an iOS tab. (Preview only; the upload re-derives its own copy, so `imageFile`
+    // identity is untouched — the CV-crop path below compares `imageFile === addPendingFile`.)
     void (async () => {
       const forPreview = await prepareImageForUpload(imageFile);
       if (cancelled) return;
-      // The downscale is best-effort: it returns the ORIGINAL file when there is no
-      // `createImageBitmap` (older iOS Safari), when the decode OOMs on a memory-pressured phone,
-      // or when the re-encode doesn't shrink. On that fallback a 40MB pick would still become a
-      // ~53MB base64 string in React state — the exact tab-kill this indirection exists to prevent.
-      // Skip the preview instead; the form is fully usable without it (`willHavePhoto` keys off
-      // `imageFile`, and the upload path re-derives its own copy).
-      if (forPreview.size > MAX_PREVIEW_BYTES) {
-        setPreviewUrl(null);
+      // This is also where the REAL upload limit is discovered, because it is the first place the
+      // post-downscale size exists. The downscale is best-effort — it returns the ORIGINAL when
+      // there is no `createImageBitmap` (older iOS Safari), when the decode OOMs, or when the
+      // re-encode doesn't shrink — and a result over MAX_UPLOAD_BYTES is exactly what
+      // uploadWardrobeItemImage will later throw on. Reject the pick NOW, with the remedy: letting
+      // it through would create the item, fail the photo, and hand the friend a retry that loops on
+      // the same unusable file. Failing here costs them one message instead of one lost photo.
+      if (forPreview.size > MAX_UPLOAD_BYTES) {
+        setPreviewPending(false);
+        setImageError(TOO_LARGE_TO_UPLOAD_MSG);
+        setImageFile(null); // re-runs this effect, which clears the preview via the guard above
         return;
       }
       const reader = new FileReader();
       reader.onload = () => {
-        if (!cancelled) setPreviewUrl(typeof reader.result === "string" ? reader.result : null);
+        if (cancelled) return;
+        setPreviewUrl(typeof reader.result === "string" ? reader.result : null);
+        setPreviewPending(false);
       };
       reader.onerror = () => {
-        if (!cancelled) setPreviewUrl(null);
+        if (cancelled) return;
+        setPreviewUrl(null);
+        setPreviewPending(false);
       };
       reader.readAsDataURL(forPreview);
     })();
@@ -709,8 +736,8 @@ export function AddItemModal({
   //    photo-less save must be a deliberate, honestly-labeled action, never the default.
   const existingPhotoUrl = isEdit ? imageUrlFromPath(existingImagePath ?? undefined) : null;
   // When a NEW file is pending, the preview must represent THAT file or nothing — never fall back
-  // to the stored image. A preview can legitimately be absent (skipped above MAX_PREVIEW_BYTES, or
-  // a decode failure), and falling back would show photo A while photo B is what actually uploads:
+  // to the stored image. A preview can legitimately be absent (still being built, or a FileReader
+  // error), and falling back would show photo A while photo B is what actually uploads:
   // a positively false claim about the pending save, worse than showing no thumbnail at all.
   const photoPreviewSrc = imageFile ? previewUrl : existingPhotoUrl;
   const willHavePhoto = !!imageFile || (isEdit && !!existingImagePath);
@@ -767,7 +794,9 @@ export function AddItemModal({
                 {previewUrl ? (
                   <img src={previewUrl} alt="Preview" className="max-h-48 w-auto rounded-lg object-contain shadow-inner bg-white" />
                 ) : (
-                  <p className="text-sm font-medium text-slate-600">Photo selected</p>
+                  <p className="text-sm font-medium text-slate-600">
+                    {previewPending ? "Preparing preview…" : "Photo selected"}
+                  </p>
                 )}
                 <p className="mt-2 text-xs text-slate-500">{imageFile.name}</p>
                 <p className="text-xs text-slate-400">Tap to choose a different photo</p>
@@ -1207,10 +1236,18 @@ export function AddItemModal({
                       />
                     </button>
                   ) : (
-                    // A pending file too large to preview. Say it IS attached — the alternative is a
-                    // bare "Change photo | Remove" row that reads as though the pick didn't take.
+                    // A pending file with no thumbnail. Two distinct states, never conflated: still
+                    // being built (the common case — the downscale is a seconds-long decode) vs.
+                    // settled with no preview (a FileReader error). Either way say it IS attached —
+                    // a bare "Change photo | Remove" row reads as though the pick didn't take. "It
+                    // will still upload" is TRUE: a file that would fail the upload gate was already
+                    // rejected at pick time, so anything still attached is under the limit.
                     <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                      Photo selected{imageFile ? ` — ${imageFile.name}` : ""} (too large to preview here; it will still upload)
+                      {previewPending ? (
+                        <>Preparing preview{imageFile ? ` for ${imageFile.name}` : ""}…</>
+                      ) : (
+                        <>Photo selected{imageFile ? ` — ${imageFile.name}` : ""}. No preview to show here, but it will still upload.</>
+                      )}
                     </p>
                   )}
                   <div className="flex items-center gap-3 text-sm">
@@ -1363,16 +1400,27 @@ export function AddItemModal({
  *  over ~4.5MB at the platform edge (the route's own 5MB check never runs in production), and
  *  images live as base64 in a 512MB Atlas M0 — full-size phone photos would exhaust it within a
  *  few closets. Longest edge 1280px; JPEG q0.85 (PNG stays PNG to preserve CV-crop transparency).
- *  Falls back to the original file on any decode/canvas failure. */
+ *  Falls back to the original file on any decode/canvas failure — see the orientation note below
+ *  for why the fallback returns the ORIGINAL rather than an unoriented re-encode. */
 async function prepareImageForUpload(file: File): Promise<File> {
   const SKIP_BELOW_BYTES = 400 * 1024; // already small — don't re-encode
   const MAX_EDGE_PX = 1280;
   if (file.size <= SKIP_BELOW_BYTES) return file;
   try {
-    // imageOrientation honors EXIF rotation (phone photos); fall back where unsupported.
-    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() =>
-      createImageBitmap(file),
+    // `imageOrientation: "from-image"` applies EXIF rotation during decode, so the re-encode below
+    // bakes upright pixels. If that decode REJECTS (browsers that shipped the older
+    // {"none","flipY"} enum throw a TypeError on the unrecognized value), we must NOT retry a plain
+    // unoriented decode: canvas re-encoding drops the EXIF block entirely, so a sideways photo
+    // would be stored with no orientation tag left to correct it. `exif_transpose` at embed time
+    // (§23-H53, mandated by the M6 preregistration) would then be a no-op, silently halving the
+    // image signal — the exact defect H26 measured (closet AUC 0.4375 → 0.5625 after transpose).
+    // Returning the ORIGINAL keeps its EXIF intact and therefore recoverable downstream; the cost
+    // is only that this file skips the downscale, and an oversized result is caught honestly by the
+    // MAX_UPLOAD_BYTES gate with the screenshot remedy.
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(
+      () => null,
     );
+    if (!bitmap) return file;
     const scale = Math.min(1, MAX_EDGE_PX / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -1414,16 +1462,13 @@ async function uploadWardrobeItemImage(params: {
   const token = await params.firebaseUser.getIdToken();
 
   const file = await prepareImageForUpload(params.file);
-  if (file.size > 4 * 1024 * 1024) {
+  if (file.size > MAX_UPLOAD_BYTES) {
     // Vercel's platform body cap (~4.5MB) would kill the request with an opaque non-JSON 413 —
-    // fail here with an actionable message instead.
-    // Give this the same actionable remedy as the pick-time ceiling: this fires when the downscale
-    // could not run (no `createImageBitmap`, a decode failure, or a re-encode that didn't shrink),
-    // and "try a smaller image" alone leaves a friend with no in-app way to make one — re-picking
-    // the same file just loops.
-    throw new Error(
-      "That photo is too large even after compression — take a screenshot of it and upload that instead.",
-    );
+    // fail here with an actionable message instead. BACKSTOP only: the modal now rejects such a
+    // file at pick time (see the preview effect, which is where the post-downscale size first
+    // exists), so this fires just for a save that raced the downscale or a caller that bypasses
+    // the modal. Same message either way — one limit, one explanation.
+    throw new Error(TOO_LARGE_TO_UPLOAD_MSG);
   }
 
   const fd = new FormData();
@@ -1451,6 +1496,13 @@ export default function WardrobePage() {
   const [loading, setLoading] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Photo failures that must OUTLIVE the modal. The modal keeps its own copy so the notice is
+  // visible mid-batch, but that state dies on unmount — i.e. at the end of every batch — and the
+  // page-level `error` banner is cleared by the next successful save (handleAddItem's setError(null)).
+  // So on a 15-item add where item 1's photo failed and items 2-15 succeeded, every trace of the
+  // failure was gone by the time the friend closed the modal to go act on it. This list is cleared
+  // only by an explicit Dismiss.
+  const [photoFailures, setPhotoFailures] = useState<string[]>([]);
   // Add flow: step 1 = upload only, step 2 = form with CV-inferred attributes
   const [addStep, setAddStep] = useState<"upload" | "form" | null>(null);
   const [addInferred, setAddInferred] = useState<WardrobeFormValues | null>(null);
@@ -1750,6 +1802,37 @@ export default function WardrobePage() {
         </p>
       )}
 
+      {/* Photo failures that outlived the add/edit modal. Without this the record vanished exactly
+          when the friend closed the modal to go fix them — see the `photoFailures` declaration. */}
+      {photoFailures.length > 0 && (
+        <div
+          className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3"
+          data-testid="photo-failures"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-amber-900">
+                {photoFailures.length === 1
+                  ? "One item saved without its photo"
+                  : `${photoFailures.length} items saved without their photos`}
+              </p>
+              <ul className="mt-1 space-y-1 text-sm text-amber-800">
+                {photoFailures.map((w, i) => (
+                  <li key={`${i}-${w}`}>{w}</li>
+                ))}
+              </ul>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPhotoFailures([])}
+              className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Display-only controls — search, type filter, sort. No effect on recommendations. */}
       {!loading && items.length > 0 && (
         <div className="mb-4 space-y-3">
@@ -1909,8 +1992,10 @@ export default function WardrobePage() {
                     console.error(e);
                     // The item edit itself succeeded — say so, or "try again" reads as re-do-the-edit.
                     const msg = e instanceof Error ? e.message : "Failed to upload image.";
-                    photoWarning = `${endSentence(msg)} Your item changes were saved — retry the photo from Edit.`;
-                    setError(photoWarning);
+                    const warning = `${endSentence(msg)} Your item changes were saved — retry the photo from Edit.`;
+                    photoWarning = warning;
+                    setError(warning);
+                    setPhotoFailures((prev) => [...prev, warning]);
                   }
                 }
                 setItems((prev) =>
@@ -1977,8 +2062,10 @@ export default function WardrobePage() {
                   // the item, which mints a duplicate during exactly the batch-onboarding flow.
                   // Name the item: on a batch-add the friend needs to know WHICH one to fix.
                   const msg = e instanceof Error ? e.message : "Failed to upload image.";
-                  photoWarning = `Saved “${data.name.trim()}”, but its photo didn’t upload — ${endSentence(msg)} Add it from Edit.`;
-                  setError(photoWarning);
+                  const warning = `Saved “${data.name.trim()}”, but its photo didn’t upload — ${endSentence(msg)} Add it from Edit.`;
+                  photoWarning = warning;
+                  setError(warning);
+                  setPhotoFailures((prev) => [...prev, warning]);
                 }
               }
               // No `else` arm here on purpose: `handleAddItem` above already returns the
@@ -2006,7 +2093,13 @@ export default function WardrobePage() {
             setError(null);
             try {
               const fd = new FormData();
-              fd.append("file", file);
+              // Downscale before sending, exactly as the storage path does. The pick ceiling is
+              // MAX_PICK_BYTES (40MB), which is far above BOTH this route's own cap and Vercel's
+              // ~4.5MB platform body limit — and the platform wins first, killing the request with
+              // a non-JSON 413 that surfaces here as a causeless "Image analysis failed". Sending
+              // the 1280px copy keeps every pick the modal accepts analyzable. (Dormant today — CV
+              // is off in prod — but this is the W-track surface the pick-ceiling change exposed.)
+              fd.append("file", await prepareImageForUpload(file));
               const token = await firebaseUser?.getIdToken();
               const res = await fetch("/api/cv/infer", {
                 method: "POST",
