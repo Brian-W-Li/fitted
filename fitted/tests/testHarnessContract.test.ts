@@ -175,7 +175,14 @@ describe("codeOnly/bootTimeouts — the guard cannot be defeated the ways it was
     const src = `beforeAll(async () => {\n  console.log(total / n); const avg = total / n;\n  harness = await startMemoryMongo([U]);\n${T}`;
     expect(bootTimeouts(src)).toEqual([120000]);
   });
-  it("division is not mistaken for a regex literal", () => {
+  // Smoke case, NOT the pin — be precise about which test carries which guarantee. This shape
+  // passes on all three historical `codeOnly` implementations (the `|^` one, the 8-char-window
+  // one, and the current previous-token one), because a single division has no second `/` to
+  // blank through to. The test that pins the division rule is "TWO divisions on one line…"
+  // above: reverting to the 8-char window reddens exactly that one and nothing else
+  // (mutation-verified). The other self-tests DO pin real properties — restoring the
+  // comments-before-strings ordering reddens five of them — just not the division rule.
+  it("a single division is left alone (smoke; the TWO-division case above is the real pin)", () => {
     // `|^` in the regex-permitted-here test made it vacuous, so every `/` opened a regex scan that
     // blanked through to the next `/` on the line — swallowing real code between two divisions.
     const src = `const a = b / c;\nbeforeAll(async () => {\n  const d = e / f;\n  harness = await startMemoryMongo([U]);\n${T}`;
@@ -229,6 +236,12 @@ const suites = collect(TESTS_DIR)
   // mis-lexed a file badly enough to lose the boot call (e.g. a bare apostrophe in JSX text opening a
   // "string" that runs to EOF), the suite silently dropped OUT of scope and was never checked. Now it
   // stays in scope and fails loudly on the `boots.length > 0` assertion below.
+  // ACCEPTED COST, stated because the lines above justified the change only by the mis-lex route:
+  // a file that merely NAMES a boot symbol in prose or a string — `expect(msg).toContain(
+  // "startMemoryMongo(")` — is now pulled into scope, where the projection correctly blanks it and
+  // the suite reddens with zero boots. That is a false RED, the documented safe direction, and it is
+  // not live today (raw-match and projection-match are both 21 across the tree). If it ever fires,
+  // rename the symbol in that prose; do not loosen this filter back to the projection.
   .filter(({ src }) => new RegExp(BOOT_SRC).test(src));
 
 describe("test-harness contract — every mongod boot sits in a hook with an explicit timeout", () => {
