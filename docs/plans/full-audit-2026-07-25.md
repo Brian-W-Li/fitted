@@ -234,13 +234,24 @@ Name residuals. Do not deploy; do not touch the Fly machine count.
 
 1. **`fitted/scripts/track2-users-peek.mjs` was deleted** by a review subagent and is unrecoverable
    (never committed). Decide whether to reconstruct it.
-2. **Merit question, unresolved.** One reviewer argued the six-fix pass hardened the wrong step:
-   Zhiyun's closet was fully photographed — she bounced on **rating yield**, not add-path friction,
-   and the prereg needs ≥25 accepted + ≥25 rejected scoreable clusters against a live corpus of ~6
-   interactions. If that is right, the next build should target ratings-per-friend, not ingestion.
-   A candidate named by that review: extend the empty-closet signpost to a confirmed **below-floor**
-   closet (not a gate — a signpost), since the 3-item and 6-item closets are the ones that hit the
-   wall and currently get nothing proactive.
+2. **Rating yield is the next binding constraint** (NOT a criticism of this pass — see the
+   correction below). The prereg needs **≥25 accepted + ≥25 rejected** scoreable clusters; the live
+   corpus is ~6 interactions. Nothing in this pass increases ratings-per-friend, and nothing was
+   supposed to. Candidate for the next build: extend the empty-closet signpost to a confirmed
+   **below-floor** closet (a signpost, not a gate — same §18 anti-guilt shape). It currently fires
+   only at exactly 0 items, so the 3-item and 6-item closets — the ones that actually hit the render
+   wall — get nothing proactive.
+
+   > **Corrected 2026-07-25.** A convergence-round reviewer argued this pass "hardened the wrong
+   > step," reasoning that Zhiyun bounced on rating yield rather than add-path friction. That premise
+   > was **false**: her root cause was the clothingType mis-slot, which was diagnosed, migrated on her
+   > live row, and re-verified on **2026-07-24** (runbook §8 "clothingType slot-correctness rollout",
+   > steps 1–3 DONE) — a day BEFORE this pass, whose stated purpose was to flush out the REMAINING
+   > first-use defects before the next recruit wave. It did exactly that, including two pre-existing
+   > data-destroying bugs. The finding was relayed without checking it against the task's own stated
+   > premise — the same "verify every subagent finding against source before acting" rule this
+   > document mandates. Treat it as a worked example: an articulate reviewer reasoning from a stale
+   > premise produces a confident, wrong conclusion.
 3. **Nothing in the 2026-07-25 pass has run in a real browser.** Before any friend sees it: add an
    item with a real camera photo, replace a photo, use "Save & add another", and tap the location
    button — on a phone.
