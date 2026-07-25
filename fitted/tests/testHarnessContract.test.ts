@@ -43,8 +43,12 @@ export function codeOnly(src: string): string {
   const blank = (from: number, to: number) => {
     for (let k = from; k < to && k < out.length; k++) if (out[k] !== "\n") out[k] = " ";
   };
-  // A `/` starts a regex (rather than division) only after one of these.
-  const REGEX_OK = /[=(,:[!&|?{};+\-*%~^]|^|\breturn\b|\btypeof\b/;
+  // A `/` starts a regex (rather than division) only after one of these. NOTE the absent `|^`
+  // alternative: in a non-anchored `.test()`, `^` matches ANY string, which made this check vacuous —
+  // every `/` read as a regex start, so `b / c` opened a "regex" that blanked through to the next `/`
+  // on the line and corrupted the projection. Start-of-source is handled by the `before === ""` case
+  // at the call site instead.
+  const REGEX_OK = /[=(,:[!&|?{};+\-*%~^]|\breturn\b|\btypeof\b/;
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
     if (c === "/" && src[i + 1] === "/") {
@@ -145,6 +149,35 @@ describe("codeOnly/bootTimeouts — the guard cannot be defeated the ways it was
   it("a named timeout constant resolves instead of reading as absent", () => {
     const src = `const HOOK_TIMEOUT = 120_000;\nbeforeAll(async () => {\n  harness = await startMemoryMongo([U]);\n}, HOOK_TIMEOUT);`;
     expect(bootTimeouts(src)).toEqual([120000]);
+  });
+  it("division is not mistaken for a regex literal", () => {
+    // `|^` in the regex-permitted-here test made it vacuous, so every `/` opened a regex scan that
+    // blanked through to the next `/` on the line — swallowing real code between two divisions.
+    const src = `const a = b / c;\nbeforeAll(async () => {\n  const d = e / f;\n  harness = await startMemoryMongo([U]);\n${T}`;
+    expect(bootTimeouts(src)).toEqual([120000]);
+  });
+  it("a regex literal containing a quote or a brace does not skew the walk", () => {
+    const src = `const q = /["']/;\nconst b2 = /[({]/;\nbeforeAll(async () => {\n  harness = await startMemoryMongo([U]);\n${T}`;
+    expect(bootTimeouts(src)).toEqual([120000]);
+  });
+  it("a template literal with \${} braces and a // inside does not skew the walk", () => {
+    const src = "beforeAll(async () => {\n  const s = `a${{x:1}}b//c`;\n  harness = await startMemoryMongo([U]);\n" + T;
+    expect(bootTimeouts(src)).toEqual([120000]);
+  });
+  it("a quoted URL is a string, not a comment, even in JSX-ish source", () => {
+    const src = `const a = <img src="//x" />;\nbeforeAll(async () => {\n  harness = await startMemoryMongo([U]);\n${T}`;
+    expect(bootTimeouts(src)).toEqual([120000]);
+  });
+  it("the INNERMOST enclosing hook owns the boot, not an outer one", () => {
+    const src = `beforeAll(async () => {\n  describe("x", () => {\n    beforeAll(async () => {\n      harness = await startMemoryMongo([U]);\n    });\n  });\n${T}`;
+    // The inner hook has no timeout, so this must NOT be rescued by the outer one's.
+    expect(bootTimeouts(src)).toEqual([null]);
+  });
+  it("a COMPUTED timeout reads as absent — conservative by design (false red, never false green)", () => {
+    // `}, 2 * 60_000)` and `}, T.MS)` are legitimate but unparsed here. Failing loudly is the safe
+    // direction: use a numeric literal or a named const (both are recognised).
+    expect(bootTimeouts(`beforeAll(async () => {\n  harness = await startMemoryMongo([U]);\n}, 2 * 60_000);`)).toEqual([null]);
+    expect(bootTimeouts(`beforeAll(async () => {\n  harness = await startMemoryMongo([U]);\n}, T.MS);`)).toEqual([null]);
   });
   it("a plain timed hook is accepted", () => {
     const src = `beforeAll(async () => {\n  harness = await startMemoryMongo([U]);\n${T}`;
