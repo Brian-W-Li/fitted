@@ -17,8 +17,11 @@ const MAX_WARDROBE_IMAGE_REQUEST_BYTES =
 // Summed over the stored `sizeBytes` column at upload time — cheap at friends scale.
 export const MAX_USER_IMAGE_BYTES = 80 * 1024 * 1024;
 // Courtesy pacing against a runaway upload loop (per-instance, best-effort — same posture as the
-// CV route's limiter; the byte budget above is the hard bound).
-const UPLOAD_RATE_MAX = 30;
+// CV route's limiter; the byte budget above is the hard bound). MUST stay >= the item-create limit
+// (CREATE_RATE_MAX=60, app/api/wardrobe/route.ts): every photographed add is one create + one
+// upload, so a lower ceiling here 429s the PHOTO of an item the create route happily admitted —
+// silent yield loss on exactly the batch-add a friend does when onboarding a 15-30 item closet.
+export const UPLOAD_RATE_MAX = 60;
 const UPLOAD_RATE_WINDOW_MS = 10 * 60 * 1000;
 
 async function getUserIdFromRequest(request: NextRequest) {

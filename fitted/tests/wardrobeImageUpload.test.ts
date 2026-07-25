@@ -13,6 +13,8 @@ import WardrobeItem from "@/models/WardrobeItem";
 import WardrobeImage from "@/models/WardrobeImage";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import { MAX_WARDROBE_IMAGE_BYTES } from "@/lib/imageStorage";
+import { UPLOAD_RATE_MAX } from "@/app/api/wardrobe/[id]/image/route";
+import { CREATE_RATE_MAX } from "@/app/api/wardrobe/route";
 import { Types } from "mongoose";
 
 jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
@@ -331,11 +333,22 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
   it("429s once the per-user upload pacing window is exhausted — nothing written on the denied call", async () => {
     const id = await seedItem();
     let last: Any = null;
-    // The courtesy window is 30/10min per user; the 31st call in-window must be denied.
-    for (let i = 0; i < 31; i++) last = await post(id, makeRequest({ file: makeFile(8) }));
+    // Read the real ceiling rather than re-copying the number: the first call past it must be denied.
+    for (let i = 0; i < UPLOAD_RATE_MAX + 1; i++) {
+      last = await post(id, makeRequest({ file: makeFile(8) }));
+    }
     expect(last.status).toBe(429);
-    // 30 replace-style uploads leave exactly one stored image; the denied call added none.
+    // Replace-style uploads leave exactly one stored image; the denied call added none.
     expect(await WardrobeImage.countDocuments({ user: userId })).toBe(1);
+  });
+
+  // §23-H77 / fix #3. Every photographed add is one create + one upload, so an upload ceiling BELOW
+  // the create ceiling 429s the photo of an item the create route just admitted — silent photo loss
+  // on the batch-add a friend does when onboarding a closet, and (before the H77(a) fix) with no
+  // visible warning at all. Asserted rather than commented, because a lone comment is exactly what
+  // let the two numbers drift apart in the first place.
+  it("the upload pacing ceiling is never stricter than the item-create ceiling", () => {
+    expect(UPLOAD_RATE_MAX).toBeGreaterThanOrEqual(CREATE_RATE_MAX);
   });
 });
 

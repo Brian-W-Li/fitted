@@ -14,7 +14,7 @@ import { allowRequest } from "@/lib/rateLimit";
 export const MAX_ITEMS_PER_USER = 300;
 // Courtesy pacing against a runaway client loop (same posture as the CV route's limiter —
 // per-instance, best-effort; the hard bound above is the real ceiling).
-const CREATE_RATE_MAX = 60;
+export const CREATE_RATE_MAX = 60;
 const CREATE_RATE_WINDOW_MS = 10 * 60 * 1000;
 
 /**

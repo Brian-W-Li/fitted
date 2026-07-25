@@ -6,7 +6,7 @@
  * page-level Firebase client, so we mock it (the modal itself never touches Firebase — it is a
  * pure props-driven component whose only outside effect is the injected onSave).
  */
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 jest.mock("@/lib/firebaseClient", () => ({ auth: {} }));
@@ -329,5 +329,217 @@ describe("AddItemModal — 'Files as' slot chip (clothingtype-slot-correctness �
   it("stays hidden on an empty form (a bare default 'Top' would be noise)", () => {
     render(<AddItemModal onClose={() => {}} onSave={() => true} title="Add item" />);
     expect(screen.queryByTestId("files-as-chip")).not.toBeInTheDocument();
+  });
+});
+
+describe("AddItemModal — saved-but-photo-failed signal (§23-H77(a))", () => {
+  const withPhoto = () => new File(["x"], "tee.jpg", { type: "image/jpeg" });
+  const warn = (msg: string) => ({ savedWithPhotoWarning: msg });
+
+  /** Fill the blanked form so a SECOND "Save & add another" can pass validation, as a friend
+   *  entering their next item would. Required set is {name, category} (REQFIELDS-1). */
+  async function fillNextItem(name: string) {
+    await userEvent.type(screen.getByPlaceholderText(/blue denim jacket/i), name);
+    fireEvent.change(screen.getByDisplayValue("Select a category…"), { target: { value: "bottom" } });
+  }
+
+  it("treats the warning as SUCCESS — resets for the next item instead of stranding the form", async () => {
+    // The regression: the page handler returned undefined after a failed photo upload, so the modal
+    // reset and the item saved photo-less with NOTHING on screen (the page banner sits behind the
+    // z-40 overlay). The warning must both reset the form AND be visible.
+    const onSave = jest.fn(() => warn('Saved "Blue tee", but its photo didn’t upload — 429. Add it from Edit.'));
+    const onClose = jest.fn();
+    render(
+      <AddItemModal onClose={onClose} onSave={onSave} initialItem={validItem} pendingAddFile={withPhoto()} addStep="form" />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /save & add another/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    // Visible, inside the modal, naming the item.
+    const notice = await screen.findByTestId("photo-warnings");
+    expect(notice).toHaveTextContent(/Blue tee/);
+    expect(notice).toHaveTextContent(/photo didn’t upload/);
+    // Not treated as a failure: the form blanked for the next item and the modal stayed open.
+    expect((screen.getByPlaceholderText(/blue denim jacket/i) as HTMLInputElement).value).toBe("");
+    expect(onClose).not.toHaveBeenCalled();
+    // And it is NOT rendered as the red form error (that path would imply "your save failed").
+    expect(screen.queryByText(/^Name is required\.$/)).not.toBeInTheDocument();
+  });
+
+  it("ACCUMULATES one entry per lost photo — a 429 burst must not collapse to a single name", async () => {
+    const onSave = jest
+      .fn()
+      .mockReturnValueOnce(warn("Saved “Blue tee”, but its photo didn’t upload."))
+      .mockReturnValueOnce(warn("Saved “Grey jeans”, but its photo didn’t upload."));
+    render(
+      <AddItemModal onClose={() => {}} onSave={onSave} initialItem={validItem} pendingAddFile={withPhoto()} addStep="form" />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /save & add another/i }));
+    await screen.findByTestId("photo-warnings");
+
+    await fillNextItem("Grey jeans");
+    await userEvent.click(screen.getByRole("button", { name: /save without a photo/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+
+    // Both items are still named — losing the first name would make its remedy unactionable.
+    const notice = screen.getByTestId("photo-warnings");
+    expect(notice).toHaveTextContent(/Blue tee/);
+    expect(notice).toHaveTextContent(/Grey jeans/);
+    expect(notice.querySelectorAll("li")).toHaveLength(2);
+  });
+
+  it("a later CLEAN save does not clear earlier warnings — they are a to-do list, not a toast", async () => {
+    const onSave = jest
+      .fn()
+      .mockReturnValueOnce(warn("Saved “Blue tee”, but its photo didn’t upload."))
+      .mockReturnValueOnce(true);
+    render(
+      <AddItemModal onClose={() => {}} onSave={onSave} initialItem={validItem} pendingAddFile={withPhoto()} addStep="form" />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /save & add another/i }));
+    await screen.findByTestId("photo-warnings");
+
+    await fillNextItem("Grey jeans");
+    await userEvent.click(screen.getByRole("button", { name: /save without a photo/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+
+    // The FIRST item still has no photo — a clean second save doesn't change that.
+    expect(screen.getByTestId("photo-warnings")).toHaveTextContent(/Blue tee/);
+  });
+
+  it("Dismiss clears the list", async () => {
+    const onSave = jest.fn(() => warn("Saved “Blue tee”, but its photo didn’t upload."));
+    render(
+      <AddItemModal onClose={() => {}} onSave={onSave} initialItem={validItem} pendingAddFile={withPhoto()} addStep="form" />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /save & add another/i }));
+    const notice = await screen.findByTestId("photo-warnings");
+    // Scoped: the CV quick-guide has its own Dismiss / Dismiss-forever buttons.
+    await userEvent.click(within(notice).getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByTestId("photo-warnings")).not.toBeInTheDocument();
+  });
+
+  it("on a NORMAL save the warning still counts as success — the modal closes (no duplicate re-save)", async () => {
+    // The item WAS created; keeping the modal open with the old values would invite a re-save that
+    // mints a duplicate. Closing is correct — the page-level banner is visible once the overlay goes.
+    const onSave = jest.fn(() => warn("Saved “Blue tee”, but its photo didn’t upload."));
+    const onClose = jest.fn();
+    render(
+      <AddItemModal onClose={onClose} onSave={onSave} initialItem={validItem} pendingAddFile={withPhoto()} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^save item$/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("AddItemModal — pick-time size ceiling (§23-H77(b))", () => {
+  /** A File whose reported size is `bytes` without allocating them. */
+  function sizedFile(bytes: number, name = "big.jpg") {
+    const f = new File(["x"], name, { type: "image/jpeg" });
+    Object.defineProperty(f, "size", { value: bytes });
+    return f;
+  }
+  const pick = (container: HTMLElement, file: File) => {
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+  };
+
+  it("ACCEPTS a photo over the old 5MB gate — the 1280px downscaler is the real limit, not the pick", async () => {
+    // The dead end: an 8MB iPhone JPEG (exactly what the app's own "Camera → Most Compatible"
+    // advice produces) was rejected at pick, so prepareImageForUpload never ran and the friend got
+    // a remedy-free "Max image size is 5MB."
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    pick(container, sizedFile(8 * 1024 * 1024));
+    // Accepted → the photo path is live (D1 primary save), and no error is shown.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^save item$/i })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/Max image size is 5MB/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/larger than we can handle/i)).not.toBeInTheDocument();
+  });
+
+  it("still rejects a file past the sanity ceiling, and says how big it was", async () => {
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    pick(container, sizedFile(45 * 1024 * 1024));
+    expect(await screen.findByText(/45MB — larger than we can handle/i)).toBeInTheDocument();
+    // Rejected → still on the photo-less path.
+    expect(screen.getByRole("button", { name: /save without a photo/i })).toBeInTheDocument();
+  });
+});
+
+describe("AddItemModal — the preview renders from the DOWNSCALED copy (§23-H77(b) memory guard)", () => {
+  // Raising the pick ceiling to 40MB made the preview the memory risk: a base64 data URL is ~4/3 the
+  // file size and lives as a plain string in React state, so previewing a raw 40MB pick would be
+  // ~53MB — enough to kill an iOS tab. jsdom has no createImageBitmap/canvas encoder, so these stub
+  // a WORKING downscaler; without the stubs prepareImageForUpload falls back to the original and the
+  // distinction under test would be invisible (which is exactly how this shipped unpinned).
+  const BIG = 3 * 1024 * 1024; // over the 400KB skip-threshold, so the downscale actually runs
+  let origCreate: unknown;
+  let origToBlob: unknown;
+
+  beforeEach(() => {
+    origCreate = (globalThis as Record<string, unknown>).createImageBitmap;
+    origToBlob = HTMLCanvasElement.prototype.toBlob;
+    (globalThis as Record<string, unknown>).createImageBitmap = jest.fn(async () => ({
+      width: 4000,
+      height: 3000,
+      close: () => {},
+    }));
+    HTMLCanvasElement.prototype.getContext = jest.fn(() => ({ drawImage: () => {} })) as never;
+    // The "downscaled" result: two orders of magnitude smaller than the original.
+    HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
+      cb(new Blob([new Uint8Array(4096)], { type: "image/jpeg" }));
+    } as never;
+  });
+  afterEach(() => {
+    (globalThis as Record<string, unknown>).createImageBitmap = origCreate;
+    HTMLCanvasElement.prototype.toBlob = origToBlob as never;
+    jest.restoreAllMocks();
+  });
+
+  function sizedFile(bytes: number) {
+    const f = new File(["x"], "big.jpg", { type: "image/jpeg" });
+    Object.defineProperty(f, "size", { value: bytes });
+    return f;
+  }
+
+  it("holds the SMALL re-encoded data URL, not one derived from the multi-MB original", async () => {
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedFile(BIG)] } });
+
+    const img = (await screen.findByAltText("Item photo")) as HTMLImageElement;
+    // 4KB downscaled → a base64 URL in the low thousands of chars. The 3MB original would yield
+    // ~4,000,000 — so this bound fails loudly if the preview ever reverts to the raw file.
+    expect(img.src.startsWith("data:")).toBe(true);
+    expect(img.src.length).toBeLessThan(100_000);
+    // And the downscaler was genuinely exercised (not skipped by the <400KB early return).
+    expect((globalThis as Record<string, unknown>).createImageBitmap).toHaveBeenCalled();
+  });
+
+  it("skips the preview entirely when the downscale FAILS on a huge file (no ~53MB string)", async () => {
+    // Decode failure → prepareImageForUpload returns the ORIGINAL. A 20MB original must not become
+    // a data URL; the photo is still selected and still uploads.
+    (globalThis as Record<string, unknown>).createImageBitmap = jest.fn(async () => {
+      throw new Error("decode OOM");
+    });
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedFile(20 * 1024 * 1024)] } });
+
+    // The pick was accepted (photo path live) …
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^save item$/i })).toBeInTheDocument(),
+    );
+    // … but no preview image was ever built from the oversized original.
+    expect(screen.queryByAltText("Item photo")).not.toBeInTheDocument();
   });
 });

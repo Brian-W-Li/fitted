@@ -514,6 +514,36 @@ the `clothingTypeSource:"user"` re-run hazard, the backup-delete step).
   and prefer friends who'll engage over hitting a gender mix. (Informs recruiting only; the frozen
   decision rule is untouched.)
 
+### Friend-first-use hardening pass (2026-07-25 — BUILT on `main`, awaiting Brian's deploy)
+
+Six first-use defects of the SILENT-FAILURE / MISSING-INSTRUCTION class — the kind a friend hits that
+never surfaces as an error (the class Zhiyun bounced on). All six built + tested; **web-only, the Fly
+render service is untouched (leave it at 1 machine).**
+
+1. **Silent photo loss on "Save & add another"** — spec §23-H77(a). Fable-reviewed contract change.
+2. **Big-phone-photo dead end** — spec §23-H77(b); pick ceiling 5MB → 40MB sanity-only.
+3. **Photo-upload pacing raised 30 → 60** to match `CREATE_RATE_MAX` (`app/api/wardrobe/route.ts`).
+   Every photographed add is one create + one upload, so the lower ceiling 429'd the PHOTO of an item
+   the create route had just admitted. Now asserted, not commented (`wardrobeImageUpload.test.ts`).
+4. **"Study/experiment" framing dropped (5 sites)** — friends were never told a study exists, so the
+   words were an orphaned reference that reads as undisclosed research. Replaced with the plain,
+   presently-true reason a photo helps ("how you'll recognize this piece in a suggested outfit").
+   The §18 anti-guilt photo-optional posture is unchanged.
+5. **Location prompt is primed, not sprung** — the dashboard no longer fires
+   `getCurrentPosition` on mount; a one-line in-app "why" + a button now precede the native prompt.
+   Denial stays graceful (geo is purely additive to the render) and now says what is lost.
+6. **Empty-closet signpost** — a confirmed 0-item closet gets a proactive "add your clothes" CTA and
+   the rescue teaser (false premise at 0 items) is suppressed. The dashboard learns the count from a
+   best-effort GET `/api/wardrobe` on mount; `null` (loading/failed) is deliberately distinct from 0,
+   so an existing friend never sees the CTA.
+
+**Deploy:** `git push origin main` → Vercel builds the fork → verify per "Pre-friend deploy re-verify"
+(the one-render `bindable:true` gate). No migration, no Fly redeploy, no env change.
+
+**Deliberately deferred to a follow-up** (registered, not lost): "Files as" wording;
+edit-clears-size/notes (latent, no UI field today); census-only-for-top/bottom; occasion-required
+default; eye-toggle mobile label.
+
 ## Rollback (pinned — honest)
 - **Immediate safe state:** `USE_ML_SHORTLISTER` off/unset → §A **degraded empty state** (no
   recommendations, but no errors/leaks). The flag alone disables the vertical — no redeploy needed.

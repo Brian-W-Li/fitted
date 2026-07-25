@@ -88,6 +88,16 @@ const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
 const CV_GUIDE_DISMISS_FOREVER_KEY = "fitted-cv-guide-dismiss-forever-v1";
 
+/** Pick-time sanity ceiling, NOT the upload limit (§23-H77(b)). Everything picked below this is
+ *  downscaled by `prepareImageForUpload` before the real 4MB post-compression gate, so this only
+ *  needs to exclude files no phone camera produces (~40MB is ~6× a max-quality 12MP JPEG). */
+const MAX_PICK_BYTES = 40 * 1024 * 1024;
+
+/** Ceiling on what may become a base64 `data:` URL in React state for the on-screen preview. A data
+ *  URL is ~4/3 the file size and lives as a plain string, so this bounds the preview at ~11MB even
+ *  when the downscale falls back to the original file. */
+const MAX_PREVIEW_BYTES = 8 * 1024 * 1024;
+
 // F11 — a bare "only JPEG/PNG/WEBP" silently blocks a friend on iPhone, whose photos are HEIC by
 // default (→ zero corpus yield). Tell them how to get an accepted file. (Note: iOS Safari often
 // auto-converts HEIC to JPEG on pick, so this fires mainly on drag-drop / non-Safari paths.)
@@ -289,16 +299,31 @@ function WardrobeCard({
 
 type WardrobeFormValues = Omit<WardrobeItem, "id">;
 
+/** The item was created but its photo upload threw (429 / oversized-after-compression / network).
+ *  A distinct outcome from a failed save — see the `onSave` doc below. */
+type SavedWithPhotoWarning = { savedWithPhotoWarning: string };
+type SaveResult = boolean | string | void | SavedWithPhotoWarning;
+
+function isSavedWithPhotoWarning(r: SaveResult): r is SavedWithPhotoWarning {
+  return typeof r === "object" && r !== null && typeof r.savedWithPhotoWarning === "string";
+}
+
 type AddItemModalProps = {
   onClose: () => void;
-  /** Returns `false` (or an error-message string) when the save FAILED — the modal then stays open
-   *  so the user's input is not lost (§I client-state gate), and a string is rendered as the
-   *  in-modal error (the page-level banner is invisible behind the modal overlay). Any other
-   *  result (success) closes the modal. */
+  /** Three outcomes, not two (§23-H77(a)):
+   *   - `string` → the save FAILED; the modal stays open with the input preserved (§I client-state
+   *     gate) and renders the string as the in-modal error (the page banner is invisible behind the
+   *     modal overlay).
+   *   - `false` → the save FAILED with no message; the modal stays open.
+   *   - `{ savedWithPhotoWarning }` → the item WAS created but its photo did not upload. This is
+   *     NOT a failure: re-saving would mint a duplicate, so the modal proceeds exactly as on success
+   *     (reset for "add another", or close) while surfacing the message as a persistent in-modal
+   *     notice. Never collapse this into the error string.
+   *   - anything else → clean success; the modal closes (or resets on "add another"). */
   onSave: (
     item: WardrobeFormValues,
     imageFile: File | null,
-  ) => Promise<boolean | string | void> | boolean | string | void;
+  ) => Promise<SaveResult> | SaveResult;
   initialItem?: WardrobeFormValues;
   title?: string;
   /** Add flow: step 1 is upload-only, step 2 is form. When null, single form (edit or add without CV). */
@@ -350,6 +375,12 @@ export function AddItemModal({
   const [imageFile, setImageFile] = useState<File | null>(pendingAddFile ?? null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  // Photo-upload failures for items that WERE saved (§23-H77(a)). A to-do list, not a toast: it
+  // accumulates (a flaky connection or a 429 burst can lose five photos in a row, and the friend
+  // needs every item NAME to act on the remedy) and is cleared only by an explicit Dismiss or by
+  // the modal unmounting — never by a reset, and never by a later clean save, because the earlier
+  // items still have no photo.
+  const [photoWarnings, setPhotoWarnings] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   // Synchronous re-entrancy latch. `disabled={saving}` only bites after React re-renders, so a
   // sub-frame double-tap (fast mobile taps, a synthetic double-click) can fire two submits before
@@ -414,9 +445,15 @@ export function AddItemModal({
       setImageError(UNSUPPORTED_IMAGE_MSG);
       return;
     }
-    const maxBytes = 5 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      setImageError("Max image size is 5MB.");
+    // Sanity ceiling ONLY (§23-H77(b)). The real limit is enforced downstream, AFTER
+    // prepareImageForUpload downscales to 1280px: a 12MP phone JPEG lands around 200–400KB, well
+    // under the 4MB post-compression throw. Gating the ORIGINAL at 5MB here was a dead end — the
+    // downscaler that exists to solve exactly this never ran, and the app's own HEIC advice
+    // ("Camera → Most Compatible") steers friends straight into multi-MB JPEGs.
+    if (file.size > MAX_PICK_BYTES) {
+      setImageError(
+        `That photo is ${Math.round(file.size / (1024 * 1024))}MB — larger than we can handle. Try a screenshot of it instead.`,
+      );
       return;
     }
     setImageFile(file);
@@ -487,7 +524,9 @@ export function AddItemModal({
    *  longer means 15 modal open/close cycles). Clears every field INCLUDING the photo, so the next
    *  item starts on the photo-first path (D1). Called from submitForm's success branch, just BEFORE
    *  the finally releases the savingRef latch — safe because this only touches form state, never the
-   *  latch; a rapid follow-up tap is instead blocked by the now-empty name failing validation. */
+   *  latch; a rapid follow-up tap is instead blocked by the now-empty name failing validation.
+   *  Deliberately does NOT touch `photoWarnings`: those describe already-saved items, not this
+   *  form, so clearing them here would re-hide the very loss they exist to report. */
   function resetFormForAddAnother() {
     setName("");
     setCategory("");
@@ -593,6 +632,15 @@ export function AddItemModal({
         setFormError(result);
         return;
       }
+      // Saved, but the photo was lost (§23-H77(a)). The item EXISTS, so this must behave like a
+      // success — keeping the modal open with the old values would invite a re-save that mints a
+      // duplicate. Record the notice (it outlives the reset) and proceed exactly as below.
+      if (isSavedWithPhotoWarning(result)) {
+        setPhotoWarnings((prev) => [...prev, result.savedWithPhotoWarning]);
+        if (addAnother) resetFormForAddAnother();
+        else onClose();
+        return;
+      }
       // Success. "Save & add another" clears the form and keeps the modal open; a normal save closes.
       // After the reset the name is empty, so a rapid second add-another tap is validation-blocked
       // (never a dup); an in-flight second tap was already a no-op via savingRef above.
@@ -622,14 +670,34 @@ export function AddItemModal({
     // long background still resets everything; that is a separate draft-persistence concern, not this
     // blob-reclaim bug.)
     let cancelled = false;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (!cancelled) setPreviewUrl(typeof reader.result === "string" ? reader.result : null);
-    };
-    reader.onerror = () => {
-      if (!cancelled) setPreviewUrl(null);
-    };
-    reader.readAsDataURL(imageFile);
+    // Preview the DOWNSCALED copy, not the original. Since the pick ceiling rose to MAX_PICK_BYTES
+    // (§23-H77(b)) a base64 data URL of the raw file could be ~53MB of React state on a phone —
+    // enough to kill an iOS tab. prepareImageForUpload self-skips files under 400KB and falls back
+    // to the original on any decode failure, so this is bounded, not lossy. (Preview only; the
+    // upload still re-derives its own copy, so `imageFile` identity is untouched — the CV-crop
+    // path below compares `imageFile === addPendingFile`.)
+    void (async () => {
+      const forPreview = await prepareImageForUpload(imageFile);
+      if (cancelled) return;
+      // The downscale is best-effort: it returns the ORIGINAL file when there is no
+      // `createImageBitmap` (older iOS Safari), when the decode OOMs on a memory-pressured phone,
+      // or when the re-encode doesn't shrink. On that fallback a 40MB pick would still become a
+      // ~53MB base64 string in React state — the exact tab-kill this indirection exists to prevent.
+      // Skip the preview instead; the form is fully usable without it (`willHavePhoto` keys off
+      // `imageFile`, and the upload path re-derives its own copy).
+      if (forPreview.size > MAX_PREVIEW_BYTES) {
+        setPreviewUrl(null);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (!cancelled) setPreviewUrl(typeof reader.result === "string" ? reader.result : null);
+      };
+      reader.onerror = () => {
+        if (!cancelled) setPreviewUrl(null);
+      };
+      reader.readAsDataURL(forPreview);
+    })();
     return () => {
       cancelled = true;
     };
@@ -687,16 +755,23 @@ export function AddItemModal({
               onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
               disabled={!!isAnalyzing}
             />
-            {previewUrl ? (
+            {imageFile ? (
+              // Keyed on imageFile, NOT previewUrl: a photo whose preview was skipped (too large to
+              // hold as a data URL) is still SELECTED and will still upload — showing the empty
+              // "Drop a photo here" prompt would read as "your pick didn't take".
               <div className="flex flex-col items-center justify-center p-6">
-                <img src={previewUrl} alt="Preview" className="max-h-48 w-auto rounded-lg object-contain shadow-inner bg-white" />
-                <p className="mt-2 text-xs text-slate-500">{imageFile?.name}</p>
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Preview" className="max-h-48 w-auto rounded-lg object-contain shadow-inner bg-white" />
+                ) : (
+                  <p className="text-sm font-medium text-slate-600">Photo selected</p>
+                )}
+                <p className="mt-2 text-xs text-slate-500">{imageFile.name}</p>
                 <p className="text-xs text-slate-400">Tap to choose a different photo</p>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
                 <p className="text-sm font-medium text-slate-600">Drop a photo here or click to browse</p>
-                <p className="text-xs text-slate-400 mt-0.5">JPEG, PNG or WEBP · max 5MB</p>
+                <p className="text-xs text-slate-400 mt-0.5">JPEG, PNG or WEBP · straight from your camera roll is fine</p>
               </div>
             )}
           </div>
@@ -725,7 +800,7 @@ export function AddItemModal({
             </div>
             <ul className="space-y-2 text-xs leading-5 text-slate-700">
               <li>
-                <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> a clear photo is what the style-matching experiment measures, and the real colors (with the name and type) power the recommendations.
+                <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> the photo is how you&apos;ll recognize this piece when it turns up in a suggested outfit, and the real colors (with the name and type) power the recommendations.
               </li>
               <li>
                 <span className="font-semibold text-slate-900">Category &amp; type:</span> pick the closest match — it sets how outfits are built. For a jacket or coat, set Layer role to Outer.
@@ -831,7 +906,7 @@ export function AddItemModal({
                 </div>
                 <ul className="space-y-2 text-xs leading-5 text-slate-700">
                   <li>
-                    <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> a clear photo is what the style-matching experiment measures, and the real colors (with the name and type) power the recommendations.
+                    <span className="font-semibold text-slate-900">Photo &amp; colors matter most:</span> the photo is how you&apos;ll recognize this piece when it turns up in a suggested outfit, and the real colors (with the name and type) power the recommendations.
                   </li>
                   <li>
                     <span className="font-semibold text-slate-900">Category &amp; type:</span> pick the closest match — it sets how outfits are built. For a jacket or coat, set Layer role to Outer.
@@ -1156,9 +1231,9 @@ export function AddItemModal({
                 >
                   <span className="block text-sm font-medium text-slate-800">+ Add a photo</span>
                   <span className="mt-1 block text-xs text-slate-500">
-                    The photo is the important part — it&apos;s what this little project actually studies.
+                    A photo is how you&apos;ll recognize this piece when the stylist puts it in an outfit.
                     Your recommendations run on the details you type in, so an item without a photo still
-                    works — it just won&apos;t help the study.
+                    works — you&apos;ll just see a grey box where the piece should be.
                   </span>
                 </button>
               )}
@@ -1177,6 +1252,31 @@ export function AddItemModal({
           </div>
 
           <div className="p-5 pt-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl shrink-0">
+            {/* Saved-but-photo-less notices (§23-H77(a)). Rendered in the footer, which is
+                `shrink-0` and so always on screen — anything in the scrolled body could sit above
+                the fold on the very batch-add flow this exists to protect. Amber, not red: these
+                items DID save; the only outstanding action is the photo. */}
+            {photoWarnings.length > 0 && (
+              <div
+                className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3"
+                data-testid="photo-warnings"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <ul className="space-y-1 text-sm text-amber-800">
+                    {photoWarnings.map((w, i) => (
+                      <li key={`${i}-${w}`}>{w}</li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => setPhotoWarnings([])}
+                    className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
             {formError && (
               <p className="text-sm text-red-600 mb-3">{formError}</p>
             )}
@@ -1223,7 +1323,7 @@ export function AddItemModal({
                     type="button"
                     onClick={() => submitForm()}
                     disabled={saving}
-                    title="This item won't count toward the style-matching experiment"
+                    title="Without a photo you'll see a grey box instead of the piece in outfit suggestions"
                     className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {saving ? "Saving…" : "Save without a photo"}
@@ -1295,7 +1395,13 @@ async function uploadWardrobeItemImage(params: {
   if (file.size > 4 * 1024 * 1024) {
     // Vercel's platform body cap (~4.5MB) would kill the request with an opaque non-JSON 413 —
     // fail here with an actionable message instead.
-    throw new Error("That photo is too large even after compression — try a smaller image.");
+    // Give this the same actionable remedy as the pick-time ceiling: this fires when the downscale
+    // could not run (no `createImageBitmap`, a decode failure, or a re-encode that didn't shrink),
+    // and "try a smaller image" alone leaves a friend with no in-app way to make one — re-picking
+    // the same file just loops.
+    throw new Error(
+      "That photo is too large even after compression — take a screenshot of it and upload that instead.",
+    );
   }
 
   const fd = new FormData();
@@ -1561,7 +1667,7 @@ export default function WardrobePage() {
             Add pieces from your closet so we can start building outfits.
           </p>
           <p className="mt-1 text-xs text-slate-400">
-            For the style-matching experiment, aim for ~15 items with photos — a couple of each type (tops, bottoms, shoes, outerwear).
+            Two tops, two bottoms and a pair of shoes is enough to start; ~15 items with photos gives the stylist real variety to work with.
           </p>
         </div>
         <div className="flex gap-2">
@@ -1763,6 +1869,9 @@ export default function WardrobePage() {
                   setError(msg);
                   return msg;
                 }
+                // Same saved-but-photo-failed signal as the add branch (§23-H77(a)) — held until
+                // after setItems so the list still updates with the saved edits.
+                let photoWarning: string | null = null;
                 // Preserve existing image if user did not upload a new one
                 if (!imageFile) {
                   updated = { ...updated, imagePath: editingItem.imagePath ?? updated.imagePath };
@@ -1778,12 +1887,14 @@ export default function WardrobePage() {
                     console.error(e);
                     // The item edit itself succeeded — say so, or "try again" reads as re-do-the-edit.
                     const msg = e instanceof Error ? e.message : "Failed to upload image.";
-                    setError(`${msg} — your item changes were saved; retry the photo from Edit.`);
+                    photoWarning = `${msg} — your item changes were saved; retry the photo from Edit.`;
+                    setError(photoWarning);
                   }
                 }
                 setItems((prev) =>
                   prev.map((it) => (it.id === updated.id ? updated : it))
                 );
+                if (photoWarning) return { savedWithPhotoWarning: photoWarning };
                 // Success — the modal's onClose (below) clears editingItem. On any failure above we
                 // returned the error MESSAGE so the modal stays open, shows it, and preserves the
                 // edited values.
@@ -1796,6 +1907,12 @@ export default function WardrobePage() {
               const saved = await handleAddItem(data);
               // Save failed — return the message so the MODAL shows it (stays open, form preserved).
               if (typeof saved === "string") return saved;
+              // §23-H77(a): the item is CREATED from here on. A photo failure below is therefore not
+              // a failed save — it is held here and returned as `savedWithPhotoWarning` AFTER the
+              // add-flow cleanup tail runs, so the modal resets/closes exactly as on success while
+              // still telling the friend which item lost its photo. Returning early from the catch
+              // would skip that tail and strand the modal on the stale CV step.
+              let photoWarning: string | null = null;
               if (firebaseUser) {
                 try {
                   // Use the CV-cropped image ONLY when the friend kept the original photo. If they
@@ -1836,14 +1953,22 @@ export default function WardrobePage() {
                   console.error(e);
                   // The item itself WAS created — without saying so, "try again" reads as re-add
                   // the item, which mints a duplicate during exactly the batch-onboarding flow.
+                  // Name the item: on a batch-add the friend needs to know WHICH one to fix.
                   const msg = e instanceof Error ? e.message : "Failed to upload image.";
-                  setError(`${msg} — the item itself was saved; add its photo from Edit.`);
+                  photoWarning = `Saved “${data.name.trim()}”, but its photo didn’t upload — ${msg} Add it from Edit.`;
+                  setError(photoWarning);
                 }
               }
+              // No `else` arm here on purpose: `handleAddItem` above already returns the
+              // "not signed in" STRING when `firebaseUser` is falsy, and that string early-returns
+              // at the `typeof saved === "string"` check — so a signed-out add can never reach this
+              // point with an item created. The `if` survives only to narrow the type for
+              // `uploadWardrobeItemImage`.
               setAddStep(null);
               setAddInferred(null);
               setAddPendingFile(null);
               setAddInferredCroppedImage(null);
+              if (photoWarning) return { savedWithPhotoWarning: photoWarning };
             }
           }}
           initialItem={modalInitialItem}

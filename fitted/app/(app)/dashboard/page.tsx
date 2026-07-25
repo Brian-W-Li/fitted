@@ -641,18 +641,89 @@ function DashboardInner() {
   const [feedbackModal, setFeedbackModal] = useState<{ outfit: ShownOutfit; index: number } | null>(null);
   const [regenModal, setRegenModal] = useState<{ outfit: ShownOutfit; index: number } | null>(null);
 
-  useEffect(() => {
-    if (!navigator?.geolocation) return;
+  // Location is OPT-IN and primed. Calling getCurrentPosition on mount fired the browser's native
+  // permission prompt with no in-app explanation — the first thing a brand-new friend saw was an OS
+  // dialog asking for their location from an app they'd just signed into, which reads as a reason to
+  // bail. Now we say why first and only ask when they tap. Denial stays graceful: geoCoords is purely
+  // additive to the render (startGenerate spreads lat/lon only when present), so declining costs the
+  // weather signal and nothing else.
+  const [geoStatus, setGeoStatus] = useState<"idle" | "asking" | "granted" | "denied">("idle");
+
+  const requestGeo = useCallback(() => {
+    if (!navigator?.geolocation) {
+      setGeoStatus("denied");
+      return;
+    }
+    setGeoStatus("asking");
     navigator.geolocation.getCurrentPosition(
-      (pos) => setGeoCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => {},
+      (pos) => {
+        setGeoCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        setGeoStatus("granted");
+      },
+      () => setGeoStatus("denied"),
+      // Without a timeout, a prompt the friend swipes away (some mobile browsers never invoke either
+      // callback) strands the button on "Waiting for permission…" with no way back. The error arm
+      // fires on TIMEOUT too, so the UI always lands somewhere retryable.
+      { timeout: 15000, maximumAge: 10 * 60 * 1000 },
     );
   }, []);
+
+  // Resume an EXISTING grant. Priming the ask must not cost the weather signal on every later
+  // visit: a friend who already granted would otherwise have to re-tap the link each session or
+  // silently lose it. Querying the Permissions API first keeps the no-cold-prompt property — we
+  // only call getCurrentPosition when the answer is already "granted", which shows no prompt.
+  // "prompt"/"denied" fall through to the button, and browsers without the API (older Safari) keep
+  // the manual path.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const perms = navigator.permissions;
+        if (!perms?.query) return;
+        const status = await perms.query({ name: "geolocation" as PermissionName });
+        if (!cancelled && status.state === "granted") requestGeo();
+      } catch {
+        // Unsupported/blocked query — the explicit button remains the path.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [requestGeo]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => setFirebaseUser(user));
     return () => unsub();
   }, []);
+
+  // Closet size, for the empty-closet signpost below. `null` means NOT YET KNOWN (loading, or the
+  // fetch failed) and is deliberately distinct from 0 — the CTA renders only on a confirmed 0, so an
+  // existing friend never gets a flash of "add your clothes first". Reuses the plain wardrobe GET
+  // rather than adding a count endpoint: a friend closet is 15-50 rows of small scalars (no image
+  // bytes — items carry an imagePath pointer), so one best-effort request on mount is cheaper than a
+  // new API surface to keep honest.
+  const [closetCount, setClosetCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!firebaseUser) {
+      setClosetCount(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await firebaseUser.getIdToken();
+        const res = await fetch("/api/wardrobe", { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = (await res.json()) as { items?: unknown[] };
+        if (!cancelled && Array.isArray(data.items)) setClosetCount(data.items.length);
+      } catch {
+        // Best-effort: staying at `null` just means no signpost, never a wrong one.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [firebaseUser]);
 
   // Read a rescue launch from the wardrobe (?rescue=<id>).
   useEffect(() => {
@@ -1028,7 +1099,32 @@ function DashboardInner() {
           The stylist uses your wardrobe, the occasion, and the weather to suggest outfits.
         </p>
 
-        {!rescueItemId && (
+        {/* Empty-closet signpost. A brand-new friend lands here first and there is nothing yet to
+            build from, so point at the wardrobe BEFORE they spend a Generate on an empty closet.
+            This is the PROACTIVE half; the reactive empty-state (below, on a returned render) stays
+            as the catch-net for closets that are non-empty but unbuildable. */}
+        {closetCount === 0 && (
+          <div className="mt-4 rounded-lg border border-slate-300 bg-slate-50 p-4 text-sm">
+            <p className="font-medium text-slate-900">First: add a few clothes.</p>
+            <p className="mt-1 text-slate-600">
+              The stylist builds outfits out of pieces you own, so it needs your closet before it can
+              suggest anything. A handful of tops, bottoms and shoes is enough to start.
+            </p>
+            <a
+              href="/wardrobe"
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Add your clothes
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        )}
+
+        {/* The rescue teaser presupposes they HAVE a piece they can't style — false premise at 0
+            items, and it would compete with the signpost above. */}
+        {!rescueItemId && closetCount !== 0 && (
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             Got a piece you never quite know how to wear?{" "}
             <a href="/wardrobe" className="font-medium underline hover:text-amber-900">
@@ -1099,6 +1195,38 @@ function DashboardInner() {
                 max={new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)}
                 className="mt-2 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
               />
+            )}
+          </div>
+
+          {/* Primed location ask — the in-app "why" that the native prompt can't give. */}
+          <div className="text-xs text-slate-500">
+            {geoStatus === "granted" ? (
+              <span>Using your location for local weather.</span>
+            ) : geoStatus === "denied" ? (
+              <span>
+                No location — outfits are picked without today&apos;s weather. Mention it in the event
+                description (e.g. &quot;it&apos;s cold out&quot;) and the stylist will factor it in.{" "}
+                <button
+                  type="button"
+                  onClick={requestGeo}
+                  className="font-medium text-slate-700 underline hover:text-slate-900"
+                >
+                  Try again
+                </button>
+              </span>
+            ) : (
+              <span>
+                Outfits get better with the weather where you are.{" "}
+                <button
+                  type="button"
+                  onClick={requestGeo}
+                  disabled={geoStatus === "asking"}
+                  className="font-medium text-slate-700 underline hover:text-slate-900 disabled:opacity-50"
+                >
+                  {geoStatus === "asking" ? "Waiting for permission…" : "Use my location"}
+                </button>{" "}
+                — your browser will ask first, and it&apos;s only used to look up local weather.
+              </span>
             )}
           </div>
 
