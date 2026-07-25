@@ -1,259 +1,243 @@
 # Full-codebase audit — session prompts (2026-07-25)
 
-Three self-contained prompts. Run in order; each ends at a safe stopping point. Paste ONE per fresh
-session (`/clear` between them). Session 1 is the highest priority — it verifies work that is
-committed but unverified.
+Paste ONE prompt per fresh session, `/clear` between them. Run in order.
 
-## Why this exists (read before running any of them)
+## Status
 
-On 2026-07-25 a six-item "friend-first-use hardening" pass ran on `main`. It produced four commits
-(`df9d8f1f`, `24f8b816`, `ec75ecbb`, `31b6df45`), ~1,519 lines. During it:
+**SESSION 1 is DONE and CONVERGED** (5 rounds, `df9d8f1f`…`e63a928a`, deployed 2026-07-25).
+It verified the friend-first-use pass (all six fixes correct) and audited every TS test for forgery.
+Suite **888 → 960**. Details: `docs/sessions/2026-07-25-audit-session1.md`; live-deploy state:
+`m5-c8-half2-runbook.md` §8. New holes: **§23-H78–H85**.
 
-- **Every convergence round found real defects in the PREVIOUS round's fixes.** Three rounds ran.
-  The last one still found 12+ load-bearing issues, so convergence was never reached.
-- **Three shipped tests were VACUOUS** — green while measuring nothing — and one of them was cited
-  in `docs/Fitted_Spec_v2.md` §23-H77 as a pin. A doc asserted a guarantee that did not exist.
-- **Two pre-existing data-destroying bugs** were found in code the pass merely made more reachable
-  (photo-replace deleted before storing; the EXIF fallback baked wrong rotation and stripped the
-  tag). Both were in files no prior audit had opened.
-- **A review subagent deleted an untracked file** (`fitted/scripts/track2-users-peek.mjs`, never
-  committed, unrecoverable).
-- **Zero browser verification.** All of it is jsdom simulation.
+Remaining: **Session 2** (verify session 1, then close its top registered holes) → **Session 3** (the
+app, from cold) → **Session 4** (Python + cross-runtime).
 
-The lesson driving these prompts: *the surface has been audited repeatedly; the substrate has not,
-and a green suite is not evidence.*
+### Why session 2 was split
+The original plan had one session for the whole app. Session 1 showed that *verifying the previous
+session* alone consumes a large fraction of a long session — so bundling verification with a from-cold
+DFS of 73 files guarantees the DFS gets shortchanged. Verification + bounded hole-closing is now
+session 2; the from-cold audit is session 3.
 
 ---
 
-## Standing rules — apply to ALL THREE sessions
-
-Copy these into every session; they are not optional.
+## Standing rules — apply to EVERY session
 
 ### Agent safety
-- **Every review/search subagent MUST be read-only** (`subagent_type: "Explore"`, or an agent with
-  no Edit/Write). A writable agent deleted a user file in the originating session.
-- At session start run `git status --short` and **record the untracked files**. Re-check at the end
-  and confirm the same list. Never run `git clean`, `git checkout -- .`, `git stash`, `git reset
-  --hard`, or `rm` on anything you did not create in that session.
-- Do your own mutations only on **committed** files, and `cp` a backup first; verify restoration
-  with `git diff --stat` before moving on.
+- **Every review/search subagent MUST be read-only** (`subagent_type: "Explore"`). A writable agent
+  deleted a user file in an earlier session.
+- Record `git status --porcelain -uall` at session start; re-check at the end and confirm the same
+  untracked list. Never `git clean/checkout -- ./stash/reset --hard`, or `rm` anything you did not
+  create this session.
+- Your own mutations only on **committed** files, `cp` a backup first, and verify restoration with
+  `git diff --stat`. **A command timeout can kill the restore step** — this happened twice in session
+  1, leaving a source file mutated. Always re-check the tree after a timeout.
 
-### Trust nothing, verify everything
-- **Never trust a subagent finding.** Read the cited source yourself before acting. Subagents in the
-  originating session reported findings against stale trees and against code they misread.
-- **Never trust a green test.** For every behavioral claim, name the source mutation that would
-  redden it; for load-bearing ones, PERFORM the mutation, confirm red, restore, confirm restored.
-- **Never trust a doc.** Any doc sentence claiming code behavior or test coverage must be verified
-  against the code. `§23` and the runbook both carried false claims as of this pass.
-- **Never trust prior audits, including the one that produced this file.**
+### Evidence rules (these are what actually found the defects)
+- **Never trust a green test. Mutate the source, require RED, restore, confirm restored.** ~40
+  mutations in session 1 found four load-bearing gaps that were invisible to reading, including a
+  data-loss fix whose full revert left all 17 of its suite's tests green.
+- **A RED run is evidence. Never write one off as "transient."** Capture the FULL output to a file
+  **before** re-running — the re-run deletes your only sample. Session 1 lost the first sample this
+  way and had to infer the failing suite from a test-count delta. A low reproduction rate says nothing
+  about severity, and a flaky suite is as corrosive as a vacuous one: every later regression hides
+  behind "that's the flaky one."
+- **For a bug fix, write the failing test FIRST — and verify it fails for the RIGHT reason.** Twice in
+  session 1 a "failing" test passed on broken code (a boundary fixture sized from the constant under
+  test; a race repro whose blanked span happened to contain no bracket). A test you *believe* fails is
+  worth nothing.
+- **Never assert a fix works in a comment, a commit message, or §23 without a mutation.** The session-1
+  blocker was a `cancelled` flag that could not fire, shipped with a comment claiming the race was
+  closed; then the same error recurred one round later in a commit message. This is the repo's
+  characteristic failure — a false guarantee in source is worse than the original bug.
+- **Verify every subagent finding against source before acting.** ~3 of 40 needed correcting in session
+  1: one reported blocker was a limit the target file already documented; one "these tests pin nothing"
+  was too strong (a mutation reddened five of them).
 
-### Known vacuous-test patterns (hunt these specifically — all found live in this repo)
-1. `new File(["x"], …)` + `Object.defineProperty(f, "size", …)` — a **faked** size with one real
-   byte. Any assertion on read bytes or data-URL length cannot distinguish original from processed.
-2. A stub installed and restored **synchronously**, while the code under test consumes it after an
-   `await` → the real (absent) implementation is used and the test asserts the wrong branch.
-3. **One-sided threshold assertions.** "Rejects 45MB" proves nothing about a 40MB-vs-5MB ceiling;
-   only the ACCEPT side pins the value.
-4. Assertions on **unrelated strings** the test never triggers, standing in for the real claim.
-5. `waitFor` sampling **before** an async state lands, so the assertion passes on the pre-state.
-6. Prototype assignment (`X.prototype.foo = …`) is **not** undone by `jest.restoreAllMocks()` —
-   it leaks into every later test in the file.
-7. **Mirrors**: a test reimplementing the unit inline instead of importing it (CLAUDE.md forbids).
-8. Tests asserting a **mocked** value rather than real behavior.
-9. `.only` / `.skip` / `xit` / `todo`, or a file not actually registered in the run.
+### Known vacuous-test patterns (all found live here)
+1. `new File(["x"], …)` + `Object.defineProperty(f,"size",…)` — a faked size with one real byte.
+2. A stub restored **synchronously** while the code consumes it after an `await`.
+3. **One-sided thresholds.** Bracket from ABSOLUTE endpoints, or assert an inequality against an
+   external fact. A fixture sized from the constant moves with it and pins nothing.
+4. Assertions on strings the fixture can never produce, or on copy that exists nowhere in `app/`/`lib/`.
+5. `waitFor`/`findBy` sampling before async state lands; a negative assertion that races.
+6. `X.prototype.foo = …` is NOT undone by `jest.restoreAllMocks()`; jest.config sets neither
+   `restoreMocks` nor `resetMocks`. `clearAllMocks` keeps implementations — use `resetAllMocks`.
+7. **Mirrors** — a test reimplementing the unit instead of importing it.
+8. Asserting a mocked value rather than real behavior. `expect(x).toBe(process.env.NODE_ENV === "…")`
+   is a tautology in test env.
+9. `.only`/`.skip`/`xit`/`todo`, or a file not registered in the run.
 
-### Method (non-negotiable)
-- **MAP BEFORE EDIT.** Before changing anything: read the whole file (not the hunk), write the map —
-  exact lines, the execution path, and **every other call site touched by the change (ripple
-  check)**. Line-cites in docs drift; verify them.
-- **Trace like a debugger.** Name concrete input values and follow them through every branch.
-- **Enumerate the state space and walk every cell** (e.g. add|edit × photo|none × ok|fail|pending).
-- **Fault-inject every boundary**: fetch rejects / non-JSON / 401 / 413 / 429 / 500, token throws,
-  FileReader errors, absent browser APIs, storage throws, DB unavailable, timeouts.
-- **Hunt absence-shaped defects**: a missing catch, missing bound, missing cleanup, an unreachable
-  state, an unhandled rejection, a state with no exit.
-- **Understand fully before implementing.** No speculative edits.
+### Local verification is YOURS, not Brian's
+If it can be checked on this machine without touching production and without spending money, **do it**.
+Only deploys, pushes, the Fly machine, and paid API runs are Brian's. Session 1 wrongly handed back
+browser testing; the harness now exists and found a defect jsdom could not:
 
-### Convergence rule (the one that failed)
-- A convergence round must be **BROAD — the whole session scope**, never "did my last patch break
-  something." Delta-only rounds are circular and were the specific failure here.
-- **Done = a FRESH round on the FINAL post-fix code returns zero load-bearing findings.**
-  Punch-list-executed ≠ converged. Expect ≥2 rounds; budget for 3.
-- **Load-bearing** = would mislead an implementer, lose/corrupt data, break a downstream seam, or
-  ship broken/dishonest to a friend. Style nits never block convergence.
-- Closure statement **names residuals and unchecked surface**. Never "all clean."
+```
+# in the scratchpad, NOT the repo (keeps package.json clean)
+npm i playwright                      # or playwright-core for Chrome-only
+npx playwright install webkit         # Safari's engine
+```
+- **Chrome:** `chromium.launch({ channel: "chrome" })` — no download needed.
+- **WebKit:** `webkit.launch()` + `newContext({ isMobile: true, hasTouch: true, viewport: {width:390,height:844} })`.
+- To exercise an auth-gated client component, add a **temporary** `fitted/app/dev-*/page.tsx` harness
+  rendering it with injected props — no auth, no DB — and **delete it in the same session** (never
+  commit; also `rm -rf fitted/.next/dev/types` afterwards or `tsc` reports stale generated types).
+- Extract a non-exported function's source from the file at run time and `eval` it, so the test cannot
+  drift from the shipped implementation.
+- Neutralise Next's dev overlay: `nextjs-portal{display:none!important;pointer-events:none!important}`.
+- **Two engines disagree on real numbers** — the same 12MP JPEG at q0.85 lands ~455KB on Chrome and
+  ~1.0MB on WebKit. Never generalise one engine's margin.
+- Still genuinely out of reach: iOS memory pressure / tab discard (§23-H79 residual).
 
-### Scope discipline
-- Anything outside the session's lane: **report and register**, do not fix. New holes go to
-  `docs/Fitted_Spec_v2.md` §23 with a status and a resolution sketch.
-- **Do NOT deploy.** Deploy is Brian's and is **CLI-driven — this project does NOT deploy on git
-  push**: `git push origin main`, then `cd fitted && npx vercel --prod` (never from the repo ROOT).
-  The Fly render service stays at **1 machine**; do not touch it.
-- Commit on `main` (solo fork). End commit messages with the `Co-Authored-By` trailer.
-- Keep docs conflict-free in the same pass: if a fix makes code diverge from `Fitted_Spec_v2.md` or
-  a plan, reconcile the doc in that commit.
+### Convergence — must TAPER, not stay rectangular
+- A round must be **broad early** (whole scope). Delta-only rounds are circular.
+- But each round should be **narrower and cheaper than the last**, because the loop cannot close while
+  your fixes create as much new unreviewed surface as the round reviewed. Session 1's shape:
+  3 lanes → 2 lanes → newest-weighted → newest-commit+sample → one-commit+regression-checks.
+- **Once severity drops (a round with no blocker), fix only blockers/important; register minors as §23
+  rows.** That is the mechanism that makes it taper. Comment-only corrections are exempt — they add no
+  reviewable behavior.
+- **Done = a fresh round on the FINAL code returns no blocker and no important.** Expect 3; budget 5.
+- Closure names residuals and unchecked surface. Never "all clean."
+
+### Scope + docs
+- Out-of-lane findings: **report and register** in §23, do not fix.
+- **Cite by SYMBOL, not line number.** Session 1's line cites went stale twice in one day, including in
+  the very commit that wrote them.
+- Conflicts are bugs: reconcile `Fitted_Spec_v2.md` / the runbook in the same commit. Check `models/`
+  and `lib/` too — a stale claim about H14 sat in `models/User.ts`, which a `docs/`-only sweep missed.
+- Commit on `main`; end messages with the `Co-Authored-By` trailer. **Do not deploy** unless Brian says
+  so in that session; if he does, it is `git push origin main` then `cd fitted && npx vercel --prod`
+  (NEVER the repo root), keep Fly at **1 machine**, and update runbook §8's live-SHA bullet in the same
+  session.
 
 ---
 
-## SESSION 1 — Verify the 2026-07-25 pass + full TS test-forgery audit
-
-> **Highest priority.** This work is committed to `main` and unverified. Do this before anything else.
+## SESSION 2 — Verify session 1, then close its top registered holes
 
 ```
-Full verification audit. Two coupled jobs. Read docs/plans/full-audit-2026-07-25.md FIRST and follow
-its "Standing rules" exactly — especially read-only subagents, the vacuous-test patterns, and the
-broad convergence rule. Do not trust the prior session's claims, its tests, or its docs.
+Read docs/plans/full-audit-2026-07-25.md FIRST and follow its "Standing rules" exactly — especially
+mutate-to-verify, write-the-failing-test-first, read-only subagents, and the tapering convergence rule.
+Trust nothing from session 1: it made real errors, including a fix that was a no-op shipped with a
+comment claiming it worked.
 
-JOB A — Verify the 2026-07-25 friend-first-use pass.
-Scope: commits fa73be11..HEAD (df9d8f1f, 24f8b816, ec75ecbb, 31b6df45). Read `git show` on each, then
-read the CHANGED FILES WHOLE. The pass rewrote the wardrobe add/edit modal contract, image
-pick/preview/upload handling, an API rate limit, the dashboard's geolocation + closet-count, the slot
-census copy, and the M6 export manifest counters.
+JOB A — VERIFY SESSION 1 (commits fa73be11..e63a928a, 14 commits, now DEPLOYED).
+Read `git show` on each, then read the CHANGED FILES WHOLE. Session 1 added ~70 tests and a lexing
+meta-test, and changed the wardrobe page, the image route, lib/db, lib/recommendCopy, models/User and
+the §23 register. For each change decide independently: is it correct, is it complete, did it break
+something else? Specifically re-derive, because these are the ones session 1 got wrong at least once:
+ 1. The wardrobe GET **merge** (`app/(app)/wardrobe/page.tsx`). Its predecessor — a `cancelled` flag —
+    was a NO-OP shipped with a comment claiming the race was closed. Prove the merge actually holds:
+    can it duplicate a row, lose a locally-edited row, or break the newest-first ordering? Is the new
+    test a real pin (mutate it) or does it pass on a pre-state?
+ 2. `tests/testHarnessContract.test.ts` — a hand-written lexer, rewritten FOUR times because each
+    version was defeated. Attack `codeOnly`/`bootTimeouts` for a **false green** (a number reported for
+    a hook with no timeout). Do its self-tests each fail on the implementation they claim to pin?
+ 3. `tests/dbErasureDoor.test.ts` — the only test that runs the real erasure door. Does it prove
+    erasure, or only that some rows vanished? Does it interact with the other real-mongod suites?
+ 4. The census scope sentence (`lib/recommendCopy.ts`). Read the composed output for EVERY census
+    shape. Its predecessor had a false antecedent that never reached the case it was written for.
+ 5. The image-header, cookie-`Secure`, `confirm`-gate and cross-user-scoping pins added in `3d7cfed9`.
+Also: re-run `npx jest` and `npx jest --randomize` several times and report ANY nondeterminism.
 
-For each of the six original fixes AND every follow-up fix, independently decide: is it correct, is
-it complete, and did it break something else? Trace concrete values. Specifically re-derive these,
-which the prior session changed but never verified beyond unit tests:
- 1. `app/api/wardrobe/[id]/image/route.ts` was reordered to store→repoint→delete. Verify no failure
-    path can now leave an orphan WardrobeImage, a dangling imagePath, or a double-charged byte
-    budget. The reorder lets old+new coexist briefly — quantify that overshoot against
-    MAX_USER_IMAGE_BYTES and §23-H67, and confirm the erasure guard (§23-H43/H74) still holds.
- 2. `prepareImageForUpload`'s EXIF fallback now returns the ORIGINAL instead of re-encoding. Verify
-    this doesn't now reject a large class of real phone photos, and that stored orientation is
-    correct/correctable in EVERY path (small-file skip, successful downscale, fallback). This feeds
-    the M6 embedding pipeline — §23-H53 and the frozen preregistration depend on it.
- 3. `prepareImageForUpload` now runs TWICE per pick (preview effect + upload). Independent decodes.
-    Verify they cannot disagree in a way that matters.
- 4. The modal's `SaveResult` union and every branch of `submitForm`; the page-level `photoFailures`
-    list; the `photoPreviewSrc` truthfulness across all four (imageFile × isEdit) states.
- 5. `lib/recommendCopy.ts` census: verify against the REAL engine
-    (ml-system/fitted_core/sampler.py candidate_requested, slotmap.py) that every census shape gives
-    correct guidance, and that no shape gets neither a diagnosis nor a useful hint.
- 6. Dashboard geo (opt-in + Permissions resume + timeout + unsupported) and `closetCount`
-    (null-vs-0, bfcache/pageshow refetch, races with the F10 pending-render resume).
- 7. `scripts/exportTrack2Core.cjs` new counters — verify they don't touch the FROZEN certificate
-    constants or the preregistration's decision rule.
+JOB B — close the highest-cost registered holes, in this order, test-first:
+ - §23-H78: `imagePath` is PATCH-able with no shape or ownership gate, so an authed user can point an
+   item at another friend's image and land that photo in the M6 export. No client path sends it in a
+   PATCH — check, then prefer removing it from `PATCH_STRING_FIELDS` (a contract narrowing: get a Fable
+   read). Also add the missing `user` filter to the exporter's image resolve and extend
+   exportTrack2.test.ts's scoping test to `wardrobeimages`.
+ - §23-H84 items (1) and (5): `writeJSON`'s silent quota failure versus the "you won't lose your place"
+   promise, and the three `if (!firebaseUser) return` no-ops that swallow a confirmed destructive action.
+ - §23-H82's top items: the dashboard like/dislike failure revert (the primary M6 label path), the F10
+   envelope's write-before-fetch, and `DISLIKE_REASONS` ⊆ `FEEDBACK_REASON_CODES`.
+ - §23-H80/H81 if budget remains.
 
-JOB B — Full TypeScript test-forgery audit (fitted/tests, 54 files, ~11.5k lines).
-Do NOT limit this to files the pass touched. Three vacuous pins already shipped here.
- - Build a claim inventory: for every behavioral guarantee the app makes, is there a test, and would
-   it actually FAIL if the behavior regressed? Name the mutation. PERFORM the mutation for every
-   load-bearing claim, confirm red, restore, verify restoration.
- - Sweep for all nine vacuous patterns listed in the plan doc.
- - Find claims with NO test at all; rank by what a regression costs a friend or the M6 corpus.
- - Verify every doc sentence of the form "pinned in X" / "mutation-proven" against reality. Correct
-   any that are false — a doc asserting a guarantee that doesn't exist is load-bearing.
-
-DELIVERABLE: fix what is load-bearing (map ripples first), register the rest as §23 holes, reconcile
-docs in the same commits, and run BROAD convergence rounds until a fresh round returns zero
-load-bearing findings. Report residuals explicitly. Do not deploy. State plainly at the end what is
-still unverified — in particular, nothing in this pass has ever run in a real browser.
+Use the browser harness (standing rules) wherever a claim is about real browser behavior. Fix
+load-bearing findings, register the rest, reconcile docs in the same commit, and run TAPERING
+convergence rounds until a fresh round returns no blocker and no important. Name residuals.
 ```
 
 ---
 
-## SESSION 2 — The web app (`fitted/`), detective-style
+## SESSION 3 — The web app, from cold, detective-style
 
 ```
-Deep behavioral audit of the Next.js app. Read docs/plans/full-audit-2026-07-25.md FIRST and follow
-its "Standing rules" exactly. Read-only subagents only. Trust no prior audit, doc, or test.
+Read docs/plans/full-audit-2026-07-25.md FIRST and follow its "Standing rules" exactly. Read-only
+subagents. Trust no prior audit, doc, or test — sessions 1 and 2 both shipped defects in their own fixes.
 
 Scope: fitted/app, fitted/lib, fitted/models, fitted/scripts (73 files, ~13.4k lines). There is no
-`fitted/components` directory — shared client pieces live under `fitted/lib` (e.g.
-`lib/addItemUploadStepActions.tsx`) and the rest are inline in the page files. NOT the Python side
-(session 3).
+fitted/components — shared client pieces live in fitted/lib. NOT the Python side (session 4).
 
-Work like a principal engineer joining the codebase cold, with a tester's suspicion. Do not skim.
-Choose a small number of entry points and DFS them to their leaves, understanding each fully before
-moving on. Suggested entry points, each traced end-to-end through every branch:
+Work like a principal engineer joining cold, with a tester's suspicion. Do not skim. Pick a few entry
+points and DFS to their leaves, understanding each fully before moving on:
  1. Auth + session: signin → /api/auth/sync → AuthGate → session cookie → image serving ownership.
+    (AuthGate has ZERO tests — §23-H82.)
  2. Ingestion: add item → validation → POST /api/wardrobe → clothingType/warmth derivation → Mongo;
-    photo → downscale → POST image route → imageStorage → WardrobeImage.
- 3. Recommend: dashboard Generate → /api/recommend → lib/mlRecommend → mlServiceClient → snapshot
-    write → browser projection → render.
+    photo → downscale → image route → imageStorage → WardrobeImage.
+ 3. Recommend: Generate → /api/recommend → lib/mlRecommend → mlServiceClient → snapshot write →
+    browser projection → render.
  4. Feedback: like/dislike → /api/interactions → binding → latest-state (§23-H61) → history curation.
  5. Deletion/erasure: item delete, wardrobe clear, DELETE /api/account three-phase sweep, the D2
     keep-referenced-photos carve-out.
  6. The export/monitor scripts that read the live corpus.
 
-For each: enumerate the state space and walk every cell; fault-inject every boundary; hunt
-absence-shaped defects. Ask at every step "what happens if this fails, and does the user find out?"
-— the defect class this project keeps shipping is SILENT failure.
+Enumerate the state space and walk every cell; fault-inject every boundary (fetch rejects / non-JSON /
+401 / 413 / 429 / 500, token throws, FileReader errors, absent browser APIs, storage throws, DB down,
+timeouts). At every step ask "what if this fails, and does the user find out?" — SILENT failure is the
+defect class this project keeps shipping.
 
-Priorities, in order:
- (a) Data loss or corruption (friend photos, wardrobe rows, snapshots, interactions).
- (b) Erasure correctness — "delete me" must actually delete (§23-H43/H74/H75).
- (c) Corpus integrity — anything that silently degrades what M6 will train on.
- (d) Security / untrusted input on authed routes (the app has open Google sign-up).
- (e) Silent user-facing failures and dead ends.
- (f) Cross-file contract drift (a value hand-copied between two files with no test).
+Priorities: (a) data loss/corruption · (b) erasure correctness (§23-H43/H74/H75) · (c) M6 corpus
+integrity · (d) security/untrusted input (open Google sign-up) · (e) silent user-facing dead ends ·
+(f) cross-file contract drift with no equality test.
 
-Before ANY code change: write the map (exact lines, execution path, every other call site =
-ripple check). Verify doc line-cites; they drift. Fix load-bearing findings, register the rest as
-§23 holes, reconcile docs in the same commit. BROAD convergence rounds until a fresh round returns
-zero load-bearing. Name residuals. Do not deploy.
+Map before edit; cite by symbol; register out-of-lane findings; taper the rounds; name residuals.
 ```
 
 ---
 
-## SESSION 3 — The Python substrate (`ml-system/`) + cross-runtime seams
+## SESSION 4 — The Python substrate + cross-runtime seams
 
 ```
-Deep behavioral audit of the Python side and the seams between runtimes. Read
-docs/plans/full-audit-2026-07-25.md FIRST and follow its "Standing rules" exactly. Read-only
-subagents only. Trust no prior audit, doc, or test.
+Read docs/plans/full-audit-2026-07-25.md FIRST and follow its "Standing rules" exactly. Read-only
+subagents. Use ml-system/.venv (base anaconda numpy is broken).
 
-Scope: ml-system/fitted_core (18 files, ~8.7k lines), ml-system/service (10 files, ~1.6k lines),
-ml-system/tests + service/tests (29 files), and the TS↔Python↔Mongoose contract surface. Use
-ml-system/.venv (base anaconda numpy is broken).
+Scope: ml-system/fitted_core (18 files, ~8.7k lines), ml-system/service (~1.6k lines), the Python test
+suites, and the TS↔Python↔Mongoose contract surface.
 
- 1. fitted_core DFS: sampler → validator → ranker → generation/rescue → response. Trace a real
-    wardrobe through it with concrete values. Enumerate the degenerate closets (0 tops, dress-only,
-    single item, all-unavailable, 300 items) and confirm each yields an honest outcome rather than a
-    crash, an empty, or a misleading hint.
+ 1. fitted_core DFS: sampler → validator → ranker → generation/rescue → response, with concrete values.
+    Enumerate degenerate closets (0 tops, dress-only, single item, all-unavailable, 300 items) and
+    confirm each yields an honest outcome, not a crash, an empty, or a misleading hint.
  2. The render service: auth, throttle ordering, the 500 wrapper, controls dedup/canonical-order,
-    timeout budgets. §23-H76 records a REAL open defect — the Next timeout budgets ONE OpenAI call
-    while the engine lawfully makes TWO. Verify it, and whether the margin test's premise is wrong.
-    §23-H68 records effective concurrency 1. Do not hot-edit deployed config; propose and register.
- 3. CROSS-RUNTIME DRIFT (highest value): every fact that must agree across Python/TS/Mongoose — enum
-    values, numeric clamps, format regexes, wire field sets, timeouts. For each, is there a single
-    generated source or a cross-runtime equality test? A hand-copied mirror with neither is the
-    drift disease this project has already been bitten by. Enumerate them all; register the gaps.
- 4. Python test audit, same rigour as session 1's TS pass: mutation-prove load-bearing pins, hunt
-    vacuous/mirror tests, find unguarded claims.
- 5. The frozen artifacts — ml-system/experiments/track2_transfer/preregistration.md(+.json),
-    exportTrack2Core's certificate constants, the H26 frozen order. Verify NOTHING in the recent
-    passes altered a frozen value or the decision rule. If a frozen artifact was touched, that is a
-    blocker: report, do not "fix".
+    timeout budgets. §23-H76 is a REAL open defect — Next budgets ONE OpenAI call while the engine
+    lawfully makes TWO; verify it and whether the margin test's premise is wrong. §23-H68 records
+    effective concurrency 1. Do not hot-edit deployed config: propose, register, Fable-review the math.
+ 3. CROSS-RUNTIME DRIFT (highest value): every fact that must agree across Python/TS/Mongoose — enums,
+    numeric clamps, format regexes, wire field sets, timeouts. For each: single generated source, or a
+    cross-runtime equality test, or neither? A hand-copied mirror with neither is the drift disease.
+    Enumerate them all; register the gaps. Note §23-H82 lists several already found.
+ 4. Python test audit at session 1's rigour: mutate load-bearing pins, hunt vacuous/mirror tests, find
+    unguarded claims. Apply the nine patterns — they are language-agnostic.
+ 5. The frozen artifacts — experiments/track2_transfer/preregistration.md(+.json), exportTrack2Core's
+    CERTIFICATE constants, the H26 frozen order. Verify NOTHING in any recent pass altered a frozen
+    value or the decision rule. A touched frozen artifact is a BLOCKER: report, do not "fix".
 
-Same method and convergence rules. Fix load-bearing findings, register the rest as §23 holes,
-reconcile docs in the same commit. BROAD convergence until a fresh round returns zero load-bearing.
-Name residuals. Do not deploy; do not touch the Fly machine count.
+Same method and tapering convergence. Name residuals. Do not touch the Fly machine count.
 ```
 
 ---
 
 ## Open items for Brian (decisions, not audit work)
 
-1. **`fitted/scripts/track2-users-peek.mjs` was deleted** by a review subagent and is unrecoverable
+1. **`fitted/scripts/track2-users-peek.mjs`** was deleted by a review subagent and is unrecoverable
    (never committed). Decide whether to reconstruct it.
-2. **Rating yield is the next binding constraint** (NOT a criticism of this pass — see the
-   correction below). The prereg needs **≥25 accepted + ≥25 rejected** scoreable clusters; the live
-   corpus is ~6 interactions. Nothing in this pass increases ratings-per-friend, and nothing was
-   supposed to. Candidate for the next build: extend the empty-closet signpost to a confirmed
-   **below-floor** closet (a signpost, not a gate — same §18 anti-guilt shape). It currently fires
-   only at exactly 0 items, so the 3-item and 6-item closets — the ones that actually hit the render
-   wall — get nothing proactive.
-
-   > **Corrected 2026-07-25.** A convergence-round reviewer argued this pass "hardened the wrong
-   > step," reasoning that Zhiyun bounced on rating yield rather than add-path friction. That premise
-   > was **false**: her root cause was the clothingType mis-slot, which was diagnosed, migrated on her
-   > live row, and re-verified on **2026-07-24** (runbook §8 "clothingType slot-correctness rollout",
-   > steps 1–3 DONE) — a day BEFORE this pass, whose stated purpose was to flush out the REMAINING
-   > first-use defects before the next recruit wave. It did exactly that, including two pre-existing
-   > data-destroying bugs. The finding was relayed without checking it against the task's own stated
-   > premise — the same "verify every subagent finding against source before acting" rule this
-   > document mandates. Treat it as a worked example: an articulate reviewer reasoning from a stale
-   > premise produces a confident, wrong conclusion.
-3. **Nothing in the 2026-07-25 pass has run in a real browser.** Before any friend sees it: add an
-   item with a real camera photo, replace a photo, use "Save & add another", and tap the location
-   button — on a phone.
+2. **Rating yield is the next binding constraint.** The prereg needs **≥25 accepted + ≥25 rejected**
+   scoreable clusters; the live corpus is ~6 interactions. Nothing in the hardening pass or the audit
+   increases ratings-per-friend, and nothing was supposed to. Candidate next build: extend the
+   empty-closet signpost to a confirmed **below-floor** closet — it currently fires only at exactly 0
+   items, so the 3- and 6-item closets (the ones that actually hit the render wall) get nothing
+   proactive. A signpost, not a gate; same §18 anti-guilt shape.
+3. **Real-device testing is the one remaining verification gap.** Chrome and WebKit are both covered by
+   the harness above, and §23-H79(b) is narrowed accordingly. What no desktop engine can settle: iOS
+   memory pressure and tab discard, which is what the data-URL-over-blob decision rests on. Brian's
+   framing (2026-07-25): friends can use the web app on desktop, so this does not gate recruiting —
+   but cross-platform code quality is still non-negotiable.

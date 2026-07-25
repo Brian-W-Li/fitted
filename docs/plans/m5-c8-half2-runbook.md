@@ -220,18 +220,22 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **⚠️ LIVE WEB IS BEHIND `main` — do not read this section as "HEAD is deployed."** Live web =
-  `origin/main` `46857aab` — and **everything after it is undeployed** (deliberately not a commit
-  count: the first version of this bullet said "six", which was stale within the hour. Run
-  `git log --oneline 46857aab..HEAD` for the live list). That undeployed set includes the
-  friend-first-use hardening pass (`df9d8f1f`, `24f8b816`, `ec75ecbb`, `31b6df45` — the
-  photo-destroying-replace fix, [[H14]]/§23-H77) and the session-1 verification audit on top of it.
-  **None of it is live**, so a friend on `fitted-three.vercel.app` right now still hits the old 5MB
-  pick dead end and the delete-before-store replace. Deploy is Brian's and is CLI-driven
-  (this project does NOT deploy on push): `git push origin main`, then `cd fitted && npx vercel --prod`
-  — never from the repo ROOT. Update the SHA in this bullet in the same session you deploy; the phrase
-  "redeployed to HEAD" rotted here once and must not be reintroduced (state the SHA, never "HEAD").
-- **Deploy record for the CURRENT live SHA (2026-07-25 web deploy of `46857aab`; Fly unchanged.)**
+- **✅ LIVE WEB = `origin/main` `e63a928a` (deployed 2026-07-25).** Deployment
+  `dpl_5dGkHkX3JnnXr9W42mAEZ4ENukUV` / `fitted-f18dsklcj-…`, via `npx vercel --prod` from `fitted/`
+  → alias `fitted-three.vercel.app`, verified **200** on `/` and `/signin`; `vercel ls --prod` shows
+  it as the sole Ready production deployment. **Fly render service UNTOUCHED** — `fly scale show` =
+  exactly **1 machine** (`app │ 1 │ shared │ 1 │ 512 MB │ lax`), re-checked after the deploy; none of
+  these commits touch `ml-system/`, so no Fly redeploy was needed.
+  This ships the friend-first-use hardening pass (`df9d8f1f`, `24f8b816`, `ec75ecbb`, `31b6df45` —
+  including the photo-destroying-replace fix, [[H14]]/§23-H77) **and** the session-1 verification audit
+  (`3d7cfed9`…`e63a928a`: the erasure-door and image-header pins, the wardrobe-GET merge, the census
+  scope sentence, the hook-timeout guard). Suite floor at deploy: **960 jest**.
+  **Honest limit on this verification:** the deployed content is this commit's code *by construction*
+  (a CLI deploy of a clean tree at `e63a928a`, build Ready, alias resolved) — the bundle was NOT
+  independently fingerprinted, because the changed copy lives in the auth-gated dashboard chunk and is
+  not reachable by an unauthenticated fetch. State the SHA here every time you deploy; never write
+  "redeployed to HEAD", which rotted in this bullet once.
+- **Superseded deploy record (2026-07-25 web deploy of `46857aab` — no longer live; kept for the Fly-side facts it records).**
   Deploy `fitted-96uzl05hl` / `dpl_GxkU8bDp6dUPdbdV7YR2pYHXbH9U` via
   `npx vercel --prod` from `fitted/` → aliased `fitted-three.vercel.app`, verified **200**. This ships the
   2026-07-24 correctness batch: recommend `imageUrl` drop≡accept + `weatherRaw` out of render identity +
