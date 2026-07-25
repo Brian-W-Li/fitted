@@ -221,11 +221,13 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
 
 ### Ops notes (Brian)
 - **⚠️ LIVE WEB IS BEHIND `main` — do not read this section as "HEAD is deployed."** Live web =
-  `origin/main` `46857aab`. As of the 2026-07-25 verification audit, `main` carries **six unpushed
-  commits** on top of it: the four-commit friend-first-use hardening pass (`df9d8f1f`, `24f8b816`,
-  `ec75ecbb`, `31b6df45` — including the photo-destroying-replace fix, [[H14]]/§23-H77) plus two doc
-  commits. **None of it is live**, so a friend on `fitted-three.vercel.app` right now still hits the
-  old 5MB pick dead end and the delete-before-store replace. Deploy is Brian's and is CLI-driven
+  `origin/main` `46857aab` — and **everything after it is undeployed** (deliberately not a commit
+  count: the first version of this bullet said "six", which was stale within the hour. Run
+  `git log --oneline 46857aab..HEAD` for the live list). That undeployed set includes the
+  friend-first-use hardening pass (`df9d8f1f`, `24f8b816`, `ec75ecbb`, `31b6df45` — the
+  photo-destroying-replace fix, [[H14]]/§23-H77) and the session-1 verification audit on top of it.
+  **None of it is live**, so a friend on `fitted-three.vercel.app` right now still hits the old 5MB
+  pick dead end and the delete-before-store replace. Deploy is Brian's and is CLI-driven
   (this project does NOT deploy on push): `git push origin main`, then `cd fitted && npx vercel --prod`
   — never from the repo ROOT. Update the SHA in this bullet in the same session you deploy; the phrase
   "redeployed to HEAD" rotted here once and must not be reintroduced (state the SHA, never "HEAD").

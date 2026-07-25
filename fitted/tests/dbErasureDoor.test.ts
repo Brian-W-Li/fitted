@@ -41,12 +41,12 @@ afterAll(async () => {
   await server.stop();
   if (origUri === undefined) delete process.env.MONGODB_URI;
   else process.env.MONGODB_URI = origUri;
-  // `lib/mongodb` memoizes its connection on `globalThis` (to survive Next hot reloads), and
-  // globalThis is shared by every test FILE in a jest worker — module registries are not. Leaving the
-  // now-DISCONNECTED handle cached there would hand it to the next file that calls the real
-  // `connectMongo()`, which would then silently operate on a dead connection. No other suite does
-  // that today (they all mock `@/lib/db`), but §23-H82 points future work at this file as the
-  // template, so clear it rather than leave the trap armed.
+  // `lib/mongodb` memoizes its connection on `globalThis` (to survive Next hot reloads). Clearing it
+  // is belt-and-braces WITHIN this file, not cross-file hygiene: jest builds one environment per test
+  // FILE (`vm.createContext()`), so `globalThis` here is this file's own sandbox and no other suite
+  // can observe it. Verified by probe, not assumed — a first version of this cleanup claimed the
+  // opposite ("globalThis is shared by every test file in a worker"), which is false: a marker set on
+  // globalThis in one file reads back `undefined` in the next, even under `--runInBand`.
   delete (globalThis as { mongoose?: unknown }).mongoose;
 });
 

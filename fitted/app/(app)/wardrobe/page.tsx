@@ -405,7 +405,11 @@ export function AddItemModal({
   const isUploadStep = addStep === "upload";
   const isEdit = !!existingImagePath || (!!initialItem && !addStep);
   const showForm = !isUploadStep;
-  const canShowGuideInThisModal = showForm && addStep === "form";
+  // NOT gated on `addStep === "form"`: after "Save & add another" the page clears `addStep` to null
+  // while this modal stays mounted, so keying on it removed the guide — and its "Show guide" escape
+  // hatch — for items #2..#15 of exactly the batch add the guide exists to support. Edit mode never
+  // wants it (the friend already knows the item), which is what `!isEdit` expresses.
+  const canShowGuideInThisModal = showForm && !isEdit;
   const showCvGuide =
     canShowGuideInThisModal &&
     !guideDismissedSession &&
@@ -559,8 +563,11 @@ export function AddItemModal({
   // Shared by the form's submit ("Save item", the primary button rendered ONLY when a photo is
   // attached) and the deliberate "Save without a photo" button. The D1 photo strong-nudge is
   // enforced by the FOOTER rendering — a photo-less save is reachable only via the honestly-labeled
-  // secondary button (the no-photo footer has no submit button, so an Enter keypress can't slip a
-  // photo-less item through) — so this just saves whatever state is present.
+  // secondary button. (Careful with the reason: "no submit button" alone does NOT block Enter — a form
+  // with no submit button is still implicitly submittable. What blocks it here is having MORE THAN ONE
+  // implicit-submission-blocking text field, so the browser refuses: Name, the colors input, and the
+  // occasions input. Drop to one text input and Enter starts saving photo-less items.) So this just
+  // saves whatever state is present.
   async function submitForm(addAnother = false) {
     if (savingRef.current) return; // re-entrancy latch (see savingRef declaration) — no duplicate item
     setFormError(null);
@@ -1015,8 +1022,12 @@ export function AddItemModal({
                   computed from LIVE form state via the real deriveClothingType — visibility only
                   (no override yet; that is the W-track §18/H52 rung-2 unit). Makes a
                   name-vs-structure contradiction visible BEFORE save (the "suit dress" tell).
-                  Hidden while the form is empty (a bare default "Top" would be noise). */}
-              {(category || subCategory || layerRole || name.trim()) && (
+                  Shown only once a STRUCTURAL signal exists. `name` is deliberately NOT a trigger:
+                  a name with no garment keyword ("Dad's old thing") falls through every rung of
+                  deriveClothingType to its bare `top` default, so triggering on the name asserted
+                  "Files as: Top" for an item with no category yet — exactly the noise this guard
+                  exists to suppress (observed in a real browser, 2026-07-25 audit). */}
+              {(category || subCategory || layerRole) && (
                 <p className="text-xs text-slate-500" data-testid="files-as-chip">
                   Files as:{" "}
                   <span className="font-medium text-slate-700">
@@ -1539,6 +1550,12 @@ export default function WardrobePage() {
 
   // Fetch wardrobe items when userId is available
   useEffect(() => {
+    // `cancelled` is load-bearing, not hygiene: this effect re-runs whenever `firebaseUser` identity
+    // changes (a token refresh does that), and without the guard a slow GET landing AFTER the friend
+    // saved an item calls setItems(<pre-add server list>) and the new item VANISHES from the grid
+    // with no error. They then re-add it — and the add path has no server idempotency, so that mints
+    // a duplicate straight into the M6 corpus. A stale response must be discarded, never applied.
+    let cancelled = false;
     async function fetchItems() {
       if (!firebaseUser) return;
       try {
@@ -1551,6 +1568,7 @@ export default function WardrobePage() {
           },
         });
         const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
         if (!res.ok) {
           setError(data.error ?? "Failed to load wardrobe.");
           return;
@@ -1563,14 +1581,18 @@ export default function WardrobePage() {
         }));
         setItems(normalized);
       } catch (e) {
+        if (cancelled) return;
         console.error("Error loading wardrobe:", e);
         setError("Failed to load wardrobe.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     fetchItems();
+    return () => {
+      cancelled = true;
+    };
   }, [firebaseUser]);
 
   async function handleDeleteItem(item: WardrobeItem) {

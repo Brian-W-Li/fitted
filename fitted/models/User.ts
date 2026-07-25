@@ -37,8 +37,13 @@ type CascadeDb = {
  * names, occasion notes, raw generation text), so they are erased, not just redacted. This
  * runs on the NATIVE driver, deliberately below the Mongoose delete guard — exactly like the
  * other cascade arms. Redaction (`redacted:true`) remains the tool for non-erasure removal
- * (corpus hygiene) and as the account route's phase-1 fail-safe. The image-replacement
- * delete-before-commit ordering bug stays W-track (§14.4-H14).
+ * (corpus hygiene) and as the account route's phase-1 fail-safe.
+ *
+ * H14's image-replacement ordering arm is **CLOSED, not W-track deferred** — `app/api/wardrobe/[id]/
+ * image/route.ts` is store → repoint → delete, so no failure arm destroys the old photo. Do NOT
+ * "tighten" the transient byte-budget overshoot by moving that `deleteOne` back above the store: the
+ * overshoot is one image for the duration of one delete, and the reverted order destroys real friend
+ * photos on the very path §23-H77(a) advertises as the remedy ("retry the photo from Edit").
  */
 export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Promise<void> {
   // These deleteMany calls hit the NATIVE driver collections (`this.model.db`), which perform NO

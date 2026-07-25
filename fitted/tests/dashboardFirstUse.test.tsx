@@ -45,7 +45,10 @@ function mockWardrobe(count: number) {
 const getCurrentPosition = jest.fn();
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  // resetAllMocks, not clearAllMocks: `clear` wipes call records but KEEPS implementations, so a
+  // `getCurrentPosition.mockImplementation(...)` set by one test leaked into every later test in the
+  // file and the suite's result depended on describe order.
+  jest.resetAllMocks();
   window.sessionStorage.clear();
   window.localStorage.clear();
   Object.defineProperty(navigator, "geolocation", {

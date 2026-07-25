@@ -419,9 +419,22 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     expect(req.formData).toHaveBeenCalledTimes(1);
   });
 
-  it("ACCEPTS a Content-Length that exceeds the image cap but fits the multipart overhead allowance", () => {
-    // Pins MAX_MULTIPART_OVERHEAD_BYTES from below: shrink it to 0 and a 5MB image plus its multipart
-    // envelope 413s on framing bytes alone.
+  it("ACCEPTS a Content-Length inside the multipart-overhead allowance (a real request, not a constant compare)", async () => {
+    // Pins MAX_MULTIPART_OVERHEAD_BYTES from below by actually SENDING a Content-Length in the
+    // interval (image cap, image cap + overhead] — the band no other test in this file touches. A
+    // constant comparison here was named for this guarantee but issued no request, so shrinking the
+    // allowance to 0 left the suite green while a max-size image plus its multipart envelope 413'd on
+    // framing bytes alone. Latent today only because the client caps below this; that changes the
+    // moment a non-modal caller appears.
+    const id = await seedItem();
+    const req = makeRequest({
+      file: makeFile(8),
+      contentLength: String(MAX_WARDROBE_IMAGE_BYTES + 1024),
+    });
+    const res = await post(id, req);
+    expect(res.status).toBe(200);
+    expect(req.formData).toHaveBeenCalledTimes(1);
+    // And the band is genuinely a band: the constant must leave room above the image cap.
     expect(MAX_WARDROBE_IMAGE_REQUEST_BYTES).toBeGreaterThan(MAX_WARDROBE_IMAGE_BYTES);
   });
 });

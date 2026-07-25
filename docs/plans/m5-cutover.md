@@ -2082,7 +2082,7 @@ code paths.
 - **The shareable before/after rescue card** (H45 growth artifact) — post-M5, activates with the someday-launch.
 - **`wardrobeVersion` bump wiring** (H6, W-track). Stays inert (constant 0); freshness rides fresh
   generation + the per-request cooldown/repetition signals.
-- **Image-replacement delete-before-commit ordering** (H14, W-track).
+- ~~**Image-replacement delete-before-commit ordering** (H14, W-track).~~ **CLOSED 2026-07-25** — the image route is now store → repoint → delete; see §23-H14's trap-guard before touching that order.
 - **Engine-active constraints** (H36) — M5 rejects non-empty maps so the corpus never claims inactive
   dress-code/weather/comfort rules shaped an outfit.
 

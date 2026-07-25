@@ -38,7 +38,7 @@ let ids: { top: string; b1: string; b2: string; shoes: string; outer: string };
 gate("LOCAL service smoke — real Next core ↔ real service ↔ real gpt-5.4-mini", () => {
   beforeAll(async () => {
     harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, OutfitInteraction, User]);
-  });
+  }, 120_000);
   afterAll(async () => {
     await harness.stop();
   });

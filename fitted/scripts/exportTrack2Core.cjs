@@ -383,8 +383,13 @@ async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
         (sum, t) => sum + t.items.filter((i) => i.imageStatus === "none").length,
         0,
       ),
-      // Labeled examples excluded from the scoreable clusters purely for image reasons — the
-      // headline number an operator should watch while friends are adding closets.
+      // Labeled examples that FAIL the image-usable gate. Read it as "how many labels the image side
+      // is costing us", NOT as "excluded purely for image reasons": it does not subtract examples that
+      // would be non-scoreable anyway via the other conjunct (`items.length >= 2`), so a labelled
+      // 1-item outfit with no photo is counted here even though it could never be scoreable. It also
+      // spans ALL users, including the prereg §5 exclusions the certificate drops — so it will not tie
+      // out against `yield.scoreableClusters`. NOTE: the predicate below is a hand-copy of
+      // `buildCertificate`'s `imageUsable` (§23-H82); change both together or neither.
       labeledExamplesNotImageUsable: trainingExamples.filter(
         (t) =>
           t.label != null &&

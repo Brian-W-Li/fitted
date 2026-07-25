@@ -13,8 +13,12 @@ let harness: MongoHarness;
 const userId = new mongoose.Types.ObjectId();
 
 beforeAll(async () => {
+  // 120s, matching the other 16 real-Mongo suites: booting a mongod exceeds jest's 5s DEFAULT
+  // hook timeout under parallel load, and when it does this hook throws, `harness` stays
+  // undefined, and EVERY test in the file fails on `harness.clear()` — an intermittent red that
+  // reads as flake and trains people to re-run instead of investigate.
   harness = await startMemoryMongo([WardrobeItem]);
-});
+}, 120_000);
 afterAll(async () => {
   await harness.stop();
 });
