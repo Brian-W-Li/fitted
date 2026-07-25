@@ -68,7 +68,7 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
     // honest description first, then BOTH remedies, then the engine hint (first letter
     // capitalized by the composer — the engine's fragments are lowercase)
     expect(msg).toMatch(/^Right now we can see 5 tops, 0 bottoms, 1 dress, 1 layer, and 0 pairs of shoes/);
-    expect(msg).toMatch(/actually a bottom, check its details/);
+    expect(msg).toMatch(/actually a bottom, fix its details in your Wardrobe/);
     expect(msg).toMatch(/Add a bottom to build an outfit around this top$/);
   });
 
@@ -115,7 +115,7 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
       slotCensus: { top: 0, bottom: 1, dress: 2, outer_layer: 0, shoes: 1 },
     });
     expect(topless).toMatch(/0 tops, 1 bottom, 2 dresses, 0 layers, and 1 pair of shoes/);
-    expect(topless).toMatch(/actually a top, check its details/);
+    expect(topless).toMatch(/actually a top, fix/);
 
     // No top, no bottom AND no dress — the top/bottom gap is the genuine structural blocker.
     const both = emptyStateMessage({
@@ -123,7 +123,7 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
       reasonHint: "x",
       slotCensus: { top: 0, bottom: 0, dress: 0, outer_layer: 1, shoes: 2 },
     });
-    expect(both).toMatch(/actually a top or a bottom, check its details/);
+    expect(both).toMatch(/actually a top or a bottom, fix/);
   });
 
   it("a DRESS-only closet keeps the census but drops the SHOPPING half of the remedy", () => {
@@ -141,7 +141,7 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
     });
     // The mislabel entrance stays open, counts and all.
     expect(msg).toMatch(/Right now we can see 0 tops, 0 bottoms, 3 dresses/);
-    expect(msg).toMatch(/If any of those is actually a top or a bottom, check its details/);
+    expect(msg).toMatch(/If any of those is actually a top or a bottom, fix its details/);
     // …but the shopping instruction is gone — nothing is structurally missing.
     expect(msg).not.toMatch(/add one you/);
     // The engine's own advice still rides along.
@@ -156,7 +156,7 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
       reasonHint: "x",
       slotCensus: { top: 4, bottom: 0, dress: 1, outer_layer: 0, shoes: 1 },
     });
-    expect(msg).toMatch(/actually a bottom, check its details/);
+    expect(msg).toMatch(/actually a bottom, fix/);
   });
 
   it("names the Exclude toggle as a remedy — the census counts only AVAILABLE items", () => {
@@ -169,7 +169,12 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
       reasonHint: "x",
       slotCensus: { top: 0, bottom: 2, dress: 0, outer_layer: 0, shoes: 1 },
     });
-    expect(msg).toMatch(/Exclude from recommendations/);
+    // The guarantee lives in a SCOPE sentence, not in the mislabel clause: anything counted is by
+    // construction not switched off, so folding it into "if one of these is actually a top…" would be a
+    // false antecedent that never reaches this friend (a first attempt did exactly that).
+    expect(msg).toMatch(/only includes pieces switched on for recommendations/);
+    // The false-antecedent shape must not come back.
+    expect(msg).not.toMatch(/one of these is actually a top, check whether/i);
     // …and it stays anti-guilt (§18) while doing so.
     expect(msg).not.toMatch(/you haven.{0,2}t|you didn.{0,2}t|yet to add/i);
   });

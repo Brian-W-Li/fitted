@@ -541,8 +541,12 @@ render service is untouched (leave it at 1 machine).**
 > not wrong fixes but **missing guards on them**: reverting the photo-destroying-replace fix left all 17
 > image-route tests green, and `lib/db.ts`'s erasure door had never been executed by any test. Those and
 > ~10 more are now pinned (suite 888 → 922, every pin mutation-proven). New holes from the audit:
-> §23-H78–H82. **Still not deployed, and still never run in a real browser** — the phone gauntlet in
-> "Open items" below is the remaining gate.
+> §23-H78–H85. **Still not deployed.** The client image pipeline and the real AddItemModal have now
+> been exercised in REAL Chrome (14/14 and 16/16 — the first time any of this ran outside jsdom; it
+> caught one defect jsdom could not), so "never run in a real browser" no longer holds. What remains
+> is real-DEVICE testing: Chrome-on-macOS is not iOS WebKit, so the blob-reclaim rationale for data
+> URLs and whether iOS Safari accepts `imageOrientation: "from-image"` ([[H79]](b)) are still
+> inferred. The phone gauntlet in "Open items" below is that gate.
 
 1. **Silent photo loss on "Save & add another"** — spec §23-H77(a). Fable-reviewed contract change.
 2. **Big-phone-photo dead end** — spec §23-H77(b); pick ceiling 5MB → 40MB sanity-only.

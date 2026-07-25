@@ -66,14 +66,20 @@ describe("POST /api/auth/session — mint the session cookie", () => {
     // COOKIE_BASE. `resetModules` is safe in this file (no DB/driver singletons to leak).
     const orig = process.env.NODE_ENV;
     try {
-      Object.defineProperty(process.env, "NODE_ENV", { value: "production", configurable: true });
+      // `process.env` accepts only a configurable+writable+enumerable data descriptor — omitting the last
+      // two throws in real Node and, under jest's plain-object `process`, leaves NODE_ENV non-writable.
+      Object.defineProperty(process.env, "NODE_ENV", {
+        value: "production", configurable: true, writable: true, enumerable: true,
+      });
       jest.resetModules();
       mint().mockResolvedValue("SESSION-COOKIE-VALUE");
       const { POST: prodPOST } = await import("@/app/api/auth/session/route");
       const res = await prodPOST(makeRequest("Bearer id-token"));
       expect(res.cookies.get(SESSION_COOKIE_NAME)?.secure).toBe(true);
     } finally {
-      Object.defineProperty(process.env, "NODE_ENV", { value: orig, configurable: true });
+      Object.defineProperty(process.env, "NODE_ENV", {
+        value: orig, configurable: true, writable: true, enumerable: true,
+      });
       jest.resetModules();
     }
   });

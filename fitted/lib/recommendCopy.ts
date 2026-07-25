@@ -53,17 +53,20 @@ function slotCensusSentence(census: RenderFlagsLike["slotCensus"]): string | nul
   // (Zhiyun's skirt typed dress), not of a genuine dress-only wardrobe. So keep the description —
   // it is the only place that mislabel becomes visible to the friend — and drop only the shopping
   // clause. Suppressing the whole sentence would blind the very case it was written to catch.
-  // The census counts only what the ENGINE can see, and `lib/mlRecommend.ts` reads the wardrobe with
-  // `isAvailable: { $ne: false }` — so a friend who tapped "Exclude from recommendations" on all their
-  // tops reads "0 tops" and, before this, was offered only two remedies that both fail: fix a mislabel
-  // (nothing is mislabelled) or buy a top (they own three). The toggle is the third entrance to the
-  // same wall and the only one that applies in that case, so name it. Still anti-guilt (§18): it
-  // describes what WE can see and lists where to look, never what the friend failed to do.
-  const remedy = `check its details — including whether it's set to "Exclude from recommendations" — in your Wardrobe`;
+  // THIRD entrance to the same wall: the census counts only what the ENGINE can see, because
+  // `lib/mlRecommend.ts` reads the wardrobe with `isAvailable: { $ne: false }`. A friend who switched
+  // their tops off therefore reads "0 tops" for a closet that HAS tops.
+  // Trap-guard on how to say this: it CANNOT be folded into the mislabel clause. Anything COUNTED is by
+  // construction not switched off, so "if one of these is actually a top, check whether it's excluded"
+  // has a false antecedent and never reaches the case it was written for (a first attempt shipped
+  // exactly that). State the count's SCOPE as its own sentence instead — that reaches the switched-off
+  // closet without claiming anything false about the pieces we can see. Anti-guilt (§18) holds: it
+  // describes what WE count, never what the friend failed to do.
+  const scope = "That count only includes pieces switched on for recommendations.";
   if (tops === 0 && bottoms === 0 && n("dress") > 0) {
-    return `${description} If any of those is actually ${missing}, ${remedy}, then try again.`;
+    return `${description} ${scope} If any of those is actually ${missing}, fix its details in your Wardrobe and try again.`;
   }
-  return `${description} If one of these is actually ${missing}, ${remedy} — or add one you don’t have yet.`;
+  return `${description} ${scope} If one of these is actually ${missing}, fix its details in your Wardrobe — or add one you don’t have yet.`;
 }
 
 /** Machine reason codes a DEGRADED render carries in `reasonHint` (all healthy flags false) → friendly

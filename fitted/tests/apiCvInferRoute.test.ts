@@ -185,6 +185,11 @@ describe("/api/cv/infer route (behavioral auth, real Mongo)", () => {
       expect(globalThis.fetch).not.toHaveBeenCalled();
     } finally {
       process.env.CV_SERVICE_URL = prev;
+      // Restore the REGISTRY too, not just the env. Without this the poisoned route instance (captured
+      // with CV_SERVICE_URL undefined at module scope) stays cached, so any test that runs AFTER this
+      // one re-resolves it and gets 503 CV_SERVICE_UNAVAILABLE. The "LAST test by design" comment above
+      // was the only thing holding that together, and `npx jest --randomize` broke it in 4 of 6 seeds.
+      jest.resetModules();
     }
   });
 });

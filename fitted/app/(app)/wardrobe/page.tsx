@@ -402,6 +402,12 @@ export function AddItemModal({
   const [guideDismissedSession, setGuideDismissedSession] = useState(false);
   const [guideDismissedForever, setGuideDismissedForever] = useState(false);
 
+  // True when `name` on its own derives a slot OTHER than deriveClothingType's bare `top` default —
+  // i.e. the name genuinely carried a garment signal ("wrap dress"), rather than falling through.
+  const nameAloneCarriesSlotSignal =
+    !!name.trim() &&
+    deriveClothingType({ category: "", subCategory: "", name, layerRole: "" }) !== "top";
+
   const isUploadStep = addStep === "upload";
   const isEdit = !!existingImagePath || (!!initialItem && !addStep);
   const showForm = !isUploadStep;
@@ -888,9 +894,16 @@ export function AddItemModal({
               <h2 className="text-lg font-semibold text-slate-900 truncate">
                 {title ?? "Add clothing item"}
               </h2>
-              {addStep === "form" && pendingAddFile && (
+              {/* The RESTORE chip must not share the subtitle's gate. Both `addStep` and
+                  `pendingAddFile` are cleared by the page on "Save & add another" (and
+                  `onSkipToForm` may pass a null file at all), so nesting the chip under them left a
+                  friend who tapped "Dismiss forever" with no way back for the rest of the batch —
+                  the very flow the guide exists to support. The subtitle keeps its own gate. */}
+              {(canShowGuideInThisModal || (addStep === "form" && pendingAddFile)) && (
                 <div className="mt-0.5 flex items-center gap-2">
-                  <p className="text-xs text-slate-500">Review and edit, then save</p>
+                  {addStep === "form" && pendingAddFile && (
+                    <p className="text-xs text-slate-500">Review and edit, then save</p>
+                  )}
                   {!showCvGuide && canShowGuideInThisModal && (
                     <button
                       type="button"
@@ -1022,12 +1035,14 @@ export function AddItemModal({
                   computed from LIVE form state via the real deriveClothingType — visibility only
                   (no override yet; that is the W-track §18/H52 rung-2 unit). Makes a
                   name-vs-structure contradiction visible BEFORE save (the "suit dress" tell).
-                  Shown only once a STRUCTURAL signal exists. `name` is deliberately NOT a trigger:
-                  a name with no garment keyword ("Dad's old thing") falls through every rung of
-                  deriveClothingType to its bare `top` default, so triggering on the name asserted
-                  "Files as: Top" for an item with no category yet — exactly the noise this guard
-                  exists to suppress (observed in a real browser, 2026-07-25 audit). */}
-              {(category || subCategory || layerRole) && (
+                  Shown when any STRUCTURAL field is set, or when the NAME alone derives something
+                  other than the bare default. Triggering on any non-empty name asserted
+                  "Files as: Top" for "Dad's old thing" with no category yet (observed in a real
+                  browser) — a name with no garment keyword falls through every rung to the `top`
+                  default, so that was noise. But dropping `name` entirely also hid CORRECT
+                  name-only derivations ("wrap dress" → Dress), which are the most useful case. So
+                  the test is "did the name actually carry a signal", not "is there a name". */}
+              {(category || subCategory || layerRole || nameAloneCarriesSlotSignal) && (
                 <p className="text-xs text-slate-500" data-testid="files-as-chip">
                   Files as:{" "}
                   <span className="font-medium text-slate-700">
@@ -1550,11 +1565,12 @@ export default function WardrobePage() {
 
   // Fetch wardrobe items when userId is available
   useEffect(() => {
-    // `cancelled` is load-bearing, not hygiene: this effect re-runs whenever `firebaseUser` identity
-    // changes (a token refresh does that), and without the guard a slow GET landing AFTER the friend
-    // saved an item calls setItems(<pre-add server list>) and the new item VANISHES from the grid
-    // with no error. They then re-add it — and the add path has no server idempotency, so that mints
-    // a duplicate straight into the M6 corpus. A stale response must be discarded, never applied.
+    // `cancelled` covers UNMOUNT only. It is deliberately NOT the fix for the stale-GET race below,
+    // and must not be mistaken for it: it is flipped only by this cleanup, i.e. on unmount or a
+    // `firebaseUser` identity change — an add is neither, so it can never fire in that race. (It was
+    // shipped as that fix once, with a comment saying so; the race stayed fully open. `firebaseUser`
+    // identity is also stabler than it looks: `onAuthStateChanged` does not fire on token refresh —
+    // that is `onIdTokenChanged` — and Firebase hands back the same User instance.)
     let cancelled = false;
     async function fetchItems() {
       if (!firebaseUser) return;
@@ -1579,7 +1595,20 @@ export default function WardrobePage() {
           ...it,
           id: it.id ?? it._id ?? it.id, // id should exist after this
         }));
-        setItems(normalized);
+        // MERGE, never replace. "+ Add item" is not gated on `loading`, so on a slow connection a
+        // friend can finish an add while this GET is still outstanding — and this GET then answers
+        // with the PRE-ADD list. A plain `setItems(normalized)` erased the just-saved row with no
+        // error, and re-adding mints a duplicate because the add path has no server idempotency.
+        // Keeping rows the server list doesn't know about yet preserves both sides.
+        // Known asymmetry, left deliberately: a locally-DELETED row still present in a stale list
+        // would reappear. That needs a completed earlier GET to be deletable at all (the grid is not
+        // rendered while `loading`), so it requires the rare second effect run — pinned nowhere and
+        // not worth a tombstone set until it is reachable.
+        setItems((prev) => {
+          const serverIds = new Set<string>(normalized.map((it: WardrobeItem) => it.id));
+          const localOnly = prev.filter((it) => !serverIds.has(it.id));
+          return [...localOnly, ...normalized];
+        });
       } catch (e) {
         if (cancelled) return;
         console.error("Error loading wardrobe:", e);

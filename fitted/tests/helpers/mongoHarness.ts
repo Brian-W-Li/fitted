@@ -8,11 +8,20 @@
  *
  * NOT a `*.test.ts` file, so jest never runs it as a suite — it is imported by round-trip tests.
  *
- * Usage:
+ * Usage — note the explicit hook timeout, it is REQUIRED, not decoration:
  *   let harness: MongoHarness;
- *   beforeAll(async () => { harness = await startMemoryMongo([GenerationSnapshot]); });
+ *   beforeAll(async () => {
+ *     harness = await startMemoryMongo([GenerationSnapshot]);
+ *   }, 120_000);
  *   afterAll(async () => { await harness.stop(); });
  *   afterEach(async () => { await harness.clear(); });
+ *
+ * Booting a mongod routinely exceeds jest's 5s DEFAULT hook timeout once several suites do it
+ * concurrently. When it overruns, the hook throws, `harness` stays undefined, and EVERY test in the
+ * file fails on `harness.clear()` — an intermittent red that reads as flake. This docblock previously
+ * showed the one-liner WITHOUT a timeout and was copied into four suites, which were then the only
+ * flaky ones in the repo (~1 full run in 8 failed). `tests/testHarnessContract.test.ts` now enforces
+ * the timeout mechanically; keep this example and that guard in agreement.
  */
 import mongoose, { type Model } from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
