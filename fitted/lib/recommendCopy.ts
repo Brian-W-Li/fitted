@@ -31,6 +31,13 @@ function slotCensusSentence(census: RenderFlagsLike["slotCensus"]): string | nul
   const tops = n("top");
   const bottoms = n("bottom");
   if (tops > 0 && bottoms > 0) return null; // no top/bottom gap — a census sentence would be a false premise
+  // A dress is a COMPLETE base on its own, not a half-outfit: the engine sizes its ask as
+  // `tops × bottoms + dresses` (fitted_core/sampler.py `candidate_requested`), so a dress-only
+  // closet is structurally buildable and its empty render is NOT a missing-slot problem. Telling a
+  // dress owner to "add a top or a bottom" would diagnose a gap they don't have and send them
+  // shopping for pieces the stylist never needed. Only diagnose the top/bottom gap when it is the
+  // ACTUAL structural blocker — i.e. when there is no dress base either.
+  if (tops === 0 && bottoms === 0 && n("dress") > 0) return null;
   // A fully-empty closet needs no diagnosis ("if one of these…" would have no referent) — the
   // base empty-state copy already says to add pieces. Summed over the enum so a sixth slot value
   // could never silently escape the emptiness check.

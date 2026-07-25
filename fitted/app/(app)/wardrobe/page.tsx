@@ -708,7 +708,11 @@ export function AddItemModal({
   //    image is kept when no new file is picked. `willHavePhoto` drives the D1 strong-nudge: a
   //    photo-less save must be a deliberate, honestly-labeled action, never the default.
   const existingPhotoUrl = isEdit ? imageUrlFromPath(existingImagePath ?? undefined) : null;
-  const photoPreviewSrc = previewUrl ?? existingPhotoUrl;
+  // When a NEW file is pending, the preview must represent THAT file or nothing — never fall back
+  // to the stored image. A preview can legitimately be absent (skipped above MAX_PREVIEW_BYTES, or
+  // a decode failure), and falling back would show photo A while photo B is what actually uploads:
+  // a positively false claim about the pending save, worse than showing no thumbnail at all.
+  const photoPreviewSrc = imageFile ? previewUrl : existingPhotoUrl;
   const willHavePhoto = !!imageFile || (isEdit && !!existingImagePath);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [enlarged, setEnlarged] = useState(false);
@@ -1188,7 +1192,7 @@ export function AddItemModal({
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Photo</h3>
               {willHavePhoto ? (
                 <div className="space-y-2">
-                  {photoPreviewSrc && (
+                  {photoPreviewSrc ? (
                     <button
                       type="button"
                       onClick={() => setEnlarged(true)}
@@ -1202,6 +1206,12 @@ export function AddItemModal({
                         className="max-h-56 w-auto rounded object-contain cursor-zoom-in"
                       />
                     </button>
+                  ) : (
+                    // A pending file too large to preview. Say it IS attached — the alternative is a
+                    // bare "Change photo | Remove" row that reads as though the pick didn't take.
+                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                      Photo selected{imageFile ? ` — ${imageFile.name}` : ""} (too large to preview here; it will still upload)
+                    </p>
                   )}
                   <div className="flex items-center gap-3 text-sm">
                     <button
@@ -1220,7 +1230,9 @@ export function AddItemModal({
                         Remove
                       </button>
                     )}
-                    <span className="text-xs text-slate-400">Tap the photo to enlarge</span>
+                    {photoPreviewSrc && (
+                      <span className="text-xs text-slate-400">Tap the photo to enlarge</span>
+                    )}
                   </div>
                 </div>
               ) : (

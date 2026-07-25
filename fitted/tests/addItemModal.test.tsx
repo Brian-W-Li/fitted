@@ -543,3 +543,64 @@ describe("AddItemModal — the preview renders from the DOWNSCALED copy (§23-H7
     expect(screen.queryByAltText("Item photo")).not.toBeInTheDocument();
   });
 });
+
+describe("AddItemModal — a pending photo is never misrepresented by the STORED one", () => {
+  // Convergence-round finding: `photoPreviewSrc` used to be `previewUrl ?? existingPhotoUrl`. A
+  // preview can legitimately be absent (skipped above MAX_PREVIEW_BYTES, or a decode failure on a
+  // browser with no createImageBitmap), and the fallback then rendered the item's OLD stored photo
+  // while a DIFFERENT pending file was what would upload — a positively false claim about the save,
+  // worse than showing no thumbnail. jsdom has no createImageBitmap, so the fallback path is the
+  // default here: prepareImageForUpload returns the original, and a 20MB original is preview-skipped.
+  function sizedFile(bytes: number, name = "new.jpg") {
+    const f = new File(["x"], name, { type: "image/jpeg" });
+    Object.defineProperty(f, "size", { value: bytes });
+    return f;
+  }
+
+  it("EDIT: picking an un-previewable replacement does not keep showing the stored photo", async () => {
+    const { container } = render(
+      <AddItemModal
+        onClose={() => {}}
+        onSave={() => true}
+        initialItem={validItem}
+        existingImagePath="mongo:abc123"
+      />,
+    );
+    // Pre-condition: the stored photo is on screen.
+    expect((screen.getByAltText("Item photo") as HTMLImageElement).src).toContain("/api/images/abc123");
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedFile(20 * 1024 * 1024)] } });
+
+    // The stored image must be GONE — it is not what would be saved.
+    await waitFor(() => expect(screen.queryByAltText("Item photo")).not.toBeInTheDocument());
+    // …and the pending file is honestly announced instead of silently vanishing.
+    expect(screen.getByText(/Photo selected/i)).toHaveTextContent(/new\.jpg/);
+    // The enlarge hint must not point at an image that isn't rendered.
+    expect(screen.queryByText(/Tap the photo to enlarge/i)).not.toBeInTheDocument();
+  });
+
+  it("EDIT: with NO new pick, the stored photo still shows (the fallback is still correct there)", () => {
+    render(
+      <AddItemModal
+        onClose={() => {}}
+        onSave={() => true}
+        initialItem={validItem}
+        existingImagePath="mongo:abc123"
+      />,
+    );
+    expect((screen.getByAltText("Item photo") as HTMLImageElement).src).toContain("/api/images/abc123");
+  });
+
+  it("ADD: an un-previewable pick still reads as attached, not as a failed pick", async () => {
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedFile(20 * 1024 * 1024)] } });
+
+    await waitFor(() => expect(screen.getByText(/Photo selected/i)).toBeInTheDocument());
+    // The photo path is live — D1's primary save, not the photo-less secondary action.
+    expect(screen.getByRole("button", { name: /^save item$/i })).toBeInTheDocument();
+  });
+});

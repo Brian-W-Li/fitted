@@ -116,12 +116,40 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
     expect(topless).toMatch(/0 tops, 1 bottom, 2 dresses, 0 layers, and 1 pair of shoes/);
     expect(topless).toMatch(/actually a top, fix/);
 
+    // No top, no bottom AND no dress — the top/bottom gap is the genuine structural blocker.
     const both = emptyStateMessage({
       notEnoughItems: true,
       reasonHint: "x",
-      slotCensus: { top: 0, bottom: 0, dress: 2, outer_layer: 0, shoes: 0 },
+      slotCensus: { top: 0, bottom: 0, dress: 0, outer_layer: 1, shoes: 2 },
     });
     expect(both).toMatch(/actually a top or a bottom, fix/);
+  });
+
+  it("a DRESS-only closet gets no top/bottom diagnosis — a dress is a complete base", () => {
+    // The engine sizes its ask as `tops × bottoms + dresses` (fitted_core/sampler.py
+    // `candidate_requested`), so dresses alone are structurally buildable. Telling that owner to
+    // "add a top or a bottom" invents a gap they don't have and sends them shopping for pieces the
+    // stylist never needed — the same dress-blindness the friend-facing closet-minimum copy had.
+    const msg = emptyStateMessage({
+      insufficientAfterGeneration: true,
+      reasonHint: "we couldn't pull a full look together this time",
+      slotCensus: { top: 0, bottom: 0, dress: 3, outer_layer: 0, shoes: 2 },
+    });
+    expect(msg).not.toMatch(/actually a top or a bottom/);
+    expect(msg).not.toMatch(/Right now we can see/);
+    // The engine's own advice still stands alone.
+    expect(msg).toMatch(/couldn't pull a full look together/);
+  });
+
+  it("still diagnoses a real gap when dresses coexist with a half-outfit", () => {
+    // Tops but no bottoms, plus a dress: the dress is buildable, but adding a bottom unlocks the
+    // tops, so the diagnosis remains true and actionable.
+    const msg = emptyStateMessage({
+      notEnoughItems: true,
+      reasonHint: "x",
+      slotCensus: { top: 4, bottom: 0, dress: 1, outer_layer: 0, shoes: 1 },
+    });
+    expect(msg).toMatch(/actually a bottom, fix/);
   });
 
   it("a fully-empty closet gets NO census ('one of these' would have no referent)", () => {
