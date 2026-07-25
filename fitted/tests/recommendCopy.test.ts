@@ -159,10 +159,10 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
     expect(msg).toMatch(/actually a bottom, fix/);
   });
 
-  it("names the Exclude toggle as a remedy — the census counts only AVAILABLE items", () => {
+  it("says the count is availability-scoped — the census counts only AVAILABLE items", () => {
     // `lib/mlRecommend.ts` reads the wardrobe with `isAvailable: { $ne: false }`, so a friend who
-    // excluded all their tops sees "0 tops" for a closet that HAS tops. Without this clause the copy
-    // offers only two remedies, both of which fail in that case: fix a mislabel (nothing is
+    // excluded all their tops sees "0 tops" for a closet that HAS tops. Without the scope sentence the
+    // copy offers only two remedies, both of which fail in that case: fix a mislabel (nothing is
     // mislabelled) or buy a top (they own three). Dropping it re-strands exactly that friend.
     const msg = emptyStateMessage({
       notEnoughItems: true,

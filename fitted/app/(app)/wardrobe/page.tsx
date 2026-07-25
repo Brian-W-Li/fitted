@@ -402,8 +402,13 @@ export function AddItemModal({
   const [guideDismissedSession, setGuideDismissedSession] = useState(false);
   const [guideDismissedForever, setGuideDismissedForever] = useState(false);
 
-  // True when `name` on its own derives a slot OTHER than deriveClothingType's bare `top` default —
-  // i.e. the name genuinely carried a garment signal ("wrap dress"), rather than falling through.
+  // True when `name` on its own derives a slot OTHER than deriveClothingType's bare `top` default.
+  // Read it precisely: this detects a name-only derivation that is DISTINGUISHABLE from the default,
+  // which is not the same as "the name carried a signal" — a genuine top ("white blouse", "cotton
+  // tee") also derives `top` and so is indistinguishable from a fall-through, and its chip stays
+  // hidden until a category is picked. That asymmetry is accepted: showing "Files as: Top" for
+  // "Dad's old thing" is a false claim, while hiding it for "white blouse" only withholds a
+  // confirmation the friend gets the moment they choose a Category.
   const nameAloneCarriesSlotSignal =
     !!name.trim() &&
     deriveClothingType({ category: "", subCategory: "", name, layerRole: "" }) !== "top";

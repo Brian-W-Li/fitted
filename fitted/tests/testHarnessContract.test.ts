@@ -43,12 +43,19 @@ export function codeOnly(src: string): string {
   const blank = (from: number, to: number) => {
     for (let k = from; k < to && k < out.length; k++) if (out[k] !== "\n") out[k] = " ";
   };
-  // A `/` starts a regex (rather than division) only after one of these. NOTE the absent `|^`
-  // alternative: in a non-anchored `.test()`, `^` matches ANY string, which made this check vacuous —
-  // every `/` read as a regex start, so `b / c` opened a "regex" that blanked through to the next `/`
-  // on the line and corrupted the projection. Start-of-source is handled by the `before === ""` case
-  // at the call site instead.
-  const REGEX_OK = /[=(,:[!&|?{};+\-*%~^]|\breturn\b|\btypeof\b/;
+  // Regex-vs-division is decided by the PREVIOUS TOKEN, not by "is there an operator nearby".
+  // Two earlier versions got this wrong in different ways: first a `|^` alternative made the probe
+  // vacuous (in a non-anchored `.test()`, `^` matches any string); then, with that removed, it still
+  // scanned a fixed 8-character window — and `=`/`(`/`;`/`,` sit within 8 characters of essentially
+  // every real division, so the probe stayed true anyway. `console.log(total / n); const avg = t / n;`
+  // therefore entered regex mode at the first `/` and blanked through to the second, eating the `)`
+  // and unbalancing the walk, which reported an innocent correctly-timed suite as timeout-less.
+  // After a VALUE (identifier, number, `)`, `]`) a `/` is division; after anything else it opens a
+  // regex. These keywords are the exception — a regex may directly follow them.
+  const REGEX_AFTER = new Set([
+    "return", "typeof", "case", "in", "of", "delete", "void", "new", "do", "else", "yield",
+    "await", "instanceof", "throw",
+  ]);
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
     if (c === "/" && src[i + 1] === "/") {
@@ -67,9 +74,18 @@ export function codeOnly(src: string): string {
       blank(i, Math.min(j + 1, src.length));
       i = j;
     } else if (c === "/") {
-      // Regex literal, if the preceding non-space code permits one.
-      const before = src.slice(Math.max(0, i - 12), i).replace(/\s+$/, "");
-      if (!REGEX_OK.test(before.slice(-8)) && before !== "") continue;
+      // Backward scan to the previous non-space character (no slicing: this runs per `/`).
+      let k = i - 1;
+      while (k >= 0 && /\s/.test(src[k])) k--;
+      if (k >= 0) {
+        const prev = src[k];
+        if (prev === ")" || prev === "]") continue; // `(a+b) / c`, `xs[0] / n` → division
+        if (/[\w$]/.test(prev)) {
+          let m = k;
+          while (m >= 0 && /[\w$]/.test(src[m])) m--;
+          if (!REGEX_AFTER.has(src.slice(m + 1, k + 1))) continue; // identifier/number → division
+        }
+      }
       let j = i + 1;
       let cls = false;
       while (j < src.length && src[j] !== "\n") {
@@ -150,6 +166,15 @@ describe("codeOnly/bootTimeouts — the guard cannot be defeated the ways it was
     const src = `const HOOK_TIMEOUT = 120_000;\nbeforeAll(async () => {\n  harness = await startMemoryMongo([U]);\n}, HOOK_TIMEOUT);`;
     expect(bootTimeouts(src)).toEqual([120000]);
   });
+  it("TWO divisions on one line do not blank the code between them", () => {
+    // The case the `|^` fix did NOT close, and which its own self-test missed: the "is a regex allowed
+    // here" probe looked at the previous EIGHT characters for any operator, and `=` / `(` / `;` / `,`
+    // sit within 8 chars of essentially every real division. So `const a = b / c; const d = e / f;`
+    // still entered regex mode at the first `/` and blanked through to the second, unbalancing the
+    // walk and reporting an innocent, correctly-timed suite as timeout-less.
+    const src = `beforeAll(async () => {\n  console.log(total / n); const avg = total / n;\n  harness = await startMemoryMongo([U]);\n${T}`;
+    expect(bootTimeouts(src)).toEqual([120000]);
+  });
   it("division is not mistaken for a regex literal", () => {
     // `|^` in the regex-permitted-here test made it vacuous, so every `/` opened a regex scan that
     // blanked through to the next `/` on the line — swallowing real code between two divisions.
@@ -200,7 +225,11 @@ const suites = collect(TESTS_DIR)
   // Exclude self: this file names both boot symbols in its own source (and in its self-tests).
   .filter((f) => !f.endsWith("testHarnessContract.test.ts"))
   .map((file) => ({ file: file.slice(TESTS_DIR.length + 1), src: readFileSync(file, "utf8") }))
-  .filter(({ src }) => new RegExp(BOOT_SRC).test(codeOnly(src)));
+  // Filter on the RAW source, deliberately. Filtering on the projection meant that if `codeOnly` ever
+  // mis-lexed a file badly enough to lose the boot call (e.g. a bare apostrophe in JSX text opening a
+  // "string" that runs to EOF), the suite silently dropped OUT of scope and was never checked. Now it
+  // stays in scope and fails loudly on the `boots.length > 0` assertion below.
+  .filter(({ src }) => new RegExp(BOOT_SRC).test(src));
 
 describe("test-harness contract — every mongod boot sits in a hook with an explicit timeout", () => {
   it("finds the real-Mongo suites (a zero-length list would make the next test vacuous)", () => {

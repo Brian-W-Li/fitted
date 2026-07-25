@@ -66,8 +66,11 @@ describe("POST /api/auth/session — mint the session cookie", () => {
     // COOKIE_BASE. `resetModules` is safe in this file (no DB/driver singletons to leak).
     const orig = process.env.NODE_ENV;
     try {
-      // `process.env` accepts only a configurable+writable+enumerable data descriptor — omitting the last
-      // two throws in real Node and, under jest's plain-object `process`, leaves NODE_ENV non-writable.
+      // Written in full because the short form (`{ value, configurable }`) THROWS in real Node:
+      // `ERR_INVALID_OBJECT_DEFINE_PROPERTY` — `process.env` accepts only a configurable+writable+
+      // enumerable data descriptor. Under jest it happens to work either way (jest's `process.env` is a
+      // Proxy with no defineProperty trap, and redefining an existing property leaves omitted
+      // attributes unchanged), so this is portability, not a live bug fix.
       Object.defineProperty(process.env, "NODE_ENV", {
         value: "production", configurable: true, writable: true, enumerable: true,
       });
