@@ -1108,7 +1108,8 @@ function DashboardInner() {
             <p className="font-medium text-slate-900">First: add a few clothes.</p>
             <p className="mt-1 text-slate-600">
               The stylist builds outfits out of pieces you own, so it needs your closet before it can
-              suggest anything. A handful of tops, bottoms and shoes is enough to start.
+              suggest anything. A top and a bottom — or a dress — is enough to build something; a
+              handful of each plus shoes gives you real options.
             </p>
             <a
               href="/wardrobe"

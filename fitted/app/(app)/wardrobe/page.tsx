@@ -1384,6 +1384,16 @@ async function prepareImageForUpload(file: File): Promise<File> {
   }
 }
 
+/** Join a server/thrown reason onto a following sentence. Upload-failure reasons arrive with
+ *  inconsistent punctuation — the route's strings end bare ("…wait a moment and try again") while
+ *  the client's own throws end in a period — so a plain `${msg} Add it from Edit.` template produced
+ *  run-ons ("…try again Add it from Edit."). Terminate the reason before appending. */
+function endSentence(msg: string): string {
+  const trimmed = msg.trim();
+  if (!trimmed) return "";
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 async function uploadWardrobeItemImage(params: {
   firebaseUser: FirebaseUser;
   wardrobeItemId: string;
@@ -1667,7 +1677,7 @@ export default function WardrobePage() {
             Add pieces from your closet so we can start building outfits.
           </p>
           <p className="mt-1 text-xs text-slate-400">
-            Two tops, two bottoms and a pair of shoes is enough to start; ~15 items with photos gives the stylist real variety to work with.
+            A top and a bottom (or a dress) is all it takes to build something; two of each plus shoes gives you real options, and ~15 items with photos gives the stylist real variety.
           </p>
         </div>
         <div className="flex gap-2">
@@ -1887,7 +1897,7 @@ export default function WardrobePage() {
                     console.error(e);
                     // The item edit itself succeeded — say so, or "try again" reads as re-do-the-edit.
                     const msg = e instanceof Error ? e.message : "Failed to upload image.";
-                    photoWarning = `${msg} — your item changes were saved; retry the photo from Edit.`;
+                    photoWarning = `${endSentence(msg)} Your item changes were saved — retry the photo from Edit.`;
                     setError(photoWarning);
                   }
                 }
@@ -1955,7 +1965,7 @@ export default function WardrobePage() {
                   // the item, which mints a duplicate during exactly the batch-onboarding flow.
                   // Name the item: on a batch-add the friend needs to know WHICH one to fix.
                   const msg = e instanceof Error ? e.message : "Failed to upload image.";
-                  photoWarning = `Saved “${data.name.trim()}”, but its photo didn’t upload — ${msg} Add it from Edit.`;
+                  photoWarning = `Saved “${data.name.trim()}”, but its photo didn’t upload — ${endSentence(msg)} Add it from Edit.`;
                   setError(photoWarning);
                 }
               }

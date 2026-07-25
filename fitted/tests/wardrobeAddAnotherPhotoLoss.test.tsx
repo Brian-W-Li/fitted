@@ -69,6 +69,9 @@ describe("wardrobe page — 'Save & add another' never loses a photo silently (�
     expect(notice).toHaveTextContent(/Blue tee/);
     expect(notice).toHaveTextContent(/Too many photo uploads/);
     expect(notice).toHaveTextContent(/Add it from Edit/);
+    // The server's reason ends bare ("…try again"), so the template must terminate it before
+    // appending the remedy — otherwise the friend reads a run-on: "…try again Add it from Edit."
+    expect(notice).toHaveTextContent(/try again\. Add it from Edit\./);
 
     // The item WAS created, so the modal must still reset for the next item — never strand the old
     // values, which would invite a re-save that mints a duplicate.
