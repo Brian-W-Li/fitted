@@ -531,6 +531,17 @@ Six first-use defects of the SILENT-FAILURE / MISSING-INSTRUCTION class — the 
 never surfaces as an error (the class Zhiyun bounced on). All six built + tested; **web-only, the Fly
 render service is untouched (leave it at 1 machine).**
 
+> **VERIFIED 2026-07-25 by the session-1 audit** (`docs/plans/full-audit-2026-07-25.md`; history in
+> `docs/sessions/2026-07-25-audit-session1.md`). All six fixes re-derived as correct against source —
+> including the image-replace ordering, the EXIF fallback's orientation behavior in all four paths, and
+> the slot census against the REAL engine (`candidate_requested` = `tops×bottoms + dresses`). The
+> preregistration and the export certificate were **not** touched by the pass. What the audit found was
+> not wrong fixes but **missing guards on them**: reverting the photo-destroying-replace fix left all 17
+> image-route tests green, and `lib/db.ts`'s erasure door had never been executed by any test. Those and
+> ~10 more are now pinned (suite 888 → 922, every pin mutation-proven). New holes from the audit:
+> §23-H78–H82. **Still not deployed, and still never run in a real browser** — the phone gauntlet in
+> "Open items" below is the remaining gate.
+
 1. **Silent photo loss on "Save & add another"** — spec §23-H77(a). Fable-reviewed contract change.
 2. **Big-phone-photo dead end** — spec §23-H77(b); pick ceiling 5MB → 40MB sanity-only.
 3. **Photo-upload pacing raised 30 → 60** to match `CREATE_RATE_MAX` (`app/api/wardrobe/route.ts`).
