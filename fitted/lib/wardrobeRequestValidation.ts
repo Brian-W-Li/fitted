@@ -16,7 +16,6 @@ import {
 export const MAX_NAME_CHARS = MAX_ITEM_NAME_CHARS; // 200
 export const MAX_FIELD_CHARS = MAX_ITEM_TAG_CHARS; // 60 — taxonomy strings share the tag clamp
 export const MAX_NOTES_CHARS = 2000;
-export const MAX_IMAGE_PATH_CHARS = 2048;
 export const MAX_ARRAY_ITEMS = MAX_ITEM_TAGS; // 25
 
 const FIELD_MAX_CHARS: Record<string, number> = {
@@ -28,7 +27,6 @@ const FIELD_MAX_CHARS: Record<string, number> = {
   size: MAX_FIELD_CHARS,
   layerRole: MAX_FIELD_CHARS,
   notes: MAX_NOTES_CHARS,
-  imagePath: MAX_IMAGE_PATH_CHARS,
 };
 
 // Reject ill-formed UTF-16 (a lone surrogate half) at the storage door. A stored lone surrogate
@@ -79,7 +77,28 @@ const STRING_FIELDS = [
   "layerRole",
 ] as const;
 
-const PATCH_STRING_FIELDS = [...STRING_FIELDS, "imagePath"] as const;
+/**
+ * `imagePath` is deliberately NOT here, and must not come back (2026-07-25).
+ *
+ * It is a SERVER-OWNED pointer — the only legitimate writer is
+ * `app/api/wardrobe/[id]/image/route.ts`, which sets it to `mongo:<id>` for bytes it just stored for
+ * that caller. While it sat in this list it got only the generic length/UTF16 check, with no
+ * `mongo:<24-hex>` shape gate and no ownership check, so any signed-in user (sign-up is open Google
+ * auth) could PATCH `imagePath: "mongo:<another friend's imageId>"`. The next render embeds that
+ * reference in their snapshot and the M6 export ships the other friend's photo attributed to them.
+ * Not a way to VIEW the photo (`/api/images/<id>` still 404s a non-owner) — it corrupts the corpus.
+ *
+ * Removed rather than gated: gating would keep an ownership check alive for a capability with ZERO
+ * callers. `submitForm` builds its PATCH body explicitly and omits the field;
+ * `handleToggleAvailability` sends `{isAvailable}` only. This validator is allow-list based, so a
+ * body still carrying `imagePath` is silently ignored exactly like any other unknown key — no caller
+ * can break.
+ *
+ * TRAP-GUARD: this does not clean rows written before the fix. The `OBJECT_ID_RE` check in the image
+ * route and the `startsWith("mongo:")`/`typeof` guards in the `[id]` DELETE route are still
+ * load-bearing against stored garbage — keep them.
+ */
+const PATCH_STRING_FIELDS = [...STRING_FIELDS] as const;
 const ARRAY_FIELDS = ["colors", "seasons", "occasions"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {

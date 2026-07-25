@@ -873,6 +873,19 @@ function DashboardInner() {
           return;
         }
 
+        // A 200 whose body did not parse arrives here as `data === null`, and falling through set
+        // `setResult(null)` AND `persistResult(null, …)` — so the dashboard dropped back to its
+        // blank "Click Get Recommendations" screen with no message, and the last good saved render
+        // was overwritten with nothing. A completed, paid request read as "nothing happened".
+        // Say so instead. The envelope cleanup below still runs, unchanged — this deliberately does
+        // NOT try to make the render recoverable, which would need retry state this file should not
+        // grow. Recovering it is written up as a hole instead.
+        if (data === null || typeof data !== "object") {
+          removeKey(PENDING_KEY(userUid));
+          setError("We couldn't read the reply. Please generate again.");
+          return;
+        }
+
         const rendered = data as RenderResult;
         const accepted = onResult(rendered);
         if (accepted !== false) persistResult(rendered, envelope.lensSummary.occasion);
@@ -881,7 +894,12 @@ function DashboardInner() {
         removeKey(PENDING_KEY(userUid));
       } catch {
         // A dropped response — KEEP the envelope so a reload resumes with the SAME requestId.
-        setError("The connection dropped. Reload to resume — you won't lose your place.");
+        // Says "if", not "you won't lose your place". The old wording was an unconditional promise
+        // this code cannot keep: the resume depends on the F10 envelope having reached
+        // sessionStorage, and `writeJSON` swallows a refusal (private mode, blocked storage), so a
+        // friend could reload on the strength of that sentence and lose a render you paid for.
+        // Phrased so it is true in BOTH worlds, which needs no new state to decide between them.
+        setError("The connection dropped. Try reloading — if that outfit finished, it'll come back.");
       } finally {
         setInFlight(false);
       }

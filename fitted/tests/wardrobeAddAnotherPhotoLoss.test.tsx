@@ -236,6 +236,52 @@ describe("wardrobe page — a slow initial load must not erase an item saved whi
     expect(await screen.findByText("Old shirt")).toBeInTheDocument();
     expect(screen.getByText("Blue tee")).toBeInTheDocument();
   });
+
+  it("renders the just-saved item ONCE when the GET answers with it already included", async () => {
+    // The other half of the same race, and the half nothing was guarding: the POST commits before
+    // the GET's query runs, so the server list ALREADY contains the new row while `items` also
+    // holds the locally-prepended copy. Without the `serverIds` filter in the merge the card
+    // renders twice — under a duplicate React key — and a friend mid-batch reads that as a
+    // double-add and deletes one. Deleting that filter left all 960 tests green.
+    let releaseGet: (() => void) | undefined;
+    const getGate = new Promise<void>((r) => { releaseGet = r; });
+    const saved = {
+      _id: "new1", id: "new1", name: "Blue tee", category: "top",
+      colors: [], seasons: [], occasions: [], fit: "", size: "",
+    };
+
+    global.fetch = jest.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/cv/status") return ok({ available: false, reason: "not_configured" });
+      if (u === "/api/wardrobe" && (init?.method ?? "GET") === "GET") {
+        await getGate;
+        return ok({ items: [saved] }); // the POST-add list: it already knows about new1
+      }
+      if (u === "/api/wardrobe" && init?.method === "POST") {
+        return ok({ item: { _id: "new1", name: "Blue tee", category: "top", colors: [] } });
+      }
+      if (/^\/api\/wardrobe\/new1\/image$/.test(u)) return ok({ imagePath: "mongo:img1" });
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+
+    const { container } = render(<WardrobePage />);
+    await reachConfirmFormWithPhoto(container, "Blue tee");
+    await userEvent.click(await screen.findByRole("button", { name: /^save item$/i }));
+    await waitFor(() =>
+      expect(
+        (global.fetch as jest.Mock).mock.calls.filter(
+          ([u, o]) => String(u) === "/api/wardrobe" && o?.method === "POST",
+        ),
+      ).toHaveLength(1),
+    );
+
+    await act(async () => {
+      releaseGet!();
+      await getGate;
+    });
+
+    expect(await screen.findAllByText("Blue tee")).toHaveLength(1);
+  });
 });
 
 describe("wardrobe page — the two irreversible deletions are confirm-gated", () => {

@@ -146,6 +146,12 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
     expect(msg).not.toMatch(/add one you/);
     // The engine's own advice still rides along.
     expect(msg).toMatch(/couldn't pull a full look together/);
+    // The availability SCOPE sentence must ride this branch too, and nothing was checking that.
+    // It is the branch where it matters most: a friend who switched their tops and bottoms off
+    // reads exactly this shape — 0 tops, 0 bottoms, dresses present — and the only other remedy
+    // offered here is "fix a mislabel", which is useless to them. Deleting the scope sentence from
+    // THIS branch alone left the whole suite green.
+    expect(msg).toMatch(/only includes pieces switched on for recommendations/);
   });
 
   it("still diagnoses a real gap when dresses coexist with a half-outfit", () => {

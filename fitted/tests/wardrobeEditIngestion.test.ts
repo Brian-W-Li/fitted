@@ -226,4 +226,33 @@ describe("PATCH /api/wardrobe/[id] — M4 ingestion edit round-trip (behavioral,
     expect(res.status).toBe(400);
     expect((await readItem(id)).name).toBe("Keep me");
   });
+
+  describe("`imagePath` is server-owned and NOT client-writable", () => {
+    it("ignores a PATCH that tries to point an item at another user's image", async () => {
+      // The hole this closes: `imagePath` sat in PATCH_STRING_FIELDS with only the generic
+      // length/UTF16 check, so any signed-in user could repoint their item at a friend's imageId.
+      // The next render embeds that reference in their snapshot and the M6 export then attributes
+      // the friend's photo to them.
+      const foreignImageId = "6a4eb442443135439ac080d9";
+      const id = await seedItem({ imagePath: "mongo:aaaaaaaaaaaaaaaaaaaaaaaa" });
+      const res = await patch(id, { imagePath: `mongo:${foreignImageId}` });
+
+      // Silently IGNORED, not rejected — same as any other unknown key in this allow-list
+      // validator, so the narrowing cannot break an existing caller.
+      expect(res.status).toBe(200);
+      expect((await readItem(id)).imagePath).toBe("mongo:aaaaaaaaaaaaaaaaaaaaaaaa");
+      expect((await res.json()).item.imagePath).toBe("mongo:aaaaaaaaaaaaaaaaaaaaaaaa");
+    });
+
+    it("cannot CLEAR imagePath either, and a co-sent legitimate field still applies", async () => {
+      // Proves the field is inert rather than "only blocked when it looks foreign", and that
+      // dropping it from the allow-list did not turn the whole PATCH into a no-op.
+      const id = await seedItem({ imagePath: "mongo:aaaaaaaaaaaaaaaaaaaaaaaa", pattern: "striped" });
+      const res = await patch(id, { imagePath: "", pattern: "solid" });
+      expect(res.status).toBe(200);
+      const row = await readItem(id);
+      expect(row.imagePath).toBe("mongo:aaaaaaaaaaaaaaaaaaaaaaaa");
+      expect(row.pattern).toBe("solid");
+    });
+  });
 });
