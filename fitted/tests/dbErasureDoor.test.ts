@@ -41,6 +41,13 @@ afterAll(async () => {
   await server.stop();
   if (origUri === undefined) delete process.env.MONGODB_URI;
   else process.env.MONGODB_URI = origUri;
+  // `lib/mongodb` memoizes its connection on `globalThis` (to survive Next hot reloads), and
+  // globalThis is shared by every test FILE in a jest worker — module registries are not. Leaving the
+  // now-DISCONNECTED handle cached there would hand it to the next file that calls the real
+  // `connectMongo()`, which would then silently operate on a dead connection. No other suite does
+  // that today (they all mock `@/lib/db`), but §23-H82 points future work at this file as the
+  // template, so clear it rather than leave the trap armed.
+  delete (globalThis as { mongoose?: unknown }).mongoose;
 });
 
 afterEach(async () => {
