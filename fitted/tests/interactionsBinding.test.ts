@@ -428,8 +428,11 @@ describe("GET /api/interactions — user-scoped snapshot join (§I)", () => {
     expect(card.styleMove.moveType).toBe("anchor");
     expect(card.templateType).toBe("two_piece");
     expect(card.displayItems).toHaveLength(2);
-    expect(card.displayItems[0].name).toBeDefined();
-    expect(card.displayItems.map((d: Any) => d.imageUrl)).toContain("mongo:img1");
+    // VALUES, not `toBeDefined()`: the join could return `name: <itemId>` (or "") and a definedness
+    // check would stay green while every History card rendered a raw ObjectId instead of "White Tee".
+    expect(card.displayItems.map((d: Any) => d.name).sort()).toEqual(["Blue Jeans", "White Tee"]);
+    expect(card.displayItems.map((d: Any) => d.clothingType).sort()).toEqual(["bottom", "top"]);
+    expect(card.displayItems.map((d: Any) => d.imageUrl).sort()).toEqual(["mongo:img1", "mongo:img2"]);
   });
 });
 

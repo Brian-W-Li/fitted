@@ -181,6 +181,65 @@ describe("wardrobe page — the EDIT path signals a lost photo too (§23-H77(a))
   });
 });
 
+describe("wardrobe page — the two irreversible deletions are confirm-gated", () => {
+  // Both had NO test anywhere: the trash icon sits one fat-finger from Edit (the code says so), and
+  // "Delete all" removes every item AND every unreferenced photo. Drop or invert either `confirm` and
+  // a single mis-tap destroys the one thing a friend cannot re-enter from memory — their photos.
+  const item = {
+    _id: "item123", id: "item123", name: "Blue tee", category: "top",
+    colors: [], seasons: [], occasions: [], fit: "", size: "",
+  };
+  function mockList() {
+    global.fetch = jest.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/cv/status") return ok({ available: false, reason: "not_configured" });
+      if (u === "/api/wardrobe" && (init?.method ?? "GET") === "GET") return ok({ items: [item] });
+      return ok({ ok: true });
+    }) as unknown as typeof fetch;
+  }
+  const destructiveCalls = () =>
+    (global.fetch as jest.Mock).mock.calls.filter(([u, o]) => {
+      const m = (o?.method ?? "GET").toUpperCase();
+      return m === "DELETE" && /\/api\/wardrobe(\/|$)/.test(String(u));
+    });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it("DECLINING the single-item delete issues no request and keeps the card", async () => {
+    mockList();
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(false);
+    render(<WardrobePage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    // The prompt must name the item and say it is final — a bare "Are you sure?" is not consent.
+    const msg = confirmSpy.mock.calls[0][0] as string;
+    expect(msg).toMatch(/Blue tee/);
+    expect(msg).toMatch(/cannot be undone/i);
+    expect(destructiveCalls()).toHaveLength(0);
+    expect(screen.getByText("Blue tee")).toBeInTheDocument();
+  });
+
+  it("ACCEPTING it does delete (so the guard is a gate, not a wall)", async () => {
+    mockList();
+    jest.spyOn(window, "confirm").mockReturnValue(true);
+    render(<WardrobePage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(destructiveCalls()).toHaveLength(1));
+    expect(String(destructiveCalls()[0][0])).toBe("/api/wardrobe/item123");
+  });
+
+  it("DECLINING 'Delete all' issues no request and keeps the closet", async () => {
+    mockList();
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(false);
+    render(<WardrobePage />);
+    await userEvent.click(await screen.findByRole("button", { name: /delete all/i }));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/ALL wardrobe items/);
+    expect(destructiveCalls()).toHaveLength(0);
+    expect(screen.getByText("Blue tee")).toBeInTheDocument();
+  });
+});
+
 describe("wardrobe page — the photo-failure record OUTLIVES the modal (§23-H77(a))", () => {
   // Convergence finding: the in-modal amber list is component state, so it died on unmount — i.e. at
   // the end of every batch — and the page-level red banner was wiped by the next successful save

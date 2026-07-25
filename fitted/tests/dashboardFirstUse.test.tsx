@@ -9,7 +9,7 @@
  * Drives the REAL DashboardInner over a mocked fetch/auth/router, so a regression in the render
  * conditions is caught here rather than by a friend.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 jest.mock("@/lib/firebaseClient", () => ({ auth: {} }));
@@ -140,6 +140,54 @@ describe("dashboard — location is primed, not sprung (#5)", () => {
     const opts = getCurrentPosition.mock.calls[0][2];
     expect(typeof opts?.timeout).toBe("number");
     expect(opts.timeout).toBeGreaterThan(0);
+  });
+});
+
+describe("dashboard — the signpost re-checks when the page is shown again (#6)", () => {
+  // The signpost's CTA is a plain <a href="/wardrobe"> — a FULL document navigation. A friend who
+  // taps it, adds their clothes, and hits Back gets this page restored from the bfcache with React
+  // state intact and NO effect re-run, so "First: add a few clothes" would still be on screen for a
+  // closet that is no longer empty. `pageshow` fires on a bfcache restore where `visibilitychange`
+  // does NOT, so both listeners are load-bearing — and removing the `pageshow` one left the whole
+  // suite green (mutation-verified) before these two tests existed.
+  function serve(counts: number[]) {
+    let i = 0;
+    global.fetch = jest.fn(async (url: unknown) => {
+      if (String(url).startsWith("/api/wardrobe")) {
+        const n = counts[Math.min(i++, counts.length - 1)];
+        return {
+          ok: true,
+          json: async () => ({ items: Array.from({ length: n }, (_, k) => ({ id: `i${k}` })) }),
+        } as Response;
+      }
+      return { ok: false, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+  }
+
+  it("drops the signpost on `pageshow` once the closet is no longer empty (bfcache Back)", async () => {
+    serve([0, 3]); // first load: empty. after the friend adds clothes: 3 items.
+    render(<Dashboard />);
+    expect(await screen.findByText(/first: add a few clothes/i)).toBeInTheDocument();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pageshow"));
+    });
+    await waitFor(() =>
+      expect(screen.queryByText(/first: add a few clothes/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  it("drops it on `visibilitychange` too (tab return, no bfcache)", async () => {
+    serve([0, 3]);
+    render(<Dashboard />);
+    expect(await screen.findByText(/first: add a few clothes/i)).toBeInTheDocument();
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() =>
+      expect(screen.queryByText(/first: add a few clothes/i)).not.toBeInTheDocument(),
+    );
   });
 });
 

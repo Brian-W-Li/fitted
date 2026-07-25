@@ -13,7 +13,7 @@ import WardrobeItem from "@/models/WardrobeItem";
 import WardrobeImage from "@/models/WardrobeImage";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import { MAX_WARDROBE_IMAGE_BYTES } from "@/lib/imageStorage";
-import { UPLOAD_RATE_MAX } from "@/app/api/wardrobe/[id]/image/route";
+import { UPLOAD_RATE_MAX, MAX_WARDROBE_IMAGE_REQUEST_BYTES } from "@/app/api/wardrobe/[id]/image/route";
 import { CREATE_RATE_MAX } from "@/app/api/wardrobe/route";
 import { Types } from "mongoose";
 
@@ -172,6 +172,42 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     expect(await WardrobeImage.findById(oldImageId).lean<Any>()).not.toBeNull(); // old KEPT (referenced)
     expect(await WardrobeImage.findById(newImageId).lean<Any>()).not.toBeNull(); // new present
     expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBe(second.imagePath); // item repointed
+  });
+
+  it("a store REJECTED by the sniff leaves the old photo AND its pointer intact (store→repoint→delete)", async () => {
+    // The ORDER is the guarantee, and nothing pinned it before: the route used to delete the old
+    // image BEFORE calling uploadWardrobeImage. That call throws on a REACHABLE input — a HEIC
+    // renamed .jpg reports type image/jpeg, passes the client allowlist, survives the client
+    // downscale (which can't decode it, so it forwards the ORIGINAL bytes) and then fails the
+    // server's magic-byte sniff. The friend's existing photo was destroyed and imagePath left
+    // dangling at a deleted row. It routes real traffic: the §23-H77(a) notice makes "retry the
+    // photo from Edit" the ADVERTISED remedy for a failed upload. Reverting to delete-then-store
+    // reddens this (verified by mutation); the two 413 siblings below cover the other throw arms.
+    const id = await seedItem();
+    const first = await (await post(id, makeRequest({ file: makeFile(8) }))).json();
+    const oldImageId = first.imagePath.slice("mongo:".length);
+
+    const res = await post(id, makeRequest({ file: makeFakeImageFile("image/jpeg") }));
+    expect(res.status).toBe(415);
+    expect(await WardrobeImage.findById(oldImageId).lean<Any>()).not.toBeNull(); // old photo survived
+    expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBe(first.imagePath); // not dangling
+    expect(await WardrobeImage.countDocuments({ user: userId })).toBe(1); // and no orphan row
+  });
+
+  it("a store rejected by the 5MB storage cap also leaves the old photo intact", async () => {
+    // Same ordering guarantee via the other reachable throw inside uploadWardrobeImage. The
+    // existing oversized-upload test covers an item with NO prior photo, so it cannot see a
+    // destroy-the-old-one regression.
+    const id = await seedItem();
+    const first = await (await post(id, makeRequest({ file: makeFile(8) }))).json();
+    const oldImageId = first.imagePath.slice("mongo:".length);
+
+    // >5MB with no Content-Length header → the pre-check is skipped and the REAL storage cap throws.
+    const res = await post(id, makeRequest({ file: makeFile(MAX_WARDROBE_IMAGE_BYTES + 1) }));
+    expect(res.status).toBe(413);
+    expect(await WardrobeImage.findById(oldImageId).lean<Any>()).not.toBeNull();
+    expect((await WardrobeItem.findById(id).lean<Any>()).imagePath).toBe(first.imagePath);
+    expect(await WardrobeImage.countDocuments({ user: userId })).toBe(1);
   });
 
   it("404s (no image written) when the item is owned by another user", async () => {
@@ -349,6 +385,44 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
   // let the two numbers drift apart in the first place.
   it("the upload pacing ceiling is never stricter than the item-create ceiling", () => {
     expect(UPLOAD_RATE_MAX).toBeGreaterThanOrEqual(CREATE_RATE_MAX);
+  });
+
+  // Both size gates below were pinned REJECT-ONLY. The largest accepted fixture anywhere in this file
+  // was 64 bytes, so `MAX_WARDROBE_IMAGE_BYTES` could drop 5MB → 64 and every test stayed green while
+  // EVERY real upload 413'd — silently routing every friend photo into the "saved, but its photo
+  // didn't upload" path (§23-H77(a)) and zeroing the M6 image side. Accept sides, from real bytes:
+  it("ACCEPTS a 1MB image — the cap must admit an ordinary post-downscale phone photo", async () => {
+    const id = await seedItem();
+    const res = await post(id, makeRequest({ file: makeFile(1024 * 1024) }));
+    expect(res.status).toBe(200);
+    const { imagePath } = await res.json();
+    const img = await WardrobeImage.findById(imagePath.slice("mongo:".length)).lean<Any>();
+    expect(img.sizeBytes).toBe(1024 * 1024);
+  });
+
+  it("the storage cap stays under the BSON document limit after base64 inflation", () => {
+    // The stated reason for the value: bytes are stored base64 (×4/3) inside one Mongo document, so
+    // the cap must leave room under the hard 16MB BSON ceiling. Stating the DERIVATION rather than
+    // restating 5MB keeps this from being a mirror, and it brackets the constant from above.
+    expect(MAX_WARDROBE_IMAGE_BYTES * (4 / 3)).toBeLessThan(16 * 1024 * 1024);
+  });
+
+  it("ACCEPTS a request whose Content-Length is under the limit (the pre-check's accept side)", async () => {
+    // Every other test omits the header entirely, so the pre-check was only ever exercised in its
+    // rejecting direction: `> MAX_WARDROBE_IMAGE_REQUEST_BYTES` could become `> 0` (or slip a units
+    // factor) and the suite would stay green while every real browser upload 413'd before
+    // `formData()` was even read — `fetch` with a FormData body ALWAYS sets Content-Length.
+    const id = await seedItem();
+    const req = makeRequest({ file: makeFile(8), contentLength: String(1024) });
+    const res = await post(id, req);
+    expect(res.status).toBe(200);
+    expect(req.formData).toHaveBeenCalledTimes(1);
+  });
+
+  it("ACCEPTS a Content-Length that exceeds the image cap but fits the multipart overhead allowance", () => {
+    // Pins MAX_MULTIPART_OVERHEAD_BYTES from below: shrink it to 0 and a 5MB image plus its multipart
+    // envelope 413s on framing bytes alone.
+    expect(MAX_WARDROBE_IMAGE_REQUEST_BYTES).toBeGreaterThan(MAX_WARDROBE_IMAGE_BYTES);
   });
 });
 

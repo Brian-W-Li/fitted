@@ -220,8 +220,17 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **✅ CURRENT LIVE BUILD (2026-07-25) — web redeployed to HEAD; Fly unchanged.** Live web =
-  `origin/main` `46857aab` (deploy `fitted-96uzl05hl` / `dpl_GxkU8bDp6dUPdbdV7YR2pYHXbH9U`) via
+- **⚠️ LIVE WEB IS BEHIND `main` — do not read this section as "HEAD is deployed."** Live web =
+  `origin/main` `46857aab`. As of the 2026-07-25 verification audit, `main` carries **six unpushed
+  commits** on top of it: the four-commit friend-first-use hardening pass (`df9d8f1f`, `24f8b816`,
+  `ec75ecbb`, `31b6df45` — including the photo-destroying-replace fix, [[H14]]/§23-H77) plus two doc
+  commits. **None of it is live**, so a friend on `fitted-three.vercel.app` right now still hits the
+  old 5MB pick dead end and the delete-before-store replace. Deploy is Brian's and is CLI-driven
+  (this project does NOT deploy on push): `git push origin main`, then `cd fitted && npx vercel --prod`
+  — never from the repo ROOT. Update the SHA in this bullet in the same session you deploy; the phrase
+  "redeployed to HEAD" rotted here once and must not be reintroduced (state the SHA, never "HEAD").
+- **Deploy record for the CURRENT live SHA (2026-07-25 web deploy of `46857aab`; Fly unchanged.)**
+  Deploy `fitted-96uzl05hl` / `dpl_GxkU8bDp6dUPdbdV7YR2pYHXbH9U` via
   `npx vercel --prod` from `fitted/` → aliased `fitted-three.vercel.app`, verified **200**. This ships the
   2026-07-24 correctness batch: recommend `imageUrl` drop≡accept + `weatherRaw` out of render identity +
   timeout floor (`de661396`), wardrobe 404 on a malformed item id (`90c1176d`), the export §5 author/

@@ -6,13 +6,13 @@
  * page-level Firebase client, so we mock it (the modal itself never touches Firebase — it is a
  * pure props-driven component whose only outside effect is the injected onSave).
  */
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 jest.mock("@/lib/firebaseClient", () => ({ auth: {} }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { AddItemModal } = require("@/app/(app)/wardrobe/page") as typeof import("@/app/(app)/wardrobe/page");
+const { AddItemModal, MAX_UPLOAD_BYTES } = require("@/app/(app)/wardrobe/page") as typeof import("@/app/(app)/wardrobe/page");
 
 // A fully-valid form payload so validateWardrobeForm passes without simulated typing — lets each
 // test isolate the photo-gate behavior. (WardrobeFormValues = Omit<WardrobeItem,"id">.)
@@ -34,7 +34,11 @@ const validItem = {
  *  path). Restores by hand: these are plain prototype assignments, which `jest.restoreAllMocks()`
  *  does NOT undo, so leaving them installed leaks a mocked `getContext` into every later describe. */
 let restoreDownscaler: (() => void) | null = null;
-function installWorkingDownscaler() {
+/** `resultBytes` is the REAL size of the stubbed downscale output — the number the post-downscale
+ *  upload gate reads, so it must be real bytes, never a faked `size`. Default ~4KB (an ordinary
+ *  downscale); the two boundary tests pass ABSOLUTE sizes that bracket `MAX_UPLOAD_BYTES` from
+ *  outside (a size derived from the constant would move with it and pin nothing). */
+function installWorkingDownscaler(resultBytes = 4096) {
   const g = globalThis as Record<string, unknown>;
   const hadCreate = "createImageBitmap" in g;
   const origCreate = g.createImageBitmap;
@@ -43,7 +47,7 @@ function installWorkingDownscaler() {
   g.createImageBitmap = jest.fn(async () => ({ width: 4000, height: 3000, close: () => {} }));
   HTMLCanvasElement.prototype.getContext = (() => ({ drawImage: () => {} })) as never;
   HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
-    cb(new Blob([new Uint8Array(4096)], { type: "image/jpeg" })); // ~4KB "downscaled" result
+    cb(new Blob([new Uint8Array(resultBytes)], { type: "image/jpeg" }));
   } as never;
   // Restored in afterEach, NOT synchronously after the pick: the downscale is consumed inside the
   // preview effect's async continuation, so tearing the stubs down before that await resolves would
@@ -396,7 +400,14 @@ describe("AddItemModal — saved-but-photo-failed signal (§23-H77(a))", () => {
     expect((screen.getByPlaceholderText(/blue denim jacket/i) as HTMLInputElement).value).toBe("");
     expect(onClose).not.toHaveBeenCalled();
     // And it is NOT rendered as the red form error (that path would imply "your save failed").
-    expect(screen.queryByText(/^Name is required\.$/)).not.toBeInTheDocument();
+    // Asserted against the RED slots themselves. The previous version checked for "Name is required."
+    // — a validation string `validItem` can never produce — so it passed under every behavior,
+    // including the `setFormError(result.savedWithPhotoWarning)` regression it was meant to catch.
+    const redText = Array.from(document.querySelectorAll("p.text-red-600"))
+      .map((e) => e.textContent ?? "")
+      .join(" | ");
+    expect(redText).not.toMatch(/photo didn’t upload/);
+    expect(within(notice).getByText(/photo didn’t upload/)).toBeInTheDocument();
   });
 
   it("ACCUMULATES one entry per lost photo — a 429 burst must not collapse to a single name", async () => {
@@ -494,9 +505,25 @@ describe("AddItemModal — pick-time size ceiling (§23-H77(b))", () => {
     // Accepted → the photo path is live (D1 primary save) and the thumbnail is built.
     expect(await screen.findByAltText("Item photo")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^save item$/i })).toBeInTheDocument();
-    expect(screen.queryByText(/Max image size is 5MB/i)).not.toBeInTheDocument();
+    // (The old "Max image size is 5MB" negative was dropped: that string exists nowhere in app/ or
+    // lib/, so it was vacuously true under every behavior. The two live rejection messages below are
+    // the ones that can actually appear.)
     expect(screen.queryByText(/larger than we can handle/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/too large to upload/i)).not.toBeInTheDocument();
+  });
+
+  it("ACCEPTS a 39MB pick — the ceiling is a sanity bound, not a photo filter", async () => {
+    // The accept side was pinned at 8MB, so MAX_PICK_BYTES could drop to 9MB and stay green while any
+    // 9-40MB pick (a Live Photo / burst export / iPad screenshot) hit the remedy-free dead end this
+    // whole describe exists to prove gone. With a working downscaler the post-downscale size is ~4KB,
+    // so only the PICK gate is under test here.
+    installWorkingDownscaler();
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    pick(container, sizedFile(39 * 1024 * 1024));
+    expect(await screen.findByAltText("Item photo")).toBeInTheDocument();
+    expect(screen.queryByText(/larger than we can handle/i)).not.toBeInTheDocument();
   });
 
   it("still rejects a file past the sanity ceiling, and says how big it was", async () => {
@@ -641,6 +668,66 @@ describe("AddItemModal — a pending photo is never misrepresented by the STORED
   });
 });
 
+describe("AddItemModal — 'Preparing preview…' is a distinct THIRD state, not a settled negative", () => {
+  // The downscale is a full decode + canvas re-encode of a 12MP photo — seconds on a phone. Without
+  // a pending state every ordinary pick flashes the settled negative "No preview to show here"
+  // before the thumbnail lands, once per item on a 15-item batch: reporting a false conclusion
+  // instead of progress. Collapsing the two states left the whole suite green (mutation-verified),
+  // so pin BOTH halves — in-flight says "Preparing", completed shows the photo.
+  let origFileReader: typeof FileReader;
+  let held: { onload: (() => void) | null; result: string | null } | null = null;
+  beforeEach(() => {
+    held = null;
+    origFileReader = global.FileReader;
+    // A plain constructor function (not a class) so the instance can be captured without aliasing
+    // `this`: `new F()` returns F's object return value. The read NEVER completes on its own — that
+    // suspension IS the in-flight state under test; the test fires `onload` when it wants it to land.
+    (global as Record<string, unknown>).FileReader = function () {
+      const inst = {
+        onload: null as (() => void) | null,
+        onerror: null as (() => void) | null,
+        result: null as string | null,
+        readAsDataURL: () => {
+          held = inst;
+        },
+      };
+      return inst;
+    } as never;
+  });
+  afterEach(() => {
+    (global as Record<string, unknown>).FileReader = origFileReader as never;
+  });
+
+  /** Under the 400KB re-encode skip, so `prepareImageForUpload` is a no-op and the ONLY thing still
+   *  in flight is the held read. */
+  const smallPhoto = () => new File(["x"], "slow.jpg", { type: "image/jpeg" });
+
+  it("confirm form: reports progress while the read is in flight, then swaps in the photo", async () => {
+    render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} pendingAddFile={smallPhoto()} />,
+    );
+    expect(await screen.findByText(/Preparing preview/i)).toHaveTextContent(/slow\.jpg/);
+    // The load-bearing negative: a settled "nothing to show" must NOT appear while still working.
+    expect(screen.queryByText(/No preview to show here/i)).not.toBeInTheDocument();
+
+    await waitFor(() => expect(held).not.toBeNull());
+    await act(async () => {
+      held!.result = "data:image/jpeg;base64,AAAA";
+      held!.onload?.();
+    });
+    expect(await screen.findByAltText("Item photo")).toBeInTheDocument();
+    expect(screen.queryByText(/Preparing preview/i)).not.toBeInTheDocument();
+  });
+
+  it("upload step: the same third state, not a premature 'Photo selected'", async () => {
+    render(
+      <AddItemModal onClose={() => {}} onSave={() => true} addStep="upload" pendingAddFile={smallPhoto()} cvUnavailable />,
+    );
+    expect(await screen.findByText(/Preparing preview/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Photo selected$/)).not.toBeInTheDocument();
+  });
+});
+
 describe("AddItemModal — an un-uploadable photo is rejected AT PICK, not after the item is created", () => {
   // The convergence-round defect this closes: the modal used to say "Photo selected … it will still
   // upload" for a file whose post-downscale size exceeded the 4MB upload gate. That promise was
@@ -676,28 +763,67 @@ describe("AddItemModal — an un-uploadable photo is rejected AT PICK, not after
   it("a normal phone photo is unaffected — it downscales and previews", async () => {
     // A working downscaler (jsdom has none, so stub it) turns a 3MB pick into ~4KB: well under the
     // gate, so it must sail through. Pins that the gate is on the POST-downscale size, not the pick.
-    (globalThis as Record<string, unknown>).createImageBitmap = jest.fn(async () => ({
-      width: 4000,
-      height: 3000,
-      close: () => {},
-    }));
-    HTMLCanvasElement.prototype.getContext = jest.fn(() => ({ drawImage: () => {} })) as never;
-    HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
-      cb(new Blob([new Uint8Array(4096)], { type: "image/jpeg" }));
-    } as never;
-    try {
-      const { container } = render(
-        <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
-      );
-      const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-      fireEvent.change(input, { target: { files: [sizedFile(3 * 1024 * 1024, "phone.jpg")] } });
+    // Uses the shared installer rather than inline prototype assignment: `jest.restoreAllMocks()`
+    // does NOT undo `X.prototype.foo = …` (and this repo's jest.config sets neither `restoreMocks`
+    // nor `resetMocks`), so the inline version leaked a stubbed getContext/toBlob into every later
+    // describe in this file.
+    installWorkingDownscaler();
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedFile(3 * 1024 * 1024, "phone.jpg")] } });
 
-      expect(await screen.findByAltText("Item photo")).toBeInTheDocument();
-      expect(screen.queryByText(/too large to upload/i)).not.toBeInTheDocument();
-    } finally {
-      delete (globalThis as Record<string, unknown>).createImageBitmap;
-      jest.restoreAllMocks();
-    }
+    expect(await screen.findByAltText("Item photo")).toBeInTheDocument();
+    expect(screen.queryByText(/too large to upload/i)).not.toBeInTheDocument();
+  });
+
+  // The gate's ACCEPT side was unpinned: MAX_UPLOAD_BYTES could be lowered from 4MB to 8KB with the
+  // whole suite still green (mutation-verified), because every "accepted" case stubbed a ~4KB
+  // downscale — three orders of magnitude below the real limit. A silent shrink would reject
+  // essentially every real phone photo with the screenshot message: direct M6 corpus yield loss on
+  // the friend-critical path.
+  //
+  // The bracket endpoints below are ABSOLUTE on purpose. A boundary test that sizes its fixture from
+  // the constant (`installWorkingDownscaler(MAX_UPLOAD_BYTES + 1)`) is self-defeating — the fixture
+  // moves WITH the constant, so halving it stays green. That mistake was made and caught here; do not
+  // reintroduce it. Real bytes are also mandatory: the gate reads the File's true size, so a faked
+  // `size` cannot exercise it (see the preview describe below).
+  it("ACCEPTS a 3MB downscale result — a cap that rejected ordinary phone photos would be a yield bug", async () => {
+    // 3MB is inside the real range of a 12MP JPEG straight off iOS "Most Compatible" (2–4MB), which
+    // is what the app's own HEIC advice steers friends toward. It must survive the gate.
+    installWorkingDownscaler(3 * 1024 * 1024);
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    // The source size is faked and only has to exceed the stubbed result, so `prepareImageForUpload`
+    // keeps the blob (it returns the original when the re-encode doesn't shrink).
+    fireEvent.change(input, { target: { files: [sizedFile(20 * 1024 * 1024, "atcap.jpg")] } });
+
+    expect(await screen.findByAltText("Item photo")).toBeInTheDocument();
+    expect(screen.queryByText(/too large to upload/i)).not.toBeInTheDocument();
+  });
+
+  it("REJECTS a 5MB downscale result — past it, Vercel's platform body cap kills the request", async () => {
+    installWorkingDownscaler(5 * 1024 * 1024);
+    const { container } = render(
+      <AddItemModal onClose={() => {}} onSave={() => true} initialItem={validItem} />,
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedFile(20 * 1024 * 1024, "overcap.jpg")] } });
+
+    expect(await screen.findByText(/too large to upload/i)).toBeInTheDocument();
+    expect(screen.queryByAltText("Item photo")).not.toBeInTheDocument();
+  });
+
+  it("the cap itself sits between the phone-photo floor and Vercel's ~4.5MB body ceiling", () => {
+    // States the two EXTERNAL facts that constrain the value, not the value itself (a restated 4MB
+    // would be a mirror). Upper: Vercel rejects request bodies over ~4.5MB at the platform edge, so
+    // a larger cap hands friends an opaque non-JSON 413 instead of the screenshot remedy. Lower: an
+    // ordinary phone photo must fit.
+    expect(MAX_UPLOAD_BYTES).toBeLessThan(4.5 * 1024 * 1024);
+    expect(MAX_UPLOAD_BYTES).toBeGreaterThanOrEqual(3 * 1024 * 1024);
   });
 });
 

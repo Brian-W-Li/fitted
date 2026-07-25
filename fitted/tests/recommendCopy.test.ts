@@ -9,6 +9,7 @@ import {
   partialRenderHint,
   MACHINE_REASON_COPY,
 } from "@/lib/recommendCopy";
+import { DEGRADED_REASON_HINTS } from "@/lib/mlServiceClient";
 
 describe("recommendErrorMessage (F14 — no engineer-tone leak)", () => {
   it("maps the structural-lock reject to friendly, actionable copy", () => {
@@ -184,6 +185,36 @@ describe("emptyStateMessage — D1 slot census (dual-remedy, clothingtype-slot-c
     // top clamps to 0 → the top/bottom gap fires; every invalid count reads as 0, the valid layer count survives
     expect(msg).toMatch(/^Right now we can see 0 tops, 0 bottoms, 0 dresses, 1 layer, and 0 pairs of shoes/);
     expect(msg).not.toMatch(/-1|NaN/);
+  });
+});
+
+describe("MACHINE_REASON_COPY covers every machine hint a render can carry", () => {
+  // Two producers feed `flags.reasonHint` with all-healthy-flags-false, and NOTHING pinned that each
+  // has copy. A code without an entry falls through `emptyStateMessage` to the generic
+  // "…or add a few more pieces to your closet" line — blaming a friend's closet for a service outage.
+  it("has friendly copy for every DegradedReasonHint (lib/mlServiceClient)", () => {
+    // Enumerated from the runtime array the type is derived from, so adding a fifth code reddens here
+    // instead of silently shipping without copy.
+    for (const code of DEGRADED_REASON_HINTS) {
+      expect(typeof MACHINE_REASON_COPY[code]).toBe("string");
+      expect(MACHINE_REASON_COPY[code].length).toBeGreaterThan(0);
+      // And it must actually be USED — not merely present in the map.
+      expect(emptyStateMessage({ reasonHint: code })).toBe(MACHINE_REASON_COPY[code]);
+    }
+  });
+
+  it("has friendly copy for `engine_failure` (the replay path's derived hint)", () => {
+    // The one machine hint outside the DegradedReasonHint union: `lib/mlSnapshotMerge.ts`
+    // `flagsFromDoc` derives it for stored engine-failure rows on the §C.4 replay path.
+    expect(emptyStateMessage({ reasonHint: "engine_failure" })).toBe(MACHINE_REASON_COPY.engine_failure);
+    expect(MACHINE_REASON_COPY.engine_failure).not.toMatch(/closet|add a few|pieces/i);
+  });
+
+  it("an UNKNOWN machine code still avoids blaming the closet as its first move", () => {
+    // Documents the residual honestly rather than pretending it away: an unmapped code lands on the
+    // generic empty-state line, which does mention the closet. The two pins above are what keep the
+    // known codes off that path; a NEW code added upstream without copy would land there.
+    expect(emptyStateMessage({ reasonHint: "some_new_code_2027" })).toMatch(/no outfits this time/i);
   });
 });
 

@@ -260,3 +260,53 @@ describe("POST /api/wardrobe — storage bounds (§I, Track 2 Lane B)", () => {
     expect(await count()).toBe(MAX_ITEMS_PER_USER);
   });
 });
+
+describe("GET /api/wardrobe — the read that returns a whole closet", () => {
+  // Every SIBLING route has a cross-user test (wardrobeEditIngestion, wardrobeClearRoute,
+  // imagesRouteOwnership, and the image POST). The one read that hands back an entire closet in a
+  // single response had none: the `{ user: userId }` filter could be dropped and nothing in the repo
+  // would notice, while every signed-in caller received every user's item names, colors, notes and
+  // imagePath pointers.
+  async function get() {
+    const { GET } = await import("@/app/api/wardrobe/route");
+    return GET({
+      headers: { get: (h: string) => (h === "authorization" ? "Bearer fake-token" : null) },
+    } as unknown as NextRequest);
+  }
+
+  it("returns ONLY the caller's items, never another user's", async () => {
+    const other = await User.create({ authProvider: "firebase", authId: "other-uid", email: "o@x.com" });
+    await WardrobeItem.create({
+      user: userId, name: "Mine", category: "top", clothingType: "top", warmth: 5,
+    });
+    await WardrobeItem.create({
+      user: other._id, name: "Theirs", category: "top", clothingType: "top", warmth: 5,
+    });
+
+    const res = await get();
+    expect(res.status).toBe(200);
+    const names = ((await res.json()).items as Any[]).map((i) => i.name);
+    // Both halves matter: an unscoped find passes a bare `toContain("Mine")`.
+    expect(names).toEqual(["Mine"]);
+  });
+
+  it("401s without a bearer token, leaking nothing", async () => {
+    await WardrobeItem.create({
+      user: userId, name: "Mine", category: "top", clothingType: "top", warmth: 5,
+    });
+    const { GET } = await import("@/app/api/wardrobe/route");
+    const res = await GET({ headers: { get: () => null } } as unknown as NextRequest);
+    expect(res.status).toBe(401);
+    expect((await res.json()).items).toBeUndefined();
+  });
+
+  it("the storage ceiling stays under the render envelope's wardrobe cap", async () => {
+    // A real cross-file inequality, in the idiom of `UPLOAD_RATE_MAX >= CREATE_RATE_MAX`. If the
+    // storage cap ever exceeds the request-envelope cap, `projectWardrobe` throws an ENVELOPE-level
+    // RequestContractError rather than dropping items — so that friend's EVERY render degrades to the
+    // empty state permanently, with no per-item resilience to save it.
+    const { MAX_ITEMS_PER_USER } = await import("@/app/api/wardrobe/route");
+    const { MAX_WARDROBE_ITEMS } = await import("@/lib/mlRequestAdapter");
+    expect(MAX_ITEMS_PER_USER).toBeLessThanOrEqual(MAX_WARDROBE_ITEMS);
+  });
+});

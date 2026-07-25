@@ -52,6 +52,30 @@ describe("POST /api/auth/session — mint the session cookie", () => {
     expect(cookie?.path).toBe("/");
     expect(cookie?.sameSite).toBe("lax");
     expect(cookie?.maxAge).toBe(SESSION_EXPIRES_IN_MS / 1000);
+    // `secure` is asserted separately, under a production NODE_ENV — see the next test. Comparing it
+    // to `process.env.NODE_ENV === "production"` HERE would be a tautology (false === false) that a
+    // hardcoded `secure: false` sails straight through.
+  });
+
+  it("marks the cookie Secure in PRODUCTION (the only credential guarding friend photo bytes)", async () => {
+    // This cookie is what `/api/images/<id>` trusts for ownership (lib/session.ts) and it lives 5
+    // days, so shipping it without `Secure` puts it on the wire in cleartext on any hostile network.
+    // `httpOnly` and `sameSite` were already pinned; this third attribute was not.
+    //
+    // NODE_ENV must be set BEFORE the import: the route computes the flag once, in a module-level
+    // COOKIE_BASE. `resetModules` is safe in this file (no DB/driver singletons to leak).
+    const orig = process.env.NODE_ENV;
+    try {
+      Object.defineProperty(process.env, "NODE_ENV", { value: "production", configurable: true });
+      jest.resetModules();
+      mint().mockResolvedValue("SESSION-COOKIE-VALUE");
+      const { POST: prodPOST } = await import("@/app/api/auth/session/route");
+      const res = await prodPOST(makeRequest("Bearer id-token"));
+      expect(res.cookies.get(SESSION_COOKIE_NAME)?.secure).toBe(true);
+    } finally {
+      Object.defineProperty(process.env, "NODE_ENV", { value: orig, configurable: true });
+      jest.resetModules();
+    }
   });
 
   it("401s a missing Authorization header without minting a cookie", async () => {

@@ -157,8 +157,10 @@ still unverified — in particular, nothing in this pass has ever run in a real 
 Deep behavioral audit of the Next.js app. Read docs/plans/full-audit-2026-07-25.md FIRST and follow
 its "Standing rules" exactly. Read-only subagents only. Trust no prior audit, doc, or test.
 
-Scope: fitted/app, fitted/lib, fitted/models, fitted/components, fitted/scripts (~69 files, ~12.8k
-lines). NOT the Python side (session 3).
+Scope: fitted/app, fitted/lib, fitted/models, fitted/scripts (73 files, ~13.4k lines). There is no
+`fitted/components` directory — shared client pieces live under `fitted/lib` (e.g.
+`lib/addItemUploadStepActions.tsx`) and the rest are inline in the page files. NOT the Python side
+(session 3).
 
 Work like a principal engineer joining the codebase cold, with a tester's suspicion. Do not skim.
 Choose a small number of entry points and DFS them to their leaves, understanding each fully before

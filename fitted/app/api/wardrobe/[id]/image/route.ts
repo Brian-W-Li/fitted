@@ -8,7 +8,7 @@ import { OBJECT_ID_RE } from "@/lib/formats";
 import { isImagePathReferenced } from "@/lib/imageReferences";
 
 const MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024;
-const MAX_WARDROBE_IMAGE_REQUEST_BYTES =
+export const MAX_WARDROBE_IMAGE_REQUEST_BYTES =
   MAX_WARDROBE_IMAGE_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
 
 // Per-user image-storage budget (§I): sign-up is open Google auth and the shared Atlas M0 is

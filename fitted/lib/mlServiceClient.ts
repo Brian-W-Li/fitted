@@ -40,12 +40,18 @@ function envTimeoutMs(): number {
 }
 export const SERVICE_TIMEOUT_MS = envTimeoutMs();
 
-/** The §A degraded-state reason codes (machine-code register — the browser maps to localized copy). */
-export type DegradedReasonHint =
-  | "service_unavailable"
-  | "contract_invalid"
-  | "rate_limited"
-  | "auth_failed";
+/** The §A degraded-state reason codes (machine-code register — the browser maps to localized copy).
+ *  A runtime ARRAY, with the type derived from it, so `lib/recommendCopy`'s MACHINE_REASON_COPY can be
+ *  pinned to cover every code at test time. A hand-copied type-only union let a new code ship with no
+ *  friendly copy, and `emptyStateMessage` then falls through to the closet-blaming generic line —
+ *  telling a friend to add clothes because the stylist was down. */
+export const DEGRADED_REASON_HINTS = [
+  "service_unavailable",
+  "contract_invalid",
+  "rate_limited",
+  "auth_failed",
+] as const;
+export type DegradedReasonHint = (typeof DEGRADED_REASON_HINTS)[number];
 
 /** A successful service render — the payload is opaque here; seam #5 validates + persists it. */
 export interface RenderServiceResponse {

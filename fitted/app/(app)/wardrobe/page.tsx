@@ -99,7 +99,7 @@ const MAX_PICK_BYTES = 40 * 1024 * 1024;
  *  the post-downscale size exists) and once in `uploadWardrobeItemImage` as the backstop for a save
  *  that races the downscale. A surviving file is ≤4MB, so its data-URL preview is ≤~5.3MB — no
  *  separate preview ceiling is needed. */
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 /** Shared by the pick-time rejection and the upload backstop so a friend never sees two different
  *  explanations for the same limit. States no CAUSE: this fires precisely when the downscale could

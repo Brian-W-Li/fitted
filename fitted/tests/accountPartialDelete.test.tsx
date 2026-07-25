@@ -93,6 +93,42 @@ it("partial failure (502): ALERTS the honest message instead of silently signing
   expect(mockClearSessionCookie).toHaveBeenCalled();
 });
 
+it("requires BOTH confirmations before the DELETE is even issued", async () => {
+  // The spy was already installed (mockReturnValue(true)) but never asserted, so deleting either
+  // `confirm` from account/page.tsx left this suite green — one stray tap would then irreversibly
+  // erase the closet, photos, outfit history, feedback AND the Google binding. The most destructive
+  // button in the product, with its only guard mocked out.
+  await mountAndDelete();
+  await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
+  expect(window.confirm).toHaveBeenCalledTimes(2);
+  // The first prompt must SAY what is destroyed and that it is final — a bare "Are you sure?" is not
+  // informed consent for erasure.
+  const first = (window.confirm as jest.Mock).mock.calls[0][0] as string;
+  expect(first).toMatch(/closet|photos|history/i);
+  expect(first).toMatch(/cannot be undone|no recovery/i);
+});
+
+it("declining the FIRST confirmation issues no DELETE at all", async () => {
+  (window.confirm as jest.Mock).mockReturnValue(false);
+  render(<AccountPage />);
+  await userEvent.click(await screen.findByRole("button", { name: /delete my account/i }));
+  const deleteCalls = (global.fetch as jest.Mock).mock.calls.filter(
+    ([, opts]) => (opts?.method ?? "GET").toUpperCase() === "DELETE",
+  );
+  expect(deleteCalls).toHaveLength(0);
+  expect(mockSignOut).not.toHaveBeenCalled();
+});
+
+it("declining the SECOND confirmation also issues no DELETE", async () => {
+  (window.confirm as jest.Mock).mockReturnValueOnce(true).mockReturnValueOnce(false);
+  render(<AccountPage />);
+  await userEvent.click(await screen.findByRole("button", { name: /delete my account/i }));
+  const deleteCalls = (global.fetch as jest.Mock).mock.calls.filter(
+    ([, opts]) => (opts?.method ?? "GET").toUpperCase() === "DELETE",
+  );
+  expect(deleteCalls).toHaveLength(0);
+});
+
 it("full success (200): does NOT alert — signs out silently", async () => {
   deleteStatus = 200;
   deleteBody = { ok: true };

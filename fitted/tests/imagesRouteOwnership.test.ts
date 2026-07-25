@@ -74,6 +74,26 @@ describe("GET /api/images/[imageId] — owner-only via session cookie (§I)", ()
     expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("PNGBYTES");
   });
 
+  it("never marks friend photo bytes CDN-cacheable — `private`, so the ownership check can't be bypassed at the edge", async () => {
+    // The whole 404-for-non-owner guarantee above lives INSIDE this function, so it is only worth
+    // anything if the response never gets cached in front of it. `/api/images/<id>` carries no user
+    // discriminator in its URL, so one word — `public` instead of `private` — makes Vercel's edge CDN
+    // serve one friend's clothing photos to any requester without the request ever reaching the
+    // ownership check. Highest blast radius per character in the repo, and it was unasserted.
+    const { authId, imageId } = await makeImage("owner");
+    setCookieUid(authId);
+    const { GET } = await import("@/app/api/images/[imageId]/route");
+    const res = await GET(imgReq("cookie"), params(imageId));
+
+    const cc = res.headers.get("Cache-Control") ?? "";
+    expect(cc).toMatch(/\bprivate\b/);
+    expect(cc).not.toMatch(/\bpublic\b/);
+    expect(cc).not.toMatch(/\bs-maxage\b/); // a shared-cache directive is the same leak by another name
+    // Belt-and-braces against a stored contentType ever being sniffed into something executable from
+    // a same-origin URL.
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
   it("returns 404 (not 200, no bytes) for a NON-owner with a valid cookie — existence not revealed", async () => {
     const { imageId } = await makeImage("owner");
     await User.create({ authProvider: "firebase", authId: "attacker", email: "attacker@x.com" });
