@@ -220,21 +220,26 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **✅ LIVE WEB = `origin/main` `e63a928a` (deployed 2026-07-25).** Deployment
-  `dpl_5dGkHkX3JnnXr9W42mAEZ4ENukUV` / `fitted-f18dsklcj-…`, via `npx vercel --prod` from `fitted/`
+- **✅ LIVE WEB = `origin/main` `b8c3dfb9` (deployed 2026-07-26).** Deployment
+  `dpl_BagYydEivKnYcahJC23FP1umpyPQ` / `fitted-jprusdkwc-…`, via `npx vercel --prod` from `fitted/`
   → alias `fitted-three.vercel.app`, verified **200** on `/` and `/signin`; `vercel ls --prod` shows
-  it as the sole Ready production deployment. **Fly render service UNTOUCHED** — `fly scale show` =
-  exactly **1 machine** (`app │ 1 │ shared │ 1 │ 512 MB │ lax`), re-checked after the deploy; none of
-  these commits touch `ml-system/`, so no Fly redeploy was needed.
-  This ships the friend-first-use hardening pass (`df9d8f1f`, `24f8b816`, `ec75ecbb`, `31b6df45` —
-  including the photo-destroying-replace fix, [[H14]]/§23-H77) **and** the session-1 verification audit
-  (`3d7cfed9`…`e63a928a`: the erasure-door and image-header pins, the wardrobe-GET merge, the census
-  scope sentence, the hook-timeout guard). Suite floor at deploy: **960 jest**.
+  it as the newest Ready production deployment. **Fly render service UNTOUCHED** — `fly scale show` =
+  exactly **1 machine** (`app │ 1 │ shared │ 1 │ 512 MB │ lax`), re-checked after the deploy, and
+  `/readyz` green (fittedCore 0.5.0, prompt `m5-c1.v1`); none of these commits touch `ml-system/`, so
+  no Fly redeploy was needed.
+  This ships `77570c2b` — the rebuilt session-2 fix batch under the deletions/strings/tests
+  constraint: **`imagePath` removed from `PATCH_STRING_FIELDS`** (§23-H78 write side — until this
+  deploy, any signed-in user could point an item at another friend's photo and land it in the M6
+  export), the F10 "you won't lose your place" promise corrected to one the code can keep, and the
+  unreadable-200 blank-screen path made honest. Suite floor at deploy: **967 jest**.
   **Honest limit on this verification:** the deployed content is this commit's code *by construction*
-  (a CLI deploy of a clean tree at `e63a928a`, build Ready, alias resolved) — the bundle was NOT
+  (a CLI deploy of a clean tree at `b8c3dfb9`, build Ready, alias resolved) — the bundle was NOT
   independently fingerprinted, because the changed copy lives in the auth-gated dashboard chunk and is
   not reachable by an unauthenticated fetch. State the SHA here every time you deploy; never write
   "redeployed to HEAD", which rotted in this bullet once.
+  **CLI-version trap:** `npx vercel` resolves the npx cache at **57.0.0**, while `vercel` on PATH is
+  homebrew **50.4.5** — seven majors apart. Every successful deploy recorded here used `npx`; do not
+  silently switch to the bare binary mid-deploy.
 - **Superseded deploy record (2026-07-25 web deploy of `46857aab` — no longer live; kept for the Fly-side facts it records).**
   Deploy `fitted-96uzl05hl` / `dpl_GxkU8bDp6dUPdbdV7YR2pYHXbH9U` via
   `npx vercel --prod` from `fitted/` → aliased `fitted-three.vercel.app`, verified **200**. This ships the
