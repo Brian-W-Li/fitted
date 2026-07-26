@@ -531,7 +531,7 @@ the `clothingTypeSource:"user"` re-run hazard, the backup-delete step).
   and prefer friends who'll engage over hitting a gender mix. (Informs recruiting only; the frozen
   decision rule is untouched.)
 
-### Friend-first-use hardening pass (2026-07-25 — BUILT on `main`, awaiting Brian's deploy)
+### Friend-first-use hardening pass (2026-07-25 — LIVE in `e63a928a`)
 
 Six first-use defects of the SILENT-FAILURE / MISSING-INSTRUCTION class — the kind a friend hits that
 never surfaces as an error (the class Zhiyun bounced on). All six built + tested; **web-only, the Fly
@@ -545,7 +545,8 @@ render service is untouched (leave it at 1 machine).**
 > not wrong fixes but **missing guards on them**: reverting the photo-destroying-replace fix left all 17
 > image-route tests green, and `lib/db.ts`'s erasure door had never been executed by any test. Those and
 > ~10 more are now pinned (suite 888 → 922, every pin mutation-proven). New holes from the audit:
-> §23-H78–H85. **Still not deployed.** The client image pipeline and the real AddItemModal have now
+> §23-H78–H85. **Deployed 2026-07-25 (`df9d8f1f` rides in the `e63a928a` build).** The client image
+> pipeline and the real AddItemModal have now
 > been exercised in REAL Chrome (14/14 and 16/16 — the first time any of this ran outside jsdom; it
 > caught one defect jsdom could not), so "never run in a real browser" no longer holds. What remains
 > is real-DEVICE testing: Chrome-on-macOS is not iOS WebKit, so the blob-reclaim rationale for data
@@ -569,7 +570,8 @@ render service is untouched (leave it at 1 machine).**
    best-effort GET `/api/wardrobe` on mount; `null` (loading/failed) is deliberately distinct from 0,
    so an existing friend never sees the CTA.
 
-**Deploy:** push, then deploy **from the CLI** — this project does NOT deploy on git push (Ops notes
+**Deploy — DONE for this pass (`e63a928a`, 2026-07-25); recipe kept because it applies to every
+deploy:** push, then deploy **from the CLI** — this project does NOT deploy on git push (Ops notes
 above): `git push origin main`, then `cd fitted && npx vercel --prod` (never from the repo ROOT — both
 directories are named `fitted` and a root deploy blows the free-tier file quota). Then verify per
 "Pre-friend deploy re-verify" (the one-render `bindable:true` gate). No migration, no Fly redeploy,
