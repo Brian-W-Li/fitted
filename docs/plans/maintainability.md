@@ -1,5 +1,18 @@
 # Maintainability campaign — make the repo hold its own shape
 
+> **THE MAIN IDEA, in three sentences.** **Facts that change should never be written down** — compute
+> them at read time, or put them in exactly one register row with a falsifiable condition for closing.
+> Documents then hold only what is *durable* (contracts, decisions, conventions, ambition), so they
+> cannot disagree with reality and stop needing maintenance; they get smaller as a **side effect, never
+> as a goal.** The standing rules that keep this true must survive as **artifacts — tests and hooks —
+> not as prose anyone has to remember**, because a prose rule about prose rules already existed here and
+> already failed.
+>
+> **The goal it serves:** sessions go back to being about code, instead of reconstructing where the
+> repo stands from four documents that disagree. **The measured burden it targets is in §3.1.**
+>
+> Everything below should trace to one of those lines. If a passage does not, it is freight.
+
 > **STATUS: adversarial re-read + re-cut, 2026-07-27. Nothing has been built yet.**
 >
 > **The load-bearing change: the suite now enforces truth and location, and only *prints* size (§5).**
@@ -188,41 +201,39 @@ Three further facts from the same walk:
 but per §1.2 that fixes one instance of three, so the enforcer (check 14) is aimed at **volatile
 markers wherever they appear**, not at that heading.
 
-## 2. Measured state (re-measured 2026-07-27, third pass)
+## 2. How to measure the state — not the values
 
-**These numbers drift within days. Re-measure before acting on any of them; the method is given so you
-can.** The third pass corrected four more figures that the second pass had marked verified.
+> **This section deliberately holds no numbers.** A table of volatile figures inside the document that
+> diagnoses volatile figures is the disease, and it behaved exactly like the disease: three sessions ran
+> against it and each found the previous session's "verified" values wrong. **The values are derived at
+> read time (§1.3) and printed by `npm run hygiene` (§5). This section holds only the commands.**
+> Once S1a-lite lands, even these move into the check definitions and §2 disappears.
 
-| | Method |
+| What | Command |
 |---|---|
-| tracked `*.md` (excl. `team/`, `meetings/`) | **90 files, 1,854,675 bytes** — `git ls-files '*.md' \| grep -v '^team/\|^meetings/'`. Unfiltered returns **145**, which is why check 1 must state the exclusion |
-| `docs/` | **74 files, 20,042 lines** |
-| `docs/plans/` | 21 files; **14 carry a `> COMPLETED` banner** and are still in the active tree — `grep -l '^> COMPLETED\|^> \*\*COMPLETED' docs/plans/*.md`, **8,321 lines** |
-| `docs/sessions/` | 48 files, 5,657 lines, self-described "write-mostly"; **13 dated notes cited from outside the directory** ✓ (re-verified per-basename) |
-| docs created : deleted, all time | **110 : 20** ✓ |
-| §23 register | **99 rows** — `grep -cE '^\| H[0-9]+ \|'` over spec lines 1253–1360; IDs are exactly H1–H99, **no gaps, no duplicates**. (The 07-27 second pass said 100. It was one over.) |
-| §23 status vocabulary | **86 distinct strings across 99 rows** (07-27 second pass said 87) |
-| §23 populations | **Classifier-dependent — do not quote as fact.** A keyword classifier (`RESOLV\|IMPLEMENT\|LANDED\|CLOSED\|DONE\|FIXED` vs `OPEN\|PARTIAL\|BLOCKED\|DEFER`) gives RESOLVED 47 / OPEN 37 / HYBRID 9 / DEFERRED 6. The second pass's 51/40/8/1 used a different, unstated classifier. **This is itself the argument for D6c**: a population you cannot count twice the same way is not a work queue |
-| §23 bytes | **119,238 of the spec's 241,993 — 49.3%** ✓ (`sed -n '1253,1360p' \| wc -c`) |
-| largest docs | spec **241,993 B** · `m5-cutover.md` 219,293 B · `h26-spike-v2.md` 104,686 B · `recovered_appendix.md` 102,294 B ✓ |
-| spec size | **1,472 lines** against CLAUDE.md's own 1,500-line compaction trigger ✓ |
-| default reading list | CLAUDE.md + spec + runbook = **322,496 bytes** ✓ |
-| `CLAUDE.md` Current-focus block | **lines 80–124 = 45 lines** (38 non-blank). The second pass said 32; §1.3 and check 14 inherited the wrong number |
-| process infrastructure | **1 agent** (`.claude/agents/planner.md`), **2 commands** (`spec`, `sync-upstream`), **0 hooks** ✓ |
-| source→doc coupling | **77 citations across 69 `.ts`/`.py` files** to `docs/plans/*.md` ✓ exact; **exactly 1 names a nonexistent path** ✓ (`fitted/lib/outfitLint.ts:15` → `docs/plans/track2-friend-ready-2026-07-18.md`; the real file is `track2-friend-ready-prompt.md`) |
-| suites | jest **967 green / 10 skipped / 977 total in 9.6 s** ✓ · pytest **1098 in 0.73 s**. The 10 skips are env-gated integration suites, not backlog skips |
+| tracked `*.md`, files + bytes | `git ls-files '*.md' \| grep -v '^team/\|^meetings/' \| xargs wc -c` — **the exclusion is load-bearing**: unfiltered is ~60% higher, so a "whole tree" wording makes any baseline unfalsifiable |
+| completed-but-undeleted plans | `grep -l '^> COMPLETED\|^> \*\*COMPLETED' docs/plans/*.md \| xargs wc -l` |
+| register rows | `grep -cE '^\| H[0-9]+ \|'` over the §23 line range |
+| register status vocabulary | same range, field 4, `sort -u \| wc -l` |
+| register bytes / share of spec | `sed -n '<§23 range>p' docs/Fitted_Spec_v2.md \| wc -c` against `wc -c` on the whole spec |
+| default reading list | `wc -c CLAUDE.md docs/Fitted_Spec_v2.md docs/plans/m5-c8-half2-runbook.md` |
+| source→doc coupling, and broken cites | `grep -rnoE 'docs/[A-Za-z0-9_./-]+\.md' --include='*.ts' --include='*.py'` then test each path with `[ -f ]` |
+| suites | `npm test` in `fitted/`; `.venv/bin/python -m pytest tests service/tests -q` in `ml-system/` |
+| the §3 burden baseline | the three commands in §3.1 |
 
-**The dead-doc target is 13,978 lines**, verified: 8,321 (the 14 banner-ed plans) + 5,657
-(`docs/sessions/`). It excludes the recovered appendix (2,282 → D5) and `regen-controls.md` (134).
+**Two measurement traps, which are durable knowledge and stay:**
 
-**Two claims the third pass found false and killed:**
+- **Register populations are classifier-dependent.** Two reasonable keyword classifiers give
+  RESOLVED/OPEN/HYBRID splits that differ by 4–5 rows each. **Never quote a population as fact without
+  stating the classifier.** This is itself the argument for D6c: a population you cannot count twice the
+  same way is not a work queue.
+- **Count inbound citations by path, not by basename.** The second pass reported
+  `docs/sessions/README.md` at **23 inbound**; by path it has **1**. A bare `README.md` grep matches
+  every README reference in the repo, and the direction of the count inverted. **D2 is cheaper than
+  the campaign has been assuming, not more expensive.**
 
-- **`docs/plans/full-audit-2026-07-25.md` exists** — tracked, 16,579 B, 243 lines. It was reported
-  missing. §4 cites it **once** (not twice) and the cite is good.
-- **`docs/sessions/README.md` has 1 real inbound citation, not 23.** By path:
-  `grep -rn 'docs/sessions/README\.md'` returns 3 hits — two are this file's own claim, one is
-  `docs/sessions/2026-06-16.md` (inside the directory, dies with it). The 23 appears to have counted
-  the wrong direction. **D2 is cheaper than stated, not more expensive.**
+**One correction worth keeping because it was acted on:** `docs/plans/full-audit-2026-07-25.md` was
+reported missing and **exists** — tracked, 243 lines. §4 cites it once, and the cite is good.
 
 **The diagnosis is not "too much gets written."** It is that **completion produces a banner instead of
 a deletion**. ~14,000 of those 19,388 lines are already dead by the repo's own rules and were simply
@@ -232,7 +243,39 @@ never removed.
 once you've picked."* It was picked up on 2026-07-26 and is still here. A death condition with no
 enforcer never fires. Everything below assumes that.
 
-## 3. What vigilance actually gets eliminated
+## 3. The burden, measured — and what actually gets eliminated
+
+### 3.1 The baseline (measured 2026-07-27; the campaign had none until now)
+
+The campaign existed to reduce a burden it had never measured, which meant "did it work?" could only
+ever be argued. Measured over the **last 120 commits (2026-07-17 → 2026-07-27)**:
+
+| | | |
+|---|---|---|
+| **Commits that touch no code** | **83 of 120 — 69%** | `git show --name-only` per commit; doc-only if no non-`.md`/`.txt` path |
+| **Markdown share of all line churn** | **34%** (8,484 md vs 16,604 code) | `git log --numstat` |
+| **Doc-only commits that are *corrections*** | **48 of 83 — 58%** | message matches `correct\|stale\|reconcile\|repair\|current.truth\|re-verif\|false claim\|fix.*(cite\|claim\|doc)` |
+
+**Read these honestly, because two of them flatter the campaign:**
+
+- **69% overstates the felt cost.** A one-line doc fix is as much a commit as a 400-line feature.
+  **34% of line churn is the defensible figure** and it is the one to track.
+- **58% is a heuristic over commit messages**, taken once by hand — the same regex-classifier weakness
+  §4 rejects for a *mechanism*. It is a directional read, not a check, and must never become one.
+- **The window is contaminated.** 07-17 → 07-27 contains two audit campaigns and three maintainability
+  sessions, all correction-heavy by nature. Treat 58% as an **upper bound**.
+
+Even discounted, the direction is unambiguous and it is worse than the working estimate of "~20% of a
+session." **Roughly five correction-shaped doc commits per working day** — each one a fact that changed
+in reality while N documents went on asserting the old value. That is the burden. It is ripple, not
+volume, and §5's enforced channel is aimed at exactly it.
+
+**The success test, stated now so it cannot be argued later.** Re-run the same three commands over 120
+commits in a window that **excludes the campaign's own sessions**. Success is md-churn-share and the
+correction share both moving down; failure is either holding flat. No target number — a number invented
+before the intervention is a number the intervention will be tuned to hit.
+
+### 3.2 What vigilance actually gets eliminated
 
 This is the acceptance criterion for the whole campaign. An adversarial review scored an earlier draft
 *2 reduced, 4 renamed, 6 untouched, 4 net-new — **zero eliminated***. Anything Brian must *choose to
@@ -277,44 +320,55 @@ The only true boundaries in this design are a missing tool and a hook that exits
 
 ## 4. Roles — 2 agents, 3 commands, 2 hooks
 
-**Rebuilt 2026-07-27 (third pass).** The prior draft proposed 3 agents / 4 commands / 3 hooks. Applying
-its own rule — *no receipt, no role* — to itself removed one agent and one hook, and revealed that the
-fourth command was never named anywhere in this file. What survives is smaller and each piece is
-carrying proof.
+> **This section serves the *guardrail*, not the main idea** (§1) — it is about audit discipline, not
+> about ripple. Its rung (S1b) is deferred past the stopping point, so it is kept short: the roster, the
+> two traps, and the one rule. The traps are the durable part; they stop a future session shipping a
+> boundary that isn't one.
 
-**Correction that stands from the second pass:** read-only agents do **not** fix the 2026-07-25 defect
-class. `docs/plans/full-audit-2026-07-25.md:26-27` already required read-only subagents that day;
-session 1 obeyed and still shipped six self-inflicted defects, because they came from the **main loop**
-finding, deciding and fixing in one motion. See §3's split for what the agents do and do not buy.
+**The rule: no receipt, no role.** A receipt is a failure that actually happened and can be verified
+today. Applying it to the draft removed one agent and one hook, and exposed a fourth command that was
+never named anywhere.
 
-### The two agents
+**Read-only agents do not fix the 2026-07-25 defect class.**
+`docs/plans/full-audit-2026-07-25.md:26-27` already required read-only subagents that day; session 1
+obeyed and still shipped six self-inflicted defects, because they came from the **main loop** finding,
+deciding and fixing in one motion. §3.2 splits what the agents do and do not buy.
 
-| Agent | Tools | Receipt — a failure that actually happened, verifiable today |
+### The roster
+
+| Piece | Tools | Receipt |
 |---|---|---|
-| `finder` | `Read, Glob, Grep` | **The read-only rule written after the incident does not deliver read-only.** `full-audit-2026-07-25.md:26-27` (commit `5cbf5973`) reads: *"Every review/search subagent MUST be read-only (`subagent_type: "Explore"`). A writable agent deleted a user file in an earlier session."* But `Explore`'s tool set is *all tools except Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit* — **it keeps `Bash`, and `Bash` deletes files.** |
-| `reviewer` | `Read, Glob, Grep` | `CLAUDE.md:236` mandates *"spawn **one** fresh-context review agent"* every checkpoint and names no agent, so it resolves to a writable default. Same boundary as `finder`, different stance. |
+| `finder` | `Read, Glob, Grep` | **The read-only rule written after the incident does not deliver read-only.** `full-audit-2026-07-25.md:26-27` (commit `5cbf5973`) says *"Every review/search subagent MUST be read-only (`subagent_type: "Explore"`)"* — but `Explore` keeps `Bash`, and `Bash` deletes files. |
+| `reviewer` | `Read, Glob, Grep` | `CLAUDE.md:236` mandates *"spawn **one** fresh-context review agent"* every checkpoint and names none, so it resolves to a writable default. |
+| `/state` | — | Prints the §1.3 block on demand, including the network facts `SessionStart` drops |
+| `/find` | — | **Dispatches to `finder`.** The only command that is not pure ergonomics |
+| `/ship` | — | Deploy from `fitted/`, not the repo root. Ergonomics |
+| `SessionStart` · `Stop` | — | §1.3 derived state; push guard. Silent when clean |
 
-**On the `finder` receipt.** The originally-cited artifact — a review subagent deleting
-`scripts/track2-users-peek.mjs` — is **unverifiable**: `git log --all -- '*track2-users-peek*'` is empty,
-consistent with "never committed" and therefore consistent with anything. By this section's own rule
-that is not a receipt. The receipt above replaces it and is strictly better: it is a **committed, dated
-contemporaneous record** of the incident *plus* a demonstrable hole in the fix that was written for it.
+**Three judgments recorded so they are not re-argued:**
 
-**Why "it would only prompt" is not a defence.** A `Bash rm` outside `settings.json`'s allowlist raises
-a permission prompt. That is a human-in-the-loop check — and this repo runs **long autonomous
-sessions**, where prompts get approved by reflex. A prompt is declined by attention; a missing tool
-cannot be approved at all. That difference is the entire reason these two agents exist.
+- **Why not just use `Explore`.** A `Bash rm` outside the allowlist raises a permission prompt — a
+  human-in-the-loop check, in a repo that runs **long autonomous sessions** where prompts get approved
+  by reflex. A prompt is declined by attention; a missing tool cannot be approved at all.
+- **`finder` and `reviewer` are one boundary wearing two system prompts.** Identical tools; the second's
+  value is its stance, not extra safety. Legitimate — but not two boundaries.
+- **`librarian` is CUT** and **`UserPromptSubmit` is CUT** (amends D3). The librarian's receipt was a
+  repo statistic, not an incident, and its job is check 13's. The hook's trigger was a **regex over
+  prompt text** — it fails silently on unusual phrasing, leaving full vigilance *plus* false
+  confidence, and fires wrongly into sessions that want fixes. D3 called it "the weakest link" and kept
+  it anyway; both could not stand. `/find` → `finder` replaces the half a boundary can reach.
+- **Commands are ergonomics, not enforcement.** A slash command's `disallowed-tools` clears on the next
+  user message, so an in-command "don't fix anything" is prose enforced by attention — the mechanism
+  that failed on 07-25.
 
-**Honest note:** `finder` and `reviewer` have identical tool sets. This is **one boundary wearing two
-system prompts**, and the second agent's value is its stance (hunt vs. review), not extra safety. That
-is a legitimate reason to have both and not a reason to claim two boundaries.
+**Specced, deliberately unbuilt — the `PreToolUse` latch.** The other half ("don't act on the report in
+the same session") *is* closable: `/find` writes a marker keyed by the hook input's `session_id`; a
+`PreToolUse` matcher on `Edit|Write` exits 2 while it exists. Keying by session id means a stale marker
+cannot block a later session. **Not built until a receipt demands it** — a real find-session that leaks
+a fix. That is this section's rule applied to a mechanism, and it is the difference between a system and
+a bureaucracy.
 
-**`librarian` is CUT.** Its stated receipt was *"nobody owns deletion → 110:20"* — a repo statistic, not
-an incident, so it fails the no-receipt-no-role rule. Its job (does a deletion leave information
-without a destination?) is **check 13's** job, and a test beats an agent for a recurring mechanical
-question. The one-time deletion sweep is S2, not a standing role.
-
-### The two traps, both now proven rather than asserted
+### The two traps — proven, and the durable part of this section
 
 - **`tools: Bash(git log)` silently resolves to full unrestricted `Bash`. VERIFIED at the source**
   (`@anthropic-ai/claude-code@2.1.220`, bundle strings, 2026-07-27). The parser `fg(entry)` splits a
@@ -335,46 +389,7 @@ question. The one-time deletion sweep is S2, not a standing role.
   body prose at `:8` and `:27`. It is the promise-not-a-boundary failure, in the one instance of the
   pattern that already exists in this repo.
 
-### Commands: 3, not 4
-
-The prior draft's ladder promised "4 commands." Only **three are named anywhere in this file** —
-`/find`, `/ship`, `/state`. The fourth does not exist; the count was the aspiration, not the content.
-
-| Command | What it is |
-|---|---|
-| `/state` | Prints the §1.3 derived block on demand, including the slow/network facts `SessionStart` drops |
-| `/find` | **Dispatches to the `finder` subagent.** This is the one command that is not just ergonomics |
-| `/ship` | Deploy from `fitted/`, not the repo root. Pure ergonomics — he must choose to type it |
-
-**Commands are ergonomics, not enforcement, and the spec says so.** A slash command's
-`disallowed-tools` clears on the next user message, so an in-command "don't fix anything" is prose
-enforced by attention — the exact mechanism that failed on 07-25. `/find` earns its place only because
-it **dispatches**: the boundary comes from the subagent's missing tools, not from the command.
-
-### The hooks: 2, not 3 — `UserPromptSubmit` is cut (amends D3)
-
-D3 ruled all three hooks and simultaneously described `UserPromptSubmit` as *"a heuristic classifier
-standing where a guarantee is claimed… the weakest link in this design."* Both cannot hold. It is cut.
-
-Its trigger is a **regex over prompt text**: it fails to fire on unusual phrasing (leaving full
-vigilance *plus* false confidence, which is worse than no hook) and fires wrongly into sessions that
-want fixes. It was the flagship mechanism for the flagship defect class and it was never more than
-decoration over a phrasing convention.
-
-**What replaces it:** `/find` → `finder`, per §3's split. That is a real boundary for the half of the
-defect it can reach, and honest silence about the other half.
-
-**Specced, deliberately not built — the `PreToolUse` latch.** The remaining half ("don't act on the
-report in the same session") *is* mechanically closable: `/find` writes a marker keyed by the hook
-input's `session_id`; a `PreToolUse` matcher on `Edit|Write` exits 2 while that marker exists. Keying by
-session id means a stale marker cannot block a later session — the failure mode that would otherwise
-make this worse than nothing. It is a real mechanism, not a regex.
-
-**It is not built until a receipt demands it** — a real find-session that leaks a fix. That is this
-section's own rule applied to a mechanism instead of a role, and it is the difference between a system
-and a bureaucracy.
-
-## 5. The checks — 7 enforced, 8 printed
+## 5. The checks — 7 enforced, 7 printed, 1 that moves
 
 > **RE-CUT 2026-07-27, and this is the most important correction in the file.** The draft was 12 size
 > ceilings + 2 floors. But **every instance of the disease anyone has actually verified is a *currency*
@@ -397,8 +412,14 @@ and a bureaucracy.
 
 | | Checks | Behaviour |
 |---|---|---|
-| **ENFORCED** | 9, 10, 11, 13, 14, 15, plus 12(b) | Assert a fact about truth or location. Red = something is wrong *now*. Blocks session end. |
-| **PRINTED** | 1–8, 12(a) | Size and shape. `npm run hygiene` prints them with direction of travel. **Never blocks.** A growing number is information, not a violation. |
+| **ENFORCED** | 9, 10, 11, 13, 14, 15, 12(b) — **and 8 from S4a** | Assert a fact about truth or location. Red = something is wrong *now*. Blocks session end. |
+| **PRINTED** | 1–7, 12(a) — **and 8 until S4a** | Size and shape. `npm run hygiene` prints them with direction of travel. **Never blocks.** A growing number is information, not a violation. |
+
+**Check 8 is the one that moves channels.** It asserts that every register status is a member of a
+closed set — a location fact, so it belongs in the enforced channel. But the closed set does not exist
+until D6c lands at S4a; before that it would assert against ~86 free-text strings and be permanently
+red. **It ships printed at S1a-lite and is promoted to enforced in the S4a commit** — and that
+promotion is itself S4a's DONE condition, so nobody has to remember to do it.
 
 **Why printed rather than deleted.** Reading-list bytes are a real per-session cost and worth watching.
 But a *cap* forces the wrong reflex — compact something because a number went up — and specs on a big
@@ -417,24 +438,26 @@ bounds how long a skip lives, which is the COMPLETED-banner failure wearing a di
 *Why the ratchet isn't just an evasion:* raising a baseline is legal but it is a one-line diff in a
 single JSON file — the one artifact a reviewer, or check 12, can watch.
 
-| # | Check | Today | Notes from the §6 rulings |
-|---|---|---|---|
-| 1 | tracked `*.md` file count, **excluding `team/` + `meetings/`** | 90 | the exclusion must be **stated in the check** — unfiltered `git ls-files '*.md'` is **145**, so a "whole tree" wording makes the baseline unfalsifiable |
-| 2 | total markdown bytes, **minus §23 and the D5-pinned appendix** | 1,828,711 raw | D6a: the register moves to `DEFECTS.md` and is counted separately |
-| 3 | largest single doc, bytes | 241,993 → ~123,000 post-D6a | |
-| 4 | default reading list bytes (hardcoded list) | 322,496 → ~203,000 post-D6a | |
-| 5 | `docs/plans/` file count | 21 | |
-| 6 | ~~`docs/sessions/` file count~~ → **`docs/sessions/` does not exist** | 48 → 0 | D2: directory deleted; `RECOVERY.md` moves to `docs/RECOVERY.md` |
-| 7 | §23 **resolved-row bytes** (archaeology), not row count | 52,632 | D4/D6: never cap open rows — that is the live queue |
-| 8 | §23 + `DEFECTS.md` status **vocabulary membership** | 86 distinct strings | D6c: was a hybrid *detector*; a closed set makes hybrids unconstructible, so this becomes a membership assertion |
-| 9 | doc cites naming a nonexistent path | measure at S1a-lite | catches the D2 session-note re-homing and the D5 appendix deletion |
-| 10 | **source files citing a nonexistent doc** | **1** — `docs/plans/track2-friend-ready-2026-07-18.md` | D4: lands at its **target (0)**, not ratcheted — one-line fix |
-| 11 | sha256 pins: `ml-system/experiments/*/preregistration.*` **+ `Fitted_Spec_v2_recovered_appendix.md`** | — | D5 |
-| 12 | (a) no `current` exceeds its `landing`; (b) **liveness**: `maintainability.md` exists iff any `current > target` | — | D4: converts §7's S6 DONE condition from prose into a test |
-| **13** | **FLOOR — every commit that `git rm`s a `*.md` carries an `EXTRACTED <path>` block whose named destinations RESOLVE** (each `code:` path exists, each `spec:` § exists, each `test:` name is collected by a suite) **and whose `DROPPED:` field is an integer** | — | §1.2: the counterweight to twelve ceilings. Strengthened 07-27 — see below |
-| **14** | **FLOOR — no volatile markers in `CLAUDE.md` or in any `docs/plans/*.md` status banner**: no commit SHAs, no `✅`, no `Remaining:`/`Now:`/`next:` status lines, no bare suite counts, no ISO date used as a status stamp | CLAUDE.md: 2 SHAs, 6 `✅`, 14 ISO dates, 1 stale suite floor (`:117`) | §1.3, rewritten 07-27 — see below |
+**No `Today` column — deliberately.** Seeding values here would recreate §2's failure. The baseline
+JSON holds the numbers; this table holds the definitions.
 
-| **15** | **ENFORCED FLOOR — suite counts never decrease.** `jest >= 967`, `pytest >= 1098`, `experiments pytest >= 308`, recorded in the baseline and nowhere else | 967 / 1098 / 308 | New 07-27. Encodes *"floors grow, never pins"* as an artifact instead of a convention |
+| # | Check | Channel | Definition notes |
+|---|---|---|---|
+| 1 | tracked `*.md` file count, **excluding `team/` + `meetings/`** | printed | the exclusion must be **stated in the check** — unfiltered is ~60% higher, so a "whole tree" wording makes any figure unfalsifiable |
+| 2 | total markdown bytes, minus `DEFECTS.md` and the D5-pinned appendix | printed | |
+| 3 | largest single doc, bytes | printed | |
+| 4 | default reading list bytes (hardcoded list) | printed | the number that most directly tracks per-session cost |
+| 5 | `docs/plans/` file count | printed | |
+| 6 | `docs/sessions/` file count | printed | D2 targets 0 — the directory is deleted, not capped |
+| 7 | §23 **resolved-row bytes** (archaeology), not row count | printed | D4/D6: never count open rows as bloat — that is the live queue |
+| 8 | §23 + `DEFECTS.md` status **vocabulary membership** | printed → **enforced at S4a** | D6c: a closed set makes hybrid rows unconstructible, so this is a membership assertion, not a detector |
+| 9 | doc cites naming a nonexistent path | **enforced** | catches the D2 session-note re-homing. **Paths only — it does not catch prose-form cross-references** (D5) |
+| 10 | source files citing a nonexistent doc | **enforced** | lands at its **target (0)** at S1a-lite, not ratcheted — one-line fix |
+| 11 | sha256 pins: `ml-system/experiments/*/preregistration.*` **+ `Fitted_Spec_v2_recovered_appendix.md`** | **enforced** | D5 |
+| 12 | (a) no printed figure exceeds its landing value; (b) **liveness**: `maintainability.md` exists iff any enforced `current > target` | (a) printed · (b) **enforced** | D4: converts §7's S6 DONE condition from prose into a test |
+| **13** | **FLOOR — every commit that `git rm`s a `*.md` carries an `EXTRACTED <path>` block whose named destinations RESOLVE** (each `code:` path exists, each `spec:` § exists, each `test:` name is collected by a suite) **and whose `DROPPED:` field is an integer** | **enforced** | The counterweight to the printed channel — see below |
+| **14** | **FLOOR — no volatile markers in `CLAUDE.md` or in any `docs/plans/*.md` status banner**: no commit SHAs, no `✅`, no `Remaining:`/`Now:`/`next:` status lines, no bare suite counts, no ISO date used as a status stamp | **enforced** | §1.3 — keeps changing facts out of prose. See below |
+| **15** | **FLOOR — suite counts never decrease** (jest, pytest, experiments pytest), recorded in the baseline **and nowhere else** | **enforced** | Encodes *"floors grow, never pins"* as an artifact instead of a convention |
 
 **Check 15 does three jobs with one artifact, and it is the direct answer to "don't let the standing
 rules fade."**
@@ -493,8 +516,8 @@ extends to `docs/plans/*.md` banners where two of the three instances actually l
 review defeated:
 
 - **Bytes, not lines.** `CLAUDE.md` averages ~123 chars/line and its longest line is 1,538 chars. The
-  §23 register is **7% of the spec's lines (108 of 1,472) and 49% of its bytes (119,238 of 241,993)** —
-  re-measured 07-27; the second pass said 6%/45%. A line cap is satisfied by reflowing prose to long
+  §23 register was 7% of the spec's lines and 49% of its bytes when measured 2026-07-27 —
+  a ratio worth re-checking, not quoting. A line cap is satisfied by reflowing prose to long
   lines — a 40% "improvement" worth exactly nothing — while the single highest-value deletion in the
   repo barely moves it.
 - **Positive assertions, not bans.** A ban on `file.ts:123` is cheapest satisfied by *deleting the
@@ -545,9 +568,10 @@ check makes the session loop against a wall it cannot fix.
 
 ## 6. Decisions — RULED 2026-07-27
 
-All six settled in the walkthrough session, each taught from first principles and argued before the
-verdict. The rulings below are the contract S0–S6 build against; where a ruling contradicts §2–§5 or
-§7–§8, those sections were corrected in the same session and the ruling still wins.
+The rulings below are the contract S0–S6 build against. **Each entry is the decision plus the reasons
+that stop it being re-litigated — the arguing that produced it lives in the commits.** A rejected
+alternative stays only when its rejection is a trap-guard: something a future session would otherwise
+re-propose.
 
 *Note on this doc's own size:* 307 → 545 → ~980 lines across three sessions. **A line limit was
 imposed here on 07-27 and removed the same day — it was the campaign's own disease.** A spec covering a
@@ -606,44 +630,24 @@ the directory "write-mostly… never required context"); a commit body is delive
   each. **`docs/sessions/README.md` has 1 real inbound, not 23** — D2 is cheaper than the second pass
   claimed. Check 9 is the backstop for a missed repair.
 
-*Rejected middle:* "keep notes, cap the count." A bare count cap names no victim, so nothing dies —
-the `COMPLETED`-banner failure again. The only workable version would be rolling-N with a forced
-victim (check 6 at `<= 3`, so a 4th note reddens the suite until the same commit deletes the oldest).
+*Rejected, and it stays rejected:* "keep notes, cap the count." A bare count cap names no victim, so
+nothing dies — the `COMPLETED`-banner failure again. The only workable version would be rolling-N with
+a forced victim (a 4th note reddens the suite until the same commit deletes the oldest).
 
-**D3 — Hooks vs. commands. → RULED: all three hooks, built silent-when-clean.**
+**D3 — Hooks vs. commands. → RULED: `SessionStart` + `Stop`, both silent-when-clean.
+`UserPromptSubmit` is NOT built (§4).**
 
 Intrusiveness is the whole cost, and it is a calibration problem, not a philosophical one: a hook that
-prints nothing when everything passes is invisible until it matters. **`SessionStart` prints ~5 lines
-only on a problem** (unpushed commits / live-SHA drift / a red check) and nothing otherwise — its
-stdout is injected into *every* session's context forever, so verbosity is a permanent tax.
-**`Stop` exits 0 silently.**
+prints nothing when everything passes is invisible until it matters. **`SessionStart` prints only on a
+problem** — its stdout enters *every* session's context forever, so verbosity is a permanent tax.
+**`Stop` exits 0 silently** and blocks only on unpushed commits.
 
-**The three are not equivalent, and §3's table must be corrected in the S1b commit:**
+The two are not equivalent: **`Stop` is a genuine elimination** (deterministic trigger, deterministic
+check, no interpretation in the loop); **`SessionStart` is a reminder** — it converts recall into
+recognition, which is real, but you still act on it. §3.2 scores them accordingly.
 
-- **`Stop` — a genuine elimination.** Deterministic trigger (session end), deterministic check
-  (`git rev-list --count @{u}..HEAD`), no interpretation in the loop.
-- **`SessionStart` — a reminder, not an elimination.** You still choose the role and still comply. It
-  converts recall into recognition, which is real, but §3 marks it "eliminated" and it is not.
-- **`UserPromptSubmit` — REDUCED, not eliminated.** Mechanically a **regex over prompt text** — a
-  heuristic classifier standing where §3 claims a guarantee. False negative: unusual phrasing → no
-  injection → full vigilance plus false confidence. False positive: injects "find, don't fix" into a
-  session that wants fixes. The trigger is exactly as reliable as the phrasing discipline it replaces.
-
-> **AMENDED 2026-07-27 — `UserPromptSubmit` is CUT, taking D3 from three hooks to two.** This ruling
-> named it the weakest link and kept it anyway; those cannot both stand. Nothing replaced it for a full
-> session, which is how a known-decorative mechanism stays flagship. `/find` → the read-only `finder`
-> subagent replaces the half of the defect a boundary can reach; a `PreToolUse` latch is specced and
-> deliberately unbuilt for the other half. **See §4.** The rest of D3 — all hooks silent-when-clean,
-> `SessionStart` printing only on a problem, `Stop` exiting 0 silently, jest cold start ~0.8 s — stands
-> unchanged and applies to the remaining two.
-
-**§3 was inflated and is the campaign's stated acceptance criterion.** It has been rewritten in place
-(2026-07-27) rather than deferred to S1b: **4 of 9 rows, 3 mechanisms**. Deferring a known-false claim
-to a rung that has not started is how the claim survives — the disease, not the cure.
-
-*Verified 2026-07-27:* jest cold start here is **0.8 s** for a single small suite, so running the
-hygiene project from the `Stop` hook carries no meaningful latency tax. No separate non-jest runner is
-needed.
+*Verified:* jest cold start here is **~0.8 s** for a single small suite, so running the hygiene project
+from the `Stop` hook carries no meaningful latency tax. No separate non-jest runner is needed.
 
 **D4 — Checks land green or red? → RULED by the multi-session workflow: `npm test` green at every
 handoff; hygiene is a separate channel that blocks on regression and *reports* progress.**
@@ -661,39 +665,32 @@ Share one suite and a fresh session cannot tell them apart, which destroys detec
 `CLAUDE.md` records why that matters: *"fixes regress, proven repeatedly (a fix landed a new bug caught
 only by the next round, three times in the M4 session)."*
 
-- **`npm test` (967) green at every session boundary, no exceptions.** Unfinished work hands off as a
-  §23 row or a plan checkpoint — **never as a failing test**.
-- **`npm run hygiene` prints `current → target (N to go)` per check** and blocks (via the `Stop` hook)
-  **only on `current > baseline`**. A session may end with the campaign unfinished; it may not end
+- **`npm test` green at every session boundary, no exceptions.** Unfinished work hands off as a §23 row
+  or a plan checkpoint — **never as a failing test**. (The count itself lives in the baseline under
+  check 15, not in prose here.)
+- **`npm run hygiene` prints `current → target` per check** and blocks (via the `Stop` hook) **only on
+  a regression against baseline**. A session may end with the campaign unfinished; it may not end
   having made something worse. The status print is the handoff artifact: measured, not asserted —
   better than a red suite (poisons the regression signal) and better than a plan doc (drifts).
 
-This is the ratchet, but the justification is *not* alarm fatigue: `current <= baseline` and
-`current <= target` are two different assertions with two different meanings, and the ratchet is what
-lets one suite carry both.
+The justification is *not* alarm fatigue: `current <= baseline` and `current <= target` are two
+different assertions with two different meanings, and the ratchet lets one suite carry both.
 
-**Amendments this forces (all load-bearing, all verified 2026-07-27):**
+**Two consequences that survive, and one that dissolved:**
 
-- **§23 MUST be excluded from checks 2/3/4, and check 7 must not cap open rows.** The register is a
-  live work queue, not prose bloat. The 2026-07-26 hunts added 13 rows / **18,284 bytes** — under the
-  specced checks that is a *regression* that would block session end via the `Stop` hook, penalising
-  the most valuable work in the repo. §23 is **119,238 of the spec's 241,993 bytes (49%)**; excluding
-  it puts the spec at 122,755 B and the reading list at 203,258 B with nothing deleted. Any §23 cap
-  must target **resolved-row bodies** (archaeology), never open rows (the queue).
-- **§5's "their own jest project… excluded from `npm test`" is FALSE as written.**
-  `fitted/jest.config.js` already uses a `projects` array (`node`, `jsdom`) and `test` is bare `jest`,
-  which runs **every** project — so a third project lands inside `npm test` and therefore inside
-  `.github/workflows/conformance.yml`, the M5 cross-runtime gate. Exclusion requires
-  `"test": "jest --selectProjects node jsdom"` or a separate config file. Fix at S1a-lite.
-- **Check 1 is worded "whole tree" but its 89 baseline silently excludes `team/` and `meetings/`;**
-  `git ls-files '*.md'` returns **145**. State the exclusion in the check or the baseline is
-  unfalsifiable.
-- **Check 10 lands at its target (0), not ratcheted** — the single failure is the missing
-  `docs/plans/track2-friend-ready-2026-07-18.md` citation, a one-line fix.
-- **Check 12 gains a liveness coupling:** while any `current > target`, `docs/plans/maintainability.md`
-  must exist; once all targets are met it must be gone. That converts §7's S6 DONE condition from
-  prose-in-a-doc-that-dies into a test — the campaign's own "CI-shaped artifacts, not discipline",
+- **Check 10 lands at its target (0), not ratcheted** — a single one-line citation repair.
+- **Check 12 gains a liveness coupling:** while any enforced `current > target`,
+  `docs/plans/maintainability.md` must exist; once all are met it must be gone. That converts §7's S6
+  DONE condition from prose-in-a-doc-that-dies into a test — "CI-shaped artifacts, not discipline",
   applied to itself.
+- **DISSOLVED by §5's two-channel re-cut:** this ruling forced an elaborate carve-out to stop the §23
+  register from tripping the byte caps when a bug hunt added rows. **Size no longer enforces anything,
+  so there is nothing to carve out of.** A register that grows now simply prints as having grown. The
+  carve-out was three amendments of complexity paid to protect the repo from a check that should not
+  have blocked in the first place — worth remembering the next time a check needs an exception to
+  avoid punishing good work.
+
+*(The `jest --selectProjects` trap this ruling also surfaced is single-homed in §5's TRAP box.)*
 
 **D5 — Does `Fitted_Spec_v2_recovered_appendix.md` (102 KB) survive? → RULED: SURVIVES, sha256-pinned.**
 
@@ -701,23 +698,18 @@ It joins check 11's pin set and is excluded from checks 2/3 **by explicit path**
 grow, so it cannot become the dumping ground an open exemption would invite. Same byte relief as
 exemption, opposite incentive.
 
-**Three verified facts the earlier draft missed — it is not "history":**
+**Three verified facts — it is not "history":**
 
 - **`CLAUDE.md:238` makes it required grounding** for the ambition-merit lane (*"grounded in
   `Fitted_Spec_v2.md` + the recovered appendix + the real committed state"*) — a guaranteed reader with
-  a recurring trigger. ✓ verified 07-27.
-- **The surviving spec cites into it:** `Fitted_Spec_v2.md:1303` (§23-H45) → "the someday-launch
-  growth-loop artifact (recovered appendix C.4)", and `C.4` exists at `recovered_appendix.md:1457`.
-  ✓ verified 07-27 — **but the conclusion drawn from it was false.** The second pass wrote *"Deleting it
-  reddens check 9."* It would not: the cite is the **prose phrase** "recovered appendix C.4", not a
-  path, and check 9 tests paths. Deleting the appendix would break this cite **silently**, which makes
-  the argument for keeping it stronger, not weaker — but the mechanism named was wrong and would have
-  had S2 relying on a backstop that does not cover this case.
+  a recurring trigger.
+- **The spec cites into it:** `Fitted_Spec_v2.md:1303` (§23-H45) → "recovered appendix C.4", which
+  exists at `recovered_appendix.md:1457`. **Trap: that cite is a prose phrase, not a path, so check 9
+  would NOT catch its breakage.** Deleting the appendix breaks it silently. Do not rely on check 9 as
+  the backstop for prose-form cross-references — it tests paths only.
 - **Its content is not anecdotes.** `C.0` (`recovered_appendix.md:13`) is the definitional source for
   `Board`/`StyleProfile`/`Routine`/`Lens`/`StyleMove`/`StyleEdge` and the core purpose statement — the
-  vocabulary the entire spec is written in. ✓ verified 07-27.
-
-**D5's verdict stands on two legs of three.** Kept, sha256-pinned.
+  vocabulary the entire spec is written in.
 
 **The structural argument.** The spec is a lossy compression of the ambition
 ([[feedback_spec_is_lossy]]). The appendix is the only artifact in the repo that is **not a compression
@@ -738,49 +730,45 @@ trigger (1,472 today).
 **D6 — How aggressive is the §23 rewrite? → RULED: split the register in two; compress per-population;
 three-field open rows; closed status vocabulary.**
 
-**Measured 2026-07-27** — the register is two registers wearing one row format:
-
-| Population | Rows | Bytes | Lifecycle |
-|---|---|---|---|
-| RESOLVED | 51 | 52,632 (44%) | archaeology; residual value is trap-guards only |
-| OPEN | 40 | 57,801 (49%) | **live work queue** |
-| HYBRID | 8 | 7,651 | both at once (the check-8 defect) |
-| DEFERRED | 1 | 888 | |
+**The insight: §23 is two registers wearing one row format.** Roughly half its bytes are RESOLVED rows
+(archaeology, whose only residual value is trap-guards) and roughly half are the live work queue. They
+have opposite lifecycles and belong in different files.
 
 **D6a — defects physically leave the spec** → `docs/DEFECTS.md`, counted separately as work-queue
 infrastructure (same class as `.claude/` and `fitted/tests/` in §7), capped on **CLOSED rows only**.
-§23 keeps design holes. Spec 241,993 → ~123,000 B; reading list 322,496 → ~203,000 B.
+§23 keeps design holes. Roughly halves both the spec and the default reading list.
 
-*This corrects the D4 amendment.* Excluding §23 from checks 2/3/4 fixes the **measurement** and does
-nothing about the **context cost** — a session reading `Fitted_Spec_v2.md` loads all 241,993 bytes
-regardless of what the checks count. Requirement 1 is *navigability*; 49% of the canonical spec being a
-bug tracker is a navigability defect that a cap exclusion is theater against. The register must
-physically move, not merely stop being counted. It also matches the session split: a bug-hunt session
-and a design session want different reading lists.
+**Why moving, not exempting.** An exemption fixes the *measurement* and does nothing about the *context
+cost* — a session reading `Fitted_Spec_v2.md` loads every byte regardless of what any check counts.
+Requirement 1 is navigability; ~half the canonical spec being a bug tracker is a navigability defect
+that a cap exclusion is theater against. It also matches the session split: a bug-hunt session and a
+design session want different reading lists.
 
-**Compression is per-population — the original "two-line open row" target aimed at the wrong 57,801 bytes:**
+**Compression is per-population.** The obvious "make every row two lines" target aims at the wrong half:
 
-- **RESOLVED (51 rows / 52,632 B)** → one line each after trap-guard extraction to the symbol. ~90%
-  off, essentially free. This is where the bytes are.
-- **OPEN design hole** → three-field row (below), analysis in the spec body.
-- **OPEN defect** → **full body preserved.** H87 carries mechanism (`lib/mongodb.ts:31-44` caches a
-  rejected promise), reachability (Atlas M0 SRV blip inside the 30 s server-selection window), blast
-  radius (`connectMongo` sits under `apiAuth`/`session`, so auth dies too) and the one-line fix. That
-  *is* the deliverable; there is no spec section to move a missing owner check into. Compressing a
-  defect row deletes the finding.
+- **RESOLVED** → one line each after trap-guard extraction to the symbol. ~90% off, essentially free.
+  This is where the bytes are.
+- **OPEN design hole** → three-field row (D6b), analysis in the spec body.
+- **OPEN defect → full body preserved. Do not compress these.** H87 carries mechanism
+  (`lib/mongodb.ts:31-44` caches a rejected promise), reachability (an Atlas M0 SRV blip inside the
+  30 s server-selection window), blast radius (`connectMongo` sits under `apiAuth`/`session`, so auth
+  dies too) and the one-line fix. That *is* the deliverable, and there is no spec section to move a
+  missing owner check into. **Compressing a defect row deletes the finding.**
 
 **D6b — three fields: `symptom | where | unblock condition`.** The third is what must be true before the
 row can close. Its value is that it is **falsifiable** — "BLOCKED: 3 friend closets land" is checkable
 against reality, "OPEN" is not. Its absence is what produced the H7/H8/H61 staleness.
 
 **D6c — closed status vocabulary, check-enforced.** §23: `OPEN` | `BLOCKED:<condition>` | `RESOLVED`.
-`DEFECTS.md`: `OPEN` | `FIXED:<sha>`. All **86 distinct strings across 99 rows** (re-measured 07-27)
-collapse into these. **Hybrid rows become unconstructible** — one row, one status from a fixed set, so
-a half-done row must split into two. **Check 8 downgrades from a hybrid *detector* to a vocabulary
-*membership* assertion**, which is mechanical and cannot drift. The hybrids (8 or 9 depending on the
-classifier — §2, and that ambiguity is itself the argument) are still
-**split, never deleted** — H78's open half is an unclosed cross-user data-scoping defect and belongs in
-`DEFECTS.md`.
+`DEFECTS.md`: `OPEN` | `FIXED:<sha>`. Today's ~86 distinct free-text strings collapse into these.
+**Hybrid rows become unconstructible** — one row, one status from a fixed set, so a half-done row must
+split into two. Check 8 becomes a vocabulary *membership* assertion, which is mechanical and cannot
+drift. **Existing hybrids are split, never deleted** — H78's open half is an unclosed cross-user
+data-scoping defect and belongs in `DEFECTS.md`.
+
+**A note that shaped D6c:** the hybrid count depends on the classifier (§2). Two reasonable ones
+disagree by several rows. That a population cannot be counted twice the same way is not a measurement
+nuisance — it is the proof that the register is not yet a machine-readable work queue.
 
 ## 7. Ladder and sequencing
 
@@ -873,8 +861,9 @@ checkpoint, never as a failing test.
   leaves `npm test` green.
 - **S4a** — split `docs/DEFECTS.md` out of §23 (D6a) and close the status vocabulary (D6c); split the
   hybrid rows; repair every inbound citation in the same commit. **No compression, no body deletion.**
-  **DONE when** the reading list is measured under 210 KB, every §23/`DEFECTS.md` status is a member of
-  the closed set, and check 9 is green.
+  **DONE when** the reading list is measured under 210 KB, check 9 is green, and **check 8 has been
+  promoted from printed to enforced in this commit and is green** — that promotion is the DONE
+  condition, so it cannot be forgotten.
 
 **Then stop. Push, recruit, build the M6 embedding pipeline.** The rungs below resume when a receipt
 demands them, not on a schedule.
