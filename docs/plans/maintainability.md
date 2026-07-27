@@ -1,11 +1,20 @@
 # Maintainability campaign — make the repo hold its own shape
 
-> **STATUS: adversarial re-read complete, 2026-07-27. Nothing has been built yet.** §6's six decisions
-> stand, with **two amendments** (D3: the `UserPromptSubmit` hook is **cut**, §4; D5: one of its three
-> legs was false, §6). §1.3's derived-state centerpiece stands, with its **boundary redrawn** — the
-> disease is not confined to `CLAUDE.md` (§1.2). §4 was rebuilt on proven receipts and shrank from
-> 3 agents / 4 commands / 3 hooks to **2 / 3 / 2**. **The ladder is resequenced (§7): S1a → S4a → S0,
-> then stop.** The next-session prompt is §9 and it is **S1a**, not S0.
+> **STATUS: adversarial re-read + re-cut, 2026-07-27. Nothing has been built yet.**
+>
+> **The load-bearing change: the suite now enforces truth and location, and only *prints* size (§5).**
+> Every instance of the disease anyone has verified is a currency failure; none is a size failure. The
+> felt cost is **ripple — one fact stored in N places**, so landing one test edits four documents. A
+> suite that capped size would have enforced a proxy and punished the register for growing.
+>
+> §6's six decisions stand, with two amendments (D3: `UserPromptSubmit` **cut**, §4; D5: one leg was
+> false, §6). §1.3's derived-state centerpiece stands with its **boundary redrawn** — the disease is not
+> confined to `CLAUDE.md` (§1.2). §4 rebuilt on proven receipts: 3 agents / 4 commands / 3 hooks →
+> **2 / 3 / 2**. New **check 15** (suite counts never decrease) turns *"floors grow, never pins"* from
+> a convention into an artifact and is the guard against standing rules fading.
+>
+> **Ladder: S0 → S1a-lite → S4a, then stop** (§7 — this reversed once; the reasoning is recorded there).
+> The next-session prompt is §9 and it is **S0**.
 >
 > **This doc dies at S6**, and after D4 that is enforced by check 12(b) rather than by remembering:
 > the check requires this file to exist while any target is unmet and to be **gone** once all are met.
@@ -113,16 +122,18 @@ The buildable version — `SessionStart` prints only the top two lines and only 
 `/state` prints all of it on demand:
 
 ```
-FITTED · main · 5 unpushed · 0 uncommitted
-plan   docs/plans/maintainability.md · S1a red, S4a red, S0 red  → next: S1a
+FITTED · main · 6 unpushed · 0 uncommitted
+plan   docs/plans/maintainability.md · last touched 2h ago · 4ac8d523
 open   99 register rows · 37 status ^OPEN
-tests  jest 967 ✓ · pytest 1098 ✓ · hygiene 14 ✓                 (/state only)
+tests  jest 967 ✓ · pytest 1098 ✓ · hygiene 7 ✓                  (/state only)
 deploy web 30b03cc9 = HEAD ✓ · fly 1 machine v6                  (/state only, network)
-last   8039906a docs(maintainability): re-centre the campaign…
+last   4ac8d523 docs(maintainability): survive an adversarial read…
 ```
 
-Every line is computed: unpushed from `git rev-list`, rung position from **which hygiene checks are
-red**, register counts from the closed vocabulary, deploy from the network on demand.
+Every line is computed: unpushed from `git rev-list`, **plan position from
+`git log -1 -- docs/plans/`** (not from a status banner), register counts from a `^OPEN` scan, deploy
+from the network on demand. Once S1a-lite lands, the plan line can upgrade to *which rung's check is
+still red* — strictly better, and not a prerequisite.
 
 **Why this is what serves requirement 5.** When C3 surfaces something and the session detours into a
 bug hunt, then a re-audit, then a spec change, **nobody has to remember to update a paragraph** — the
@@ -153,13 +164,16 @@ status banner — the exact artifact class §1.2 just convicted, and the exact t
 read from a file a human maintains") is **unsatisfiable for this line as designed.** The centerpiece
 had authored state at its centre.
 
-**The fix, and it is why the ladder is resequenced.** Derive rung position from **the checks**, not from
-a banner: a rung's position is *the first rung whose DONE check is still red*. That is the same trick
-check 12(b) already uses to make this file's own death terminal, applied one level down. It is fully
-computed, it cannot go stale, and it makes the line honest.
+**The fix — two forms, and the cheap one is enough.** The pure form derives rung position from **the
+checks**: a rung's position is *the first rung whose DONE check is still red*, the same trick check
+12(b) uses on this file's own death. That requires the checks to exist.
 
-It also has a hard consequence: **S0 cannot be first.** The checks it reads must exist, so **S1a
-precedes S0** (§7). Three further facts from the same walk:
+The cheap form needs nothing: **`git log -1 -- docs/plans/` gives which plan was last touched, when,
+and by which commit.** 100% computed, cannot go stale, and it answers "where are we" well enough to
+start a session. **So S0 does not have to wait** (§7 records where the opposite conclusion was drawn
+and why it was wrong). Adopt the git form now; upgrade to the check form once S1a-lite lands.
+
+Three further facts from the same walk:
 
 - **`13 defects unfixed (H87–H99)` needs D6c's closed status vocabulary to compute.** Today the
   register carries **86 distinct free-text status strings**; no reliable parse exists. Until S4a, S0
@@ -360,11 +374,40 @@ make this worse than nothing. It is a real mechanism, not a regex.
 section's own rule applied to a mechanism instead of a role, and it is the difference between a system
 and a bureaucracy.
 
-## 5. The 14 checks
+## 5. The checks — 7 enforced, 8 printed
 
-**Ratchet form:** every check asserts `actual <= baseline`, seeded to today's measured values in
-`fitted/tests/repoHygiene.baseline.json`, so the suite is **green on arrival**. A session that improves
-a number lowers its baseline in the same commit.
+> **RE-CUT 2026-07-27, and this is the most important correction in the file.** The draft was 12 size
+> ceilings + 2 floors. But **every instance of the disease anyone has actually verified is a *currency*
+> failure, and not one is a *size* failure** — the stale `≥922` jest floor at `CLAUDE.md:117`, the plan
+> banner contradicting `runbook:495`, the Current-focus block stale by three events, six unpushed
+> commits nobody surfaced. §1.2 already said so (*"every check measures size; none measures
+> currency"*) and §5 then spent 12 of 14 checks on size anyway.
+>
+> **The felt cost is ripple, not bloat: one fact stored in N places, so landing one test edits four
+> documents.** Size merely co-varies with it. A suite that enforces the proxy instead of the disease is
+> a process to fight, and the first thing it would do is punish the register — the healthiest artifact
+> in the repo — for growing when a bug hunt succeeds.
+>
+> So the suite splits. **Truth and location are enforced. Size is printed.** Every legitimate action in
+> this campaign turns out to be about truth (is this claim still true?) or location (is this fact in
+> exactly one place?) — deleting dead plans is not a diet, it is removing things that stopped being
+> true; moving §23 out is not a diet, it is putting a work queue where a work queue goes.
+
+**Two channels, and only one of them can block:**
+
+| | Checks | Behaviour |
+|---|---|---|
+| **ENFORCED** | 9, 10, 11, 13, 14, 15, plus 12(b) | Assert a fact about truth or location. Red = something is wrong *now*. Blocks session end. |
+| **PRINTED** | 1–8, 12(a) | Size and shape. `npm run hygiene` prints them with direction of travel. **Never blocks.** A growing number is information, not a violation. |
+
+**Why printed rather than deleted.** Reading-list bytes are a real per-session cost and worth watching.
+But a *cap* forces the wrong reflex — compact something because a number went up — and specs on a big
+change grow for good reasons. Printing gives the signal without the reflex. If a printed number ever
+drives a real decision, that is the moment to consider promoting it, and not before.
+
+**Ratchet form (enforced channel):** each asserts `actual <= baseline`, seeded to today's measured
+values in `fitted/tests/repoHygiene.baseline.json`, so the suite is **green on arrival**. A session that
+improves a number lowers its baseline in the same commit.
 
 *Why not land them RED (the obvious version):* they would be red for the entire campaign — weeks — and
 a permanently-red suite trains every session to write off RED. This repo's own rules forbid that:
@@ -384,14 +427,30 @@ single JSON file — the one artifact a reviewer, or check 12, can watch.
 | 6 | ~~`docs/sessions/` file count~~ → **`docs/sessions/` does not exist** | 48 → 0 | D2: directory deleted; `RECOVERY.md` moves to `docs/RECOVERY.md` |
 | 7 | §23 **resolved-row bytes** (archaeology), not row count | 52,632 | D4/D6: never cap open rows — that is the live queue |
 | 8 | §23 + `DEFECTS.md` status **vocabulary membership** | 86 distinct strings | D6c: was a hybrid *detector*; a closed set makes hybrids unconstructible, so this becomes a membership assertion |
-| 9 | doc cites naming a nonexistent path | measure at S1a | catches the D2 session-note re-homing and the D5 appendix deletion |
+| 9 | doc cites naming a nonexistent path | measure at S1a-lite | catches the D2 session-note re-homing and the D5 appendix deletion |
 | 10 | **source files citing a nonexistent doc** | **1** — `docs/plans/track2-friend-ready-2026-07-18.md` | D4: lands at its **target (0)**, not ratcheted — one-line fix |
 | 11 | sha256 pins: `ml-system/experiments/*/preregistration.*` **+ `Fitted_Spec_v2_recovered_appendix.md`** | — | D5 |
 | 12 | (a) no `current` exceeds its `landing`; (b) **liveness**: `maintainability.md` exists iff any `current > target` | — | D4: converts §7's S6 DONE condition from prose into a test |
 | **13** | **FLOOR — every commit that `git rm`s a `*.md` carries an `EXTRACTED <path>` block whose named destinations RESOLVE** (each `code:` path exists, each `spec:` § exists, each `test:` name is collected by a suite) **and whose `DROPPED:` field is an integer** | — | §1.2: the counterweight to twelve ceilings. Strengthened 07-27 — see below |
 | **14** | **FLOOR — no volatile markers in `CLAUDE.md` or in any `docs/plans/*.md` status banner**: no commit SHAs, no `✅`, no `Remaining:`/`Now:`/`next:` status lines, no bare suite counts, no ISO date used as a status stamp | CLAUDE.md: 2 SHAs, 6 `✅`, 14 ISO dates, 1 stale suite floor (`:117`) | §1.3, rewritten 07-27 — see below |
 
-**Checks 13 and 14 are the requirement-4 floors.** Checks 1–12 all assert *less*; without these the
+| **15** | **ENFORCED FLOOR — suite counts never decrease.** `jest >= 967`, `pytest >= 1098`, `experiments pytest >= 308`, recorded in the baseline and nowhere else | 967 / 1098 / 308 | New 07-27. Encodes *"floors grow, never pins"* as an artifact instead of a convention |
+
+**Check 15 does three jobs with one artifact, and it is the direct answer to "don't let the standing
+rules fade."**
+
+1. **It kills the ripple you actually feel.** Today the jest floor is written in prose in `CLAUDE.md`,
+   so landing one test makes a document wrong — and `CLAUDE.md:117` is wrong *right now* (`≥922` vs an
+   actual 967). Once the number lives in the baseline and nowhere else, adding a test edits **one JSON
+   line**, and check 14 forbids re-writing it into prose. One fact, one home.
+2. **It enforces a standing rule that was previously only a convention.** *"Green test counts are
+   floors that grow, never pins"* has been discipline. It becomes a test.
+3. **It catches the code smell you named.** Deleting a test, or `.skip`-ing one to make a suite pass,
+   drops the count and reddens the check. It cannot catch a test *weakened* in place — nothing
+   mechanical can — but the cheapest and most common version of "modify the test until it passes" is
+   removal, and removal is now visible.
+
+**Checks 13, 14 and 15 are the requirement-4 floors.** Everything in the printed channel reports *less*; without these the
 campaign optimises "fewer docs" while Brian asked for "enough docs." Both were thin and both were
 rewritten on 2026-07-27.
 
@@ -464,7 +523,7 @@ contract.
 > defines `"test": "jest"` — bare `jest` runs **every** project in that array. Adding a `hygiene`
 > project therefore lands it **inside `npm test`, and inside the conformance gate**, which is exactly
 > what this paragraph forbids. Exclusion requires `"test": "jest --selectProjects node jsdom"` (and
-> then any future project is opt-in, not opt-out) or a separate config file. **Fix at S1a; prove it by
+> then any future project is opt-in, not opt-out) or a separate config file. **Fix at S1a-lite; prove it by
 > reddening a hygiene check and watching `npm test` stay green.**
 
 **Output contract (D4).** `npm run hygiene` prints `current → target (N to go)` per check and a
@@ -487,16 +546,20 @@ check makes the session loop against a wall it cannot fix.
 ## 6. Decisions — RULED 2026-07-27
 
 All six settled in the walkthrough session, each taught from first principles and argued before the
-verdict. The rulings below are the contract S1a–S6 build against; where a ruling contradicts §2–§5 or
+verdict. The rulings below are the contract S0–S6 build against; where a ruling contradicts §2–§5 or
 §7–§8, those sections were corrected in the same session and the ruling still wins.
 
-*Note against this doc's own standard:* 307 → 545 lines at the §6 ruling, **→ 934 at the 07-27
-adversarial re-read**. Three sessions have tripled a document whose thesis is that documents accrete.
-That is partly earned — it now carries the decision record and, more importantly, the *method* behind
-every number, which is the only thing that stopped the fourth session repeating the third's errors —
-and partly the disease. It is why check 12(b) exists. **Hard limit: if this file crosses 1,100 lines
-before S1a lands, the next session compacts it instead of building.** This doc does not get to be the
-exception.
+*Note on this doc's own size:* 307 → 545 → ~980 lines across three sessions. **A line limit was
+imposed here on 07-27 and removed the same day — it was the campaign's own disease.** A spec covering a
+large change grows as implementation uncovers detail; that is the spec working, not failing. What
+earned the growth is that the file now carries the *method* behind every number, which is the only
+thing that stopped the fourth session repeating the third's errors.
+
+The right death condition is **check 12(b)** — this file exists while any enforced target is unmet and
+is gone once they are all met — plus one judgment call, stated as a question rather than a threshold:
+**when a rung lands and its decision record stops being read, that record belongs in the commit that
+implemented it (§8), not here.** Compact when a section stops being consulted, never because a number
+grew.
 
 **D1 — Delete ~14,000 lines of docs, or archive them? → RULED: DELETE, plus a retrieval index in `CLAUDE.md`.**
 
@@ -621,7 +684,7 @@ lets one suite carry both.
   `fitted/jest.config.js` already uses a `projects` array (`node`, `jsdom`) and `test` is bare `jest`,
   which runs **every** project — so a third project lands inside `npm test` and therefore inside
   `.github/workflows/conformance.yml`, the M5 cross-runtime gate. Exclusion requires
-  `"test": "jest --selectProjects node jsdom"` or a separate config file. Fix at S1a.
+  `"test": "jest --selectProjects node jsdom"` or a separate config file. Fix at S1a-lite.
 - **Check 1 is worded "whole tree" but its 89 baseline silently excludes `team/` and `meetings/`;**
   `git ls-files '*.md'` returns **145**. State the exclusion in the check or the baseline is
   unfalsifiable.
@@ -721,9 +784,19 @@ classifier — §2, and that ambiguity is itself the argument) are still
 
 ## 7. Ladder and sequencing
 
-**Recommendation, 2026-07-27: do a three-session slice now — S1a → S4a → S0 — then stop and go back to
-Track 2 and M6.** Not the whole campaign now; not S0 alone; not after Track 2. The rest resumes when a
-receipt demands it.
+**Recommendation, 2026-07-27 (revised the same day): do a three-session slice now — S0 → S1a-lite →
+S4a — then stop and go back to Track 2 and M6.** The rest resumes when a receipt demands it.
+
+> **Why this reversed.** The first ordering was S1a → S4a → S0, derived from what is *technically
+> prerequisite*. Re-derived from what actually costs a session, it inverts. The two concrete pains are
+> *"a doc said we hadn't pushed, we had, now I must grep"* and *"one extra test and I edit four
+> documents"* — **both are ripple, and S0 is the direct hit on both.** S1a's ratchet mostly prevents
+> size regrowth, which is not a pain anyone has felt.
+>
+> **The prerequisite argument was wrong.** S0 was blocked because *"§6 ruled, S1a next"* is not
+> derivable. But it does not have to come from check status: `git log -1 -- docs/plans/` gives *which
+> plan was last touched, when, and by what commit* — **100% computed, and about 80% as useful.**
+> "Where we are" is answerable without the checks existing. That removes the block.
 
 ### 7.1 Why this and not the alternatives
 
@@ -741,26 +814,42 @@ session of the densest stretch. This is the one argument that decides the timing
 when three of the rungs (S3, S5, S6) are polish with no receipt, S1b's agents take minutes to write
 whenever one is needed, and S2's win is second-order (grep noise, not per-session context).
 
-**Against "S0 only":** S0 as specced cannot be built honestly — its plan line is not derivable and its
-defect count needs the closed vocabulary (§1.3.1). Building it first means building it wrong.
+**Against "S0 only":** it is the closest of the alternatives and worth naming as the fallback. S0 alone
+kills both named pains. It leaves the counts living in prose with nothing stopping them being rewritten
+there, which is what S1a-lite's checks 14 and 15 pin.
 
-**Why these three, in this order.** Ranked by what a Track-2/M6 session actually pays today:
+**Why these three, in this order.** Ranked by *what a session actually costs Brian today*, not by
+dependency order:
 
-| Rung | What it buys | Cost |
+| Rung | The pain it removes | Cost |
 |---|---|---|
-| **S1a** | The enforcement spine. Makes every later rung's DONE condition *provable*, and — per §1.3.1 — makes rung position **derivable**, which is what unblocks S0. Fixes the `npm test` trap and lands check 10 at 0. | 1 session |
-| **S4a** | **The single biggest per-session win in the campaign:** move the defect rows out of the spec. Reading list **322 KB → ~203 KB, −37%**. Half the canonical spec is a bug tracker a design session does not need. | ~1 session |
-| **S0** | Derived state, now honestly derivable. Serves requirement 5 directly. | 1 session |
+| **S0** | *"A doc said we hadn't pushed; we had; now I must grep."* Direct hit. Also the only rung that makes "where are we" cost zero at session start. | 1 session |
+| **S1a-lite** | *"One extra test and I edit four documents."* Check 15 moves the counts into the baseline; check 14 forbids writing them back into prose. **One fact, one home.** | 1 session |
+| **S4a** | The per-session context bill: reading list **322 KB → ~203 KB, −37%**. A cost, not a pain — which is exactly why it is third. | ~1 session |
+
+**S1a-lite is deliberately not S1a.** Build the **enforced** channel only — checks 9, 10, 11, 13, 14,
+15 and 12(b) — plus the printed readout for the size numbers. The size caps are not enforced (§5), so
+there is no ceiling baseline to seed or defend. Smaller rung, and it stops the suite from ever
+punishing the register for growing.
 
 **S4a is deliberately not S4.** Split the register and close the status vocabulary — a mechanical cut
 and re-point. **Do not** do D6's compression, trap-guard extraction or 51 resolved-body deletions yet:
 those are the one-way doors, and they are far safer once friend data has generated its next wave of
 rows. The −119 KB comes from the move, not the compression.
 
-**Before session A, and not as part of the campaign: push the 5 commits and redeploy.** It is one
-minute of work, it has been "remaining" on the checklist since 07-20, and it is the highest-value
-action available in the repo today. That the campaign keeps not-noticing it is the entire argument for
-S0 — and also the reason S0 is not worth waiting for before pushing.
+**Before session A, and not as part of the campaign: push the unpushed commits and redeploy the web
+half.** It is one minute of work, it has been "remaining" on the checklist since 07-20, and it is the
+highest-value action available in the repo today. That the campaign keeps not-noticing it is the entire
+argument for S0 — and also the reason S0 is not worth waiting for before pushing.
+
+**Standing rules must survive the deletion rungs — this is a real risk and nothing guarded it.** S2 and
+S3 rewrite `CLAUDE.md` and delete ~14,000 lines, and the build-and-audit rules live in exactly those
+places: mutate-don't-read, tests-are-floors, verify-before-answering, no-inline-test-mirrors,
+convergence-before-closure, heavy-loop-at-boundaries. **The rule is: any standing rule that can become
+a check must become one before the rung that could drop it.** Check 15 does this for
+tests-are-floors — it was a convention, it is now an artifact. Whatever is left prose after that gets
+enumerated at the top of S3's commit and re-read after, one at a time. A rule that survives only
+because someone remembered to keep the paragraph is the same failure this whole campaign is about.
 
 ### 7.2 The rungs
 
@@ -770,20 +859,22 @@ checkpoint, never as a failing test.
 
 **Slice to build now:**
 
-- **S1a** — the 14 checks + baseline, green on arrival, with `current`/`target`/`landing` per check.
+- **S0** — the derived-state script (§1.3): `/state` + `SessionStart`, silent when clean. Plan position
+  from `git log -1 -- docs/plans/`; register counts from a `^OPEN` prefix scan (honest and weaker until
+  S4a closes the vocabulary); suites and network facts in `/state` only, never `SessionStart`. Ship the
+  `Stop` push guard in the same rung — it is five lines and it is half the reason this rung is first.
+  **DONE when** Brian has started three real sessions with it and it told him something he would
+  otherwise have gone looking for, and **nothing in it is read from a file a human maintains.**
+- **S1a-lite** — the **enforced** checks only (9, 10, 11, 13, 14, 15, 12(b)) + the printed size readout.
   **First: fix `"test"` to `jest --selectProjects node jsdom`** and prove hygiene is outside `npm test`
-  (§5 trap). Repair the check-10 citation so it lands at target 0. **DONE when** lowering each baseline
-  by one reddens exactly that check, proven one at a time (mutation, not reading), *and* a deliberately
-  reddened hygiene check leaves `npm test` green.
+  (§5 trap). Repair the check-10 citation so it lands at target 0. Move the suite floors out of
+  `CLAUDE.md:117` into the baseline in the same commit. **DONE when** each enforced check has been
+  reddened one at a time by mutation (not by reading), *and* a deliberately reddened hygiene check
+  leaves `npm test` green.
 - **S4a** — split `docs/DEFECTS.md` out of §23 (D6a) and close the status vocabulary (D6c); split the
   hybrid rows; repair every inbound citation in the same commit. **No compression, no body deletion.**
   **DONE when** the reading list is measured under 210 KB, every §23/`DEFECTS.md` status is a member of
   the closed set, and check 9 is green.
-- **S0** — the derived-state script (§1.3): `/state` + `SessionStart`, silent when clean. Rung position
-  comes from **the checks**, register counts from **the closed vocabulary**. Suites and network facts
-  go in `/state`, not `SessionStart`. **DONE when** Brian has started three real sessions with it and
-  it told him something he would otherwise have gone looking for — and when **nothing in it is read
-  from a file a human maintains** (the condition §1.3.1 showed the original ordering could not meet).
 
 **Then stop. Push, recruit, build the M6 embedding pipeline.** The rungs below resume when a receipt
 demands them, not on a schedule.
@@ -895,44 +986,48 @@ sha-pinned under check 11 — editing a prereg invalidates the ML result; editin
 the merit lane's independent baseline). **Counted separately, not exempt:** `.claude/`,
 `fitted/tests/`, and `docs/DEFECTS.md` — enforcement and work-queue infrastructure, not prose.
 
-## 9. Next session — S1a, the checks and the baseline
+## 9. Next session — S0, derived state
 
 **First, outside the campaign: `git push` and redeploy the web half.** §7.1.
 
-Then paste this into a fresh session. Build **only** S1a.
+Then paste this into a fresh session. Build **only** S0.
 
 ```
-Read docs/plans/maintainability.md §5 and §7 in full, then build S1a and nothing else — the 14 hygiene
-checks plus fitted/tests/repoHygiene.baseline.json.
+Read docs/plans/maintainability.md §1 in full — the diagnosis, the state model, and §1.3.1 where the
+model was walked through a real episode and one line of it failed. Then build S0 and nothing else:
+the derived-state script behind /state, a SessionStart hook, and the Stop push guard.
 
-Re-measure every number in §2 before you seed the baseline. They are days old and they drift; §2 gives
-the method for each one. Three consecutive sessions have found false claims in that file, so treat it
-as a lead, not a source.
+The design constraint is the whole point. Every line printed must be COMPUTED at read time. If a fact
+has to be read from a file a human maintains, it does not belong in the output — that is the exact
+failure this replaces. Three live examples, all verified 2026-07-27: CLAUDE.md:117 says the jest floor
+is >=922 and the suite is 967; docs/plans/clothingtype-slot-correctness.md:3-4 says the deploys
+"remain Brian's" while m5-c8-half2-runbook.md:495 says they were done on 07-24; the Current-focus
+block is stale by three events.
 
-Do these two first, before writing any check:
-1. Change fitted/package.json "test" to `jest --selectProjects node jsdom`, add a `hygiene` jest
-   project, and PROVE the hygiene project is outside `npm test` — deliberately redden a hygiene check
-   and show `npm test` still green. .github/workflows/conformance.yml runs `npm test` on every push to
-   main; a doc file-count must never be confusable with a broken Python<->TS wire contract.
-2. Repair fitted/lib/outfitLint.ts:15, which cites docs/plans/track2-friend-ready-2026-07-18.md — that
-   file does not exist; the real one is docs/plans/track2-friend-ready-prompt.md. Check 10 then lands
-   at its target of 0 rather than being ratcheted.
+Target shape is the second block in §1.3 (the "buildable version", not the DRAFT above it). Get the
+facts right before the formatting:
+  - unpushed count and dirty-tree state      -> git
+  - which plan was last worked and when      -> git log -1 -- docs/plans/   (NOT a status banner)
+  - register rows, and rows whose status starts OPEN -> scan spec 23; the vocabulary is not closed
+    yet, so print the honest weaker number and say so
+  - suites, and deploy/Fly facts             -> /state ONLY, never SessionStart
 
-Every check asserts `current <= baseline`, seeded to today's real measurements, so the suite is green
-on arrival. Print `current -> target (N to go)` per check plus a REGRESSIONS: line.
+SessionStart must print NOTHING when everything is clean. Its stdout enters every session's context
+forever, so verbosity is a permanent tax. jest is 9.6s and pytest is 0.73s, so suites are affordable
+on demand but not on every session start. Anything needing the network is /state-only. Say which facts
+you dropped and why.
 
-Checks 13 and 14 are the floors and they are the ones worth getting right — read their rationale in §5
-before implementing. 13 must verify that EXTRACTED destinations RESOLVE, not merely that a block
-exists. 14 is a volatile-MARKER ban across CLAUDE.md and docs/plans/*.md banners, not a ban on the
-`## Current focus` heading — the heading version catches one of the three live instances in §1.2.
+Ship the Stop hook in the same rung: block session end on unpushed commits. It must exit 2 (jest and
+a Stop hook exiting 1 print but do not block) and honor stop_hook_active, or a genuinely-red state
+makes the session loop against a wall it cannot fix.
 
-DONE when: lowering each baseline by one reddens exactly that check, proven ONE AT A TIME by mutation
-rather than by reading; and a deliberately reddened hygiene check leaves `npm test` green. Paste the
-red output into the commit.
+DONE when I can run /state in a fresh session and every line is correct — verify each one against the
+real repo before claiming it works — and when nothing in the output is read from a human-maintained
+file.
 
-Do not build the agents, the hooks, /state, or start any deletion.
+Do not build the checks, the agents, /find, or start any deletion.
 ```
 
-**Sessions after that:** **S4a** (split `DEFECTS.md` out of the spec, close the status vocabulary) →
-**S0** (derived state, now buildable honestly). **Then stop** and go back to Track 2 and M6; S1b, S1c,
-S2, S3, S4b, S5, S6 resume on a receipt, not on a schedule (§7.1).
+**Sessions after that:** **S1a-lite** (the enforced checks; moves the suite floors out of prose) →
+**S4a** (split `DEFECTS.md` out of the spec, close the status vocabulary). **Then stop** and go back to
+Track 2 and M6; S1b, S1c, S2, S3, S4b, S5, S6 resume on a receipt, not on a schedule (§7.1).
