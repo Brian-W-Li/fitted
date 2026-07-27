@@ -454,11 +454,20 @@ an item. 8) **Delete your account** → confirm your stuff is gone. Flag any >1s
 > 2. **Generate some outfits** — try a few different occasions. Also pick 2–3 pieces you own but never
 >    quite know how to wear and hit **"Build an outfit around this"** on them — that mode is the heart of
 >    the app, and honest ratings there are the most useful ones you can give.
-> 3. **Rate them honestly** — 👍 what you'd actually wear, 👎 what you wouldn't. Don't just like everything to
->    be nice — honest thumbs-downs help more than polite likes.
+> 3. **Rate them** — and you do *not* need to try anything on. The only question is: **would I walk out
+>    the door in this today?** If you'd hesitate, that's a 👎 — the hesitation *is* the answer, you don't
+>    have to justify it. Don't like things to be nice; a 👎 is worth more than a polite 👍.
 > 4. **Mess with it over a few days** — curate your closet.
 >
-> **Photo tip:** photos show up exactly the way they're saved, so if one looks sideways just rotate/retake it.
+> **Photo tips** (these matter more than they sound — the photos are literally what the model reads):
+> - **Upload straight from your camera roll.** Don't send them through WeChat/iMessage/Instagram first
+>   and don't screenshot them — those apps shrink and re-save the photo, and the detail they throw away
+>   is exactly the part that's useful.
+> - **One garment per photo**, on a bed or floor, with nothing else in frame if you can help it.
+> - Photos show up exactly the way they're saved, so if one looks sideways just rotate/retake it.
+>
+> **What it doesn't do:** it styles tops, bottoms, outerwear and shoes. No belts, socks or jewelry —
+> that's deliberate for now, not something that's broken.
 >
 > **Opening it:** go to `https://fitted-three.vercel.app` in any normal browser — phone or laptop, whatever's
 > easier. Two gotchas: NOT the Instagram/Messenger in-app browser (breaks sign-in), and the first load can
@@ -470,7 +479,17 @@ an item. 8) **Delete your account** → confirm your stuff is gone. Flag any >1s
 
 Why each line is load-bearing (the app nudges but can't coerce, so the message carries it): **photos** +
 **honest dislikes** are the two out-of-band asks (skip photos → yield stays unpowered no matter how many
-snapshots). The **retention line is the honest-consent artifact** — the Fable-settled posture (2026-07-19):
+snapshots). Two lines were added 2026-07-27 from the first real cohort and each has a measured cause:
+- **"Straight from your camera roll"** answers §23-**H103**: all 38 stored images arrived with **zero
+  EXIF**, and 32 of them were under the 400 KB threshold where the client returns the file untouched —
+  so the stripping happened *before* upload, on the friend's side. That also makes the preregistration's
+  mandatory `exif_transpose` a no-op and leaves two already-rotated photos permanently rotated. No code
+  change reaches this; only the ask does.
+- **"Would I walk out the door in this today?"** replaces "rate honestly", which the first cohort reported
+  they could not answer without actually wearing the outfit. The accept rates it produced were 31% vs 86%
+  across two friends — plausibly rater style rather than signal, and the prereg's primary read *is*
+  accepted-vs-rejected. A concrete counterfactual is answerable from a photo; "is this good?" is not.
+  (Chosen over adding a third "not sure" button: volume is already the binding constraint.) The **retention line is the honest-consent artifact** — the Fable-settled posture (2026-07-19):
 friends who DON'T delete → their data may be kept for the experiment + app-building; deletion still FULLY
 erases (a deleted friend exports **zero**), so keeping the "erased permanently"-style promise while retaining
 a deleted friend's export would break it — hence the softer "may be used if you don't delete" wording.
@@ -492,7 +511,12 @@ order is load-bearing (the plan's §6): **web redeploy → migrate → Fly redep
 the migration BEFORE the web redeploy re-breaks on her next modal edit (the old deployed classifier
 re-derives the row back to `dress`).
 
-**Rollout status (2026-07-24): steps 1–3 DONE; step 4 (re-invite) is Brian's, and unblocked.**
+**Rollout status: COMPLETE — steps 1–3 done 2026-07-24, step 4 (re-invite) done and the win-back
+test PASSED 2026-07-27.** Her corpus arc is unambiguous and is the clean proof the mis-slot diagnosis
+was right: on 2026-07-22 (pre-migration) 13 rescue renders returned 0–2 outfits and she rated
+**nothing**; on 2026-07-27 (post-migration) 11 consecutive rescue renders returned 4–6 outfits with
+**zero empties**, and she rated 32. Nothing below is owed — the recipe is kept as the trap-guard
+reference for the next migration of its kind.
 Web half pushed + redeployed at `origin/main` `33c3743a` (deploy `fitted-3j576ozpf`, 17/17 live checks).
 Migration `--apply` corrected the 1 flagged live row (Zhiyun's "suit dress" `dress → bottom`); the same
 dry-run now reports 0 rows disagree (idempotent). Fly redeployed from `ml-system/` (image
@@ -518,10 +542,13 @@ the `clothingTypeSource:"user"` re-run hazard, the backup-delete step).
 3. **Fly redeploy** (per Ops notes above; stays 1 machine) — ships the F16 honest hints. Not on the
    conversion critical path, but ship it before re-inviting her (top/dress rescues still return
    2-card partials, and the OLD copy's "try again" is the loop she bounced on).
-4. **Re-invite Zhiyun (win-back acceptance test):** the finalized onboarding message (above) + one
-   honest line that her closet had a filing bug on our side which is fixed. Acceptance = she gets
-   surfaced outfits on daily + skirt-rescue and rates ≥1. Her single-top/dress rescues remain honest
-   2-card partials until her closet grows (no classifier can change that — only more items).
+4. **Re-invite (win-back acceptance test) — ✅ PASSED 2026-07-27**, acceptance criterion was
+   "surfaced outfits on daily + skirt-rescue and rates ≥1" and it cleared it by a wide margin (see
+   the rollout-status arc above). The trap this closes for next time: a single mis-slotted garment
+   in a 15-item closet removed the *only* item in its slot and silently emptied ~85% of renders, and
+   the friend bounced without filing a complaint — the app reported nothing, so **the corpus was the
+   only place the failure was visible**. Mine renders-with-zero-candidates per user before assuming
+   a quiet friend simply lost interest.
 
 **Onboarding guidance for the recruit wave (plan §5 — nudges, never gates; §18 anti-guilt posture):**
 - **Steer new friends to DAILY first, not rescue-first** — daily clears the `N_SURFACED=3` floor on a
