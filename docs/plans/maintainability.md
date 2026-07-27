@@ -1,8 +1,11 @@
 # Maintainability campaign — make the repo hold its own shape
 
-> **STATUS: §6 RULED 2026-07-27. Nothing has been built yet.** All six decisions (plus D6a/b/c) are
-> settled; §2/§3/§5/§7/§8 were corrected against the repo in the same session. The ladder (§7) is
-> unblocked — next session is **S1a**, the prompt is §9.
+> **STATUS: §6 RULED + campaign re-centred, 2026-07-27. Nothing has been built yet.** All six
+> decisions (plus D6a/b/c) are settled and §2/§3/§5/§7/§8 were corrected against the repo. A diagnosis
+> probe then **relocated the disease** (§1.2): the register is healthy, single-home is violated mostly
+> by already-dead docs, and the real rot is volatile state stored as prose in `CLAUDE.md`. The
+> campaign's centerpiece is now **derived state** (§1.3), not the checks. Next session is **S0**, the
+> prompt is §9.
 >
 > **This doc dies at S6**, and after D4 that is enforced by check 12(b) rather than by remembering:
 > the check requires this file to exist while any target is unmet and to be **gone** once all are met.
@@ -15,18 +18,83 @@ literally *"enforce process rules with CI-shaped artifacts, not discipline"* (`C
 one of them has drifted. Not because anyone disagreed with them, but because the only thing enforcing
 them is Brian noticing. A prose rule about prose rules is still a prose rule.
 
-Three requirements, in his words (2026-07-26):
+Whether maintainability work is worth doing is **settled**. Do not re-open it.
+
+**The constraint that shapes the whole design:** AI's create-create-create tendency is part of the
+disease. Deletion procedures are part of the system, and they apply to this document.
+
+### 1.1 Requirements (Brian's words, 2026-07-26 + 2026-07-27)
 
 1. **Navigable by AI agents and Claude Code.** The reader is a zero-context agent, every session.
 2. **Defined roles to replace a team in spirit.** A team's advantage isn't five brains — it's that four
    of them weren't in the room when the decision was made.
 3. **Self-sufficient**, so it does not depend on him "being vigilant all the time with prompting
    properly." Materially less vigilance is acceptable; it has to be **a lot** less.
+4. **Enough docs that nothing important is lost, not so many that it bloats.** A *middle*, not
+   minimisation — this is a direct constraint on the checks, which all measure "too much."
+5. **Orderly speccing, bug-hunting and plan execution — with room for the real loop.** Work is not a
+   line. Build part C → C surfaces something → bug hunt → doc re-audit → the spec itself changes → back
+   to building. A design that only supports the straight path is wrong.
+6. **The goal is the development process being easier**, not the repo scoring well on its own metrics.
 
-Whether maintainability work is worth doing is **settled**. Do not re-open it.
+### 1.2 Diagnosis (probed 2026-07-27, evidence not assertion)
 
-**The constraint that shapes the whole design:** AI's create-create-create tendency is part of the
-disease. Deletion procedures are part of the system, and they apply to this document.
+Requirement 3 demanded finding out where the repo actually stands before designing for it. Three
+probes, and the result **relocated the disease**:
+
+- **The §23 register tells the truth.** Three `RESOLVED`/`IMPLEMENTED` rows read-verified against
+  code — H14 (`store → repoint → delete` in `wardrobe/[id]/image/route.ts`), H7
+  (`generationIndex = (parent.generationIndex ?? 0) + 1`, `mlRecommend.ts:322`), H19 (repetition window
+  in `RankerContext`). All three hold, and H14's trap-guard is a comment **at the symbol** — §8's ideal
+  destination, already working. **The register is the healthiest process in the repo; distrust of it is
+  not evidence-based.**
+- **Single-home is violated mostly by already-dead docs.** "Regenerate = fresh generation, no cache"
+  is stated in four files — two of which (`m5-cutover.md`, `regen-controls.md`) are already slated for
+  deletion. D1 cures most of this as a side effect. Not the disease either.
+- **The disease is `CLAUDE.md`'s Current-focus block.** 32 lines of hand-maintained prose, **stale by
+  at least three events**: it still lists the 07-26 deploy and staggered onboarding as *remaining*
+  (commits `4936c8e9`/`b8c3dfb9` say otherwise); it has **zero** mentions of the clothingType rollout
+  (07-24) or of the two bug-hunt rounds and their 13 defects. At the time of probing there were also
+  **4 unpushed commits** and **39 open register rows**, and nothing surfaced either.
+
+**None of the 12 checks would catch any of that.** Every check measures *size*; none measures
+*currency*. A completely wrong `CLAUDE.md` passes all twelve. That is requirement 4's asymmetry in
+concrete form: **the campaign was all ceilings and no floors.**
+
+### 1.3 The centerpiece — derived state (ruled 2026-07-27)
+
+`CLAUDE.md` goes stale because it **stores volatile state in a format only a human can update**. No
+check on doc *size* can help, and no better rule about updating it will hold — that rule already exists
+and already failed. So the design changes at the root: **stop storing volatile state in prose at all.**
+
+Every fact in the repo is routed by two questions — *does it change often?* and *can it be computed?*
+
+| | Derivable | Must be authored |
+|---|---|---|
+| **Stable** | — | **Docs.** Contracts, decisions, conventions, ambition. Single-homed. Naturally small *because state isn't in them*. |
+| **Volatile** | **Derived state.** Computed at read time from git, the register, the suites, the deploy. **Never written to a file.** | **A register row** with `BLOCKED:<condition>` (D6b's third field). "Waiting on 3 friend closets" lives here. |
+
+**You cannot have a stale artifact if the artifact is computed at read time.** That is strictly better
+than any currency check, which by construction only tells you something is stale *after* it is stale.
+
+Shape of the derived state, printed by `SessionStart` and by `/state`:
+
+```
+FITTED · main · 4 unpushed · web 30b03cc9 = HEAD ✓ · fly v6
+plan   docs/plans/maintainability.md — §6 ruled, S1a next
+open   39 register rows · 13 defects unfixed (H87–H99)
+tests  jest 967 ✓ · pytest 1098 ✓ · hygiene 12 ✓
+last   f9565559 docs(maintainability): rule §6…
+```
+
+**Why this is what serves requirement 5.** When C3 surfaces something and the session detours into a
+bug hunt, then a re-audit, then a spec change, **nobody has to remember to update a paragraph** — the
+state block just reflects where things are. The loop stops being a thing the docs must be talked into
+tolerating. And it dissolves requirement 4's tension: docs bloat *because* state gets written into
+them; take state out and "enough but not too many" stops being a balancing act, because what remains
+is durable and therefore small.
+
+**Consequence for `CLAUDE.md`:** the 32-line Current-focus block is **deleted, not maintained** (S3).
 
 ## 2. Measured state (re-measured 2026-07-27)
 
@@ -158,6 +226,14 @@ single JSON file — the one artifact a reviewer, or check 12, can watch.
 | 10 | **source files citing a nonexistent doc** | **1** — `docs/plans/track2-friend-ready-2026-07-18.md` | D4: lands at its **target (0)**, not ratcheted — one-line fix |
 | 11 | sha256 pins: `ml-system/experiments/*/preregistration.*` **+ `Fitted_Spec_v2_recovered_appendix.md`** | — | D5 |
 | 12 | (a) no `current` exceeds its `landing`; (b) **liveness**: `maintainability.md` exists iff any `current > target` | — | D4: converts §7's S6 DONE condition from prose into a test |
+| **13** | **FLOOR — every commit that `git rm`s a `*.md` carries an `EXTRACTED <path>` block naming a destination** | — | §1.2: the counterweight to twelve ceilings. Fires when information left **without a destination**, which is the only mechanical proxy for requirement 4's "nothing important is lost" |
+| **14** | **FLOOR — `CLAUDE.md` contains no derived-state section** (no `## Current focus`, no deploy SHAs, no "remaining:" checklists) | 32 lines today | §1.3: keeps volatile state out of the file every session reads first. Deriving beats checking, so this only guards the boundary |
+
+**Checks 13 and 14 are the requirement-4 floors.** Checks 1–12 all assert *less*; without these the
+campaign optimises "fewer docs" while Brian asked for "enough docs." Neither floor can verify that a
+deleted paragraph was *worth* keeping — no check can — but 13 makes "was this extracted?" answerable by
+`git log` instead of by trust, and 14 makes the §1.2 disease unconstructible rather than merely
+detectable.
 
 **Why these and not the obvious versions** — each of these replaced a worse check that an adversarial
 review defeated:
@@ -434,7 +510,14 @@ half-done row must split into two. **Check 8 downgrades from a hybrid *detector*
 DONE condition **proven**, not asserted. `npm test` must be green at every session boundary (D4) —
 unfinished work hands off as a `DEFECTS.md`/§23 row or a plan checkpoint, never as a failing test.
 
-- **S1a** — the 12 checks + baseline, green on arrival, with `current`/`target`/`landing` per check.
+- **S0 — the derived-state script (§1.3), built and run before anything else.** `/state` +
+  `SessionStart`, computing the block in §1.3 from git, the register, the suites and the deploy.
+  Deliberately first: it is the piece that serves requirements 5 and 6 most directly, it is standalone,
+  and running it for a few real sessions tells us whether the output is what a session actually needs
+  **before** the rest of the campaign is designed around it. **DONE when** Brian has started three real
+  sessions with it and it told him something he would otherwise have had to go find — and when nothing
+  in it is read from a file a human maintains.
+- **S1a** — the 14 checks + baseline, green on arrival, with `current`/`target`/`landing` per check.
   **First: fix `"test"` to `jest --selectProjects node jsdom`** and prove hygiene is outside `npm test`
   (§5 trap). Repair the check-10 citation so it lands at target 0. **DONE when** lowering each baseline
   by one reddens exactly that check, proven one at a time (mutation, not reading), *and* a deliberately
@@ -448,6 +531,7 @@ unfinished work hands off as a `DEFECTS.md`/§23 row or a plan checkpoint, never
   CLAUDE.md's critical-usage backstop in the same commit**; re-home the 13 cited session notes; append
   the D1 retrieval index to `CLAUDE.md`. **Check 10 green in the same commit as every `git rm`.**
 - **S3** — `CLAUDE.md` + spec rewritten as a map for a zero-context reader; line cites → symbol cites.
+  **Delete the 32-line Current-focus block** — it is derived state now (§1.3), and check 14 pins that.
   **Resolve two standing CLAUDE.md conflicts:** the recovered appendix is a *frozen ambition baseline*,
   not "historical context only" (`:139` vs `:238`, D5); and the "externalize state into
   `docs/sessions/`" convention is dead (D2).
@@ -518,33 +602,35 @@ sha-pinned under check 11 — editing a prereg invalidates the ML result; editin
 the merit lane's independent baseline). **Counted separately, not exempt:** `.claude/`,
 `fitted/tests/`, and `docs/DEFECTS.md` — enforcement and work-queue infrastructure, not prose.
 
-## 9. Next session — S1a
+## 9. Next session — S0, the derived-state script
 
-Paste this into a fresh session.
+Paste this into a fresh session. Build **only** S0.
 
 ```
-Read docs/plans/maintainability.md in full, then build S1a only — the 12 checks plus their baseline
-file. Do not run S1b or later.
+Read docs/plans/maintainability.md §1 in full (the diagnosis and the state model), then build S0 and
+nothing else — the derived-state script behind /state and a SessionStart hook.
 
-Two things come first, before any check is written:
+The design constraint is the whole point: every line it prints must be COMPUTED at read time from git,
+the §23 register, the test suites and the deploy. If a fact has to be read from a file a human
+maintains, it does not belong in the output — that is the exact failure this replaces (CLAUDE.md's
+32-line Current-focus block is stale by three events; see §1.2).
 
-1. fitted/package.json defines "test": "jest" and fitted/jest.config.js uses a projects array, so a
-   new hygiene project would land inside npm test and inside .github/workflows/conformance.yml.
-   Change "test" to `jest --selectProjects node jsdom` and prove the exclusion holds.
-2. Check 10 is at 1: a source file cites docs/plans/track2-friend-ready-2026-07-18.md, which does not
-   exist. Repair the citation so check 10 lands at its target of 0, not at a ratcheted 1.
+Target output shape is in §1.3. Get the facts right before the formatting: unpushed count, deployed
+web SHA vs HEAD, Fly machine count (must stay 1), current plan + where it is, open register rows and
+unfixed defects, suite status, last commit.
 
-The baseline file carries current, target and landing per check. Check 12 asserts (a) no current
-exceeds its landing, and (b) the liveness coupling — this doc must exist while any current > target
-and must be gone once all targets are met.
+Make it fast — SessionStart runs on every session. Anything slow (a full pytest run, a network call to
+Vercel or Fly) must be either cached with a visible staleness marker or dropped. Prefer dropping. Say
+which facts you dropped and why.
 
-Verify every number in §2 against the repo before you seed a baseline from it. The 2026-07-26 draft
-had four wrong figures; the 07-27 walkthrough corrected them; assume more have drifted.
+Print NOTHING when everything is clean and nothing is unusual; the value is that it is silent until it
+matters.
 
-DONE when lowering each baseline by one reddens exactly that check, proven one at a time by mutation
-rather than by reading, AND a deliberately reddened hygiene check leaves npm test green. Paste the
-mutation output into the commit.
+Do not build the 14 checks, the agents, the other hooks, or start any deletion. DONE when I can run
+/state in a fresh session and it is correct — verify each line against the real repo before you claim
+it works.
 ```
 
-**Sessions after that:** S1b → S1c → S2 → S3 → S4 → S5 → S6, one per fresh session, each ending with
-its DONE condition proven rather than asserted.
+**Sessions after that:** S1a → S1b → S1c → S2 → S3 → S4 → S5 → S6, one per fresh session, each ending
+with its DONE condition proven rather than asserted. **S0 runs for a few real sessions before S1a
+starts** — if its output isn't what a session actually needs, that reshapes the rest cheaply.
