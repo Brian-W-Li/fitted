@@ -459,12 +459,14 @@ an item. 8) **Delete your account** → confirm your stuff is gone. Flag any >1s
 >    have to justify it. Don't like things to be nice; a 👎 is worth more than a polite 👍.
 > 4. **Mess with it over a few days** — curate your closet.
 >
-> **Photo tips** (these matter more than they sound — the photos are literally what the model reads):
-> - **Upload straight from your camera roll.** Don't send them through WeChat/iMessage/Instagram first
->   and don't screenshot them — those apps shrink and re-save the photo, and the detail they throw away
->   is exactly the part that's useful.
-> - **One garment per photo**, on a bed or floor, with nothing else in frame if you can help it.
-> - Photos show up exactly the way they're saved, so if one looks sideways just rotate/retake it.
+> **Photo tips** — only three, and they're the three that actually matter:
+> - **Make sure it's not sideways.** Photos show up exactly the way they're saved, so if one looks
+>   rotated, retake or rotate it. This is the big one.
+> - **One garment per photo.** If a second item is in the shot, the app partly learns the wrong thing.
+> - **Upload straight from your camera roll** — not forwarded through WeChat/iMessage/Instagram, and not
+>   a screenshot. Those shrink and re-save the photo and throw away the detail that's useful.
+>
+> Beyond that don't fuss: messy bed, floor, worn, whatever's easy — that genuinely doesn't matter.
 >
 > **What it doesn't do:** it styles tops, bottoms, outerwear and shoes. No belts, socks or jewelry —
 > that's deliberate for now, not something that's broken.
@@ -480,11 +482,17 @@ an item. 8) **Delete your account** → confirm your stuff is gone. Flag any >1s
 Why each line is load-bearing (the app nudges but can't coerce, so the message carries it): **photos** +
 **honest dislikes** are the two out-of-band asks (skip photos → yield stays unpowered no matter how many
 snapshots). Two lines were added 2026-07-27 from the first real cohort and each has a measured cause:
-- **"Straight from your camera roll"** answers §23-**H103**: all 38 stored images arrived with **zero
-  EXIF**, and 32 of them were under the 400 KB threshold where the client returns the file untouched —
-  so the stripping happened *before* upload, on the friend's side. That also makes the preregistration's
-  mandatory `exif_transpose` a no-op and leaves two already-rotated photos permanently rotated. No code
-  change reaches this; only the ask does.
+- **The three photo tips** answer §23-**H103**, and are deliberately ranked by *measured* effect, not by
+  what looks untidy. Rotation is first because it is the only image property H26 actually measured and
+  the swing was large (closet-probe AUC 0.4375 → 0.5625 after `exif_transpose`); it is also now
+  unrecoverable, since all 38 stored images arrived with **zero EXIF** — 32 of them under the 400 KB
+  threshold where the client returns the file untouched, so the stripping happened *before* upload, on
+  the friend's side, which is what "straight from your camera roll" is for. One-garment-per-frame is
+  second because a second item corrupts what the vector *means*. **The closing "don't fuss" line is
+  load-bearing in the other direction:** the frozen preprocess has no crop, so backgrounds are embedded
+  either way, and FashionSigLIP is trained on e-commerce imagery that is mostly on-model — a worn or
+  cluttered shot is not established as harmful and plausibly helps. Asking friends to stage clean
+  flat-lays would spend real goodwill on a non-problem.
 - **"Would I walk out the door in this today?"** replaces "rate honestly", which the first cohort reported
   they could not answer without actually wearing the outfit. The accept rates it produced were 31% vs 86%
   across two friends — plausibly rater style rather than signal, and the prereg's primary read *is*
