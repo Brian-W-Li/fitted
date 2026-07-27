@@ -13,7 +13,9 @@
 >
 > Everything below should trace to one of those lines. If a passage does not, it is freight.
 
-> **STATUS: adversarial re-read + re-cut, 2026-07-27. Nothing has been built yet.**
+> **STATUS: S0 is built (§7.3). S1a-lite is next (§9).** Everything below S0 is still design only.
+> This banner is itself the artifact class §1.2 convicts, and it survives only because rung position has
+> no derived source until the checks exist (§1.3.1). It is deleted at S1a-lite.
 >
 > **The load-bearing change: the suite now enforces truth and location, and only *prints* size (§5).**
 > Every instance of the disease anyone has verified is a currency failure; none is a size failure. The
@@ -26,8 +28,8 @@
 > **2 / 3 / 2**. New **check 15** (suite counts never decrease) turns *"floors grow, never pins"* from
 > a convention into an artifact and is the guard against standing rules fading.
 >
-> **Ladder: S0 → S1a-lite → S4a, then stop** (§7 — this reversed once; the reasoning is recorded there).
-> The next-session prompt is §9 and it is **S0**.
+> **Ladder: S0 ✓ → S1a-lite → S4a, then stop** (§7 — this reversed once; the reasoning is recorded
+> there). The next-session prompt is §9 and it is **S1a-lite**.
 >
 > **This doc dies at S6**, and after D4 that is enforced by check 12(b) rather than by remembering:
 > the check requires this file to exist while any target is unmet and to be **gone** once all are met.
@@ -881,12 +883,27 @@ checkpoint, never as a failing test.
 
 **Slice to build now:**
 
-- **S0** — the derived-state script (§1.3): `/state` + `SessionStart`, silent when clean. Plan position
-  from `git log -1 -- docs/plans/`; register counts from a `^OPEN` prefix scan (honest and weaker until
-  S4a closes the vocabulary); suites and network facts in `/state` only, never `SessionStart`. Ship the
-  `Stop` push guard in the same rung — it is five lines and it is half the reason this rung is first.
-  **DONE when** Brian has started three real sessions with it and it told him something he would
-  otherwise have gone looking for, and **nothing in it is read from a file a human maintains.**
+- **S0** — **BUILT, second DONE leg proven; first leg outstanding.** `.claude/scripts/state.sh`
+  (`/state`, `--fast`, `--quiet`), `.claude/scripts/push-guard.sh`, `.claude/commands/state.md`, both
+  hooks wired in `.claude/settings.json`. Every printed line is computed and was verified against the
+  repo by hand, so **"nothing in it is read from a file a human maintains" is met**. **Still unproven:
+  "three real sessions in which it told Brian something he would otherwise have gone looking for"** —
+  that leg cannot be closed from inside the session that wrote it. Re-check it at S1a-lite; if it has
+  not paid off by then, the rung is a candidate for deletion rather than extension.
+
+  **Two specced derivations were falsified during the build and the code differs from the draft
+  deliberately — do not "restore" either:**
+  - **Plan position is per-file, not `git log -1 -- docs/plans/`.** The one-call form names the *wrong
+    plan*: it returned `e4cdd1a2` ("docs(H103): rank photo defects…"), a register commit that
+    incidentally touched the runbook, while the plan being executed was this file. Recency is computed
+    per file and the **top two** are printed, so one incidental touch cannot masquerade as "the plan".
+  - **The register scan must strip inline-code spans before splitting on `|`.** `H101` embeds
+    `` `top=…|outer=…` ``, which shifts its columns; a naive `awk -F'|'` reads its status as `outer=…`
+    and **undercounts `^OPEN` by one (44 vs the true 45)**.
+
+  **One specced fact was dropped as underivable:** `web <sha> = HEAD`. These are CLI deploys and carry
+  no git SHA (`vercel inspect` exposes none), so the block compares the production deployment's
+  `createdAt` against commits touching `fitted/` and prints *current / BEHIND by N* instead.
 - **S1a-lite** — the **enforced** checks only (9, 10, 11, 13, 14, 15, 12(b)) + the printed size readout.
   **First: fix `"test"` to `jest --selectProjects node jsdom`** and prove hygiene is outside `npm test`
   (§5 trap). Repair the check-10 citation so it lands at target 0. Move the suite floors out of
@@ -1011,11 +1028,31 @@ sha-pinned under check 11 — editing a prereg invalidates the ML result; editin
 the merit lane's independent baseline). **Counted separately, not exempt:** `.claude/`,
 `fitted/tests/`, and `docs/DEFECTS.md` — enforcement and work-queue infrastructure, not prose.
 
-## 9. Next session — S0, derived state
+## 9. Next session — S1a-lite, the enforced checks
 
-**First, outside the campaign: `git push` and redeploy the web half.** §7.1.
+**S0 is built (§7.3); the prompt that built it is kept below as the template for the next rung.** The
+next session builds **S1a-lite** and nothing else — start it by running `/state`, which now answers
+"where are we" without reading this paragraph.
 
-Then paste this into a fresh session. Build **only** S0.
+**Four defects this file still carries, found by S0's pre-flight and deliberately not repaired in that
+commit** (they mislead a reader but block nothing, so they are registered rather than fixed):
+
+1. §1.2 cites `m5-c8-half2-runbook.md:495`; the real line is **522**, and its text is *stronger* than
+   quoted — "Rollout status: COMPLETE — steps 1–3 done 2026-07-24, step 4 (re-invite) done". The
+   single-home conflict with `clothingtype-slot-correctness.md:3-4` ("the re-invite remain[s] Brian's")
+   is therefore worse than §1.2 describes, not milder.
+2. §1.3.1's "**86** distinct free-text status strings" measures **91** under the classifier in
+   `state.sh`. §2's own trap forbids quoting a register population without its classifier; this claim
+   does not carry one.
+3. §1.3's two example blocks print stale illustrative values (`4`/`6 unpushed`, `39`/`99` rows,
+   `37 ^OPEN`). Real values at S0 build time: **105 rows, 45 `^OPEN`**. They are illustrations, but they
+   are the disease in the document that diagnoses it.
+4. §7.1's "**redeploy the web half**" was already stale when written. Verified 2026-07-27: production
+   deployed 07-26 20:24, *after* the last commit touching `fitted/` (`77570c2b`, 07-25), and all 12
+   unpushed commits were docs-only. The push was real; the redeploy was a no-op. `/state`'s `deploy`
+   line now answers this mechanically.
+
+**The S0 prompt, kept as the template:**
 
 ```
 Read docs/plans/maintainability.md §1 in full — the diagnosis, the state model, and §1.3.1 where the
