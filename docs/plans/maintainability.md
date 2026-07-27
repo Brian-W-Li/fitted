@@ -839,7 +839,41 @@ tests-are-floors — it was a convention, it is now an artifact. Whatever is lef
 enumerated at the top of S3's commit and re-read after, one at a time. A rule that survives only
 because someone remembered to keep the paragraph is the same failure this whole campaign is about.
 
-### 7.2 The rungs
+### 7.2 Readiness — how many more audit passes before starting? None.
+
+**The gate is not "have we audited enough," it is "is DONE mechanically checkable?"** If it is,
+execution audits itself and does so better than prose review, because it runs against the repo instead
+of against a description of it. All three rungs pass that gate (their DONE conditions are in §7.3).
+
+**Audit yield on this document is not converging.** Three sessions each verified it and each left false
+claims for the next; the fourth found six more, two in text marked "verified." What improved matters was
+not another pass — it was replacing values with methods (§2), so the next session re-derives instead of
+re-trusting. A fifth pass buys the same declining return at the same price.
+
+**Convergence-before-closure is right for code and over-priced for a reversible plan.** A code defect
+ships to a friend's closet; a plan defect costs one session's correction and surfaces during execution
+while the rung is still revertible. So the fresh-eyes pass is **relocated, not dropped**:
+
+- **At the start of S0's session** — fresh context reads this doc cold before building. Zero extra
+  session cost, and better positioned: it reads as an *executor*, which is the real test of readiness.
+- **At the start of S4a's session** — the only place audit debt meets a one-way door. **D6a/b/c govern
+  S4a and were compressed without adversarial testing.** Test D6 against the real rows first.
+- **D1 and D2 need no pre-audit** — they govern S2, which is past the stopping point. Not having to be
+  certain about work you are not doing is what stopping buys.
+
+**Danger is not uniform, and only one rung is a one-way door.** S0 adds files and is reversible by
+deleting them. S1a-lite has exactly one risky edit — `"test"` in `package.json` feeds the CI
+conformance gate — and it is *provable in two minutes*, not auditable. **S4a is the dangerous one:**
+measured 2026-07-27, the register has **156 inbound doc refs and 82 code refs of the form `§23-H<n>`
+across 48 distinct hole ids, plus 84 files carrying a bare `§23`.**
+
+**So S4a ships in two commits, not one — a pilot first.** Move only the newest defect rows (the
+H87–H99 block), run checks 9 + 10, and confirm every inbound citation still resolves. **Then** move the
+rest. A citation-repair bug found while 13 rows are in flight is a small fix; the same bug found with
+all of them in flight is a bad afternoon. This de-risks the one-way door far better than another audit
+session, because it tests the machinery rather than reasoning about it.
+
+### 7.3 The rungs
 
 One rung per fresh session; each ends with its DONE condition **proven**, not asserted. `npm test` must
 be green at every session boundary (D4) — unfinished work hands off as a `DEFECTS.md`/§23 row or a plan
@@ -861,8 +895,10 @@ checkpoint, never as a failing test.
   leaves `npm test` green.
 - **S4a** — split `docs/DEFECTS.md` out of §23 (D6a) and close the status vocabulary (D6c); split the
   hybrid rows; repair every inbound citation in the same commit. **No compression, no body deletion.**
-  **DONE when** the reading list is measured under 210 KB, check 9 is green, and **check 8 has been
-  promoted from printed to enforced in this commit and is green** — that promotion is the DONE
+  **Two commits, pilot first** (§7.2): commit 1 moves only the H87–H99 defect block and proves checks 9
+  + 10 stay green; commit 2 moves the rest. Open the session by testing D6a/b/c against the real rows.
+  **DONE when** the reading list is measured under 210 KB, checks 9 + 10 are green, and **check 8 has
+  been promoted from printed to enforced in this commit and is green** — that promotion is the DONE
   condition, so it cannot be forgotten.
 
 **Then stop. Push, recruit, build the M6 embedding pipeline.** The rungs below resume when a receipt
@@ -983,8 +1019,17 @@ Then paste this into a fresh session. Build **only** S0.
 
 ```
 Read docs/plans/maintainability.md §1 in full — the diagnosis, the state model, and §1.3.1 where the
-model was walked through a real episode and one line of it failed. Then build S0 and nothing else:
-the derived-state script behind /state, a SessionStart hook, and the Stop push guard.
+model was walked through a real episode and one line of it failed.
+
+FIRST, before building: this doc has never been read cold by a session that wasn't its author, and
+three prior sessions each left false claims in it for the next one. Read it as the person who has to
+EXECUTE it, not as an auditor. Spend ~15 minutes: does S0 as specced actually produce something a
+session wants, is anything in §1/§7/§9 self-contradictory, and is any claim you are about to rely on
+unverified? Say what you found, fix what blocks S0, register the rest — then build. Do not turn this
+into an audit session; it is a pre-flight (§7.2).
+
+Then build S0 and nothing else: the derived-state script behind /state, a SessionStart hook, and the
+Stop push guard.
 
 The design constraint is the whole point. Every line printed must be COMPUTED at read time. If a fact
 has to be read from a file a human maintains, it does not belong in the output — that is the exact
