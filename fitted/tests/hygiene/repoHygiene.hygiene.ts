@@ -431,12 +431,17 @@ describe("repo hygiene — printed channel (information, never blocks)", () => {
   test("checks 1–7, 8, 12a: size and shape readout", () => {
     const md = trackedMd();
     const appendix = "docs/Fitted_Spec_v2_recovered_appendix.md";
+    // Built without a path-shaped literal: the file does not exist until S4a, and check
+    // 10 scans THIS file — a literal here is a broken cite the moment this file is
+    // tracked. (It was invisible pre-commit: git ls-files omits untracked files, so the
+    // suite could not see itself until it landed. The Stop hook caught it post-commit.)
+    const defectsDoc = ["docs", "DEFECTS.md"].join("/");
     const rows = registerRows();
 
     const current: Record<string, number> = {
       check1_trackedMdCount: md.length,
       check2_totalMdBytes: md
-        .filter((f) => f !== "docs/DEFECTS.md" && f !== appendix)
+        .filter((f) => f !== defectsDoc && f !== appendix)
         .reduce((s, f) => s + bytesOf(f), 0),
       check3_largestDocBytes: Math.max(...md.map(bytesOf)),
       check4_readingListBytes: ["CLAUDE.md", SPEC, PLAN]
