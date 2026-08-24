@@ -21,14 +21,14 @@
   },
   "printed": {
     "landing": {
-      "check1_trackedMdCount": 91,
-      "check2_totalMdBytes": 1806707,
-      "check3_largestDocBytes": 257281,
-      "check4_readingListBytes": 367988,
+      "check1_trackedMdCount": 92,
+      "check2_totalMdBytes": 1788801,
+      "check3_largestDocBytes": 239375,
+      "check4_readingListBytes": 350082,
       "check5_plansCount": 21,
       "check6_sessionsCount": 48,
       "check7_resolvedRowBytes": 65088,
-      "check8_statusVocabulary": 91
+      "check8_statusVocabulary": 79
     },
     "targets": {
       "check4_readingListBytes": 210000,
