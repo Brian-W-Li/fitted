@@ -218,35 +218,87 @@ function buildCertificate(trainingExamples, excludedUsers = new Map()) {
   };
 }
 
+// ── CLI arg parsing — lives HERE (not in the .mjs shell) so jest exercises the real unit. ──────
+// The old inline `arg()` returned `argv[i + 1]` unconditionally, so `--operatorAuthId --out ./x`
+// bound the operator id to the literal string "--out": truthy, unresolvable, and (pre-H96) silently
+// exclusion-disabling. A flag present with no value — or with another flag where its value should
+// be — is an operator error; refuse it loudly (DEFECTS-H96).
+function cliArgValueAt(argv, i, name) {
+  const v = argv[i + 1];
+  if (v == null || v.startsWith("--")) {
+    throw new Error(`--${name} requires a value${v != null ? ` (got the flag "${v}" instead)` : ""}`);
+  }
+  return v;
+}
+/** Single-value flag: the first occurrence (matching the old inline `arg()`); `fallback` when absent. */
+function cliArg(argv, name, fallback = null) {
+  const i = argv.indexOf(`--${name}`);
+  return i > -1 ? cliArgValueAt(argv, i, name) : fallback;
+}
+/** Repeatable flag (DEFECTS-H104): every occurrence's value, in order; [] when absent. */
+function cliArgAll(argv, name) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === `--${name}`) out.push(cliArgValueAt(argv, i, name));
+  }
+  return out;
+}
+
+/** Normalize the operator-exclusion input: null | "id" | "id1,id2" | ["id1", "id2"] → string[].
+ *  Comma-splitting lets the CLI/env carry several operator accounts in one value (DEFECTS-H104). */
+function normalizeOperatorAuthIds(operatorAuthIds) {
+  if (operatorAuthIds == null) return [];
+  const list = Array.isArray(operatorAuthIds) ? operatorAuthIds : String(operatorAuthIds).split(",");
+  return [...new Set(list.map((s) => String(s).trim()).filter(Boolean))];
+}
+
 /**
  * Prereg §5 exclusion resolution — authId-based, from the users collection. `track2test_*` synthetic
- * accounts are always excluded; the operator (Brian-as-friend-#0) is excluded when `operatorAuthId`
- * resolves to a user. An erased account has no user row, so it resolves to nothing — its data rows
- * are already gone. Only the CERTIFICATE pool is filtered; the raw bundle files are not.
+ * accounts are always excluded; every operator account (Brian-as-friend-#0 plus any second personal
+ * account, DEFECTS-H104) is excluded when its authId resolves to a user. Only the CERTIFICATE pool
+ * is filtered; the raw bundle files are not.
+ *
+ * Per-id resolution is returned so the caller can be LOUD about an id that resolved to nothing —
+ * a mistyped/stale/wrong-project uid silently disables the exclusion the flag exists to enforce
+ * (DEFECTS-H96). `operatorResolved` is true only when ≥1 id was supplied and ALL of them resolved.
  */
-async function resolveExcludedUsers(db, operatorAuthId) {
+async function resolveExcludedUsers(db, operatorAuthIds) {
   const excluded = new Map(); // user _id string -> reason
   const testUsers = await db.collection("users").find({ authId: { $regex: "^track2test_" } }).toArray();
   for (const u of testUsers) excluded.set(String(u._id), "test_account");
-  let operatorResolved = false;
-  if (operatorAuthId) {
-    const op = await db.collection("users").findOne({ authProvider: "firebase", authId: operatorAuthId });
-    if (op) {
-      excluded.set(String(op._id), "operator");
-      operatorResolved = true;
-    }
+  const ids = normalizeOperatorAuthIds(operatorAuthIds);
+  const operatorResolution = [];
+  for (const authId of ids) {
+    const op = await db.collection("users").findOne({ authProvider: "firebase", authId });
+    if (op) excluded.set(String(op._id), "operator");
+    operatorResolution.push({ authId, resolved: op != null });
   }
-  return { excluded, operatorResolved };
+  const operatorResolved = ids.length > 0 && operatorResolution.every((r) => r.resolved);
+  return { excluded, operatorResolved, operatorResolution };
 }
 
-/** Core export. Returns a summary object; writes the bundle to `outDir`. */
+/** Core export. Returns a summary object; writes the bundle to `outDir`.
+ *  `operatorAuthId` accepts a single authId, a comma list, or an array (DEFECTS-H104); the old
+ *  single-string form keeps working. */
 async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
+  // Resolve the prereg §5 exclusions BEFORE writing anything: an operator authId that resolves to
+  // no user is an OPERATOR ERROR (a typo / stale uid / wrong Firebase project), not a data
+  // condition — proceeding would emit a certificate whose headline pool silently contains the
+  // operator's self-labeled closet, the exact contamination the flag exists to prevent, on the
+  // artifact that fires the frozen Look-1 trigger (DEFECTS-H96). Fail loudly, write no bundle.
+  const { excluded: excludedUsers, operatorResolved, operatorResolution } = await resolveExcludedUsers(db, operatorAuthId);
+  const unresolvedOps = operatorResolution.filter((r) => !r.resolved);
+  if (unresolvedOps.length > 0) {
+    throw new Error(
+      `operator authId(s) resolved to NO user: ${unresolvedOps.map((r) => r.authId).join(", ")} — ` +
+        "a mistyped --operatorAuthId would silently disable the prereg §5 operator exclusion; refusing to export",
+    );
+  }
   // The images dir accretes across runs (files are written additively by imageId, jsonl files are
   // overwritten) — a re-export into the same dir after a friend's erasure must not leave their
   // photos on disk under a clean manifest. The bundle dir is generated output; wipe images/ first.
   rmSync(resolve(outDir, "images"), { recursive: true, force: true });
   mkdirSync(resolve(outDir, "images"), { recursive: true });
-  const { excluded: excludedUsers, operatorResolved } = await resolveExcludedUsers(db, operatorAuthId);
   const snapMatch = { redacted: { $ne: true }, ...(userFilter ? { user: userFilter } : {}) };
   const rowMatch = userFilter ? { user: userFilter } : {};
 
@@ -357,7 +409,8 @@ async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
     bundleVersion: BUNDLE_VERSION,
     userFilter: userFilter ? userFilter.toString() : null,
     exclusions: {
-      operatorAuthId: operatorAuthId ?? null,
+      operatorAuthIds: normalizeOperatorAuthIds(operatorAuthId),
+      operatorResolution,
       operatorResolved,
       excludedUserCount: excludedUsers.size,
     },
@@ -411,4 +464,4 @@ async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
   return manifest;
 }
 
-module.exports = { exportTrack2, BUNDLE_VERSION, CERTIFICATE, buildCertificate, resolveExcludedUsers, parseImageId, pickLatestPerCandidate };
+module.exports = { exportTrack2, BUNDLE_VERSION, CERTIFICATE, buildCertificate, resolveExcludedUsers, normalizeOperatorAuthIds, cliArg, cliArgAll, parseImageId, pickLatestPerCandidate };

@@ -22,7 +22,7 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 // The export logic is a CommonJS core so this suite can require the real unit directly (one mongoose
 // instance, no ESM transform). export_track2.mjs is the thin CLI wrapper over it.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { exportTrack2, buildCertificate, resolveExcludedUsers, CERTIFICATE } = require("../scripts/exportTrack2Core.cjs") as typeof import("../scripts/exportTrack2Core.cjs");
+const { exportTrack2, buildCertificate, resolveExcludedUsers, normalizeOperatorAuthIds, cliArg, cliArgAll, CERTIFICATE } = require("../scripts/exportTrack2Core.cjs") as typeof import("../scripts/exportTrack2Core.cjs");
 
 let harness: MongoHarness;
 let db: NonNullable<typeof mongoose.connection.db>;
@@ -390,6 +390,111 @@ describe("buildCertificate — prereg §5 author/test-account exclusion", () => 
     expect(manifest.yield.perUser).not.toHaveProperty(String(opId));
     expect(manifest.yield.excluded.users[String(opId)].reason).toBe("operator");
     await db.collection("users").deleteMany({});
+  });
+});
+
+describe("operator exclusion integrity — H96 fail-loud + H104 multi-account", () => {
+  it("resolveExcludedUsers accepts a comma list and excludes EVERY operator account (DEFECTS-H104)", async () => {
+    const op1 = oid();
+    const op2 = oid(); // the second personal account that pre-fix counted as a friend
+    const friendId = oid();
+    await db.collection("users").insertMany([
+      { _id: op1, authProvider: "firebase", authId: "op-main-uid" },
+      { _id: op2, authProvider: "firebase", authId: "op-backup-uid" },
+      { _id: friendId, authProvider: "firebase", authId: "real-friend-uid" },
+    ]);
+    const { excluded, operatorResolved, operatorResolution } = await resolveExcludedUsers(
+      db,
+      "op-main-uid,op-backup-uid",
+    );
+    expect(operatorResolved).toBe(true);
+    expect(excluded.get(String(op1))).toBe("operator");
+    expect(excluded.get(String(op2))).toBe("operator");
+    expect(excluded.has(String(friendId))).toBe(false);
+    expect(operatorResolution).toEqual([
+      { authId: "op-main-uid", resolved: true },
+      { authId: "op-backup-uid", resolved: true },
+    ]);
+    // The array form is equivalent to the comma form.
+    const viaArray = await resolveExcludedUsers(db, ["op-main-uid", "op-backup-uid"]);
+    expect(viaArray.excluded.get(String(op2))).toBe("operator");
+    await db.collection("users").deleteMany({});
+  });
+
+  it("exportTrack2 REFUSES to export when an operator authId resolves to no user (DEFECTS-H96)", async () => {
+    const friendId = oid();
+    await db.collection("users").insertOne({ _id: friendId, authProvider: "firebase", authId: "friend-uid" });
+    await db.collection("generationsnapshots").insertOne(makeSnapshot(friendId, oid().toString(), oid().toString()));
+
+    // Pre-fix this ran to completion, printing counts indistinguishable from a correct run while
+    // the operator's self-labeled closet sat in the headline pool — the silent-disable defect.
+    await expect(
+      exportTrack2({ db, outDir, userFilter: null, operatorAuthId: "typo-d-uid" }),
+    ).rejects.toThrow(/resolved to NO user.*typo-d-uid/);
+    // Fail-before-write: no bundle exists that a later reader could mistake for certified output.
+    expect(existsSync(resolve(outDir, "manifest.json"))).toBe(false);
+    await db.collection("users").deleteMany({});
+  });
+
+  it("a partially-resolvable list still refuses (one typo must not quietly drop one exclusion)", async () => {
+    const opId = oid();
+    await db.collection("users").insertOne({ _id: opId, authProvider: "firebase", authId: "op-uid" });
+    await expect(
+      exportTrack2({ db, outDir, userFilter: null, operatorAuthId: "op-uid,stale-uid" }),
+    ).rejects.toThrow(/stale-uid/);
+    await db.collection("users").deleteMany({});
+  });
+
+  it("end-to-end: TWO operator accounts are both quarantined from the headline pool (DEFECTS-H104)", async () => {
+    const op1 = oid();
+    const op2 = oid();
+    const friendId = oid();
+    await db.collection("users").insertMany([
+      { _id: op1, authProvider: "firebase", authId: "op-main-uid" },
+      { _id: op2, authProvider: "firebase", authId: "op-backup-uid" },
+      { _id: friendId, authProvider: "firebase", authId: "friend-uid" },
+    ]);
+    const snaps = [makeSnapshot(op1, oid().toString(), oid().toString()), makeSnapshot(op2, oid().toString(), oid().toString()), makeSnapshot(friendId, oid().toString(), oid().toString())];
+    await db.collection("generationsnapshots").insertMany(snaps);
+    await db.collection("outfitinteractions").insertMany(
+      snaps.map((s) => ({ _id: oid(), user: s.user, snapshotId: s._id, candidateId: "cand1", action: "accepted", createdAt: new Date("2026-07-18T10:00:00Z") })),
+    );
+
+    const manifest = await exportTrack2({ db, outDir, userFilter: null, operatorAuthId: "op-main-uid,op-backup-uid" });
+
+    // Bundle FILES keep every user's rows (exclusion is certificate-only)…
+    expect(manifest.counts.snapshots).toBe(3);
+    // …while the certificate quarantines BOTH operator closets: friends counts only the real one.
+    expect(manifest.yield.friends).toBe(1);
+    expect(manifest.yield.perUser).toHaveProperty(String(friendId));
+    expect(manifest.yield.perUser).not.toHaveProperty(String(op1));
+    expect(manifest.yield.perUser).not.toHaveProperty(String(op2));
+    expect(manifest.yield.excluded.users[String(op1)].reason).toBe("operator");
+    expect(manifest.yield.excluded.users[String(op2)].reason).toBe("operator");
+    // The exclusions block carries per-id resolution so the CLI readout can be loud about it.
+    expect(manifest.exclusions.operatorAuthIds).toEqual(["op-main-uid", "op-backup-uid"]);
+    expect(manifest.exclusions.operatorResolved).toBe(true);
+    expect(manifest.exclusions.excludedUserCount).toBe(2);
+    await db.collection("users").deleteMany({});
+  });
+
+  it("cliArg refuses a flag whose 'value' is another flag — the H96 widening (`--operatorAuthId --out ./x`)", () => {
+    // Pre-fix arg() returned "--out": truthy, unresolvable, silently exclusion-disabling.
+    expect(() => cliArg(["node", "x.mjs", "--operatorAuthId", "--out", "./x"], "operatorAuthId")).toThrow(
+      /--operatorAuthId requires a value/,
+    );
+    expect(() => cliArg(["node", "x.mjs", "--operatorAuthId"], "operatorAuthId")).toThrow(/requires a value/);
+    // Normal use still works; absence falls back.
+    expect(cliArg(["node", "x.mjs", "--out", "./x"], "out")).toBe("./x");
+    expect(cliArg(["node", "x.mjs"], "out", "./default")).toBe("./default");
+  });
+
+  it("cliArgAll collects a repeatable flag; normalizeOperatorAuthIds dedups + trims comma lists", () => {
+    expect(cliArgAll(["node", "x.mjs", "--operatorAuthId", "a", "--operatorAuthId", "b"], "operatorAuthId")).toEqual(["a", "b"]);
+    expect(cliArgAll(["node", "x.mjs"], "operatorAuthId")).toEqual([]);
+    expect(normalizeOperatorAuthIds(" a , b ,a,")).toEqual(["a", "b"]);
+    expect(normalizeOperatorAuthIds(null)).toEqual([]);
+    expect(normalizeOperatorAuthIds(["a", "b,c"])).toEqual(["a", "b,c"]); // array entries are NOT re-split
   });
 });
 

@@ -3,12 +3,15 @@
  * JSONL bundle + an images dir out, joining the four owned collections into a training shape.
  *
  *   node scripts/export_track2.mjs --uri "<mongo uri>" [--authId <firebase-uid>] [--out <dir>]
- *     [--operatorAuthId <brian-firebase-uid>]
+ *     [--operatorAuthId <brian-firebase-uid>]...
  *   # or rely on MONGODB_URI_ATLAS from .env.local:
  *   node scripts/export_track2.mjs --out ./track2-export --operatorAuthId <brian-firebase-uid>
  *
- * `--operatorAuthId` is the prereg §5 author exclusion: Brian-as-friend-#0's closet is reported
- * separately and never enters the headline certificate pool (the Look-1 trigger). `track2test_*`
+ * `--operatorAuthId` is the prereg §5 author exclusion: the operator's own closets are reported
+ * separately and never enter the headline certificate pool (the Look-1 trigger). Repeatable, and
+ * each value may be a comma list, so EVERY personal account is excluded — a second personal
+ * account counting as a friend corrupts the certificate (DEFECTS-H104). An id that resolves to no
+ * user FAILS the run (DEFECTS-H96): a typo'd id would silently disable the exclusion. `track2test_*`
  * synthetic accounts are always excluded regardless. Pass it on every real M6 export; the runbook
  * §8 export command carries it. The bundle FILES still contain every user's rows — only the
  * decidability certificate (`manifest.yield`) is exclusion-filtered.
@@ -26,7 +29,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import mongoose from "mongoose";
-import { exportTrack2, BUNDLE_VERSION } from "./exportTrack2Core.cjs";
+import { exportTrack2, BUNDLE_VERSION, cliArg, cliArgAll } from "./exportTrack2Core.cjs";
 
 export { exportTrack2, BUNDLE_VERSION };
 
@@ -43,17 +46,19 @@ function loadEnvLocal() {
   }
 }
 
-function arg(name, fallback) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
-}
-
 async function main() {
   loadEnvLocal();
-  const uri = arg("uri", process.env.MONGODB_URI_ATLAS || process.env.MONGODB_URI);
-  const outDir = resolve(arg("out", "./track2-export"));
-  const authId = arg("authId", null);
-  const operatorAuthId = arg("operatorAuthId", process.env.TRACK2_OPERATOR_AUTH_ID || null);
+  // Arg parsing lives in the core (cliArg/cliArgAll) so jest exercises it; a flag whose "value" is
+  // another flag throws there instead of silently binding it (DEFECTS-H96).
+  const argv = process.argv;
+  const uri = cliArg(argv, "uri", process.env.MONGODB_URI_ATLAS || process.env.MONGODB_URI);
+  const outDir = resolve(cliArg(argv, "out", "./track2-export"));
+  const authId = cliArg(argv, "authId", null);
+  // Repeatable + comma-listable (DEFECTS-H104); the env fallback may carry a comma list too.
+  const cliOperatorIds = cliArgAll(argv, "operatorAuthId");
+  const operatorAuthId = cliOperatorIds.length
+    ? cliOperatorIds.join(",")
+    : process.env.TRACK2_OPERATOR_AUTH_ID || null;
   if (!uri) throw new Error("no Mongo URI (pass --uri or set MONGODB_URI_ATLAS)");
 
   await mongoose.connect(uri);
@@ -84,6 +89,19 @@ async function main() {
   const manifest = await exportTrack2({ db, outDir, userFilter, operatorAuthId });
   console.log(`Exported → ${outDir}`);
   console.log(JSON.stringify(manifest.counts, null, 2));
+  // The exclusion readout lives NEXT TO the counts so its ABSENCE is detectable (DEFECTS-H96):
+  // a certificate computed without the operator exclusion must never look like a correct run.
+  const ex = manifest.exclusions;
+  if (ex.operatorAuthIds.length > 0) {
+    console.log(
+      `prereg §5 exclusions: operator id(s) [${ex.operatorAuthIds.join(", ")}] all resolved + excluded; ` +
+        `${ex.excludedUserCount} account(s) excluded total (operator + track2test_*); headline friends = ${manifest.yield.friends}`,
+    );
+  } else {
+    console.warn(
+      "⚠  certificate computed WITHOUT an operator exclusion (no --operatorAuthId) — NOT a real M6 decidability read.",
+    );
+  }
   await mongoose.disconnect();
   process.exit(0);
 }

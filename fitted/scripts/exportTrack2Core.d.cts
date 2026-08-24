@@ -22,7 +22,12 @@ export interface PerUserYield {
 export interface ExportManifest {
   bundleVersion: string;
   userFilter: string | null;
-  exclusions: { operatorAuthId: string | null; operatorResolved: boolean; excludedUserCount: number };
+  exclusions: {
+    operatorAuthIds: string[];
+    operatorResolution: Array<{ authId: string; resolved: boolean }>;
+    operatorResolved: boolean;
+    excludedUserCount: number;
+  };
   counts: {
     snapshots: number;
     wardrobeItems: number;
@@ -72,7 +77,8 @@ export function exportTrack2(opts: {
   db: DbLike;
   outDir: string;
   userFilter: unknown | null;
-  operatorAuthId?: string | null;
+  /** Single authId, comma list, or array (DEFECTS-H104); an id resolving to no user THROWS (DEFECTS-H96). */
+  operatorAuthId?: string | string[] | null;
 }): Promise<ExportManifest>;
 export const BUNDLE_VERSION: string;
 export const CERTIFICATE: {
@@ -95,8 +101,19 @@ export function buildCertificate(
 ): ExportManifest["yield"];
 export function resolveExcludedUsers(
   db: DbLike,
-  operatorAuthId: string | null,
-): Promise<{ excluded: Map<string, string>; operatorResolved: boolean }>;
+  operatorAuthIds: string | string[] | null,
+): Promise<{
+  excluded: Map<string, string>;
+  /** true only when >=1 id was supplied and ALL of them resolved. */
+  operatorResolved: boolean;
+  operatorResolution: Array<{ authId: string; resolved: boolean }>;
+}>;
+/** null | "id" | "id1,id2" | ["id1", "id2"] -> deduped trimmed string[]. */
+export function normalizeOperatorAuthIds(operatorAuthIds: string | string[] | null | undefined): string[];
+/** Single-value CLI flag (first occurrence); THROWS when the value is missing or is another flag (DEFECTS-H96). */
+export function cliArg(argv: string[], name: string, fallback?: string | null): string | null;
+/** Repeatable CLI flag (DEFECTS-H104): every occurrence's value; same missing-value throw as cliArg. */
+export function cliArgAll(argv: string[], name: string): string[];
 export function parseImageId(ref: unknown): string | null;
 
 /** §23-H61 latest-state collapse per {snapshotId, candidateId}; mirror of lib/latestFeedbackState.ts. */
