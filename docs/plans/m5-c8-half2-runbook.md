@@ -220,7 +220,23 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
    age out on their own within weeks; none of them are used for anything (§23-H43 scope note).
 
 ### Ops notes (Brian)
-- **✅ LIVE WEB = `origin/main` `b8c3dfb9` (deployed 2026-07-26).** Deployment
+- **✅ LIVE WEB = `origin/main` `dd21c5d9` (deployed 2026-08-23).** Deployment
+  `dpl_6RtpZHgvYCDh99YwshSnUQDr2ffG` / `fitted-3ldq13y7b-…`, via `npx vercel --prod` from `fitted/`
+  → alias `fitted-three.vercel.app`, verified **200** on `/` and `/signin`. **Fly render service
+  UNTOUCHED** — none of the batch touches `ml-system/` (verified `git diff --stat` empty), 1 machine,
+  `/readyz` 200. This ships the five-defect friend-facing batch: **H87** (a rejected Mongo connect no
+  longer bricks the warm instance — retry on next request), **H88** (a DB fault is a retryable 503
+  "trouble reaching your closet", never "Invalid or expired token"; AuthGate gates on the sync outcome
+  with an honest retry screen; the three wardrobe routes' inline auth copies deleted → the shared
+  helper), **H90** (a 5xx keeps the pending-render envelope so a reload can resume the paid render),
+  **H96/H104** (export certificate: fail-loud on an unresolvable operator id, multi-account operator
+  exclusion). Post-deploy gate re-ran green on this build: gauntlet `college-male-minimal` → renders
+  200/3-candidates + re-roll + feedback accepted/rejected 200 (bindable proven), erasure-check
+  **20 rows → 0, Firebase auth gone**. The fixed export CLI verified live: an erased/typo'd operator id
+  **refuses the run (exit 1, nothing written)**; with the real operator id the certificate printed the
+  exclusion line and read `friends: 2`, primaryRead UNDERPOWERED, concentration cap binding — as
+  expected mid-collection. Suite floor at deploy: **995 jest / 1098 pytest**.
+- **Superseded deploy record (2026-07-26 web deploy of `b8c3dfb9` — no longer live; kept for the CLI-version trap + fingerprinting caveat below).** Deployment
   `dpl_BagYydEivKnYcahJC23FP1umpyPQ` / `fitted-jprusdkwc-…`, via `npx vercel --prod` from `fitted/`
   → alias `fitted-three.vercel.app`, verified **200** on `/` and `/signin`; `vercel ls --prod` shows
   it as the newest Ready production deployment. **Fly render service UNTOUCHED** — `fly scale show` =
@@ -359,17 +375,19 @@ zero friend yield you only notice by watching. After ANY redeploy, before the ne
 **Pull the corpus (M6 export, read-only):**
 ```sh
 cd fitted && node scripts/export_track2.mjs --uri "$(grep '^MONGODB_URI_ATLAS=' .env.local | cut -d= -f2-)" \
-  --out ./track2-export \
-  --operatorAuthId "<Brian's main Firebase uid>" --operatorAuthId HftfgRJg7fXeXhmZxrSNgdvaFei1
+  --out ./track2-export --operatorAuthId "<Brian's Firebase uid>"
 ```
 → `manifest.json` (counts + a `yield` block with the decidability verdict vs the 30–60 bar), snapshots /
 wardrobe / interactions_latest (§H61) / training_examples JSONL + `images/`. The manifest's `yield` IS the
-yield artifact (one home, no drift). **Always pass `--operatorAuthId` for EVERY personal account** —
-repeatable, or one comma list (DEFECTS-H104; the second id above is `brian.li.fmlbkup@gmail.com`). The
-prereg §5 author exclusion reports operator closets under `yield.excluded`, never in the headline pool
-that fires the Look-1 trigger; `track2test_*` synthetic accounts are always excluded. An id that resolves
-to no user **fails the run** (DEFECTS-H96 — a typo'd id must never silently disable the exclusion), and
-the CLI prints the exclusion line next to the counts so its absence is detectable. The bundle FILES still carry every
+yield artifact (one home, no drift). **Always pass `--operatorAuthId` for EVERY personal account that
+currently exists** — the flag is repeatable, or one comma list (DEFECTS-H104: a second personal account
+must never count as a friend; the `brian.li.fmlbkup@gmail.com` backup was erased 2026-08, so as of then
+only the main uid is passed — re-add any personal account's uid if it is re-created). An id that resolves
+to no user **fails the run, exit 1, nothing written** (DEFECTS-H96 — a typo'd OR stale/erased id must
+never silently disable the exclusion; if an operator account was erased, drop its id — its rows are
+already gone). The prereg §5 author exclusion reports operator closets under `yield.excluded`, never in
+the headline pool that fires the Look-1 trigger; `track2test_*` synthetic accounts are always excluded.
+The CLI prints the exclusion line next to the counts so its absence is detectable. The bundle FILES still carry every
 user's rows; only the `yield` certificate is exclusion-filtered. The command re-wipes `images/` each run,
 so a re-export after an erasure leaves no stale photos on disk. A **deleted friend exports zero**
 (erasure). Round-trip proven live: `node scripts/track2-export-roundtrip.mjs` (incl. a D2-retained photo
