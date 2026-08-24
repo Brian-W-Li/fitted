@@ -35,8 +35,8 @@ promptly and correctly the day the data qualifies, with every analysis choice fr
 
 - The gated Look runner exists and its **rehearsal mode** runs the full path end-to-end
   (gate → decode/embed → score → bootstrap → record write) on legal-to-score inputs (a synthetic
-  bundle + the committed H26 closet photos), producing a mock look record — the "ready before the
-  data is" proof.
+  bundle + the **local** H26 closet photos — gitignored face-bearing photos that must NEVER be
+  committed; see C6), producing a mock look record — the "ready before the data is" proof.
 - The gate provably refuses (each with a red-if-removed test): arms of 24, cap 0.51,
   a single-friend bundle, Look 2 without a committed non-ESTABLISHED Look-1 record, a re-run when a
   look record already exists, an empty operator-exclusion list without the explicit override, and a
@@ -68,6 +68,7 @@ promptly and correctly the day the data qualifies, with every analysis choice fr
 | `fixtures/synthetic_bundle/` | The deterministic synthetic-bundle generator (`regen.py` for jsonl+images, `regen.mjs` calling the REAL `buildCertificate` for the committed yield block) — the shared cross-runtime fixture AND the rehearsal input. |
 | `tests/test_pipeline_constants.py`, `tests/test_bundle.py`, `tests/test_gate.py`, `tests/test_embed_bundle.py`, `tests/test_scoring.py`, `tests/test_transfer_read.py`, `tests/test_run_look.py` | The pytest suite (counted by hygiene check 15's `experimentsCollected`). |
 | `looks/` | The committed look ledger (empty until Look 1; `analysis_sample.json`, `look1_record.json`, later `look2_record.json`). Rehearsal output goes to a gitignored `rehearsal_out/`, never here. |
+| `.gitignore` (in `track2_transfer/`) | NEW — must be created at C1: ignores `rehearsal_out/` and the per-bundle embedding cache (§D7). Nothing ignores them today (`ml-system/.gitignore` is Python-only; `track2_transfer/` has no `.gitignore`). |
 | `tests/exportTrack2CrossRuntime.test.ts` (under `fitted/`) | Additive jest suite: the real `buildCertificate` over the shared fixture must equal the committed yield block — so certificate drift fails jest while Python drift fails pytest, both against one artifact. |
 
 **Edited (small, pointer-only):** `docs/Fitted_Spec_v2.md` §20 M6 row (build-doc pointer — done at
@@ -134,7 +135,12 @@ It performs, in order, all label-count (never label-score) checks:
    policy is that every existing personal account's uid is always passed) — refuse otherwise,
    unless `--allow-no-operator` is explicitly passed (legitimate only if every operator account has
    been erased; the override is recorded in the look record). Excluded users = the manifest's
-   `yield.excluded.users` keys ∪ re-resolved `track2test_*` users found in the bundle rows.
+   `yield.excluded.users` keys (each carries a `reason`: operator or test_account). Exclusion
+   **identity** is manifest-trusted by necessity: the bundle files carry NO authIds (the exporter
+   writes no users file; `training_examples.user` is a Mongo `_id`), so `track2test_*` accounts
+   cannot be re-identified bundle-side — the H96/H104 jest suite pins the exporter's side, and the
+   trust boundary is disclosed in the look record. Eligibility, dedup, and the cap (step 2) stay
+   independently re-derived.
 2. **Python re-derivation** of scoreable clusters from `training_examples.jsonl` per prereg §5
    (≥2 items ∧ every item image-resolved ∧ latest-state label ∈ {accepted, rejected};
    signature-dedup within {friend, arm}; exclusions applied; transfer-scoreable additionally
@@ -152,10 +158,12 @@ It performs, in order, all label-count (never label-score) checks:
    to re-run a recorded look is `--verify` (reproduction mode, §D7). There is no flag that skips
    any of checks 1–5.
 6. **Horizon branch:** `--as-of YYYY-MM-DD` is a required argument (no wall-clock read — the date
-   is an analysis input, recorded in the record). Strictly after the frozen horizon
-   (2026-10-31), a below-floor sample becomes the prereg §2.1 **terminal** verdict
+   is an analysis input, recorded in the record). Strictly after the frozen horizon, a below-floor
+   sample becomes the prereg §2.1 **terminal** verdict
    (NOT-ESTABLISHED (underpowered) at 25≤N<50 post-Look-1, UNDERPOWERED-TERMINAL at N<25) instead
-   of "keep collecting".
+   of "keep collecting". The prereg horizon is **2026-10-31 OR the render-service decommission,
+   whichever is earlier**: an optional `--decommissioned YYYY-MM-DD` moves the effective horizon
+   EARLIER (recorded in the record); nothing can move it later.
 
 `LookClearance` is constructible only inside `gate.py` (module-private class, no public
 constructor); `scoring.score_bundle(...)` and `run_look`'s analysis stages require one. Tests and
@@ -346,8 +354,10 @@ removed (mutation-grade: floor−1 refuses, cap+0.01 refuses, ledger file presen
 **C3 — the embedding leg.**
 `embed_bundle.py`: decode + `exif_transpose` + frozen-backbone embed + the bundle embedding
 manifest/cache; backbone-drift refusal (monkeypatched manifests); abort-on-decode-failure; the
-orientation-6 regression fixture (a deterministically generated EXIF-6 image, or one committed H26
-closet photo if its EXIF survives — decide by reading the bytes at build time). Unit tests use a
+orientation-6 regression fixture (a deterministically generated EXIF-6 JPEG committed under
+`fixtures/` — NOT an H26 closet photo: none are committed and none may ever be; `h26/.gitignore`
+ignores `closet/` and every image extension precisely because they are face-bearing consented
+photos, "never egress to git"). Unit tests use a
 fake backbone (no network/weights in pytest); the real-backbone path is the rehearsal's job.
 Update the §23-H53 row: the M6 re-measure embed half now exists with its fixture; W-track half
 stays open.
@@ -372,9 +382,16 @@ grain over image-resolved pools, skip-and-count, pooled AUC at the source-outfit
 `run_look.py`: stage order enforced (a test spies call order — all embeddings complete before the
 first label-score), `analysis_sample.json` + look-record writers (schema incl. all §D7/§D9
 provenance), verify mode, rehearsal mode (synthetic bundle end-to-end on the REAL backbone +
-sealed head, plus the H26 closet photos through `embed_bundle` as the real-photo leg; output to
+sealed head, plus the **local** H26 closet photos (`ml-system/experiments/h26/closet/` — gitignored,
+never committed; skip this leg with a loud note if the dir is absent) through `embed_bundle` as the
+real-photo leg; output to
 the gitignored `rehearsal_out/`, marked `"rehearsal": true`, refused inside `looks/`). Runbook §8
-gets the Look pointer; final floor bumps.
+gets the Look pointer; final floor bumps. **Local-artifact prereqs** (all verified present on this
+machine 2026-08-23; all gitignored, so a fresh clone cannot rehearse without regenerating): the
+sealed checkpoint blob (`h26/checkpoints/pairwise_edge_grid_0_seed20260629.pt`), the catalog
+embedding cache (`h26/embeddings/`), and the Polyvore `h26/data/` dir for the catalog preflight —
+if any is missing, regenerate per the H26 docs BEFORE the rehearsal session (hours, not Look-day
+work).
 **DONE (the plan's overall DONE):** `python run_look.py --rehearsal` runs end-to-end and prints a
 mock look record; all suites + hygiene green; a fresh review round on the final code returns zero
 load-bearing findings (convergence, not punch-list).
