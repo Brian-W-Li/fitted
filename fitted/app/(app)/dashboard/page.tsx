@@ -3,7 +3,7 @@
 import { auth } from "@/lib/firebaseClient";
 import { signOut, onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { resolveImageSrc } from "@/lib/imageUrl";
 import { clearSessionCookie } from "@/lib/sessionCookie";
 import { MAX_OCCASION_CHARS } from "@/lib/mlRequestAdapter";
@@ -101,6 +101,8 @@ const PENDING_KEY = (uid: string) => `fitted_pending_render:${uid}`;
 interface PersistedDashboard {
   occasion: string;
   result: RenderResult;
+  /** H100 — locks last submitted on this lineage's re-roll, so a restored render still seeds them. */
+  activeLockedItemIds?: string[];
 }
 
 function readJSON<T>(key: string): T | null {
@@ -335,14 +337,22 @@ function RegenerateModal({
   onRegenerate,
   isRegenerating,
   error,
+  initialLockedItemIds,
 }: {
   outfit: ShownOutfit;
   onClose: () => void;
   onRegenerate: (controls: NormalizedControls) => void;
   isRegenerating: boolean;
   error?: string;
+  /** H100 — locks inherited from this lineage's previous re-roll (already intersected with THIS
+   *  outfit's items by the caller): a lock means "keep this piece" until the person unlocks it, so
+   *  it must survive re-roll after re-roll instead of silently resetting. Avoids are deliberately
+   *  NOT inherited — the engine excludes an avoided item from every child candidate, so an
+   *  inherited avoid could never be displayed (or cleared) here, and silently accumulating avoids
+   *  starves a small closet into "nothing buildable" with no visible cause. */
+  initialLockedItemIds?: string[];
 }) {
-  const [locked, setLocked] = useState<Set<string>>(new Set());
+  const [locked, setLocked] = useState<Set<string>>(() => new Set(initialLockedItemIds ?? []));
   const [disliked, setDisliked] = useState<Set<string>>(new Set());
 
   // A piece can't be both locked and disliked (the server rejects it, so the UI forbids it too).
@@ -641,6 +651,13 @@ function DashboardInner() {
   const [feedbackModal, setFeedbackModal] = useState<{ outfit: ShownOutfit; index: number } | null>(null);
   const [regenModal, setRegenModal] = useState<{ outfit: ShownOutfit; index: number } | null>(null);
 
+  // H100 — the locks last submitted on this lineage's re-roll. The server stores controls on the
+  // snapshot row but never returns them in the browser projection, so the client (the author of
+  // every re-roll's controls) is the one place that can remember them. A ref, not state: it is read
+  // only at modal-open and persist time, and a ref can be updated synchronously inside runRender's
+  // result callback so the persisted copy is never one re-roll stale.
+  const activeLocksRef = useRef<string[]>([]);
+
   // Location is OPT-IN and primed. Calling getCurrentPosition on mount fired the browser's native
   // permission prompt with no in-app explanation — the first thing a brand-new friend saw was an OS
   // dialog asking for their location from an app they'd just signed into, which reads as a reason to
@@ -758,6 +775,7 @@ function DashboardInner() {
     if (saved?.result) {
       setResult(saved.result);
       setOccasion(saved.occasion ?? "");
+      activeLocksRef.current = saved.activeLockedItemIds ?? [];
     }
     const pending = readJSON<PendingEnvelope>(PENDING_KEY(uid));
     if (pending) {
@@ -797,6 +815,7 @@ function DashboardInner() {
       writeJSON(DASHBOARD_KEY(uid), {
         occasion: occasionForResult ?? occasion,
         result: r,
+        activeLockedItemIds: activeLocksRef.current,
       } satisfies PersistedDashboard);
     },
     [uid, occasion],
@@ -937,6 +956,10 @@ function DashboardInner() {
         // empty (a root resume has no saved dashboard to restore it from, and later feedback marks
         // persist the state occasion). Never clobber text the user typed during the resume window.
         setOccasion((prev) => prev || envelope.lensSummary.occasion);
+        // H100 — a resumed re-roll carries the lineage's locks in its envelope; a root resume
+        // starts a fresh lineage. Before setResult, so runRender's persist sees the fresh value.
+        activeLocksRef.current =
+          envelope.parentSnapshotId != null ? envelope.normalizedControls.lockedItemIds : [];
         setResult(r);
       });
     },
@@ -974,6 +997,9 @@ function DashboardInner() {
     setResult(null);
     setFeedbackModal(null);
     setRegenModal(null);
+    // H100 — a root render starts a fresh lineage (the §C.3 invariant: a root carries no controls),
+    // so any locks from the previous lineage end here.
+    activeLocksRef.current = [];
     // Persist the envelope BEFORE the fetch (survives a reload/lost response).
     writeJSON(PENDING_KEY(uid), envelope);
     await runRender(firebaseUser, envelope, buildRootBody(envelope), (r) => setResult(r));
@@ -1006,6 +1032,10 @@ function DashboardInner() {
             setError(emptyStateMessage(r.flags));
             return false; // reject: state + persisted copy keep the previous render
           }
+          // H100 — remember the accepted re-roll's locks so the NEXT regenerate opens with them
+          // still held. Set before setResult so runRender's persist writes the fresh value; a
+          // rejected (degraded) re-roll above keeps the previous locks, matching the kept render.
+          activeLocksRef.current = controls.lockedItemIds;
           setResult(r);
           setRegenModal(null);
         },
@@ -1375,6 +1405,13 @@ function DashboardInner() {
           onRegenerate={submitRegenerate}
           isRegenerating={inFlight}
           error={error || undefined}
+          // H100 — intersect with THIS outfit's items: the modal only renders toggles for what is
+          // on screen, so a lock for an absent item would be invisible, un-clearable state. (Locks
+          // are a hard constraint — every child candidate contains them — so this normally drops
+          // nothing.)
+          initialLockedItemIds={activeLocksRef.current.filter((id) =>
+            regenModal.outfit.displayItems.some((it) => it.itemId === id),
+          )}
         />
       )}
     </div>
