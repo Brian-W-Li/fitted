@@ -14,7 +14,7 @@
     "check13_anchor": "f4528567059555778f24c3d8998d7e13621e11ac",
     "check14_volatileMarkers": 81,
     "check15_suiteFloors": {
-      "jest": 972,
+      "jest": 995,
       "pytest": 1098,
       "experimentsCollected": 327
     }
