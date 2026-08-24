@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { initDatabase } from "@/lib/db";
-import { adminAuth } from "@/lib/firebaseAdmin";
+import { verifyFirebaseUser } from "@/lib/apiAuth";
 import { MAX_WARDROBE_IMAGE_BYTES, uploadWardrobeImage } from "@/lib/imageStorage";
 import { allowRequest } from "@/lib/rateLimit";
 import { OBJECT_ID_RE } from "@/lib/formats";
@@ -24,31 +24,10 @@ export const MAX_USER_IMAGE_BYTES = 80 * 1024 * 1024;
 export const UPLOAD_RATE_MAX = 60;
 const UPLOAD_RATE_WINDOW_MS = 10 * 60 * 1000;
 
-async function getUserIdFromRequest(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return { error: "Missing or invalid Authorization header", status: 401 as const };
-  }
-
-  const idToken = authHeader.slice("Bearer ".length).trim();
-
-  try {
-    const decoded = await adminAuth.verifyIdToken(idToken);
-    const firebaseUid = decoded.uid;
-
-    const { User } = await initDatabase();
-    const user = await User.findOne({
-      authProvider: "firebase",
-      authId: firebaseUid,
-    }).exec();
-
-    if (!user) return { error: "User not found", status: 404 as const };
-    return { userId: user._id.toString() };
-  } catch (err) {
-    console.error("verifyIdToken failed:", err);
-    return { error: "Invalid or expired token", status: 401 as const };
-  }
-}
+// Auth is the shared, failure-class-split helper (DEFECTS-H88): this file used to carry its own
+// inline copy that mapped a DATABASE fault to 401 "Invalid or expired token" — do not reintroduce
+// a local resolver here; lib/apiAuth.ts is the single home.
+const getUserIdFromRequest = verifyFirebaseUser;
 
 export async function POST(
   request: NextRequest,

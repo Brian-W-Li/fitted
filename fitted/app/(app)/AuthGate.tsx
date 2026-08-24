@@ -51,8 +51,14 @@ export default function AuthGate({
     const [outcome] = await Promise.all([syncUser(), ensureSessionCookie(user)]);
     if (outcome === "auth_rejected") {
       // Sign out so the auth listener routes to /signin — pushing /signin while Firebase still
-      // reports a user would bounce straight back here via RedirectIfAuthenticated.
-      await signOut(auth).catch(() => {});
+      // reports a user would bounce straight back here via RedirectIfAuthenticated. If the
+      // sign-out itself fails (theoretical — it is effectively local), fall to the retry screen
+      // rather than stranding the gate on "Loading…" forever.
+      try {
+        await signOut(auth);
+      } catch {
+        setStatus("trouble");
+      }
       return;
     }
     setStatus(outcome === "ok" ? "ready" : "trouble");

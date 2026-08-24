@@ -94,6 +94,40 @@ describe("verifySessionCookieUser (lib/session) — same split for the image-rou
   });
 });
 
+describe("wardrobe routes — the three ex-inline auth copies now delegate to the split helper", () => {
+  // Each of these files used to carry its own byte-identical copy of the conflated resolver, so the
+  // closet list/add/edit/photo surface still said "Invalid or expired token" on a Mongo fault after
+  // the helpers were fixed. The copies are deleted (getUserIdFromRequest = verifyFirebaseUser);
+  // these pin the delegation per file — reintroducing any ONE inline copy reddens its case.
+  const dbDown = () => {
+    const { adminAuth, initDatabase } = mocks();
+    adminAuth.verifyIdToken.mockResolvedValue({ uid: "u1" });
+    initDatabase.mockRejectedValue(new Error("Atlas down"));
+  };
+  const ctx = { params: Promise.resolve({ id: "6a4eb442443135439ac080d9" }) };
+
+  it("GET /api/wardrobe → 503 on a DB fault, not 401", async () => {
+    dbDown();
+    const { GET } = await import("@/app/api/wardrobe/route");
+    const res = await GET(bearerReq());
+    expect(res.status).toBe(503);
+  });
+
+  it("PATCH /api/wardrobe/[id] → 503 on a DB fault, not 401", async () => {
+    dbDown();
+    const { PATCH } = await import("@/app/api/wardrobe/[id]/route");
+    const res = await PATCH(bearerReq(), ctx as Any);
+    expect(res.status).toBe(503);
+  });
+
+  it("POST /api/wardrobe/[id]/image → 503 on a DB fault, not 401", async () => {
+    dbDown();
+    const { POST } = await import("@/app/api/wardrobe/[id]/image/route");
+    const res = await POST(bearerReq(), ctx as Any);
+    expect(res.status).toBe(503);
+  });
+});
+
 describe("verifyUserProd (lib/mlRecommend prodDeps) — the recommend path gets the same split", () => {
   it("a verified token + a failing connect → 503 through prodDeps().verifyUser", async () => {
     const { adminAuth, initDatabase } = mocks();

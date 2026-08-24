@@ -1,40 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { initDatabase } from "@/lib/db";
-import { adminAuth } from "@/lib/firebaseAdmin";
+import { verifyFirebaseUser } from "@/lib/apiAuth";
 import { CLOTHING_TYPES, deriveClothingType, type ClothingType } from "@/lib/clothingType";
 import { deriveWarmth } from "@/lib/deriveWarmth";
 import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 import { validateWardrobePatchPayload } from "@/lib/wardrobeRequestValidation";
 import { isImagePathReferenced } from "@/lib/imageReferences";
 
-async function getUserIdFromRequest(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return { error: "Missing or invalid Authorization header", status: 401 };
-  }
-
-  const idToken = authHeader.slice("Bearer ".length).trim();
-  try {
-    const decoded = await adminAuth.verifyIdToken(idToken);
-    const firebaseUid = decoded.uid;
-
-    const { User } = await initDatabase();
-    const user = await User.findOne({
-      authProvider: "firebase",
-      authId: firebaseUid,
-    }).exec();
-
-    if (!user) {
-      return { error: "User not found", status: 404 };
-    }
-
-    return { userId: user._id.toString() };
-  } catch (error) {
-    console.error("Error verifying Firebase token:", error);
-    return { error: "Invalid or expired token", status: 401 };
-  }
-}
+// Auth is the shared, failure-class-split helper (DEFECTS-H88): this file used to carry its own
+// inline copy that mapped a DATABASE fault to 401 "Invalid or expired token" — do not reintroduce
+// a local resolver here; lib/apiAuth.ts is the single home.
+const getUserIdFromRequest = verifyFirebaseUser;
 
 export async function PATCH(
   request: NextRequest,
