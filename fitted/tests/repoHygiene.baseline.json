@@ -1,0 +1,38 @@
+{
+  "_readme": "Single home for the hygiene ratchets and the suite floors (docs/plans/maintainability.md §5). Enforced checks assert current <= baseline (floors: current >= floor). Lowering a baseline / raising a floor happens in the same commit as the change that earns it; these numbers must not be restated in prose anywhere (check 14 hunts the copies).",
+  "enforced": {
+    "check9_docCiteMissingPath": 24,
+    "check11_sha256": {
+      "ml-system/experiments/h26/preregistration.json": "4d1343cb970d092ae8c53981c5ccfa4ba9500955e4d30c03cdefcaedb493c3c6",
+      "ml-system/experiments/h26/preregistration.md": "95c196e0ca549fff71f7e42452bf41920cd4695b57d5cd72b2c31119d1f0b323",
+      "ml-system/experiments/track2_transfer/preregistration.json": "3deb63227f43985ae245cce9d4d7f52537c8b1d4b6a3ee9731a6d9f3435291be",
+      "ml-system/experiments/track2_transfer/preregistration.md": "97af52a841c2176fd67d870883085b020bed9e38bb4bf4362ddb5ce6e067b7b3",
+      "ml-system/experiments/track2_transfer/derive_power.py": "9384e0acf6cd10de4af8801dd3f69dc140ba3faff81f755c70633531f652eb32",
+      "ml-system/experiments/track2_transfer/power_derivation.json": "60090c94c5b6880f23a79a115372a4dd7ae767c04ade34787e5194754b288fa0",
+      "docs/Fitted_Spec_v2_recovered_appendix.md": "003e08d8adace1c3f90cd818a0453ed68f323af52951ec45df4b461b16c458e6"
+    },
+    "check13_anchor": "f4528567059555778f24c3d8998d7e13621e11ac",
+    "check14_volatileMarkers": 81,
+    "check15_suiteFloors": {
+      "jest": 972,
+      "pytest": 1098,
+      "experimentsCollected": 327
+    }
+  },
+  "printed": {
+    "landing": {
+      "check1_trackedMdCount": 91,
+      "check2_totalMdBytes": 1806707,
+      "check3_largestDocBytes": 257281,
+      "check4_readingListBytes": 367988,
+      "check5_plansCount": 21,
+      "check6_sessionsCount": 48,
+      "check7_resolvedRowBytes": 65088,
+      "check8_statusVocabulary": 91
+    },
+    "targets": {
+      "check4_readingListBytes": 210000,
+      "check6_sessionsCount": 0
+    }
+  }
+}

@@ -7,8 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "jest",
-    "test:watch": "jest --watch",
+    "test": "jest --selectProjects node jsdom",
+    "test:watch": "jest --watch --selectProjects node jsdom",
+    "hygiene": "jest --selectProjects hygiene",
     "track2:monitor": "node scripts/track2-monitor.mjs"
   },
   "dependencies": {

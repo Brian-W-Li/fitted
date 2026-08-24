@@ -10,6 +10,8 @@
       "Bash(npm run dev)",
       "Bash(npm run build)",
       "Bash(npm run lint)",
+      "Bash(npm run hygiene)",
+      "Bash(npm run hygiene *)",
 
       "Bash(python3 ml-system/*)",
       "Bash(python3 -m venv .venv)",
@@ -78,6 +80,11 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/scripts/push-guard.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/scripts/hygiene-guard.sh",
+            "timeout": 240
           }
         ]
       }

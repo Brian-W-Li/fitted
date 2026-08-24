@@ -13,24 +13,6 @@
 >
 > Everything below should trace to one of those lines. If a passage does not, it is freight.
 
-> **STATUS: S0 is built (§7.3). S1a-lite is next (§9).** Everything below S0 is still design only.
-> This banner is itself the artifact class §1.2 convicts, and it survives only because rung position has
-> no derived source until the checks exist (§1.3.1). It is deleted at S1a-lite.
->
-> **The load-bearing change: the suite now enforces truth and location, and only *prints* size (§5).**
-> Every instance of the disease anyone has verified is a currency failure; none is a size failure. The
-> felt cost is **ripple — one fact stored in N places**, so landing one test edits four documents. A
-> suite that capped size would have enforced a proxy and punished the register for growing.
->
-> §6's six decisions stand, with two amendments (D3: `UserPromptSubmit` **cut**, §4; D5: one leg was
-> false, §6). §1.3's derived-state centerpiece stands with its **boundary redrawn** — the disease is not
-> confined to `CLAUDE.md` (§1.2). §4 rebuilt on proven receipts: 3 agents / 4 commands / 3 hooks →
-> **2 / 3 / 2**. New **check 15** (suite counts never decrease) turns *"floors grow, never pins"* from
-> a convention into an artifact and is the guard against standing rules fading.
->
-> **Ladder: S0 ✓ → S1a-lite → S4a, then stop** (§7 — this reversed once; the reasoning is recorded
-> there). The next-session prompt is §9 and it is **S1a-lite**.
->
 > **This doc dies at S6**, and after D4 that is enforced by check 12(b) rather than by remembering:
 > the check requires this file to exist while any target is unmet and to be **gone** once all are met.
 > It is the first customer of the deletion procedure it specifies (§8).
@@ -147,8 +129,8 @@ last   4ac8d523 docs(maintainability): survive an adversarial read…
 
 Every line is computed: unpushed from `git rev-list`, **plan position from
 `git log -1 -- docs/plans/`** (not from a status banner), register counts from a `^OPEN` scan, deploy
-from the network on demand. Once S1a-lite lands, the plan line can upgrade to *which rung's check is
-still red* — strictly better, and not a prerequisite.
+from the network on demand. The checks exist now (S1a-lite), so the plan line *could* upgrade to
+*which rung's check is still red* — strictly better, still optional, and deliberately not built yet.
 
 **Why this is what serves requirement 5.** When C3 surfaces something and the session detours into a
 bug hunt, then a re-audit, then a spec change, **nobody has to remember to update a paragraph** — the
@@ -186,7 +168,8 @@ checks**: a rung's position is *the first rung whose DONE check is still red*, t
 The cheap form needs nothing: **`git log -1 -- docs/plans/` gives which plan was last touched, when,
 and by which commit.** 100% computed, cannot go stale, and it answers "where are we" well enough to
 start a session. **So S0 does not have to wait** (§7 records where the opposite conclusion was drawn
-and why it was wrong). Adopt the git form now; upgrade to the check form once S1a-lite lands.
+and why it was wrong). S0 adopted the git form; the check form became available at S1a-lite and
+remains the optional upgrade above.
 
 Three further facts from the same walk:
 
@@ -209,7 +192,9 @@ markers wherever they appear**, not at that heading.
 > diagnoses volatile figures is the disease, and it behaved exactly like the disease: three sessions ran
 > against it and each found the previous session's "verified" values wrong. **The values are derived at
 > read time (§1.3) and printed by `npm run hygiene` (§5). This section holds only the commands.**
-> Once S1a-lite lands, even these move into the check definitions and §2 disappears.
+> S1a-lite moved the check-shaped rows into `repoHygiene.hygiene.ts` (the code is now the
+> authoritative method for those); the rows below survive only as the manual commands for what no
+> check computes yet, and §2 disappears with the last of them.
 
 | What | Command |
 |---|---|
@@ -454,7 +439,7 @@ JSON holds the numbers; this table holds the definitions.
 | 7 | §23 **resolved-row bytes** (archaeology), not row count | printed | D4/D6: never count open rows as bloat — that is the live queue |
 | 8 | §23 + `DEFECTS.md` status **vocabulary membership** | printed → **enforced at S4a** | D6c: a closed set makes hybrid rows unconstructible, so this is a membership assertion, not a detector |
 | 9 | doc cites naming a nonexistent path | **enforced** | catches the D2 session-note re-homing. **Paths only — it does not catch prose-form cross-references** (D5) |
-| 10 | source files citing a nonexistent doc | **enforced** | lands at its **target (0)** at S1a-lite, not ratcheted — one-line fix |
+| 10 | source files citing a nonexistent doc | **enforced** | landed at its **target (0)** at S1a-lite, not ratcheted |
 | 11 | sha256 pins: `ml-system/experiments/*/preregistration.*` **+ `Fitted_Spec_v2_recovered_appendix.md`** | **enforced** | D5 |
 | 12 | (a) no printed figure exceeds its landing value; (b) **liveness**: `maintainability.md` exists iff any enforced `current > target` | (a) printed · (b) **enforced** | D4: converts §7's S6 DONE condition from prose into a test |
 | **13** | **FLOOR — every commit that `git rm`s a `*.md` carries an `EXTRACTED <path>` block whose named destinations RESOLVE** (each `code:` path exists, each `spec:` § exists, each `test:` name is collected by a suite) **and whose `DROPPED:` field is an integer** | **enforced** | The counterweight to the printed channel — see below |
@@ -543,30 +528,27 @@ review defeated:
 cross-runtime pre-flip gate, and a doc file-count must never be confusable with a broken Python↔TS wire
 contract.
 
-> **TRAP, verified 2026-07-27 — the specced exclusion does not happen by itself.**
-> `fitted/jest.config.js` already uses a `projects` array (`node`, `jsdom`) and `fitted/package.json`
-> defines `"test": "jest"` — bare `jest` runs **every** project in that array. Adding a `hygiene`
-> project therefore lands it **inside `npm test`, and inside the conformance gate**, which is exactly
-> what this paragraph forbids. Exclusion requires `"test": "jest --selectProjects node jsdom"` (and
-> then any future project is opt-in, not opt-out) or a separate config file. **Fix at S1a-lite; prove it by
-> reddening a hygiene check and watching `npm test` stay green.**
+> **TRAP — the exclusion does not happen by itself.** `fitted/jest.config.js` uses a `projects`
+> array, and bare `jest` runs **every** project in that array — a project added without thought lands
+> inside `npm test` and inside the conformance gate. The guard, landed at S1a-lite and to be preserved
+> by any future project: `"test"` selects `node jsdom` explicitly (so a new project is opt-in, not
+> opt-out), and hygiene files are named `*.hygiene.ts` so no `*.test.ts` testMatch can ever pick them
+> up even without `--selectProjects`. The proof standard is a deliberately reddened hygiene check with
+> `npm test` still green — reading the config is not proof.
 
 **Output contract (D4).** `npm run hygiene` prints `current → target (N to go)` per check and a
 `REGRESSIONS:` line. That print is the cross-session handoff artifact — measured, not asserted. The
 `Stop` hook blocks **only** on `current > baseline`; a session may end with the campaign unfinished,
 but not having made something worse.
 
-**Hook command**, with the three things a naive version gets wrong:
-
-```
-cd "$CLAUDE_PROJECT_DIR/fitted" && npx --no-install jest --selectProjects hygiene || exit 2
-```
-
-`cd` because there is no jest at the repo root (root `package.json` only delegates). `--no-install`
-because a bare `npx jest` hits the network. `|| exit 2` because **jest exits 1, and a `Stop` hook
-exiting 1 prints to the user and stops anyway** — exit 2 is the only blocking code, so the naive
-version is a log line, not enforcement. Honor `stop_hook_active` in the hook input, or a genuinely-red
-check makes the session loop against a wall it cannot fix.
+**Hook command** — landed as `.claude/scripts/hygiene-guard.sh` (wired in `.claude/settings.json`),
+which is the authoritative form. The three things a naive version gets wrong, preserved as its
+contract: `cd` into `fitted/` because there is no jest at the repo root (root `package.json` only
+delegates); `--no-install` because a bare `npx jest` hits the network; exit **2** on red because
+**jest exits 1, and a `Stop` hook exiting 1 prints to the user and stops anyway** — exit 2 is the
+only blocking code, so the naive version is a log line, not enforcement. It honors
+`stop_hook_active` and caps itself at one block per session (push-guard's two loop guards), or a
+genuinely-red check makes the session loop against a wall it cannot fix.
 
 ## 6. Decisions — RULED 2026-07-27
 
@@ -886,10 +868,12 @@ checkpoint, never as a failing test.
 - **S0** — **BUILT, second DONE leg proven; first leg outstanding.** `.claude/scripts/state.sh`
   (`/state`, `--fast`, `--quiet`), `.claude/scripts/push-guard.sh`, `.claude/commands/state.md`, both
   hooks wired in `.claude/settings.json`. Every printed line is computed and was verified against the
-  repo by hand, so **"nothing in it is read from a file a human maintains" is met**. **Still unproven:
-  "three real sessions in which it told Brian something he would otherwise have gone looking for"** —
-  that leg cannot be closed from inside the session that wrote it. Re-check it at S1a-lite; if it has
-  not paid off by then, the rung is a candidate for deletion rather than extension.
+  repo by hand, so **"nothing in it is read from a file a human maintains" is met**. The other DONE
+  leg — "three real sessions in which it told Brian something he would otherwise have gone looking
+  for" — stands at **1 of 3**: in the S1a-lite session (2026-08-23) the `tests` line supplied check
+  15's floor seeds and the position line replaced the usual git-status/unpushed archaeology; neither
+  had to be hunted. Not yet a payoff trend — re-check at S4a; if still short of 3 by then, the rung
+  is a candidate for deletion rather than extension.
 
   **Two specced derivations were falsified during the build and the code differs from the draft
   deliberately — do not "restore" either:**
@@ -904,12 +888,21 @@ checkpoint, never as a failing test.
   **One specced fact was dropped as underivable:** `web <sha> = HEAD`. These are CLI deploys and carry
   no git SHA (`vercel inspect` exposes none), so the block compares the production deployment's
   `createdAt` against commits touching `fitted/` and prints *current / BEHIND by N* instead.
-- **S1a-lite** — the **enforced** checks only (9, 10, 11, 13, 14, 15, 12(b)) + the printed size readout.
-  **First: fix `"test"` to `jest --selectProjects node jsdom`** and prove hygiene is outside `npm test`
-  (§5 trap). Repair the check-10 citation so it lands at target 0. Move the suite floors out of
-  `CLAUDE.md:117` into the baseline in the same commit. **DONE when** each enforced check has been
-  reddened one at a time by mutation (not by reading), *and* a deliberately reddened hygiene check
-  leaves `npm test` green.
+- **S1a-lite** — **BUILT (both DONE legs proven by mutation, not by reading).** The `hygiene` jest
+  project (`fitted/tests/hygiene/repoHygiene.hygiene.ts`) carries the enforced checks (9, 10, 11, 13,
+  14, 15, 12(b)) as ratchets against `fitted/tests/repoHygiene.baseline.json`, plus the printed size
+  readout; `npm run hygiene` runs it and the Stop hook (`.claude/scripts/hygiene-guard.sh`) blocks
+  only on regression-vs-baseline. `"test"` selects `node jsdom` explicitly (§5 TRAP); check 10 landed
+  at target 0; the suite floors live in the baseline and nowhere else. Two implementation choices that
+  differ from a naive reading, both deliberate: the experiments floor counts **collected** tests
+  (execution is what the spend/ledger guards gate, and the full h26 run is ~29s — collection still
+  catches deletion, the cheapest attack), and check 13's `test:` destinations resolve by literal grep
+  over the test trees at the deleting commit (real per-commit collection is impractical; grep still
+  defeats the fabricated destination). One residual: a single unreproduced check-15 red was observed
+  during the build, immediately after a full `npm test`, and its detail was lost to output filtering
+  before it could be read — most plausibly a one-off flake in a behavioral child suite. The failure
+  message now embeds the child runner's raw summary line so any recurrence identifies itself
+  (count-decrease vs red-test); if it recurs, that line is the evidence to keep.
 - **S4a** — split `docs/DEFECTS.md` out of §23 (D6a) and close the status vocabulary (D6c); split the
   hybrid rows; repair every inbound citation in the same commit. **No compression, no body deletion.**
   **Two commits, pilot first** (§7.2): commit 1 moves only the H87–H99 defect block and proves checks 9
@@ -941,7 +934,10 @@ demands them, not on a schedule.
 - **S5** — a `/find` doc-claim verification pass. Output: *X checked, Y wrong.*
 - **S6 (terminal)** — `git rm docs/plans/maintainability.md`. **Campaign DONE when** every check's
   `current <= target` — at which point check 12(b) *requires* this file to be gone, so S6 is enforced
-  by the suite rather than by remembering to do it.
+  by the suite rather than by remembering to do it. **The same commit must scrub this plan's path
+  from the enforcement infrastructure's own source** — `repoHygiene.hygiene.ts` (the `PLAN` const +
+  comments), `jest.config.js`, `hygiene-guard.sh`, `state.sh` all cite it and are scanned by
+  check 10 (enforced, target 0), so deleting the plan without the scrub reds the suite it satisfies.
 
 **The number that must go down** is tracked markdown files and bytes. `.claude/` and `fitted/tests/`
 are enforcement infrastructure, counted separately — S1a+S1b are expected to be **+6 there and
@@ -1028,11 +1024,11 @@ sha-pinned under check 11 — editing a prereg invalidates the ML result; editin
 the merit lane's independent baseline). **Counted separately, not exempt:** `.claude/`,
 `fitted/tests/`, and `docs/DEFECTS.md` — enforcement and work-queue infrastructure, not prose.
 
-## 9. Next session — S1a-lite, the enforced checks
+## 9. Next session — S4a, the register split
 
-**S0 is built (§7.3); the prompt that built it is kept below as the template for the next rung.** The
-next session builds **S1a-lite** and nothing else — start it by running `/state`, which now answers
-"where are we" without reading this paragraph.
+**S0 and S1a-lite are built (§7.3); the S0 prompt below is kept as the template for writing the next
+rung's prompt.** The next session builds **S4a** and nothing else — two commits, pilot first (§7.2/§7.3)
+— and starts by running `/state`.
 
 **Four defects this file still carries, found by S0's pre-flight and deliberately not repaired in that
 commit** (they mislead a reader but block nothing, so they are registered rather than fixed):
@@ -1099,6 +1095,6 @@ file.
 Do not build the checks, the agents, /find, or start any deletion.
 ```
 
-**Sessions after that:** **S1a-lite** (the enforced checks; moves the suite floors out of prose) →
-**S4a** (split `DEFECTS.md` out of the spec, close the status vocabulary). **Then stop** and go back to
-Track 2 and M6; S1b, S1c, S2, S3, S4b, S5, S6 resume on a receipt, not on a schedule (§7.1).
+**Sessions after that:** **S4a** (split `DEFECTS.md` out of the spec, close the status vocabulary) is
+the last scheduled rung. **Then stop** and go back to Track 2 and M6; S1b, S1c, S2, S3, S4b, S5, S6
+resume on a receipt, not on a schedule (§7.1).

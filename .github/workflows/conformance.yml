@@ -29,7 +29,7 @@ jobs:
           cache: pip
       - name: Install deps (core + service)
         run: pip install -r requirements.txt -r service/requirements.txt
-      - name: pytest (floor 1049)
+      - name: pytest (floor lives in fitted/tests/repoHygiene.baseline.json)
         run: python -m pytest tests service/tests -q
 
   jest:
@@ -47,7 +47,7 @@ jobs:
           cache-dependency-path: fitted/package-lock.json
       - name: Install (clean)
         run: npm ci
-      - name: jest (floor 516)
+      - name: jest (floor lives in fitted/tests/repoHygiene.baseline.json)
         run: npm test
       - name: tsc --noEmit
         run: npx tsc --noEmit

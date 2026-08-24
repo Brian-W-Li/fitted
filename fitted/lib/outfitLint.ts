@@ -12,7 +12,7 @@
  * clash is schema-valid but mockable).
  *
  * Pure + deterministic: no clock, no I/O. Operates on a normalized outfit (the minimum both the live
- * browser response and the export can produce). Reference: docs/plans/track2-friend-ready-2026-07-18.md.
+ * browser response and the export can produce). Reference: docs/sessions/2026-07-18-track2-friend-ready.md.
  */
 
 export type OutfitLintClothingType = "top" | "bottom" | "shoes" | "outer_layer" | "dress";
