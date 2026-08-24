@@ -5,7 +5,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebaseClient";
 import { clearSessionCookie } from "@/lib/sessionCookie";
 
-/** Shown when account deletion partially fails (§23-H63): the DELETE returned 502 {dataDeleted:true,
+/** Shown when account deletion partially fails (DEFECTS-H63): the DELETE returned 502 {dataDeleted:true,
  *  authDeleted:false} — all Mongo data is erased, but the Firebase sign-in unlink didn't complete, so
  *  the Google identity (email/name/photo) still exists in Firebase Auth. Exported so the test asserts
  *  the exact copy rather than duplicating a brittle string. */
@@ -70,7 +70,7 @@ export default function AccountPage() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         if (data?.dataDeleted) {
-          // §23-H63 partial success: ALL Mongo data (closet, photos, history, feedback) is erased, but
+          // DEFECTS-H63 partial success: ALL Mongo data (closet, photos, history, feedback) is erased, but
           // the Firebase sign-in unlink didn't complete, so the Google identity survives in Firebase
           // Auth. Be HONEST rather than silently signing out — the identity only clears if the user
           // signs in again and deletes once more (which retries just that step; it is NOT automatic).

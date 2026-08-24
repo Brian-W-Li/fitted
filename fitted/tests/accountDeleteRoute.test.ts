@@ -248,7 +248,7 @@ describe("DELETE /api/account — cascade erasure + auth removal", () => {
     mockedAdminAuth().deleteUser.mockRejectedValue(new Error("firebase down"));
 
     const res = await DELETE(makeRequest());
-    // The route must NOT claim full erasure while the Firebase identity survived (F-D / §23-H63): all
+    // The route must NOT claim full erasure while the Firebase identity survived (F-D / DEFECTS-H63): all
     // Mongo data is gone, but authDeleted:false so the client can warn + retry (re-sign-in → delete again).
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({

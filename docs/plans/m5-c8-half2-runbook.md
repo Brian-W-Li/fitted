@@ -228,7 +228,7 @@ adding the real closet (snapshots are append-only and stay; filter by date/user 
   `/readyz` green (fittedCore 0.5.0, prompt `m5-c1.v1`); none of these commits touch `ml-system/`, so
   no Fly redeploy was needed.
   This ships `77570c2b` — the rebuilt session-2 fix batch under the deletions/strings/tests
-  constraint: **`imagePath` removed from `PATCH_STRING_FIELDS`** (§23-H78 write side — until this
+  constraint: **`imagePath` removed from `PATCH_STRING_FIELDS`** (DEFECTS-H78 write side — until this
   deploy, any signed-in user could point an item at another friend's photo and land it in the M6
   export), the F10 "you won't lose your place" promise corrected to one the code can keep, and the
   unreadable-200 blank-screen path made honest. Suite floor at deploy: **967 jest**.
@@ -585,7 +585,7 @@ render service is untouched (leave it at 1 machine).**
 > not wrong fixes but **missing guards on them**: reverting the photo-destroying-replace fix left all 17
 > image-route tests green, and `lib/db.ts`'s erasure door had never been executed by any test. Those and
 > ~10 more are now pinned (suite 888 → 922, every pin mutation-proven). New holes from the audit:
-> §23-H78–H85. **Deployed 2026-07-25 (`df9d8f1f` rides in the `e63a928a` build).** The client image
+> DEFECTS-H78–H85. **Deployed 2026-07-25 (`df9d8f1f` rides in the `e63a928a` build).** The client image
 > pipeline and the real AddItemModal have now
 > been exercised in REAL Chrome (14/14 and 16/16 — the first time any of this ran outside jsdom; it
 > caught one defect jsdom could not), so "never run in a real browser" no longer holds. What remains
@@ -593,8 +593,8 @@ render service is untouched (leave it at 1 machine).**
 > URLs and whether iOS Safari accepts `imageOrientation: "from-image"` ([[H79]](b)) are still
 > inferred. The phone gauntlet in "Open items" below is that gate.
 
-1. **Silent photo loss on "Save & add another"** — spec §23-H77(a). Fable-reviewed contract change.
-2. **Big-phone-photo dead end** — spec §23-H77(b); pick ceiling 5MB → 40MB sanity-only.
+1. **Silent photo loss on "Save & add another"** — spec DEFECTS-H77(a). Fable-reviewed contract change.
+2. **Big-phone-photo dead end** — spec DEFECTS-H77(b); pick ceiling 5MB → 40MB sanity-only.
 3. **Photo-upload pacing raised 30 → 60** to match `CREATE_RATE_MAX` (`app/api/wardrobe/route.ts`).
    Every photographed add is one create + one upload, so the lower ceiling 429'd the PHOTO of an item
    the create route had just admitted. Now asserted, not commented (`wardrobeImageUpload.test.ts`).

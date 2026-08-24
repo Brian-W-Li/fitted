@@ -1,5 +1,5 @@
 /**
- * §23-H63 client half: on a PARTIAL account deletion (server 502 {dataDeleted:true, authDeleted:false}
+ * DEFECTS-H63 client half: on a PARTIAL account deletion (server 502 {dataDeleted:true, authDeleted:false}
  * — Mongo erased, Firebase identity survived), the page must INFORM the user, not silently sign them
  * out. Silence would hide a retention the user asked to avoid. Drives the real AccountPage over a mocked
  * fetch/auth; the server contract (the 502 itself) is covered by accountDeleteRoute.test.ts.

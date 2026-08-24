@@ -1,5 +1,5 @@
 /**
- * §23-H77(a) END-TO-END: the real WardrobePage handler must EMIT the saved-but-photo-failed signal.
+ * DEFECTS-H77(a) END-TO-END: the real WardrobePage handler must EMIT the saved-but-photo-failed signal.
  *
  * addItemModal.test.tsx proves the modal CONSUMES the signal, but it injects `onSave` directly — so
  * it cannot catch the original defect, which lived in the page-level handler: after the item POST
@@ -56,7 +56,7 @@ async function reachConfirmFormWithPhoto(container: HTMLElement, name: string) {
 
 afterEach(() => jest.clearAllMocks());
 
-describe("wardrobe page — 'Save & add another' never loses a photo silently (§23-H77(a))", () => {
+describe("wardrobe page — 'Save & add another' never loses a photo silently (DEFECTS-H77(a))", () => {
   it("a 429 on the photo upload surfaces INSIDE the modal, naming the item, and still resets", async () => {
     mockApi(429, { error: "Too many photo uploads at once — wait a moment and try again" });
     const { container } = render(<WardrobePage />);
@@ -113,7 +113,7 @@ describe("wardrobe page — 'Save & add another' never loses a photo silently (�
   });
 });
 
-describe("wardrobe page — the EDIT path signals a lost photo too (§23-H77(a))", () => {
+describe("wardrobe page — the EDIT path signals a lost photo too (DEFECTS-H77(a))", () => {
   // The edit branch has no "add another", so its warning object always lands on the close path and
   // the in-modal notice never paints. What IS observable — and what a friend actually sees — is the
   // page-level banner once the overlay is gone. Pinning that keeps the edit half from silently
@@ -343,7 +343,7 @@ describe("wardrobe page — the two irreversible deletions are confirm-gated", (
   });
 });
 
-describe("wardrobe page — the photo-failure record OUTLIVES the modal (§23-H77(a))", () => {
+describe("wardrobe page — the photo-failure record OUTLIVES the modal (DEFECTS-H77(a))", () => {
   // Convergence finding: the in-modal amber list is component state, so it died on unmount — i.e. at
   // the end of every batch — and the page-level red banner was wiped by the next successful save
   // (handleAddItem's setError(null)). On a 15-item add where item 1's photo failed and the rest

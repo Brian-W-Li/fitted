@@ -22,13 +22,12 @@
   "printed": {
     "landing": {
       "check1_trackedMdCount": 92,
-      "check2_totalMdBytes": 1788801,
-      "check3_largestDocBytes": 239375,
-      "check4_readingListBytes": 350082,
+      "check2_totalMdBytes": 1747952,
+      "check3_largestDocBytes": 219293,
+      "check4_readingListBytes": 309179,
       "check5_plansCount": 21,
       "check6_sessionsCount": 48,
-      "check7_resolvedRowBytes": 65088,
-      "check8_statusVocabulary": 79
+      "check7_resolvedRowBytes": 63523
     },
     "targets": {
       "check4_readingListBytes": 210000,

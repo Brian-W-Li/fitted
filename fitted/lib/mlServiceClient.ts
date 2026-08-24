@@ -35,7 +35,7 @@ function envTimeoutMs(): number {
   // tiny value (e.g. 1000) would otherwise abort EVERY render while the service still spends the full
   // gpt-5.4-mini call (burned money, zero yield); a value in (0, 35s) would abort mid-first-call for
   // the same effect. The unset default (45s) carries the full ~15s margin. (The service's TWO-call
-  // worst case exceeds even 50s — that is the deeper §23-H76 budget gap, a deploy-config decision.)
+  // worst case exceeds even 50s — that is the deeper DEFECTS-H76 budget gap, a deploy-config decision.)
   return Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, 35_000), 50_000) : 45_000;
 }
 export const SERVICE_TIMEOUT_MS = envTimeoutMs();

@@ -374,7 +374,7 @@ async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
       imagesResolved: resolvedImages,
       imagesUnresolved: imageRefs.size - resolvedImages,
       // Item slots carrying NO image reference at all (`imageStatus: "none"`) — an item saved
-      // photo-less, whether deliberately or because its upload failed (§23-H77(a)). These are
+      // photo-less, whether deliberately or because its upload failed (DEFECTS-H77(a)). These are
       // invisible to the three counters above, which only see ids that WERE referenced, so without
       // this a corpus quietly losing photos reports a clean bill of health. It matters more than the
       // raw count suggests: `imageUsable` requires EVERY item in an outfit to resolve, so one
@@ -389,7 +389,7 @@ async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
       // 1-item outfit with no photo is counted here even though it could never be scoreable. It also
       // spans ALL users, including the prereg §5 exclusions the certificate drops — so it will not tie
       // out against `yield.scoreableClusters`. NOTE: the predicate below is a hand-copy of
-      // `buildCertificate`'s `imageUsable` (§23-H82); change both together or neither.
+      // `buildCertificate`'s `imageUsable` (DEFECTS-H82); change both together or neither.
       labeledExamplesNotImageUsable: trainingExamples.filter(
         (t) =>
           t.label != null &&

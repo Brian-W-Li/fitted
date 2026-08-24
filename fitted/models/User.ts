@@ -43,7 +43,7 @@ type CascadeDb = {
  * image/route.ts` is store → repoint → delete, so no failure arm destroys the old photo. Do NOT
  * "tighten" the transient byte-budget overshoot by moving that `deleteOne` back above the store: the
  * overshoot is one image for the duration of one delete, and the reverted order destroys real friend
- * photos on the very path §23-H77(a) advertises as the remedy ("retry the photo from Edit").
+ * photos on the very path DEFECTS-H77(a) advertises as the remedy ("retry the photo from Edit").
  */
 export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Promise<void> {
   // These deleteMany calls hit the NATIVE driver collections (`this.model.db`), which perform NO

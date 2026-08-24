@@ -101,7 +101,7 @@ export function normalizeControls(controls: unknown): NormalizedControls {
 //     made an otherwise-identical resume false-409 and orphan its paid render. weatherRaw is still
 //     re-asserted by the SEPARATE authorship cross-check (the service must echo what Next sent) —
 //     it just isn't an idempotency discriminator. The bucketed `weather` STAYS: it genuinely shapes
-//     the render, so a rare bucket-boundary flip on resume is a real difference (§23-H73 residual).
+//     the render, so a rare bucket-boundary flip on resume is a real difference (DEFECTS-H73 residual).
 // ---------------------------------------------------------------------------
 export interface RenderIdentity {
   user: string;

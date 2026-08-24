@@ -127,7 +127,7 @@ The old `_score_outfit` interface in `ml-system/outfit_recommender.py` is legacy
 This is an **overhaul**. The product direction is the **lens-first personal style graph**: turning a scattered closet into a graph where boards + routines reveal wearable connections between owned clothes (the "green-shirt" problem). The earlier v1.2 PDF is now the *engine substrate* underneath that vision, not the whole target. The single canonical, **editable** spec is `docs/Fitted_Spec_v2.md` — it supersedes the v1.2 PDF, `spec-resolutions.md`, and `scope-decisions.md` (all retired; their R#/S#/N# map forward via v2 Appendix A). Edit v2 in place; the old addendum-against-a-PDF pattern is dead.
 
 **Authoritative for design:**
-- `docs/Fitted_Spec_v2.md` — **the** canonical spec. Build-ladder tagged (`[NOW]`/`[NEXT]`/`[STAGED]`/`[NORTH-STAR]`); §23 is the live Open Holes Register. When v2 and deployed behavior disagree, v2 wins.
+- `docs/Fitted_Spec_v2.md` — **the** canonical spec. Build-ladder tagged (`[NOW]`/`[NEXT]`/`[STAGED]`/`[NORTH-STAR]`); §23 is the live Open Holes Register (design holes; defect rows live in `docs/DEFECTS.md`, split at S4a). When v2 and deployed behavior disagree, v2 wins.
 - `ml-system/fitted_core/`, `ml-system/README.md` — current substrate implementation. `docs/plans/m3-ranker.md` is the **completed M3 ranker reference** (C1–C6; per-checkpoint detail in its §11 checkpoint table); `docs/plans/m2-validator.md` is the completed M2 validator reference; `docs/plans/m0-m1-substrate.md` is completed M0/M1 context; `docs/plans/spearhead.md` is the **completed Spearhead reference** (orphan-item rescue, C1–C6; C6/H40 live-eval in its §E). `docs/plans/m4-data-model-migration.md` is the **completed M4 reference** (C1–C8; the §14.5 M5-handoff note records what M5 inherits/owns). `docs/plans/h26-compatibility-spike-v2.md` is the **completed H26 reference** (C1–C6; verdict NO-GO by the frozen letter; the deliverable is `ml-system/experiments/h26/results.md`). `docs/plans/m5-cutover.md` is the **completed M5 reference** (C1–C8; the cloud deployment is live — deployed state + friend onboarding + ops in `docs/plans/m5-c8-half2-runbook.md` §8). `docs/plans/post-m5-reset.md` is the **completed reset-campaign reference** (R0 + Session B + Track 1). **Next active work: Track 2 friend-closet data collection on the live deployment (recruiting is Brian's, out-of-session), gating the M6/H26 re-measure (Spec §20).**
 - `docs/plans/*.md` — per-milestone plans produced by `/spec` or the `planner` subagent. Active execution plans.
 - This `CLAUDE.md` — project conventions and scope.
@@ -176,7 +176,8 @@ The doc set must stay small, current, and internally consistent. Rules:
   hunting history, never required context. (Retired/historical docs are exempt from the
   truth standard; the ledger and active plans are not.)
 - **Hole/conflict cadence.** Each milestone `/spec` opens by hole-checking and
-  conflict-checking the docs it inherits. Active holes go in `Fitted_Spec_v2.md` §23, or in
+  conflict-checking the docs it inherits. Active design holes go in `Fitted_Spec_v2.md` §23
+  (defect rows in `docs/DEFECTS.md` — the classifier is in that file's header), or in
   the active milestone plan if the issue is local to that milestone.
 - **Compaction backstop.** In-place editing should keep active docs from accreting. The primary
   guardrail is **per-doc**: if any single active spec/plan exceeds roughly **1,500 lines**, spend a

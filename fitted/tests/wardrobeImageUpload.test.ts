@@ -180,7 +180,7 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     // renamed .jpg reports type image/jpeg, passes the client allowlist, survives the client
     // downscale (which can't decode it, so it forwards the ORIGINAL bytes) and then fails the
     // server's magic-byte sniff. The friend's existing photo was destroyed and imagePath left
-    // dangling at a deleted row. It routes real traffic: the §23-H77(a) notice makes "retry the
+    // dangling at a deleted row. It routes real traffic: the DEFECTS-H77(a) notice makes "retry the
     // photo from Edit" the ADVERTISED remedy for a failed upload. Reverting to delete-then-store
     // reddens this (verified by mutation); the two 413 siblings below cover the other throw arms.
     const id = await seedItem();
@@ -378,7 +378,7 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
     expect(await WardrobeImage.countDocuments({ user: userId })).toBe(1);
   });
 
-  // §23-H77 / fix #3. Every photographed add is one create + one upload, so an upload ceiling BELOW
+  // DEFECTS-H77 / fix #3. Every photographed add is one create + one upload, so an upload ceiling BELOW
   // the create ceiling 429s the photo of an item the create route just admitted — silent photo loss
   // on the batch-add a friend does when onboarding a closet, and (before the H77(a) fix) with no
   // visible warning at all. Asserted rather than commented, because a lone comment is exactly what
@@ -390,7 +390,7 @@ describe("POST /api/wardrobe/[id]/image — behavioral, real Mongo", () => {
   // Both size gates below were pinned REJECT-ONLY. The largest accepted fixture anywhere in this file
   // was 64 bytes, so `MAX_WARDROBE_IMAGE_BYTES` could drop 5MB → 64 and every test stayed green while
   // EVERY real upload 413'd — silently routing every friend photo into the "saved, but its photo
-  // didn't upload" path (§23-H77(a)) and zeroing the M6 image side. Accept sides, from real bytes:
+  // didn't upload" path (DEFECTS-H77(a)) and zeroing the M6 image side. Accept sides, from real bytes:
   it("ACCEPTS a 1MB image — the cap must admit an ordinary post-downscale phone photo", async () => {
     const id = await seedItem();
     const res = await post(id, makeRequest({ file: makeFile(1024 * 1024) }));

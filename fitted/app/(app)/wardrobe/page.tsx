@@ -88,7 +88,7 @@ const SEASON_OPTIONS = ["Spring", "Summer", "Fall", "Winter"];
 const FIT_OPTIONS = ["Slim", "Regular", "Relaxed", "Oversized"];
 const CV_GUIDE_DISMISS_FOREVER_KEY = "fitted-cv-guide-dismiss-forever-v1";
 
-/** Pick-time sanity ceiling, NOT the upload limit (§23-H77(b)). Everything picked below this is
+/** Pick-time sanity ceiling, NOT the upload limit (DEFECTS-H77(b)). Everything picked below this is
  *  downscaled by `prepareImageForUpload` before the real 4MB post-compression gate, so this only
  *  needs to exclude files no phone camera produces (~40MB is ~6× a max-quality 12MP JPEG). */
 const MAX_PICK_BYTES = 40 * 1024 * 1024;
@@ -321,7 +321,7 @@ function isSavedWithPhotoWarning(r: SaveResult): r is SavedWithPhotoWarning {
 
 type AddItemModalProps = {
   onClose: () => void;
-  /** Three outcomes, not two (§23-H77(a)):
+  /** Three outcomes, not two (DEFECTS-H77(a)):
    *   - `string` → the save FAILED; the modal stays open with the input preserved (§I client-state
    *     gate) and renders the string as the in-modal error (the page banner is invisible behind the
    *     modal overlay).
@@ -386,7 +386,7 @@ export function AddItemModal({
   const [imageFile, setImageFile] = useState<File | null>(pendingAddFile ?? null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  // Photo-upload failures for items that WERE saved (§23-H77(a)). A to-do list, not a toast: it
+  // Photo-upload failures for items that WERE saved (DEFECTS-H77(a)). A to-do list, not a toast: it
   // accumulates (a flaky connection or a 429 burst can lose five photos in a row, and the friend
   // needs every item NAME to act on the remedy) and is cleared only by an explicit Dismiss or by
   // the modal unmounting — never by a reset, and never by a later clean save, because the earlier
@@ -471,7 +471,7 @@ export function AddItemModal({
       setImageError(UNSUPPORTED_IMAGE_MSG);
       return;
     }
-    // Sanity ceiling ONLY (§23-H77(b)). The real limit is enforced downstream, AFTER
+    // Sanity ceiling ONLY (DEFECTS-H77(b)). The real limit is enforced downstream, AFTER
     // prepareImageForUpload downscales to 1280px: a 12MP phone JPEG lands around 200–400KB, well
     // under the 4MB post-compression throw. Gating the ORIGINAL at 5MB here was a dead end — the
     // downscaler that exists to solve exactly this never ran, and the app's own HEIC advice
@@ -661,7 +661,7 @@ export function AddItemModal({
         setFormError(result);
         return;
       }
-      // Saved, but the photo was lost (§23-H77(a)). The item EXISTS, so this must behave like a
+      // Saved, but the photo was lost (DEFECTS-H77(a)). The item EXISTS, so this must behave like a
       // success — keeping the modal open with the old values would invite a re-save that mints a
       // duplicate. Record the notice (it outlives the reset) and proceed exactly as below.
       if (isSavedWithPhotoWarning(result)) {
@@ -711,7 +711,7 @@ export function AddItemModal({
     setPreviewUrl(null);
     setPreviewPending(true);
     // Preview the DOWNSCALED copy, not the original. Since the pick ceiling rose to MAX_PICK_BYTES
-    // (§23-H77(b)) a base64 data URL of the raw file could be ~53MB of React state on a phone —
+    // (DEFECTS-H77(b)) a base64 data URL of the raw file could be ~53MB of React state on a phone —
     // enough to kill an iOS tab. (Preview only; the upload re-derives its own copy, so `imageFile`
     // identity is untouched — the CV-crop path below compares `imageFile === addPendingFile`.)
     void (async () => {
@@ -1332,7 +1332,7 @@ export function AddItemModal({
           </div>
 
           <div className="p-5 pt-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl shrink-0">
-            {/* Saved-but-photo-less notices (§23-H77(a)). Rendered in the footer, which is
+            {/* Saved-but-photo-less notices (DEFECTS-H77(a)). Rendered in the footer, which is
                 `shrink-0` and so always on screen — anything in the scrolled body could sit above
                 the fold on the very batch-add flow this exists to protect. Amber, not red: these
                 items DID save; the only outstanding action is the photo. */}
@@ -2030,7 +2030,7 @@ export default function WardrobePage() {
                   setError(msg);
                   return msg;
                 }
-                // Same saved-but-photo-failed signal as the add branch (§23-H77(a)) — held until
+                // Same saved-but-photo-failed signal as the add branch (DEFECTS-H77(a)) — held until
                 // after setItems so the list still updates with the saved edits.
                 let photoWarning: string | null = null;
                 // Preserve existing image if user did not upload a new one
@@ -2070,7 +2070,7 @@ export default function WardrobePage() {
               const saved = await handleAddItem(data);
               // Save failed — return the message so the MODAL shows it (stays open, form preserved).
               if (typeof saved === "string") return saved;
-              // §23-H77(a): the item is CREATED from here on. A photo failure below is therefore not
+              // DEFECTS-H77(a): the item is CREATED from here on. A photo failure below is therefore not
               // a failed save — it is held here and returned as `savedWithPhotoWarning` AFTER the
               // add-flow cleanup tail runs, so the modal resets/closes exactly as on success while
               // still telling the friend which item lost its photo. Returning early from the catch

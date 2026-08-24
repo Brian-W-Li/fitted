@@ -369,7 +369,7 @@ describe("AddItemModal — 'Files as' slot chip (clothingtype-slot-correctness �
   });
 });
 
-describe("AddItemModal — saved-but-photo-failed signal (§23-H77(a))", () => {
+describe("AddItemModal — saved-but-photo-failed signal (DEFECTS-H77(a))", () => {
   const withPhoto = () => new File(["x"], "tee.jpg", { type: "image/jpeg" });
   const warn = (msg: string) => ({ savedWithPhotoWarning: msg });
 
@@ -476,7 +476,7 @@ describe("AddItemModal — saved-but-photo-failed signal (§23-H77(a))", () => {
   });
 });
 
-describe("AddItemModal — pick-time size ceiling (§23-H77(b))", () => {
+describe("AddItemModal — pick-time size ceiling (DEFECTS-H77(b))", () => {
   /** A File whose reported size is `bytes` without allocating them. */
   function sizedFile(bytes: number, name = "big.jpg") {
     const f = new File(["x"], name, { type: "image/jpeg" });
@@ -537,7 +537,7 @@ describe("AddItemModal — pick-time size ceiling (§23-H77(b))", () => {
   });
 });
 
-describe("AddItemModal — the preview renders from the DOWNSCALED copy (§23-H77(b) memory guard)", () => {
+describe("AddItemModal — the preview renders from the DOWNSCALED copy (DEFECTS-H77(b) memory guard)", () => {
   // Raising the pick ceiling to 40MB made the preview the memory risk: a base64 data URL is ~4/3 the
   // file size and lives as a plain string in React state, so previewing a raw 40MB pick would be
   // ~53MB — enough to kill an iOS tab.

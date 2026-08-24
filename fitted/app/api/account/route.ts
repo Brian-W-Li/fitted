@@ -237,7 +237,7 @@ export async function PATCH(request: NextRequest) {
  *   4. Delete the Firebase Auth account so the Google binding is gone too, retrying once (300ms
  *      backoff) on a transient failure. If it STILL fails, the route returns 502 with an honest
  *      partial-success body ({dataDeleted:true, authDeleted:false}) — it never claims full erasure
- *      while the identity survives (§23-H63). All Mongo data is already gone; re-signing-in
+ *      while the identity survives (DEFECTS-H63). All Mongo data is already gone; re-signing-in
  *      re-creates a fresh empty user, and deleting again retries only this step.
  * The in-flight-render race is thus closed from both sides: mlRecommend self-erases when it sees
  * the user gone post-persist; this route sweeps once the user row's death makes that check reliable.

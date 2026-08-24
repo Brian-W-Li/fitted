@@ -166,7 +166,7 @@ export async function POST(
     // bytes), and then fails the server's magic-byte sniff with "Unsupported image type". Deleting
     // the old image before this call destroyed a real, irreplaceable friend photo and left
     // `imagePath` dangling at a deleted row. That matters more since the photo-failure notice
-    // (§23-H77(a)) makes "retry the photo from Edit" the advertised remedy, routing friends through
+    // (DEFECTS-H77(a)) makes "retry the photo from Edit" the advertised remedy, routing friends through
     // this exact path. Store → repoint → delete: every failure now leaves the old photo intact.
     const { imagePath } = await uploadWardrobeImage({
       userId,

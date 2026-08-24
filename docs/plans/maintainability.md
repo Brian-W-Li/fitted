@@ -110,7 +110,7 @@ and the failure is instructive; the buildable version follows it.**
 # DRAFT — one line here is not derivable. See §1.3.1.
 FITTED · main · 4 unpushed · web 30b03cc9 = HEAD ✓ · fly v6
 plan   docs/plans/maintainability.md — §6 ruled, S1a next     <-- NOT DERIVABLE
-open   39 register rows · 13 defects unfixed (H87–H99)        <-- needs D6c (S4a)
+open   39 register rows · 13 defects unfixed (H87–H99)        <-- computable since S4a (D6c)
 tests  jest 967 ✓ · pytest 1098 ✓ · hygiene 12 ✓              <-- 9.6 s; /state only
 last   f9565559 docs(maintainability): rule §6…
 ```
@@ -173,9 +173,11 @@ remains the optional upgrade above.
 
 Three further facts from the same walk:
 
-- **`13 defects unfixed (H87–H99)` needs D6c's closed status vocabulary to compute.** Today the
-  register carries **86 distinct free-text status strings**; no reliable parse exists. Until S4a, S0
-  prints the honest weaker thing: total rows, and rows whose status *begins* `OPEN`.
+- **`13 defects unfixed (H87–H99)` needed D6c's closed status vocabulary to compute.** Pre-S4a the
+  register carried ~90 distinct free-text status strings (86 or 91 depending on the classifier —
+  which is §2's point) and no reliable parse existed, so S0 printed the honest weaker thing: total
+  rows, and rows whose status *begins* `OPEN`. **S4a closed the vocabulary (D6c) and split the
+  registers (D6a); `/state` now prints exact per-status counts over both files.**
 - **Deploy SHA and Fly machine count are network reads.** §9 says prefer dropping slow facts; dropped,
   the example block above is wrong as printed. Keep them in `/state` (explicit, on demand); keep them
   out of `SessionStart`.
@@ -399,14 +401,14 @@ a bureaucracy.
 
 | | Checks | Behaviour |
 |---|---|---|
-| **ENFORCED** | 9, 10, 11, 13, 14, 15, 12(b) — **and 8 from S4a** | Assert a fact about truth or location. Red = something is wrong *now*. Blocks session end. |
-| **PRINTED** | 1–7, 12(a) — **and 8 until S4a** | Size and shape. `npm run hygiene` prints them with direction of travel. **Never blocks.** A growing number is information, not a violation. |
+| **ENFORCED** | 8, 9, 10, 11, 13, 14, 15, 12(b) | Assert a fact about truth or location. Red = something is wrong *now*. Blocks session end. |
+| **PRINTED** | 1–7, 12(a) | Size and shape. `npm run hygiene` prints them with direction of travel. **Never blocks.** A growing number is information, not a violation. |
 
-**Check 8 is the one that moves channels.** It asserts that every register status is a member of a
-closed set — a location fact, so it belongs in the enforced channel. But the closed set does not exist
-until D6c lands at S4a; before that it would assert against ~86 free-text strings and be permanently
-red. **It ships printed at S1a-lite and is promoted to enforced in the S4a commit** — and that
-promotion is itself S4a's DONE condition, so nobody has to remember to do it.
+**Check 8 is the one that moved channels (at S4a).** It asserts that every register status is a member
+of a closed set — a location fact, so it belongs in the enforced channel. The closed set did not exist
+until D6c landed at S4a; before that it would have asserted against ~90 free-text strings and been
+permanently red, so it shipped printed at S1a-lite and was promoted to enforced in the S4a commit —
+the promotion was S4a's DONE condition, so nobody had to remember it.
 
 **Why printed rather than deleted.** Reading-list bytes are a real per-session cost and worth watching.
 But a *cap* forces the wrong reflex — compact something because a number went up — and specs on a big
@@ -437,7 +439,7 @@ JSON holds the numbers; this table holds the definitions.
 | 5 | `docs/plans/` file count | printed | |
 | 6 | `docs/sessions/` file count | printed | D2 targets 0 — the directory is deleted, not capped |
 | 7 | §23 **resolved-row bytes** (archaeology), not row count | printed | D4/D6: never count open rows as bloat — that is the live queue |
-| 8 | §23 + `DEFECTS.md` status **vocabulary membership** | printed → **enforced at S4a** | D6c: a closed set makes hybrid rows unconstructible, so this is a membership assertion, not a detector |
+| 8 | §23 + `DEFECTS.md` status **vocabulary membership**, plus H-ID uniqueness across the two files | **enforced** (promoted at S4a) | D6c: a closed set makes hybrid rows unconstructible, so this is a membership assertion, not a detector; ID uniqueness is what the `§23-H<n>`/`DEFECTS-H<n>` citation grammar rests on |
 | 9 | doc cites naming a nonexistent path | **enforced** | catches the D2 session-note re-homing. **Paths only — it does not catch prose-form cross-references** (D5) |
 | 10 | source files citing a nonexistent doc | **enforced** | landed at its **target (0)** at S1a-lite, not ratcheted |
 | 11 | sha256 pins: `ml-system/experiments/*/preregistration.*` **+ `Fitted_Spec_v2_recovered_appendix.md`** | **enforced** | D5 |
@@ -903,13 +905,34 @@ checkpoint, never as a failing test.
   before it could be read — most plausibly a one-off flake in a behavioral child suite. The failure
   message now embeds the child runner's raw summary line so any recurrence identifies itself
   (count-decrease vs red-test); if it recurs, that line is the evidence to keep.
-- **S4a** — split `docs/DEFECTS.md` out of §23 (D6a) and close the status vocabulary (D6c); split the
-  hybrid rows; repair every inbound citation in the same commit. **No compression, no body deletion.**
-  **Two commits, pilot first** (§7.2): commit 1 moves only the H87–H99 defect block and proves checks 9
-  + 10 stay green; commit 2 moves the rest. Open the session by testing D6a/b/c against the real rows.
-  **DONE when** the reading list is measured under 210 KB, checks 9 + 10 are green, and **check 8 has
-  been promoted from printed to enforced in this commit and is green** — that promotion is the DONE
-  condition, so it cannot be forgotten.
+- **S4a** — **BUILT (2026-08-23, two commits, pilot first per §7.2).** `docs/DEFECTS.md` split out of
+  §23 (40 defect rows incl. splits; 68 design-hole rows stay), vocabulary closed in both files (D6c),
+  check 8 promoted printed → enforced (membership + H-ID uniqueness, reddened once by a planted
+  off-vocabulary status before landing green), every inbound `§23-H<n>` citation to a moved row
+  repaired to `DEFECTS-H<n>` (52 across 20 files, code included), `/state` upgraded to exact
+  per-status counts over both files, and check 12(b)'s gap predicate now includes check 15's floors
+  (the registered S1a-lite residual). No compression, no body deletion; old free-text statuses are
+  preserved verbatim as leading italic parentheticals in the resolution column — S4b's to clean.
+  **Deviations from the spec of this rung, all recorded during the pre-flight D6-vs-real-rows test:**
+  - **The "reading list under 210 KB" DONE leg was arithmetically unreachable and was dropped.** The
+    defect rows total ~64 KB, not the −119 KB §7.1 estimated (that figure implicitly assumed the whole
+    register half leaves, which D6a's "§23 keeps design holes" contradicts). Check 4 landed at 306,302
+    (lowered from 350,082); **210,000 stays the ruled target** — the remaining ~96 KB belongs to S4b
+    (≈58 KB of RESOLVED archaeology to compress) and S6 (this 80 KB plan file), so it is a
+    campaign-end number, not an S4a number.
+  - **The hybrid census found two genuine one-row-two-statuses hybrids beyond H78:** H30 (open
+    identity half → new §23 row H106, BLOCKED on the H101/H28 lens-conditioning call) and H77 (open
+    residual siblings → DEFECTS-H107). H78's read side became DEFECTS-H108. Everything else
+    hybrid-looking was either both-halves-closed or a closed row with a future door already homed
+    elsewhere — one status each, no split.
+  - **The defect-vs-design classifier had to be ruled** (D6a never defines "defect"); it is stated in
+    `docs/DEFECTS.md`'s header per §2's a-count-needs-its-classifier rule. Pre-M5 rows whose
+    resolution text became spec contract (H14, H55) stay in §23 by that ruling.
+  - **`DEFECTS.md`'s vocabulary deliberately has no `BLOCKED`** — arming conditions (DEFECTS-H83's
+    "dormant until the W-track CV service", DEFECTS-H98's "arms with the W-track") live in row
+    bodies; a defect is open until fixed.
+  - **One wrong cross-reference found and repaired:** H104 cited H97 for the unresolvable-operator-id
+    defect; the right row is H96.
 
 **Then stop. Push, recruit, build the M6 embedding pipeline.** The rungs below resume when a receipt
 demands them, not on a schedule.
@@ -930,7 +953,11 @@ demands them, not on a schedule.
   not "historical context only" (`:139` vs `:238`, D5); and the "externalize state into
   `docs/sessions/`" convention is dead (D2).
 - **S4b** — the rest of D6: extract trap-guards to their symbols; delete the resolved bodies; convert
-  open design holes to `symptom | where | unblock`.
+  open design holes to `symptom | where | unblock`. **Two cautions from S4a's pre-flight:** (1) open
+  rows like H101/H103/H105 carry load-bearing analysis in their bodies — the three-field conversion
+  must RELOCATE that analysis into spec body sections, not drop it; `symptom | where | unblock` is the
+  row shape, not the total information budget. (2) The `*(…)*` status-preservation parentheticals S4a
+  prepended to the resolution column are S4b's to delete with the resolved bodies.
 - **S5** — a `/find` doc-claim verification pass. Output: *X checked, Y wrong.*
 - **S6 (terminal)** — `git rm docs/plans/maintainability.md`. **Campaign DONE when** every check's
   `current <= target` — at which point check 12(b) *requires* this file to be gone, so S6 is enforced
@@ -1024,26 +1051,27 @@ sha-pinned under check 11 — editing a prereg invalidates the ML result; editin
 the merit lane's independent baseline). **Counted separately, not exempt:** `.claude/`,
 `fitted/tests/`, and `docs/DEFECTS.md` — enforcement and work-queue infrastructure, not prose.
 
-## 9. Next session — S4a, the register split
+## 9. Next session — none. The campaign STOPS here.
 
-**S0 and S1a-lite are built (§7.3); the S0 prompt below is kept as the template for writing the next
-rung's prompt.** The next session builds **S4a** and nothing else — two commits, pilot first (§7.2/§7.3)
-— and starts by running `/state`.
+**S0, S1a-lite and S4a are built (§7.3) — the scheduled slice is complete.** Next work is **Track 2 /
+M6** (recruit, the gate-B extension is done, the M6 embedding pipeline), out of this campaign. S1b,
+S1c, S2, S3, S4b, S5 and S6 resume **on a receipt, not on a schedule** (§7.1): a session that needs a
+read-only hunt buys S1b; the next wave of friend-data rows buys S4b; and so on. The S0 prompt below is
+kept as the template for writing that future rung's prompt.
 
-**Four defects this file still carries, found by S0's pre-flight and deliberately not repaired in that
-commit** (they mislead a reader but block nothing, so they are registered rather than fixed):
+**Three defects this file still carries, found by S0's pre-flight and deliberately not repaired in
+that commit** (they mislead a reader but block nothing, so they are registered rather than fixed; a
+fourth — §1.3.1's classifier-less "86 distinct statuses" claim — was repaired by S4a's rewrite of
+that bullet):
 
 1. §1.2 cites `m5-c8-half2-runbook.md:495`; the real line is **522**, and its text is *stronger* than
    quoted — "Rollout status: COMPLETE — steps 1–3 done 2026-07-24, step 4 (re-invite) done". The
    single-home conflict with `clothingtype-slot-correctness.md:3-4` ("the re-invite remain[s] Brian's")
    is therefore worse than §1.2 describes, not milder.
-2. §1.3.1's "**86** distinct free-text status strings" measures **91** under the classifier in
-   `state.sh`. §2's own trap forbids quoting a register population without its classifier; this claim
-   does not carry one.
-3. §1.3's two example blocks print stale illustrative values (`4`/`6 unpushed`, `39`/`99` rows,
+2. §1.3's two example blocks print stale illustrative values (`4`/`6 unpushed`, `39`/`99` rows,
    `37 ^OPEN`). Real values at S0 build time: **105 rows, 45 `^OPEN`**. They are illustrations, but they
    are the disease in the document that diagnoses it.
-4. §7.1's "**redeploy the web half**" was already stale when written. Verified 2026-07-27: production
+3. §7.1's "**redeploy the web half**" was already stale when written. Verified 2026-07-27: production
    deployed 07-26 20:24, *after* the last commit touching `fitted/` (`77570c2b`, 07-25), and all 12
    unpushed commits were docs-only. The push was real; the redeploy was a no-op. `/state`'s `deploy`
    line now answers this mechanically.

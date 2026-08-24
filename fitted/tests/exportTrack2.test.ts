@@ -452,7 +452,7 @@ describe("exportTrack2 — userFilter scoping", () => {
   });
 });
 
-describe("exportTrack2 — photo-less items are COUNTED, not silently invisible (§23-H77(a))", () => {
+describe("exportTrack2 — photo-less items are COUNTED, not silently invisible (DEFECTS-H77(a))", () => {
   it("reports item slots with no image ref, and labeled examples excluded for image reasons", async () => {
     // The blindness this closes: `imagesReferenced/Resolved/Unresolved` only ever see ids that WERE
     // referenced, so an item saved photo-less (deliberately, or because its upload failed) appeared

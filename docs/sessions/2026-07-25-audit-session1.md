@@ -27,7 +27,7 @@ All six original fixes are correct. Specifically re-derived:
 
 - **Image-replace ordering** is genuinely store → repoint → delete; every failure arm leaves the old
   photo intact. Byte-budget overshoot quantified: ≤ one `MAX_WARDROBE_IMAGE_BYTES` (5MB) for the
-  duration of one `deleteOne` — immaterial against §23-H67's ~107MB-per-at-cap-account arithmetic, so
+  duration of one `deleteOne` — immaterial against DEFECTS-H67's ~107MB-per-at-cap-account arithmetic, so
   H67 needed no amendment. The erasure guard (§23-H43/H74) still holds; `cascadeDeleteUserData` covers
   all four collections including D2-retained images.
 - **The EXIF fallback is correct in all four paths** (small-file skip, successful downscale,
@@ -87,7 +87,7 @@ them from being silently undone.**
   (+10 skip, 2 env-gated); `tsc` clean; `eslint` clean on touched files; `npm run build` clean
   (the two new `export`s on a live page + route handler are safe).
 - **Nothing deployed.** Live web remains `46857aab`; `main` is ahead by the hardening pass + audit.
-- New holes: **§23-H78–H82** (PATCH-able `imagePath` → foreign photo in the M6 export; double decode
+- New holes: **DEFECTS-H78–H82** (PATCH-able `imagePath` → foreign photo in the M6 export; double decode
   per pick + the EXIF yield cliff; store-succeeded/repoint-failed orphan; non-atomic
   `clearWardrobe`; the residual coverage backlog for session 2).
 - `docs/Fitted_Spec_v2.md` is now **~1455 lines** — the 1500-line compaction trigger is close.

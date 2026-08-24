@@ -12,7 +12,7 @@
  * This hook HOLDS the composed reasons so a failure surfaces a per-card RETRY instead of vanishing.
  * It is IN-SESSION ONLY (state, never persisted across loads) — deliberately.
  *
- * RACE (bounded + recoverable; AbortController narrowing registered in §23-H62). The enrich is a SECOND
+ * RACE (bounded + recoverable; AbortController narrowing registered in DEFECTS-H62). The enrich is a SECOND
  * POST landing ~1-3s after the dislike:
  *  - vs a later FLIP: harmless — the enrich's `rejected` would have to out-`createdAt` the flip's
  *    `accepted` to win latest-state, a createdAt-tie rarity.

@@ -3,7 +3,7 @@
 Charter: `docs/plans/merit-live-audit-prompt.md` (deleted this commit — it ran). Orchestration: 4 merit
 lens agents + Fable synthesis (Track A) · sequential live verification (Track B) · 2 dynamics finders +
 Fable verification + implementation (Track C). Decisions were folded into their single homes in this
-commit (Spec §20 M6 row + §23-H67/H68/H69 · runbook §8 pre-recruit checklist/message/load-model ·
+commit (Spec §20 M6 row + DEFECTS-H67/H68/H69 · runbook §8 pre-recruit checklist/message/load-model ·
 CLAUDE.md focus · README/docs-README truth refresh); this note is the session record, not a second home.
 
 ## Track A — decision memo (Fable synthesis over 4 adversarial lenses)

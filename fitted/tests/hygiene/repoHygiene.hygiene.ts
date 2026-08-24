@@ -1,11 +1,13 @@
 /**
  * Repo-hygiene checks — docs/plans/maintainability.md §5.
  *
- * Two channels. ENFORCED checks (9, 10, 11, 13, 14, 15, 12b) assert a fact about truth
- * or location as a ratchet against fitted/tests/repoHygiene.baseline.json: red means
- * something got WORSE than the seeded baseline, never "the campaign is unfinished" (D4).
- * PRINTED checks (1–7, 12a, and 8 until S4a promotes it) report size and shape with
- * direction of travel and never fail.
+ * Two channels. ENFORCED checks (8, 9, 10, 11, 13, 14, 15, 12b) assert a fact about
+ * truth or location as a ratchet against fitted/tests/repoHygiene.baseline.json: red
+ * means something got WORSE than the seeded baseline, never "the campaign is
+ * unfinished" (D4). PRINTED checks (1–7, 12a) report size and shape with direction of
+ * travel and never fail. Check 8 was promoted printed → enforced at S4a (D6c): it
+ * asserts every register status is a member of the closed vocabulary, in both
+ * docs/Fitted_Spec_v2.md §23 and docs/DEFECTS.md.
  *
  * Runs as the `hygiene` jest project via `npm run hygiene` — deliberately outside
  * `npm test` (see jest.config.js). A session that improves a number lowers its baseline
@@ -336,22 +338,62 @@ function experimentsCollected(): number {
 
 // ---------------------------------------------------- register scan (checks 7, 8)
 
-/** §23 rows, code-spans stripped before splitting on `|` — H101 embeds a pipe inside an
- * inline code span and a naive split mis-reads its status column (proven in state.sh). */
-function registerRows(): { raw: string; status: string }[] {
-  return read(SPEC)
+const DEFECTS = "docs/DEFECTS.md";
+
+/** Register rows, code-spans stripped before splitting on `|` — H101 embeds a pipe
+ * inside an inline code span and a naive split mis-reads its status column (proven in
+ * state.sh). */
+function registerRows(rel: string): { id: string; raw: string; status: string }[] {
+  return read(rel)
     .split("\n")
     .filter((l) => /^\| H\d+ \|/.test(l))
     .map((raw) => {
       const cols = raw.replace(/`[^`]*`/g, "CODE").split("|");
       const status = (cols[3] ?? "").replace(/\*/g, "").trim();
-      return { raw, status };
+      return { id: raw.match(/^\| (H\d+) /)![1], raw, status };
     });
+}
+
+/** check 8 (D6c, enforced since S4a): the closed status vocabulary, per file. §23 rows
+ * are OPEN | BLOCKED: <condition> | RESOLVED; DEFECTS.md rows are OPEN | FIXED: <sha>.
+ * Membership, not detection — a hybrid status is unconstructible in this vocabulary,
+ * so a half-done row must be split into two rows (one row, one status). Row IDs form a
+ * single H<n> sequence across both files, so uniqueness is asserted here too — the
+ * §23-H<n> / DEFECTS-H<n> citation grammar depends on it. */
+function vocabularyViolations(): string[] {
+  const out: string[] = [];
+  const specRows = registerRows(SPEC);
+  const defectRows = registerRows(DEFECTS);
+  for (const r of specRows) {
+    if (!/^(OPEN|RESOLVED|BLOCKED: .+)$/.test(r.status)) {
+      out.push(`${SPEC} ${r.id}: off-vocabulary status "${r.status.slice(0, 60)}"`);
+    }
+  }
+  for (const r of defectRows) {
+    if (!/^(OPEN|FIXED: [0-9a-f]{7,40})$/.test(r.status)) {
+      out.push(`${DEFECTS} ${r.id}: off-vocabulary status "${r.status.slice(0, 60)}"`);
+    }
+  }
+  const seen = new Set<string>();
+  for (const r of [...specRows, ...defectRows]) {
+    if (seen.has(r.id)) out.push(`row ID ${r.id} appears in both registers`);
+    seen.add(r.id);
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ the checks
 
+// check 15's floor verdict, read by check 12b's gap predicate (the suites are too
+// expensive to run twice). Set before check 15 throws, so a floor miss reaches 12b.
+let suiteFloorGap = false;
+
 describe("repo hygiene — enforced channel (ratchets vs baseline; red = worse than baseline)", () => {
+  test("check 8: register statuses are members of the closed vocabulary (D6c)", () => {
+    const v = vocabularyViolations();
+    if (v.length > 0) throw new Error(`check 8: off-vocabulary statuses:\n${v.join("\n")}`);
+  });
+
   test("check 9: doc cites naming a nonexistent path", () => {
     const missing = docCiteMissing();
     if (missing.length > baseline.enforced.check9_docCiteMissingPath) {
@@ -406,17 +448,20 @@ describe("repo hygiene — enforced channel (ratchets vs baseline; red = worse t
     if (experiments < floors.experimentsCollected) {
       broken.push(`experiments collected ${experiments} < floor ${floors.experimentsCollected}`);
     }
+    suiteFloorGap = broken.length > 0;
     if (broken.length > 0) throw new Error(`check 15: suite count decreased:\n${broken.join("\n")}`);
     console.log(`check 15 jest ${jest.passed}≥${floors.jest} · pytest ${pytest.passed}≥${floors.pytest} · experiments ${experiments}≥${floors.experimentsCollected}`);
   });
 
   test("check 12b: liveness — the campaign plan exists iff any enforced check is short of target", () => {
     const gap =
+      vocabularyViolations().length > 0 ||
       docCiteMissing().length > 0 ||
       sourceCiteMissing().length > 0 ||
       pinViolations().length > 0 ||
       extractedScan().violations.length > 0 ||
-      allVolatileMarkers().length > 0;
+      allVolatileMarkers().length > 0 ||
+      suiteFloorGap;
     const exists = fs.existsSync(path.join(ROOT, PLAN));
     if (gap && !exists) {
       throw new Error(`check 12b: enforced targets unmet but ${PLAN} is gone — S6 was declared early`);
@@ -428,20 +473,14 @@ describe("repo hygiene — enforced channel (ratchets vs baseline; red = worse t
 });
 
 describe("repo hygiene — printed channel (information, never blocks)", () => {
-  test("checks 1–7, 8, 12a: size and shape readout", () => {
+  test("checks 1–7, 12a: size and shape readout", () => {
     const md = trackedMd();
     const appendix = "docs/Fitted_Spec_v2_recovered_appendix.md";
-    // Built without a path-shaped literal: the file does not exist until S4a, and check
-    // 10 scans THIS file — a literal here is a broken cite the moment this file is
-    // tracked. (It was invisible pre-commit: git ls-files omits untracked files, so the
-    // suite could not see itself until it landed. The Stop hook caught it post-commit.)
-    const defectsDoc = ["docs", "DEFECTS.md"].join("/");
-    const rows = registerRows();
 
     const current: Record<string, number> = {
       check1_trackedMdCount: md.length,
       check2_totalMdBytes: md
-        .filter((f) => f !== defectsDoc && f !== appendix)
+        .filter((f) => f !== DEFECTS && f !== appendix)
         .reduce((s, f) => s + bytesOf(f), 0),
       check3_largestDocBytes: Math.max(...md.map(bytesOf)),
       check4_readingListBytes: ["CLAUDE.md", SPEC, PLAN]
@@ -449,10 +488,12 @@ describe("repo hygiene — printed channel (information, never blocks)", () => {
         .reduce((s, f) => s + bytesOf(f), 0),
       check5_plansCount: md.filter((f) => /^docs\/plans\/[^/]+\.md$/.test(f)).length,
       check6_sessionsCount: md.filter((f) => /^docs\/sessions\/[^/]+\.md$/.test(f)).length,
-      check7_resolvedRowBytes: rows
-        .filter((r) => !r.status.startsWith("OPEN"))
-        .reduce((s, r) => s + Buffer.byteLength(r.raw, "utf8"), 0),
-      check8_statusVocabulary: new Set(rows.map((r) => r.status)).size,
+      // Archaeology in both registers: §23 RESOLVED rows + DEFECTS.md FIXED rows
+      // (BLOCKED and OPEN are the live queue and are never counted as bloat — D4/D6).
+      check7_resolvedRowBytes: [
+        ...registerRows(SPEC).filter((r) => r.status === "RESOLVED"),
+        ...registerRows(DEFECTS).filter((r) => r.status.startsWith("FIXED")),
+      ].reduce((s, r) => s + Buffer.byteLength(r.raw, "utf8"), 0),
     };
 
     const lines: string[] = [];
@@ -464,7 +505,6 @@ describe("repo hygiene — printed channel (information, never blocks)", () => {
       lines.push(`  ${key}: ${cur} → ${target === null ? "no ruled target" : target}${toGo}  [landing ${landing}]`);
       if (landing !== undefined && cur > landing) regressions.push(`${key} ${cur} > landing ${landing}`);
     }
-    lines.push(`  check8 note: distinct §23 status strings; membership becomes enforced at S4a (D6c)`);
     lines.push(`  EXTRACTED cost meter: ${extractedScan().droppedTotal} paragraphs dropped since anchor`);
     lines.push(`REGRESSIONS: ${regressions.length ? regressions.join("; ") : "none"}`);
     console.log(`hygiene (printed channel)\n${lines.join("\n")}`);

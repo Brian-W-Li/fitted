@@ -82,20 +82,35 @@ fi
 
 [ "$MODE" = quiet ] && exit 0
 
-# --------------------------------------------------------- register (spec S23)
-# Counted from the register's own table rows, not from any written-down total.
+# ------------------------------------- registers (spec S23 + docs/DEFECTS.md)
+# Counted from the registers' own table rows, not from any written-down total.
+# Statuses are the D6c closed vocabulary (S23: OPEN | BLOCKED: <cond> | RESOLVED;
+# DEFECTS.md: OPEN | FIXED: <sha>), membership-enforced by hygiene check 8, so an
+# exact-match count is reliable here.
 #
 # TRAP: naive `awk -F'|'` mis-parses rows whose text contains an inline-code pipe.
 # Verified 2026-07-27: H101 embeds `top=...|outer=...`, which shifts its columns and
 # reads its status as "outer=...". That silently undercounted OPEN by one (44 vs 45).
-# Stripping `code spans` first makes all 105 rows split into exactly 6 fields.
-if [ -f "$SPEC" ]; then
-  rows=$(grep -cE '^\| H[0-9]+ \|' "$SPEC")
-  open=$(grep -E '^\| H[0-9]+ \|' "$SPEC" \
+# Stripping `code spans` first makes every row split into exactly 6 fields.
+reg_count() { # $1 file, $2 status regex (applied to the de-bolded, trimmed cell)
+  grep -E '^\| H[0-9]+ \|' "$1" 2>/dev/null \
     | perl -pe 's/`[^`]*`/CODE/g' \
-    | awk -F'|' '{s=$4; gsub(/\*/,"",s); gsub(/^ +/,"",s); if (s ~ /^OPEN/) n++} END{print n+0}')
-  printf '%-6s %s register rows · %s status ^OPEN  (prefix scan; vocabulary not closed yet — undercounts hybrids)\n' \
-    open "$rows" "$open"
+    | awk -F'|' -v re="$2" '{s=$4; gsub(/\*/,"",s); gsub(/^ +| +$/,"",s); if (s ~ re) n++} END{print n+0}'
+}
+DEFECTS="docs/DEFECTS.md"
+if [ -f "$SPEC" ]; then
+  h_open=$(reg_count "$SPEC" '^OPEN$')
+  h_blocked=$(reg_count "$SPEC" '^BLOCKED: ')
+  h_resolved=$(reg_count "$SPEC" '^RESOLVED$')
+  if [ -f "$DEFECTS" ]; then
+    d_open=$(reg_count "$DEFECTS" '^OPEN$')
+    d_fixed=$(reg_count "$DEFECTS" '^FIXED: ')
+    printf '%-6s S23 %s OPEN · %s BLOCKED · %s RESOLVED — defects %s OPEN · %s FIXED\n' \
+      open "$h_open" "$h_blocked" "$h_resolved" "$d_open" "$d_fixed"
+  else
+    printf '%-6s S23 %s OPEN · %s BLOCKED · %s RESOLVED — %s missing\n' \
+      open "$h_open" "$h_blocked" "$h_resolved" "$DEFECTS"
+  fi
 else
   printf '%-6s spec not found at %s\n' open "$SPEC"
 fi

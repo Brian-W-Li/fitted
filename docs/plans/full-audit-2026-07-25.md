@@ -7,7 +7,7 @@ Paste ONE prompt per fresh session, `/clear` between them. Run in order.
 **SESSION 1 is DONE and CONVERGED** (5 rounds, `df9d8f1f`…`e63a928a`, deployed 2026-07-25).
 It verified the friend-first-use pass (all six fixes correct) and audited every TS test for forgery.
 Suite **888 → 960**. Details: `docs/sessions/2026-07-25-audit-session1.md`; live-deploy state:
-`m5-c8-half2-runbook.md` §8. New holes: **§23-H78–H85**.
+`m5-c8-half2-runbook.md` §8. New holes: **DEFECTS-H78–H85**.
 
 Remaining: **Session 2** (verify session 1, then close its top registered holes) → **Session 3** (the
 app, from cold) → **Session 4** (Python + cross-runtime).
@@ -87,7 +87,7 @@ npx playwright install webkit         # Safari's engine
 - Neutralise Next's dev overlay: `nextjs-portal{display:none!important;pointer-events:none!important}`.
 - **Two engines disagree on real numbers** — the same 12MP JPEG at q0.85 lands ~455KB on Chrome and
   ~1.0MB on WebKit. Never generalise one engine's margin.
-- Still genuinely out of reach: iOS memory pressure / tab discard (§23-H79 residual).
+- Still genuinely out of reach: iOS memory pressure / tab discard (DEFECTS-H79 residual).
 
 ### Convergence — must TAPER, not stay rectangular
 - A round must be **broad early** (whole scope). Delta-only rounds are circular.
@@ -141,16 +141,16 @@ something else? Specifically re-derive, because these are the ones session 1 got
 Also: re-run `npx jest` and `npx jest --randomize` several times and report ANY nondeterminism.
 
 JOB B — close the highest-cost registered holes, in this order, test-first:
- - §23-H78: `imagePath` is PATCH-able with no shape or ownership gate, so an authed user can point an
+ - DEFECTS-H78: `imagePath` is PATCH-able with no shape or ownership gate, so an authed user can point an
    item at another friend's image and land that photo in the M6 export. No client path sends it in a
    PATCH — check, then prefer removing it from `PATCH_STRING_FIELDS` (a contract narrowing: get a Fable
    read). Also add the missing `user` filter to the exporter's image resolve and extend
    exportTrack2.test.ts's scoping test to `wardrobeimages`.
- - §23-H84 items (1) and (5): `writeJSON`'s silent quota failure versus the "you won't lose your place"
+ - DEFECTS-H84 items (1) and (5): `writeJSON`'s silent quota failure versus the "you won't lose your place"
    promise, and the three `if (!firebaseUser) return` no-ops that swallow a confirmed destructive action.
- - §23-H82's top items: the dashboard like/dislike failure revert (the primary M6 label path), the F10
+ - DEFECTS-H82's top items: the dashboard like/dislike failure revert (the primary M6 label path), the F10
    envelope's write-before-fetch, and `DISLIKE_REASONS` ⊆ `FEEDBACK_REASON_CODES`.
- - §23-H80/H81 if budget remains.
+ - DEFECTS-H80/H81 if budget remains.
 
 Use the browser harness (standing rules) wherever a claim is about real browser behavior. Fix
 load-bearing findings, register the rest, reconcile docs in the same commit, and run TAPERING
@@ -171,7 +171,7 @@ fitted/components — shared client pieces live in fitted/lib. NOT the Python si
 Work like a principal engineer joining cold, with a tester's suspicion. Do not skim. Pick a few entry
 points and DFS to their leaves, understanding each fully before moving on:
  1. Auth + session: signin → /api/auth/sync → AuthGate → session cookie → image serving ownership.
-    (AuthGate has ZERO tests — §23-H82.)
+    (AuthGate has ZERO tests — DEFECTS-H82.)
  2. Ingestion: add item → validation → POST /api/wardrobe → clothingType/warmth derivation → Mongo;
     photo → downscale → image route → imageStorage → WardrobeImage.
  3. Recommend: Generate → /api/recommend → lib/mlRecommend → mlServiceClient → snapshot write →
@@ -208,13 +208,13 @@ suites, and the TS↔Python↔Mongoose contract surface.
     Enumerate degenerate closets (0 tops, dress-only, single item, all-unavailable, 300 items) and
     confirm each yields an honest outcome, not a crash, an empty, or a misleading hint.
  2. The render service: auth, throttle ordering, the 500 wrapper, controls dedup/canonical-order,
-    timeout budgets. §23-H76 is a REAL open defect — Next budgets ONE OpenAI call while the engine
-    lawfully makes TWO; verify it and whether the margin test's premise is wrong. §23-H68 records
+    timeout budgets. DEFECTS-H76 is a REAL open defect — Next budgets ONE OpenAI call while the engine
+    lawfully makes TWO; verify it and whether the margin test's premise is wrong. DEFECTS-H68 records
     effective concurrency 1. Do not hot-edit deployed config: propose, register, Fable-review the math.
  3. CROSS-RUNTIME DRIFT (highest value): every fact that must agree across Python/TS/Mongoose — enums,
     numeric clamps, format regexes, wire field sets, timeouts. For each: single generated source, or a
     cross-runtime equality test, or neither? A hand-copied mirror with neither is the drift disease.
-    Enumerate them all; register the gaps. Note §23-H82 lists several already found.
+    Enumerate them all; register the gaps. Note DEFECTS-H82 lists several already found.
  4. Python test audit at session 1's rigour: mutate load-bearing pins, hunt vacuous/mirror tests, find
     unguarded claims. Apply the nine patterns — they are language-agnostic.
  5. The frozen artifacts — experiments/track2_transfer/preregistration.md(+.json), exportTrack2Core's
@@ -237,7 +237,7 @@ Same method and tapering convergence. Name residuals. Do not touch the Fly machi
    items, so the 3- and 6-item closets (the ones that actually hit the render wall) get nothing
    proactive. A signpost, not a gate; same §18 anti-guilt shape.
 3. **Real-device testing is the one remaining verification gap.** Chrome and WebKit are both covered by
-   the harness above, and §23-H79(b) is narrowed accordingly. What no desktop engine can settle: iOS
+   the harness above, and DEFECTS-H79(b) is narrowed accordingly. What no desktop engine can settle: iOS
    memory pressure and tab discard, which is what the data-URL-over-blob decision rests on. Brian's
    framing (2026-07-25): friends can use the web app on desktop, so this does not gate recruiting —
    but cross-platform code quality is still non-negotiable.
