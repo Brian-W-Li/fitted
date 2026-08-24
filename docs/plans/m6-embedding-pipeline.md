@@ -65,10 +65,10 @@ promptly and correctly the day the data qualifies, with every analysis choice fr
 | `scoring.py` | Outfit scores (mean over C(n,2) type-conditioned edges via the sealed head; cosine reference rung), pooled within-friend AUC, the snapshot-blocked-within-friend bootstrap, LOFO sensitivity, per-friend reporting. |
 | `transfer_read.py` | The secondary read: H26's `build_pairwise` construction over accepted clusters at clothingType grain, source-outfit bootstrap, 95% two-boundary read. |
 | `run_look.py` | The CLI driver: `--bundle --as-of [--look 1|2] [--verify] [--rehearsal] [--allow-no-operator]`. Assembles the stages in the frozen order; writes `analysis_sample.json` + the look record. |
-| `fixtures/synthetic_bundle/` | The deterministic synthetic-bundle generator (`regen.py` for jsonl+images, `regen.mjs` calling the REAL `buildCertificate` for the committed yield block) — the shared cross-runtime fixture AND the rehearsal input. |
+| `fixtures/synthetic_bundle/` | The deterministic synthetic-bundle generator (`regen.py` for jsonl+images into the gitignored `generated/`, `regen.mjs` calling the REAL `buildCertificate` for the committed yield block) — the shared cross-runtime fixture AND the rehearsal input. Its manifest must include a fabricated non-empty `exclusions.operatorAuthIds` + `yield.excluded.users` block so gate step 1 passes without any bypass. |
 | `tests/test_pipeline_constants.py`, `tests/test_bundle.py`, `tests/test_gate.py`, `tests/test_embed_bundle.py`, `tests/test_scoring.py`, `tests/test_transfer_read.py`, `tests/test_run_look.py` | The pytest suite (counted by hygiene check 15's `experimentsCollected`). |
-| `looks/` | The committed look ledger (empty until Look 1; `analysis_sample.json`, `look1_record.json`, later `look2_record.json`). Rehearsal output goes to a gitignored `rehearsal_out/`, never here. |
-| `.gitignore` (in `track2_transfer/`) | NEW — must be created at C1: ignores `rehearsal_out/` and the per-bundle embedding cache (§D7). Nothing ignores them today (`ml-system/.gitignore` is Python-only; `track2_transfer/` has no `.gitignore`). |
+| `looks/` | The committed look ledger (empty until Look 1; `analysis_sample.json`, `look1_record.json`, later `look2_record.json` — which carries its own frozen snapshot-ID set, the prereg §8 `analysis_sample` analogue for Look 2's qualifying export). Rehearsal output goes to a gitignored `rehearsal_out/`, never here. |
+| `.gitignore` (in `track2_transfer/`) | NEW — must be created at C1: ignores `rehearsal_out/`, the per-bundle embedding cache (§D7), and `fixtures/synthetic_bundle/generated/` (the regenerated jsonl+images; committed = the generator scripts + the JS-produced yield block + the EXIF fixture JPEG only). Nothing ignores any of these today (`ml-system/.gitignore` is Python-only; `track2_transfer/` has no `.gitignore`). |
 | `tests/exportTrack2CrossRuntime.test.ts` (under `fitted/`) | Additive jest suite: the real `buildCertificate` over the shared fixture must equal the committed yield block — so certificate drift fails jest while Python drift fails pytest, both against one artifact. |
 
 **Edited (small, pointer-only):** `docs/Fitted_Spec_v2.md` §20 M6 row (build-doc pointer — done at
@@ -146,7 +146,9 @@ It performs, in order, all label-count (never label-score) checks:
    signature-dedup within {friend, arm}; exclusions applied; transfer-scoreable additionally
    requires a same-clothingType negative to exist at depth ≥2 in the friend's rendered-item set).
 3. **Cross-runtime agreement assert:** the Python counts must equal
-   `manifest.yield.scoreableClusters` exactly (integers) and the concentration shares must match
+   `manifest.yield.scoreableClusters` exactly (integers) — **and per-user: every
+   `manifest.yield.perUser` row's scoreable counts too**, since offsetting per-friend drifts
+   (+1 here, −1 there) can hide inside equal totals — and the concentration shares must match
    within 1e-9 (both are IEEE doubles over the same integers). Any disagreement = a cross-runtime
    bug → hard abort, fix on sight, re-export. This runs on EVERY bundle, rehearsal included, so the
    eligibility logic can never silently fork from `buildCertificate`.
@@ -298,7 +300,7 @@ is a write-path bug, not a data condition).
 | Python re-derivation ≠ manifest.yield | Hard abort naming both values | Cross-runtime drift is a bug to fix on sight, never to score through |
 | `looks/look1_record.json` exists, fresh `--look 1` | Refuse; point at `--verify` | Once-only α spend; re-analysis is reproduction, never a new look |
 | `--look 2` with no committed Look-1 record (or Look 1 = ESTABLISHED) | Refuse | Look 2 exists only if Look 1 did not establish (prereg §2.1) |
-| `--as-of` after 2026-10-31 with below-floor arms | Emit the prereg terminal verdict (NOT-ESTABLISHED underpowered / UNDERPOWERED-TERMINAL) | The horizon makes "keep collecting" terminal — the study decides even when the answer is "couldn't answer" |
+| `--as-of` after the effective horizon (2026-10-31, or `--decommissioned` if earlier) with below-floor arms | Emit the prereg terminal verdict (NOT-ESTABLISHED underpowered / UNDERPOWERED-TERMINAL) | The horizon makes "keep collecting" terminal — the study decides even when the answer is "couldn't answer" |
 | Empty `operatorAuthIds` in the bundle manifest | Refuse unless `--allow-no-operator`, which is recorded in the look record | A forgotten exclusion flag would pool the operator's self-labeled closet into the headline arms |
 | Referenced image missing / undecodable; null or unknown clothingType on a scoreable item | Abort the whole run before any scoring | A per-outfit exclusion here is a post-hoc-lookable sample choice; an abort burns no α |
 | Backbone revision / preprocess hash ≠ committed embedding manifest; checkpoint sha ≠ sealed selection.json | Abort | The measurand is frozen; scoring in a drifted space measures the drift, not the transfer |
@@ -415,6 +417,11 @@ load-bearing findings (convergence, not punch-list).
    `python run_look.py --bundle <export dir> --as-of <today> --look 1`
    (the runner independently re-verifies everything; a refusal means the certificate and the
    pipeline disagree — fix before looking, nothing was spent).
+   **Run the Look on THE export that first read DECIDABLE — never re-export between seeing
+   DECIDABLE and running the Look.** Prereg §2.1's frozen sample is "the first export in which
+   both arms reach ≥ 25"; a fresher re-export would silently swap the sample. The gate cannot see
+   other exports (there is no export registry), so this line is the enforcement; the look record's
+   bundle hashes are the sample's identity.
 3. Commit, on main, in one commit: `looks/analysis_sample.json`, `looks/look1_record.json`, and
    the doc fold-ins: flip the Spec §20 M6 row's "sole remaining entry gate" clause to the verdict;
    update the Track-2 memory + runbook §8 status line.
