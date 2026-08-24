@@ -872,6 +872,14 @@ function DashboardInner() {
         const data = await res.json().catch(() => null);
 
         if (!res.ok) {
+          // A 5xx can land AFTER the render was paid for — the route's own 500 arm, or a platform
+          // timeout that fires post-OpenAI-call or even post-persist. KEEP the envelope so a reload
+          // can resume under the same requestId (§C.4's early read-check returns an already-persisted
+          // render for free). Only a stable 4xx is terminal for this action (DEFECTS-H90).
+          if (res.status >= 500) {
+            setError("Something went wrong on our side. Try reloading — if that outfit finished, it'll come back.");
+            return;
+          }
           // A stable 4xx/409 (conflict, forced-item-unavailable, malformed) — terminal for this action.
           removeKey(PENDING_KEY(userUid));
           // The recommend route's error envelope is { error: { code, message } } — read the nested

@@ -127,6 +127,47 @@ describe("dashboard — an unreadable 200 is reported, not silently blanked", ()
   });
 });
 
+describe("dashboard — a 5xx keeps the pending envelope, a stable 4xx clears it (DEFECTS-H90)", () => {
+  const PENDING_KEY = "fitted_pending_render:u1";
+
+  it("a 500 after the render was paid for KEEPS the envelope so a reload can resume", async () => {
+    mockApi(
+      () =>
+        ({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { code: "engine_failure", message: "engine failure" } }),
+        }) as unknown as Response,
+    );
+    render(<Dashboard />);
+    await generate();
+
+    const msg = await screen.findByText(/went wrong on our side/i);
+    // The envelope (requestId) survives — pre-fix `removeKey` ran on ANY non-2xx, deleting the
+    // one token that lets resumePending replay a render that may already be persisted (§C.4).
+    expect(window.sessionStorage.getItem(PENDING_KEY)).not.toBeNull();
+    // Honest copy: "if", not a promise; and it blames our side, not the friend.
+    expect(msg.textContent ?? "").toMatch(/if that outfit finished/i);
+    expect(msg.textContent ?? "").not.toMatch(/you (didn|haven|failed)/i);
+  });
+
+  it("a stable 4xx is terminal — the envelope is cleared (replaying a reject buys nothing)", async () => {
+    mockApi(
+      () =>
+        ({
+          ok: false,
+          status: 409,
+          json: async () => ({ error: { code: "request_id_conflict", message: "conflict" } }),
+        }) as unknown as Response,
+    );
+    render(<Dashboard />);
+    await generate();
+
+    await screen.findByText(/already used for a different outfit/i);
+    expect(window.sessionStorage.getItem(PENDING_KEY)).toBeNull();
+  });
+});
+
 describe("dashboard — a dropped connection does not promise what it cannot keep", () => {
   it("says 'if that outfit finished', never 'you won't lose your place'", async () => {
     mockApi(() => {
