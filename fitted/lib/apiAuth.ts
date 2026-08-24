@@ -28,14 +28,23 @@ export async function verifyFirebaseUser(request: NextRequest): Promise<AuthResu
   }
   const idToken = authHeader.slice("Bearer ".length).trim();
   if (!idToken) return { error: "Missing or invalid Authorization header", status: 401 };
+  let decoded;
   try {
-    const decoded = await adminAuth.verifyIdToken(idToken);
+    decoded = await adminAuth.verifyIdToken(idToken);
+  } catch (error) {
+    console.error("Error verifying Firebase token:", error);
+    return { error: "Invalid or expired token", status: 401 };
+  }
+  // Token verified — from here a throw is the DATABASE failing, not the credential. Mapping it to
+  // 401 sends a friend into a re-login loop that cannot fix anything (DEFECTS-H88): 401 stays
+  // reserved for genuine token rejection; a Mongo fault surfaces as a retryable 503.
+  try {
     const { User } = await initDatabase();
     const user = await User.findOne({ authProvider: "firebase", authId: decoded.uid }).exec();
     if (!user) return { error: "User not found", status: 404 };
     return { userId: user._id.toString() };
   } catch (error) {
-    console.error("Error verifying Firebase token:", error);
-    return { error: "Invalid or expired token", status: 401 };
+    console.error("Database error resolving user:", error);
+    return { error: "We're having trouble reaching your closet — please try again in a moment.", status: 503 };
   }
 }

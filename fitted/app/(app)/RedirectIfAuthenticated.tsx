@@ -43,7 +43,8 @@ export default function RedirectIfAuthenticated({
         });
       } catch {
         // A failed sync must not trap the user on the auth page — AuthGate re-runs the idempotent
-        // sync on every app load, so the row is repaired on arrival.
+        // sync on every app load AND checks its outcome (DEFECTS-H88), so a database fault shows
+        // an honest retry screen on arrival instead of a broken app.
       }
       if (!cancelled) router.replace("/dashboard");
     });

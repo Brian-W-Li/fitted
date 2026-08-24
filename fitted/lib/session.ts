@@ -27,13 +27,21 @@ export const SESSION_EXPIRES_IN_MS = 5 * 24 * 60 * 60 * 1000; // 5 days (Firebas
 export async function verifySessionCookieUser(request: NextRequest): Promise<AuthResult> {
   const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (!cookie) return { error: "Missing session cookie", status: 401 };
+  let decoded;
   try {
-    const decoded = await adminAuth.verifySessionCookie(cookie, false);
+    decoded = await adminAuth.verifySessionCookie(cookie, false);
+  } catch {
+    return { error: "Invalid or expired session", status: 401 };
+  }
+  // Same failure-class split as verifyFirebaseUser (DEFECTS-H88): past this point a throw is the
+  // database, not the cookie — report it as a retryable 503, never as an expired session.
+  try {
     const { User } = await initDatabase();
     const user = await User.findOne({ authProvider: "firebase", authId: decoded.uid }).exec();
     if (!user) return { error: "User not found", status: 401 };
     return { userId: user._id.toString() };
-  } catch {
-    return { error: "Invalid or expired session", status: 401 };
+  } catch (error) {
+    console.error("Database error resolving session user:", error);
+    return { error: "We're having trouble reaching your closet — please try again in a moment.", status: 503 };
   }
 }

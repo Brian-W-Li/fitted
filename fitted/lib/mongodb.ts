@@ -40,6 +40,15 @@ export async function connectMongo(): Promise<typeof mongoose> {
     });
   }
 
-  cached.conn = await cached.promise;
+  try {
+    cached.conn = await cached.promise;
+  } catch (err) {
+    // Never cache a REJECTED connect: this promise is memoized for the life of the warm
+    // instance, so without clearing it one transient Atlas/SRV failure would make every later
+    // request on this instance re-await the same rejection — instantly, with no retry, even
+    // after Atlas is healthy again (DEFECTS-H87). Clear it so the next request reconnects.
+    cached.promise = null;
+    throw err;
+  }
   return cached.conn;
 }

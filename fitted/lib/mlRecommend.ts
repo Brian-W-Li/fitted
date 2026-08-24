@@ -125,15 +125,23 @@ async function verifyUserProd(request: NextRequest): Promise<VerifyResult> {
     return { error: "Missing or invalid Authorization header", status: 401 };
   }
   const idToken = authHeader.slice("Bearer ".length).trim();
+  let decoded;
   try {
-    const decoded = await adminAuth.verifyIdToken(idToken);
+    decoded = await adminAuth.verifyIdToken(idToken);
+  } catch (error) {
+    console.error("Error verifying Firebase token:", error);
+    return { error: "Invalid or expired token", status: 401 };
+  }
+  // Same failure-class split as lib/apiAuth (DEFECTS-H88): past token verification a throw is the
+  // database — a retryable 503, never a 401 that sends a friend back through sign-in for nothing.
+  try {
     const { User } = await initDatabase();
     const user = await User.findOne({ authProvider: "firebase", authId: decoded.uid }).exec();
     if (!user) return { error: "User not found", status: 404 };
     return { userId: user._id.toString() };
   } catch (error) {
-    console.error("Error verifying Firebase token:", error);
-    return { error: "Invalid or expired token", status: 401 };
+    console.error("Database error resolving user:", error);
+    return { error: "We're having trouble reaching your closet — please try again in a moment.", status: 503 };
   }
 }
 
