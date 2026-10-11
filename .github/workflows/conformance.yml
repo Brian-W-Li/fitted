@@ -73,4 +73,10 @@ jobs:
       - name: Active links, historical ratchets and frozen evidence
         run: npm run hygiene -- --runInBand --testNamePattern='check (8|9|10|11|13|14):|active maintained'
       - name: Shared workflow shell syntax
-        run: for script in ../scripts/workflow/*.sh ../.claude/scripts/*.sh; do bash -n "$script" || exit; done
+        run: |
+          shopt -s nullglob
+          workflow_scripts=(../scripts/workflow/*.sh ../.claude/scripts/*.sh)
+          test "${#workflow_scripts[@]}" -gt 0
+          for script in "${workflow_scripts[@]}"; do
+            bash -n "$script" || exit
+          done
