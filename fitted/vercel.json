@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "codex/r2-context-variation": false,
+      "codex/r21-readiness": false
+    }
+  }
+}

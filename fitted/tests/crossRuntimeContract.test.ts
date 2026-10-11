@@ -1,3 +1,4 @@
+import { LAYER_CHOICE_NOTES } from "@/lib/weatherContext";
 /**
  * Cross-runtime contract guard (post-m5-reset §4.1 C1/C2/C4).
  *
@@ -53,6 +54,7 @@ const CONTRACT = JSON.parse(
     reducerScanBounds: Record<string, number>;
     generatorExpectation: Record<string, string | number>;
     roleToSlot: Record<string, string>;
+    layerChoiceNotes: Record<string, string>;
     enums: Record<string, string[]>;
     schemaEnums: Record<string, string[]>;
     formats: Record<string, FormatVector>;
@@ -330,4 +332,8 @@ describe("candidateCacheKey recompute — the JS mirror pinned to fitted_core.se
       }),
     ).toBe("8c8bc8ad077b75464c5d636bde899ce75b1ed6784f6a4f4b69c51481eb9b5b11");
   });
+});
+
+it("practical-layer notes agree with the Python contract mirror", () => {
+  expect(LAYER_CHOICE_NOTES).toEqual(CONTRACT.crossRuntime.layerChoiceNotes);
 });

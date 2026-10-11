@@ -1,0 +1,652 @@
+{
+  "bundleVersion": "track2-export.v1",
+  "userFilter": null,
+  "exclusions": {
+    "operatorAuthIds": [
+      "fixture-operator-auth-id"
+    ],
+    "operatorResolution": [
+      {
+        "authId": "fixture-operator-auth-id",
+        "resolved": true
+      }
+    ],
+    "operatorResolved": true,
+    "excludedUserCount": 1
+  },
+  "counts": {
+    "snapshots": 54,
+    "wardrobeItems": 108,
+    "interactionsRaw": 54,
+    "interactionsLatest": 54,
+    "trainingExamples": 54,
+    "trainingExamplesLabeled": 54,
+    "shownCandidateIdsUnmatched": 0,
+    "labelsWithoutTrainingExample": 0,
+    "imagesReferenced": 108,
+    "imagesResolved": 108,
+    "imagesUnresolved": 0,
+    "itemSlotsWithoutImageRef": 0,
+    "labeledExamplesNotImageUsable": 0
+  },
+  "schemaNotes": {
+    "fixture": true
+  },
+  "yield": {
+    "friends": 2,
+    "cohortImageUsableAcceptedOutfits": 26,
+    "prereg": "ml-system/experiments/track2_transfer/preregistration.md",
+    "floors": {
+      "primaryDecisionMinPerArm": 25,
+      "transferInterpMin": 12,
+      "transferDecisionMin": 25,
+      "perFriendConcentrationCap": 0.5,
+      "minCategoryDepthForNegative": 2
+    },
+    "scoreableClusters": {
+      "acceptedScoreable": 26,
+      "rejectedScoreable": 26,
+      "transferAcceptedScoreable": 26
+    },
+    "concentration": {
+      "acceptedMaxShare": 0.5,
+      "rejectedMaxShare": 0.5,
+      "cap": 0.5,
+      "capOk": true
+    },
+    "primaryRead": {
+      "verdict": "DECIDABLE",
+      "boundary": 0.5,
+      "needPerArm": 25,
+      "note": "accepted-vs-rejected within-user AUC; decides only at ≥25/arm AND concentration cap OK — else keep collecting/recruit"
+    },
+    "transferRead": {
+      "state": "DECIDABLE (two-boundary)",
+      "note": "catalog→closet pair-AUC, two-boundary directional {above-chance 0.50 / below-healthy 0.70}; REPORTED, never gates; the 0.70 healthy floor is structurally unpassable and retired as a gate"
+    },
+    "perUser": {
+      "friend_alpha": {
+        "accepted": 13,
+        "rejected": 13,
+        "imageUsableAccepted": 13,
+        "primaryAcceptedScoreable": 13,
+        "primaryRejectedScoreable": 13,
+        "transferAcceptedScoreable": 13,
+        "clothingTypeDepth": 2
+      },
+      "friend_beta": {
+        "accepted": 13,
+        "rejected": 13,
+        "imageUsableAccepted": 13,
+        "primaryAcceptedScoreable": 13,
+        "primaryRejectedScoreable": 13,
+        "transferAcceptedScoreable": 13,
+        "clothingTypeDepth": 2
+      }
+    },
+    "excluded": {
+      "note": "prereg §5 — operator closet + track2test_* synthetic accounts: reported separately, never in the headline pool",
+      "users": {
+        "operator_fixture": {
+          "reason": "operator",
+          "accepted": 1,
+          "rejected": 1,
+          "imageUsableAccepted": 1,
+          "primaryAcceptedScoreable": 1,
+          "primaryRejectedScoreable": 1,
+          "transferAcceptedScoreable": 1,
+          "clothingTypeDepth": 2
+        }
+      }
+    }
+  },
+  "imageManifest": {
+    "010100010100000000000000": {
+      "status": "resolved",
+      "file": "images/010100010100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100010200000000000000": {
+      "status": "resolved",
+      "file": "images/010100010200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100020100000000000000": {
+      "status": "resolved",
+      "file": "images/010100020100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100020200000000000000": {
+      "status": "resolved",
+      "file": "images/010100020200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100030100000000000000": {
+      "status": "resolved",
+      "file": "images/010100030100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100030200000000000000": {
+      "status": "resolved",
+      "file": "images/010100030200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100040100000000000000": {
+      "status": "resolved",
+      "file": "images/010100040100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100040200000000000000": {
+      "status": "resolved",
+      "file": "images/010100040200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100050100000000000000": {
+      "status": "resolved",
+      "file": "images/010100050100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100050200000000000000": {
+      "status": "resolved",
+      "file": "images/010100050200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100060100000000000000": {
+      "status": "resolved",
+      "file": "images/010100060100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100060200000000000000": {
+      "status": "resolved",
+      "file": "images/010100060200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100070100000000000000": {
+      "status": "resolved",
+      "file": "images/010100070100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100070200000000000000": {
+      "status": "resolved",
+      "file": "images/010100070200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100080100000000000000": {
+      "status": "resolved",
+      "file": "images/010100080100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100080200000000000000": {
+      "status": "resolved",
+      "file": "images/010100080200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100090100000000000000": {
+      "status": "resolved",
+      "file": "images/010100090100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010100090200000000000000": {
+      "status": "resolved",
+      "file": "images/010100090200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0101000a0100000000000000": {
+      "status": "resolved",
+      "file": "images/0101000a0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0101000a0200000000000000": {
+      "status": "resolved",
+      "file": "images/0101000a0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0101000b0100000000000000": {
+      "status": "resolved",
+      "file": "images/0101000b0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0101000b0200000000000000": {
+      "status": "resolved",
+      "file": "images/0101000b0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0101000c0100000000000000": {
+      "status": "resolved",
+      "file": "images/0101000c0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0101000c0200000000000000": {
+      "status": "resolved",
+      "file": "images/0101000c0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0101000d0100000000000000": {
+      "status": "resolved",
+      "file": "images/0101000d0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0101000d0200000000000000": {
+      "status": "resolved",
+      "file": "images/0101000d0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200010100000000000000": {
+      "status": "resolved",
+      "file": "images/010200010100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200010200000000000000": {
+      "status": "resolved",
+      "file": "images/010200010200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200020100000000000000": {
+      "status": "resolved",
+      "file": "images/010200020100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200020200000000000000": {
+      "status": "resolved",
+      "file": "images/010200020200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200030100000000000000": {
+      "status": "resolved",
+      "file": "images/010200030100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200030200000000000000": {
+      "status": "resolved",
+      "file": "images/010200030200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200040100000000000000": {
+      "status": "resolved",
+      "file": "images/010200040100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200040200000000000000": {
+      "status": "resolved",
+      "file": "images/010200040200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200050100000000000000": {
+      "status": "resolved",
+      "file": "images/010200050100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200050200000000000000": {
+      "status": "resolved",
+      "file": "images/010200050200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200060100000000000000": {
+      "status": "resolved",
+      "file": "images/010200060100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200060200000000000000": {
+      "status": "resolved",
+      "file": "images/010200060200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200070100000000000000": {
+      "status": "resolved",
+      "file": "images/010200070100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200070200000000000000": {
+      "status": "resolved",
+      "file": "images/010200070200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200080100000000000000": {
+      "status": "resolved",
+      "file": "images/010200080100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200080200000000000000": {
+      "status": "resolved",
+      "file": "images/010200080200000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200090100000000000000": {
+      "status": "resolved",
+      "file": "images/010200090100000000000000.png",
+      "contentType": "image/png"
+    },
+    "010200090200000000000000": {
+      "status": "resolved",
+      "file": "images/010200090200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0102000a0100000000000000": {
+      "status": "resolved",
+      "file": "images/0102000a0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0102000a0200000000000000": {
+      "status": "resolved",
+      "file": "images/0102000a0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0102000b0100000000000000": {
+      "status": "resolved",
+      "file": "images/0102000b0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0102000b0200000000000000": {
+      "status": "resolved",
+      "file": "images/0102000b0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0102000c0100000000000000": {
+      "status": "resolved",
+      "file": "images/0102000c0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0102000c0200000000000000": {
+      "status": "resolved",
+      "file": "images/0102000c0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0102000d0100000000000000": {
+      "status": "resolved",
+      "file": "images/0102000d0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0102000d0200000000000000": {
+      "status": "resolved",
+      "file": "images/0102000d0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100010100000000000000": {
+      "status": "resolved",
+      "file": "images/020100010100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100010200000000000000": {
+      "status": "resolved",
+      "file": "images/020100010200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100020100000000000000": {
+      "status": "resolved",
+      "file": "images/020100020100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100020200000000000000": {
+      "status": "resolved",
+      "file": "images/020100020200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100030100000000000000": {
+      "status": "resolved",
+      "file": "images/020100030100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100030200000000000000": {
+      "status": "resolved",
+      "file": "images/020100030200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100040100000000000000": {
+      "status": "resolved",
+      "file": "images/020100040100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100040200000000000000": {
+      "status": "resolved",
+      "file": "images/020100040200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100050100000000000000": {
+      "status": "resolved",
+      "file": "images/020100050100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100050200000000000000": {
+      "status": "resolved",
+      "file": "images/020100050200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100060100000000000000": {
+      "status": "resolved",
+      "file": "images/020100060100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100060200000000000000": {
+      "status": "resolved",
+      "file": "images/020100060200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100070100000000000000": {
+      "status": "resolved",
+      "file": "images/020100070100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100070200000000000000": {
+      "status": "resolved",
+      "file": "images/020100070200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100080100000000000000": {
+      "status": "resolved",
+      "file": "images/020100080100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100080200000000000000": {
+      "status": "resolved",
+      "file": "images/020100080200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100090100000000000000": {
+      "status": "resolved",
+      "file": "images/020100090100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020100090200000000000000": {
+      "status": "resolved",
+      "file": "images/020100090200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0201000a0100000000000000": {
+      "status": "resolved",
+      "file": "images/0201000a0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0201000a0200000000000000": {
+      "status": "resolved",
+      "file": "images/0201000a0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0201000b0100000000000000": {
+      "status": "resolved",
+      "file": "images/0201000b0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0201000b0200000000000000": {
+      "status": "resolved",
+      "file": "images/0201000b0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0201000c0100000000000000": {
+      "status": "resolved",
+      "file": "images/0201000c0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0201000c0200000000000000": {
+      "status": "resolved",
+      "file": "images/0201000c0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0201000d0100000000000000": {
+      "status": "resolved",
+      "file": "images/0201000d0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0201000d0200000000000000": {
+      "status": "resolved",
+      "file": "images/0201000d0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200010100000000000000": {
+      "status": "resolved",
+      "file": "images/020200010100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200010200000000000000": {
+      "status": "resolved",
+      "file": "images/020200010200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200020100000000000000": {
+      "status": "resolved",
+      "file": "images/020200020100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200020200000000000000": {
+      "status": "resolved",
+      "file": "images/020200020200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200030100000000000000": {
+      "status": "resolved",
+      "file": "images/020200030100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200030200000000000000": {
+      "status": "resolved",
+      "file": "images/020200030200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200040100000000000000": {
+      "status": "resolved",
+      "file": "images/020200040100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200040200000000000000": {
+      "status": "resolved",
+      "file": "images/020200040200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200050100000000000000": {
+      "status": "resolved",
+      "file": "images/020200050100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200050200000000000000": {
+      "status": "resolved",
+      "file": "images/020200050200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200060100000000000000": {
+      "status": "resolved",
+      "file": "images/020200060100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200060200000000000000": {
+      "status": "resolved",
+      "file": "images/020200060200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200070100000000000000": {
+      "status": "resolved",
+      "file": "images/020200070100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200070200000000000000": {
+      "status": "resolved",
+      "file": "images/020200070200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200080100000000000000": {
+      "status": "resolved",
+      "file": "images/020200080100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200080200000000000000": {
+      "status": "resolved",
+      "file": "images/020200080200000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200090100000000000000": {
+      "status": "resolved",
+      "file": "images/020200090100000000000000.png",
+      "contentType": "image/png"
+    },
+    "020200090200000000000000": {
+      "status": "resolved",
+      "file": "images/020200090200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0202000a0100000000000000": {
+      "status": "resolved",
+      "file": "images/0202000a0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0202000a0200000000000000": {
+      "status": "resolved",
+      "file": "images/0202000a0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0202000b0100000000000000": {
+      "status": "resolved",
+      "file": "images/0202000b0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0202000b0200000000000000": {
+      "status": "resolved",
+      "file": "images/0202000b0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0202000c0100000000000000": {
+      "status": "resolved",
+      "file": "images/0202000c0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0202000c0200000000000000": {
+      "status": "resolved",
+      "file": "images/0202000c0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "0202000d0100000000000000": {
+      "status": "resolved",
+      "file": "images/0202000d0100000000000000.png",
+      "contentType": "image/png"
+    },
+    "0202000d0200000000000000": {
+      "status": "resolved",
+      "file": "images/0202000d0200000000000000.png",
+      "contentType": "image/png"
+    },
+    "090100010100000000000000": {
+      "status": "resolved",
+      "file": "images/090100010100000000000000.png",
+      "contentType": "image/png"
+    },
+    "090100010200000000000000": {
+      "status": "resolved",
+      "file": "images/090100010200000000000000.png",
+      "contentType": "image/png"
+    },
+    "090200010100000000000000": {
+      "status": "resolved",
+      "file": "images/090200010100000000000000.png",
+      "contentType": "image/png"
+    },
+    "090200010200000000000000": {
+      "status": "resolved",
+      "file": "images/090200010200000000000000.png",
+      "contentType": "image/png"
+    }
+  },
+  "fixtureCertificateConstants": {
+    "primaryDecisionMinPerArm": 25,
+    "transferInterpMin": 12,
+    "transferDecisionMin": 25,
+    "perFriendConcentrationCap": 0.5,
+    "minCategoryDepthForNegative": 2
+  }
+}

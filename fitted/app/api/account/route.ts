@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteUserWithData, initDatabase } from "@/lib/db";
 import { verifyFirebaseUser } from "@/lib/apiAuth";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import { cascadeDeleteUserData } from "@/models/User";
+import { beginUserErasure } from "@/lib/userErasure";
+import { resumeUserErasure } from "@/lib/resumeUserErasure";
 
 function parseAge(value: unknown): number | null {
   if (value === "" || value === null || value === undefined) return null;
@@ -218,81 +219,32 @@ export async function PATCH(request: NextRequest) {
 }
 
 /**
- * DELETE /api/account — the user-facing data-deletion promise (§14.4 / §23-H43, Track 2 policy:
- * "delete me" means delete — the UI copy "permanently deletes … outfit history" is literally true).
- *
- * Three-phase erasure, order deliberate:
- *   1. Phase-1 fail-safe: REDACT the user's GenerationSnapshots (the H43 seam — the only
- *      post-insert-mutable fields). If the cascade below dies midway, the rows are at least
- *      marked, M6-excluded, and findable via the {user, redacted} index for a manual sweep
- *      (the corpusReadback verifier flags this exact state).
- *   2. Hard-delete the User row — the PRE-delete hook cascade-deletes wardrobe items,
- *      interactions, images, AND generation snapshots (models/User.ts — the single sanctioned
- *      erasure door through the snapshot delete guard; native driver by design).
- *   3. Phase-3 sweep: re-run the cascade AFTER the User row is gone. The cascade is a pre-hook,
- *      so a snapshot/interaction persisted by an in-flight request AFTER the cascade's sweep but
- *      BEFORE the user row died would otherwise survive; once the user row is gone, no new write
- *      can slip past (auth + the writer's post-persist User.exists check both fail), so this
- *      sweep is the closing bracket of the race.
- *   4. Delete the Firebase Auth account so the Google binding is gone too, retrying once (300ms
- *      backoff) on a transient failure. If it STILL fails, the route returns 502 with an honest
- *      partial-success body ({dataDeleted:true, authDeleted:false}) — it never claims full erasure
- *      while the identity survives (DEFECTS-H63). All Mongo data is already gone; re-signing-in
- *      re-creates a fresh empty user, and deleting again retries only this step.
- * The in-flight-render race is thus closed from both sides: mlRecommend self-erases when it sees
- * the user gone post-persist; this route sweeps once the user row's death makes that check reliable.
+ * Start a durable owner barrier before redaction or erasure. Photo transactions either
+ * commit before this barrier and are swept, or cannot admit an image for this owner.
+ * Keep the flagged owner through fallible data/Firebase cleanup so DELETE can resume;
+ * regular auth, image reads and sync reject it. Final User deletion repeats the cascade.
+ * Existing signed bearer tokens can resume even after Firebase deletion. After token
+ * expiry, the guarded operator CLI runs the same continuation for flagged owners.
+ * Arbitrarily delayed non-image writes remain a separate lifecycle limit.
  */
 export async function DELETE(request: NextRequest) {
+  let erasureStarted = false;
   try {
     // §I gate — identity comes ONLY from the verified Firebase token.
-    const auth = await verifyFirebaseUser(request);
+    const auth = await verifyFirebaseUser(request, { allowErasure: true });
     if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-    const { User, GenerationSnapshot } = await initDatabase();
-    const user = (await User.findById(auth.userId).select("authId").lean()) as {
-      authId?: string;
-    } | null;
-    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
-
-    await GenerationSnapshot.updateMany(
-      { user: auth.userId, redacted: { $ne: true } },
-      { $set: { redacted: true, redactedAt: new Date(), redactionReason: "account_deleted" } },
+    const models = await initDatabase();
+    if (!(await beginUserErasure(models.User, auth.userId))) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+    erasureStarted = true;
+    const outcome = await resumeUserErasure(
+      models, auth.userId, uid => adminAuth.deleteUser(uid), () => deleteUserWithData(auth.userId),
     );
-
-    const deleted = await deleteUserWithData(auth.userId);
-    if (!deleted) {
-      return NextResponse.json({ error: "Failed to delete account" }, { status: 500 });
-    }
-
-    // Phase-3 sweep (see the docblock): idempotent cascade re-run now that the user row is gone,
-    // catching any row an in-flight request persisted between the pre-hook sweep and the row's death.
-    await cascadeDeleteUserData(User.db, auth.userId);
-
-    if (user.authId) {
-      let authDeleted = false;
-      for (let attempt = 0; attempt < 2 && !authDeleted; attempt++) {
-        try {
-          await adminAuth.deleteUser(user.authId);
-          authDeleted = true;
-        } catch (e) {
-          console.error(`Firebase auth deletion failed (attempt ${attempt + 1}; Mongo data already removed):`, e);
-          if (attempt === 0) await new Promise((r) => setTimeout(r, 300));
-        }
-      }
-      if (!authDeleted) {
-        // Honest partial-success: ALL Mongo data (photos, snapshots, interactions) is gone, but the
-        // Firebase identity (email/displayName/photoURL) survived — do NOT claim full erasure. Signing
-        // in once re-creates a fresh empty user; deleting again retries only this step.
-        return NextResponse.json(
-          { ok: false, dataDeleted: true, authDeleted: false, error: "auth_deletion_failed" },
-          { status: 502 },
-        );
-      }
-    }
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(outcome.body, { status: outcome.status });
   } catch (error) {
     console.error("Error deleting account:", error);
-    return NextResponse.json({ error: "Failed to delete account" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete account", ...(erasureStarted ? { deletionPending: true } : {}) }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { LAYER_CHOICE_NOTES } from "@/lib/weatherContext";
 /**
  * M5 central payload validation helper (C5, seam #5b) — the anti-corpus-lie boundary run BEFORE
  * every `.create()`. The Mongoose schema accepts documents a serde payload never produces but a
@@ -203,6 +204,13 @@ function validateEngineFailure(ef: Any): void {
 export function validateSnapshotPayload(payload: unknown): void {
   if (!payload || typeof payload !== "object") fail("payload is not an object");
   const p = payload as Any;
+  if (p.layerChoice !== undefined) {
+    const choice = p.layerChoice;
+    if (!choice || typeof choice !== "object" || Array.isArray(choice) ||
+      Object.keys(choice).sort().join(",") !== "note,status" || !["off", "offered", "gap"].includes(choice.status) ||
+      (choice.status === "off" ? choice.note !== null : typeof choice.note !== "string" ||
+        choice.note !== LAYER_CHOICE_NOTES[choice.status as keyof typeof LAYER_CHOICE_NOTES])) fail("Invalid layerChoice");
+  }
 
   const candidates: Any[] = Array.isArray(p.candidates) ? p.candidates : fail("candidates is not an array");
   const itemSnapshots: Any[] = Array.isArray(p.itemSnapshots)

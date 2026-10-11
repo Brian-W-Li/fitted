@@ -95,3 +95,12 @@ describe("buildSnapshotDoc raw-field caps", () => {
     ).toThrow(PayloadContractError);
   });
 });
+
+
+it("keeps weather provenance server-owned and rejects a render service's source injection", () => {
+  const inputs = { payload: { itemSnapshots: [], generationAttempts: [], candidates: [] }, snapshotId: "s", user: "u",
+    interactionCountAtRequest: 0, wardrobeById: new Map() };
+  expect(buildSnapshotDoc({ ...inputs, weatherSource: "manual" }).weatherSource).toBe("manual");
+  expect(() => buildSnapshotDoc({ ...inputs, payload: { ...inputs.payload, weatherSource: "forecast" } }))
+    .toThrow(PayloadContractError);
+});

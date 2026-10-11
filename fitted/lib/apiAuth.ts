@@ -21,7 +21,7 @@ export interface AuthUserErr {
 export type AuthResult = AuthUserOk | AuthUserErr;
 
 /** Extract + verify the Bearer ID token, then resolve the owning Mongo user. */
-export async function verifyFirebaseUser(request: NextRequest): Promise<AuthResult> {
+export async function verifyFirebaseUser(request: NextRequest, options: { allowErasure?: boolean } = {}): Promise<AuthResult> {
   const authHeader = request.headers.get("authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return { error: "Missing or invalid Authorization header", status: 401 };
@@ -42,6 +42,7 @@ export async function verifyFirebaseUser(request: NextRequest): Promise<AuthResu
     const { User } = await initDatabase();
     const user = await User.findOne({ authProvider: "firebase", authId: decoded.uid }).exec();
     if (!user) return { error: "User not found", status: 404 };
+    if (user.erasureStarted && !options.allowErasure) return { error: "Account deletion is in progress", status: 409 };
     return { userId: user._id.toString() };
   } catch (error) {
     console.error("Database error resolving user:", error);

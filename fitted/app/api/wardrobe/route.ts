@@ -1,3 +1,7 @@
+import { Types } from "mongoose";
+import { ownerWriteFence, OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
+import { attachmentState } from "@/lib/imageAttachments";
+import { MAX_ITEMS_PER_USER, CREATE_RATE_MAX } from "@/lib/wardrobeLimits";
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
 import { verifyFirebaseUser } from "@/lib/apiAuth";
@@ -11,10 +15,8 @@ import { allowRequest } from "@/lib/rateLimit";
 // bounded per account, not just per request. 300 is ~10× a real closet (friends run 15–50 items)
 // and, with the 5MB image cap, bounds one account's worst-case footprint. The render wire cap
 // (MAX_WARDROBE_ITEMS=2000) is an envelope bound, not a storage bound — this is the storage one.
-export const MAX_ITEMS_PER_USER = 300;
 // Courtesy pacing against a runaway client loop (same posture as the CV route's limiter —
 // per-instance, best-effort; the hard bound above is the real ceiling).
-export const CREATE_RATE_MAX = 60;
 const CREATE_RATE_WINDOW_MS = 10 * 60 * 1000;
 
 /**
@@ -66,6 +68,8 @@ export async function GET(request: NextRequest) {
       notes?: string;
       isAvailable?: boolean;
       imagePath?: string;
+      imageUrl?: string;
+      supplementalImages?: string[];
       createdAt?: Date;
       updatedAt?: Date;
     };
@@ -92,7 +96,7 @@ export async function GET(request: NextRequest) {
         occasions: item.occasions ?? [],
         notes: item.notes ?? "",
         isAvailable: item.isAvailable ?? true,
-        imagePath: item.imagePath ?? undefined,
+        ...attachmentState(item),
         createdAt: item.createdAt?.toISOString(),
         updatedAt: item.updatedAt?.toISOString(),
       })),
@@ -189,7 +193,9 @@ export async function POST(request: NextRequest) {
             name,
             seasons,
           });
-    const itemDoc = await WardrobeItem.create({
+    const timestamp = new Date();
+    const payload = {
+      _id: new Types.ObjectId(), createdAt: timestamp, updatedAt: timestamp,
       user: userId,
       name,
       clothingType: clothingTypeToSave,
@@ -205,12 +211,12 @@ export async function POST(request: NextRequest) {
       occasions,
       notes: notes || undefined,
       isAvailable,
-    });
+    };
+    const [itemDoc] = await ownerWriteFence(User, userId, session =>
+      WardrobeItem.create([payload], { session, timestamps: false }));
 
-    // Erasure-race close (§23-H43 / Track 2): the account-delete cascade may run while this authed
-    // create is in flight; a row persisted for a since-deleted user must not survive "delete me".
-    // Mirror the snapshot/interaction writer-side guards (mlRecommend.ts / interactions.ts).
-    if (!(await User.exists({ _id: userId }))) {
+    // Reject an acknowledgement after erasure; the transaction, not this cleanup, fences rows.
+    if (!(await User.exists({ _id: userId, erasureStarted: { $ne: true } }))) {
       await WardrobeItem.deleteMany({ user: userId });
       await WardrobeImage.deleteMany({ user: userId });
       return NextResponse.json({ error: "Account no longer exists" }, { status: 401 });
@@ -236,7 +242,7 @@ export async function POST(request: NextRequest) {
           occasions: itemDoc.occasions ?? [],
           notes: itemDoc.notes ?? "",
           isAvailable: itemDoc.isAvailable ?? true,
-          imagePath: itemDoc.imagePath ?? undefined,
+          ...attachmentState(itemDoc),
           createdAt: (itemDoc as unknown as { createdAt?: Date }).createdAt?.toISOString(),
           updatedAt: (itemDoc as unknown as { updatedAt?: Date }).updatedAt?.toISOString(),
         },
@@ -244,6 +250,7 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     );
   } catch (error) {
+    if (error instanceof OwnerWriteUnavailable) return NextResponse.json({ error: "Account no longer exists" }, { status: 401 });
     console.error("Error creating wardrobe item:", error);
     return NextResponse.json(
       { error: "Failed to create wardrobe item" },

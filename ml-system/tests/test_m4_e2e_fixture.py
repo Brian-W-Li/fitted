@@ -95,7 +95,11 @@ def _build_e2e_wire() -> dict:
         generator_provider="openai", generator_model="gpt-5.4-mini", generator_temperature=0.5,
         generator_max_completion_tokens=2200,
     )
-    return snapshot_serde.to_wire(dataclasses.asdict(payload))
+    authored = dataclasses.asdict(payload)
+    # Legacy requests omit unknown optional weather signals at the HTTP boundary.
+    if authored["weather_signals"] is None:
+        authored.pop("weather_signals")
+    return snapshot_serde.to_wire(authored)
 
 
 # --- the seam composes -------------------------------------------------------

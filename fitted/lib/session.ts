@@ -39,6 +39,7 @@ export async function verifySessionCookieUser(request: NextRequest): Promise<Aut
     const { User } = await initDatabase();
     const user = await User.findOne({ authProvider: "firebase", authId: decoded.uid }).exec();
     if (!user) return { error: "User not found", status: 401 };
+    if (user.erasureStarted) return { error: "Account deletion is in progress", status: 409 };
     return { userId: user._id.toString() };
   } catch (error) {
     console.error("Database error resolving session user:", error);

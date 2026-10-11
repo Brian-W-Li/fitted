@@ -12,7 +12,7 @@ const mockSignOut = jest.fn(async () => {});
 const mockClearSessionCookie = jest.fn(async () => {});
 
 jest.mock("@/lib/firebaseClient", () => ({
-  auth: { currentUser: { getIdToken: async () => "tok" } },
+  auth: { currentUser: { uid: "u1", getIdToken: async () => "tok" } },
 }));
 jest.mock("firebase/auth", () => ({
   onAuthStateChanged: (_auth: unknown, cb: (u: unknown) => void) => {
@@ -28,10 +28,9 @@ jest.mock("@/lib/sessionCookie", () => ({
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const accountPage = require("@/app/(app)/account/page") as {
   default: React.ComponentType;
-  PARTIAL_DELETE_MESSAGE: string;
 };
 const AccountPage = accountPage.default;
-const { PARTIAL_DELETE_MESSAGE } = accountPage;
+import { PARTIAL_DELETE_MESSAGE } from "@/lib/accountDeletionMessage";
 
 const LOADED_USER = {
   id: "u1",
@@ -50,6 +49,7 @@ let deleteStatus: number;
 let deleteBody: Record<string, unknown>;
 
 beforeEach(() => {
+  localStorage.clear();
   deleteStatus = 502;
   deleteBody = { ok: false, dataDeleted: true, authDeleted: false, error: "auth_deletion_failed" };
   mockSignOut.mockClear();
@@ -83,6 +83,11 @@ async function mountAndDelete() {
 }
 
 it("partial failure (502): ALERTS the honest message instead of silently signing out", async () => {
+  sessionStorage.setItem("fitted:plan:u1:pending", "private plan draft");
+  sessionStorage.setItem("fitted:plan-edit:u1:pending", "private plan change");
+  localStorage.setItem("fitted:wear:u1:pending", "private wear draft");
+  localStorage.setItem("fitted:retract:u1:pending", "private retraction draft");
+  localStorage.setItem("fitted:wear:u2:pending", "another owner's draft");
   await mountAndDelete();
   await waitFor(() => expect(window.alert).toHaveBeenCalledWith(PARTIAL_DELETE_MESSAGE));
   // The honest copy must name the surviving identity + the retry path (guards against a vague reword).
@@ -91,6 +96,11 @@ it("partial failure (502): ALERTS the honest message instead of silently signing
   // Still ends in the same clean sign-out as success (not stranded on a dataless session).
   await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
   expect(mockClearSessionCookie).toHaveBeenCalled();
+  expect(sessionStorage.getItem("fitted:plan:u1:pending")).toBeNull();
+  expect(sessionStorage.getItem("fitted:plan-edit:u1:pending")).toBeNull();
+  expect(localStorage.getItem("fitted:wear:u1:pending")).toBeNull();
+  expect(localStorage.getItem("fitted:retract:u1:pending")).toBeNull();
+  expect(localStorage.getItem("fitted:wear:u2:pending")).toBe("another owner's draft");
 });
 
 it("requires BOTH confirmations before the DELETE is even issued", async () => {
@@ -132,7 +142,38 @@ it("declining the SECOND confirmation also issues no DELETE", async () => {
 it("full success (200): does NOT alert — signs out silently", async () => {
   deleteStatus = 200;
   deleteBody = { ok: true };
+  sessionStorage.setItem("fitted:plan:u1:pending", "private plan draft");
+  sessionStorage.setItem("fitted:plan-edit:u1:pending", "private plan change");
+  localStorage.setItem("fitted:wear:u1:pending", "private wear draft");
   await mountAndDelete();
   await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
   expect(window.alert).not.toHaveBeenCalled();
+  expect(sessionStorage.getItem("fitted:plan:u1:pending")).toBeNull();
+  expect(sessionStorage.getItem("fitted:plan-edit:u1:pending")).toBeNull();
+  expect(localStorage.getItem("fitted:wear:u1:pending")).toBeNull();
+});
+
+
+it("pending cleanup keeps credentials and exposes the same retry without normal account controls", async () => {
+  deleteBody = { ok: false, dataDeleted: false, authDeleted: false, deletionPending: true };
+  await mountAndDelete();
+  expect(await screen.findByRole("button", { name: "Finish deletion" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /delete my account/i })).not.toBeInTheDocument();
+  expect(mockSignOut).not.toHaveBeenCalled();
+  expect(mockClearSessionCookie).not.toHaveBeenCalled();
+  expect(window.alert).not.toHaveBeenCalled();
+  deleteStatus = 200;
+  deleteBody = { ok: true };
+  await userEvent.click(screen.getByRole("button", { name: "Finish deletion" }));
+  await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
+});
+
+
+it("server-confirmed deletion still exits when cookie cleanup fails", async () => {
+  deleteStatus = 200;
+  deleteBody = { ok: true };
+  mockClearSessionCookie.mockRejectedValueOnce(new Error("cookie endpoint unavailable"));
+  await mountAndDelete();
+  await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
+  expect(window.location.href).toBe("/");
 });

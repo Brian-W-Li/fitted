@@ -162,6 +162,7 @@ def render_body(**overrides) -> dict:
             "occasion": "weekend brunch",
             "weather": "mild",
             "weatherRaw": "72F sunny",
+            "weatherSignals": {"rain": False, "wind": False},
             "location": "Santa Barbara, CA",
             "forcedItemId": None,
             "seedDate": "2026-07-07",

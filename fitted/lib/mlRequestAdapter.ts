@@ -1,3 +1,4 @@
+import { validWeatherSignals, type WeatherSignals } from "@/lib/weatherContext";
 /**
  * M5 request adapter (C5, seam #3) — the trust boundary that maps the deployed request into the
  * stateless render service's `POST /render` wire body.
@@ -300,6 +301,7 @@ export interface LensAdapterInput {
    *  service does not read a clock or a network). */
   weather: string;
   weatherRaw?: string | null;
+  weatherSignals?: WeatherSignals;
   location?: string | null;
   forcedItemId?: string | null;
   /** Required UTC YYYY-MM-DD (H8) — computed Next-side, passed in for determinism. */
@@ -312,6 +314,7 @@ export interface LensWire {
   occasion: string;
   weather: WeatherBucket;
   weatherRaw: string | null;
+  weatherSignals?: WeatherSignals;
   location: string | null;
   forcedItemId: string | null;
   seedDate: string;
@@ -335,6 +338,8 @@ export function buildLens(input: LensAdapterInput, intent: Intent): LensWire {
   if (!input.seedDate || !SEED_DATE_RE.test(input.seedDate)) {
     throw new RequestContractError("seedDate must be a UTC YYYY-MM-DD string");
   }
+  if (input.weatherSignals !== undefined && !validWeatherSignals(input.weatherSignals))
+    throw new RequestContractError("weatherSignals requires exactly rain and wind booleans");
   // optional text clamps
   if (input.weatherRaw != null && input.weatherRaw.length > MAX_WEATHER_RAW_CHARS) {
     throw new RequestContractError(`weatherRaw exceeds ${MAX_WEATHER_RAW_CHARS} chars`);
@@ -360,6 +365,7 @@ export function buildLens(input: LensAdapterInput, intent: Intent): LensWire {
     occasion: input.occasion,
     weather: input.weather as WeatherBucket,
     weatherRaw: input.weatherRaw ?? null,
+    ...(input.weatherSignals ? { weatherSignals: input.weatherSignals } : {}),
     location: input.location ?? null,
     forcedItemId,
     seedDate: input.seedDate,
@@ -375,6 +381,7 @@ export function buildLens(input: LensAdapterInput, intent: Intent): LensWire {
 export interface ControlsWire {
   lockedItemIds: string[];
   dislikedItemIds: string[];
+  excludedOutfitItemIds?: string[];
 }
 
 /** Raw behavioral rows the SERVICE reduces (seam #4 builds these from Mongo). Opaque here. */
@@ -408,6 +415,7 @@ export function buildRenderBody(parts: RenderBodyParts): RenderBody {
   for (const [field, ids] of [
     ["lockedItemIds", parts.controls.lockedItemIds],
     ["dislikedItemIds", parts.controls.dislikedItemIds],
+    ["excludedOutfitItemIds", parts.controls.excludedOutfitItemIds ?? []],
   ] as const) {
     if (ids.length > MAX_CONTROL_IDS) {
       throw new RequestContractError(`controls.${field} exceeds ${MAX_CONTROL_IDS} ids`);

@@ -1,0 +1,4 @@
+rehearsal_out/
+fixtures/synthetic_bundle/generated/
+*.embeddings.npy
+*.embedding_manifest.json

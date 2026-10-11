@@ -78,7 +78,7 @@ const STRING_FIELDS = [
 ] as const;
 
 /**
- * `imagePath` is deliberately NOT here, and must not come back (2026-07-25).
+ * `imagePath` and `supplementalImages` are deliberately NOT here, and must not come back (2026-07-25).
  *
  * It is a SERVER-OWNED pointer — the only legitimate writer is
  * `app/api/wardrobe/[id]/image/route.ts`, which sets it to `mongo:<id>` for bytes it just stored for

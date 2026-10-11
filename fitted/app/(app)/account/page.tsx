@@ -1,18 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebaseClient";
-import { clearSessionCookie } from "@/lib/sessionCookie";
+import { finishAccountDeletion } from "@/lib/accountDeletionClient";
+import DeletionPending from "@/app/(app)/DeletionPending";
 
-/** Shown when account deletion partially fails (DEFECTS-H63): the DELETE returned 502 {dataDeleted:true,
- *  authDeleted:false} — all Mongo data is erased, but the Firebase sign-in unlink didn't complete, so
- *  the Google identity (email/name/photo) still exists in Firebase Auth. Exported so the test asserts
- *  the exact copy rather than duplicating a brittle string. */
-export const PARTIAL_DELETE_MESSAGE =
-  "Your closet, photos, and history have been permanently deleted. " +
-  "We couldn't remove your Google sign-in link right now — to finish clearing it, " +
-  "sign in again and delete your account once more.";
+import { PARTIAL_DELETE_MESSAGE } from "@/lib/accountDeletionMessage";
 
 type AccountUser = {
   id: string;
@@ -45,6 +39,7 @@ export default function AccountPage() {
   const [feedbackCommentInput, setFeedbackCommentInput] = useState("");
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deletionPending, setDeletionPending] = useState(false);
 
   /** The friend-facing data-deletion promise: wardrobe/photos/feedback AND generation snapshots
    *  are hard-deleted (erasure, §23-H43 Track 2 policy) and the Google sign-in binding removed
@@ -69,6 +64,11 @@ export default function AccountPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (data?.deletionPending) {
+          setDeletionPending(true);
+          setDeleting(false);
+          return;
+        }
         if (data?.dataDeleted) {
           // DEFECTS-H63 partial success: ALL Mongo data (closet, photos, history, feedback) is erased, but
           // the Firebase sign-in unlink didn't complete, so the Google identity survives in Firebase
@@ -76,31 +76,14 @@ export default function AccountPage() {
           // signs in again and deletes once more (which retries just that step; it is NOT automatic).
           // Then do the same clean sign-out as the success path.
           window.alert(PARTIAL_DELETE_MESSAGE);
-          await clearSessionCookie();
-          await signOut(auth).catch(() => {});
-          try {
-            window.sessionStorage.clear();
-          } catch {
-            // best-effort
-          }
-          window.location.href = "/";
+          await finishAccountDeletion(fbUser.uid);
           return;
         }
         setError(data.error ?? "Failed to delete account. Please try again.");
         setDeleting(false);
         return;
       }
-      await clearSessionCookie();
-      await signOut(auth).catch(() => {});
-      // sessionStorage SURVIVES navigation — clear it so the deleted account's uid-keyed render
-      // results / pending envelope don't linger in the tab; then a full navigation (not
-      // router.push) flushes in-memory state too.
-      try {
-        window.sessionStorage.clear();
-      } catch {
-        // best-effort
-      }
-      window.location.href = "/";
+      await finishAccountDeletion(fbUser.uid);
     } catch (e) {
       console.error("Error deleting account:", e);
       setError("Failed to delete account. Please try again.");
@@ -270,6 +253,8 @@ export default function AccountPage() {
     if (fill === "half") return 50;
     return 0;
   }
+
+  if (deletionPending && auth.currentUser) return <DeletionPending user={auth.currentUser} />;
 
   return (
     <section className="mx-auto w-full max-w-5xl">

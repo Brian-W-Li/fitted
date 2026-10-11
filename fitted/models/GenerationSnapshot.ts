@@ -1,6 +1,7 @@
 import { Schema, model, models, type InferSchemaType } from "mongoose";
 import { isValidRequestId } from "@/lib/formats";
 import { CLOTHING_TYPES } from "@/lib/clothingType";
+import { WEATHER_SOURCES } from "@/lib/weatherContext";
 
 /**
  * GenerationSnapshot — the immutable training-truth record (M4b C5).
@@ -328,9 +329,20 @@ const GenerationSnapshotSchema = new Schema(
     occasion: { type: String, required: true },
     weather: { type: String, enum: ["hot", "mild", "cold", "indoor", "outdoor"], required: true },
     weatherRaw: { type: String },
+    // Next-owned provenance; no default/backfill that invents a historical source.
+    weatherSource: { type: String, enum: WEATHER_SOURCES },
+    weatherSignals: { type: new Schema({ rain: { type: Boolean, required: true }, wind: { type: Boolean, required: true } }, { _id: false, strict: true }), default: undefined },
+    layerChoice: { type: new Schema({ status: { type: String, enum: ["off", "offered", "gap"], required: true }, note: { type: String, maxlength: 400, default: null } }, { _id: false, strict: true }), default: undefined },
     location: { type: String },
     constraints: { type: Map, of: Schema.Types.Mixed, default: {} }, // flexible, additive (H36)
     forcedItemId: { type: String },
+    // R2: a changed-situation proposal may be based on one shown candidate. This points to the
+    // suggestion, never to a wear report, so erasing a wear does not retain a derived wear link.
+    variationSourceCandidateId: { type: String, maxlength: 128 },
+    // R4: a proposal derived from a reported actual outfit. These fields identify the
+    // exact revision used; erasure/correction redacts derivatives before they can be reused.
+    variationSourceExperienceId: { type: String, maxlength: 64 },
+    variationSourceRevision: { type: Number, min: 1, max: 32 },
     baseOutfitItemIds: { type: [String] },
     routineId: { type: Schema.Types.ObjectId },
     lens: { type: LensSchema },
@@ -349,6 +361,7 @@ const GenerationSnapshotSchema = new Schema(
         {
           lockedItemIds: { type: [String], default: [] },
           dislikedItemIds: { type: [String], default: [] },
+          excludedOutfitItemIds: { type: [String], default: undefined },
         },
         { _id: false },
       ),
@@ -629,8 +642,8 @@ GenerationSnapshotSchema.pre(["deleteOne", "deleteMany", "findOneAndDelete"], im
 GenerationSnapshotSchema.pre("deleteOne", { document: true, query: false }, immutableDeleteGuard); // doc.deleteOne()
 
 // ---------------------------------------------------------------------------
-// Indexes (§8.8) — built automatically on first boot via autoIndex against the empty DB
-// (mongodb.ts autoIndex:true + db.ts Model.init()). No migration script.
+// Indexes (§8.8): dev/test autoIndex builds these on initialization. Production
+// provisions indexes out of band; snapshot admission checks its required unique definition.
 // ---------------------------------------------------------------------------
 
 // Feedback-binding ownership lookup (prefix {user, createdAt}) + the H19 repetition window:
@@ -653,6 +666,7 @@ GenerationSnapshotSchema.index({ user: 1, shownFullSignatures: 1, createdAt: -1 
 GenerationSnapshotSchema.index({ redacted: 1, createdAt: 1 });
 // The account route's phase-1 redaction fail-safe sweep + manual-sweep lookup (H43).
 GenerationSnapshotSchema.index({ user: 1, redacted: 1 });
+GenerationSnapshotSchema.index({ user: 1, variationSourceExperienceId: 1, redacted: 1 });
 
 export type GenerationSnapshotDocument = InferSchemaType<typeof GenerationSnapshotSchema>;
 

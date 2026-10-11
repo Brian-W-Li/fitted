@@ -1,0 +1,33 @@
+name: whole-app browser baseline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: fitted/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: npm ci
+        working-directory: fitted
+      - run: pip install -r requirements.txt -r service/requirements.txt
+        working-directory: ml-system
+      - run: npx playwright install --with-deps chromium
+        working-directory: fitted
+      - run: npm run baseline:browser:production
+        working-directory: fitted
+        env:
+          FITTED_BASELINE_CHROME_CHANNEL: chromium

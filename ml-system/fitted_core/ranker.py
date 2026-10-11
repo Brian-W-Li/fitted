@@ -193,6 +193,7 @@ class RankerContext:
     recent_disliked_item_ids: Sequence[str] = ()  # soft-penalty window (≤ DISLIKE_WINDOW_SIZE)
     contextual_disliked_item_ids: frozenset[str] = frozenset()  # regen hard filter
     locked_item_ids: frozenset[str] = frozenset()  # regen lock filter
+    reserved_full_signatures: frozenset[str] = frozenset()  # bounded practical choice
 
     def __post_init__(self) -> None:
         self._validate_generation_index()
@@ -243,6 +244,7 @@ class RankerContext:
         "liked_full_signatures",
         "contextual_disliked_item_ids",
         "locked_item_ids",
+        "reserved_full_signatures",
     )
 
     def _normalize_collections(self) -> None:
@@ -276,6 +278,7 @@ class RankerContext:
             self, "contextual_disliked_item_ids", frozenset(self.contextual_disliked_item_ids)
         )
         object.__setattr__(self, "locked_item_ids", frozenset(self.locked_item_ids))
+        object.__setattr__(self, "reserved_full_signatures", frozenset(self.reserved_full_signatures))
         object.__setattr__(self, "item_affinity", MappingProxyType(dict(self.item_affinity)))
         for name in self._SIGNAL_COLLECTION_FIELDS:
             for element in getattr(self, name):
@@ -514,6 +517,7 @@ def _score_candidate(
 
 def _apply_variant_cap(
     scored: Sequence[_ScoredCandidate],
+    reserved_full_signatures: frozenset[str] = frozenset(),
 ) -> tuple[_ScoredCandidate, ...]:
     """Keep the top ``BASEKEY_VARIANT_CAP`` candidates per ``base_key`` (N5, §14).
 
@@ -539,11 +543,15 @@ def _apply_variant_cap(
     for sc in scored:
         by_base_key.setdefault(sc.candidate.base_key, []).append(sc)
 
+    from fitted_core.layer_policy import reserve_choice
+    preferred = next((sc.candidate.full_signature for sc in sorted(scored, key=lambda sc: (-sc.score, sc.candidate.full_signature)) if sc.candidate.full_signature in reserved_full_signatures), None)
     survivors: list[_ScoredCandidate] = []
     for group in by_base_key.values():
         # Canonical: highest pre-penalty score first, full_signature ascending as the tie-break
         # (never source_index — N6). full_signature is unique, so this order is total.
         group.sort(key=lambda sc: (-sc.score, sc.candidate.full_signature))
+        protected = frozenset({preferred}) if preferred is not None else frozenset()
+        group = reserve_choice(group, BASEKEY_VARIANT_CAP, protected, lambda sc: sc.candidate.full_signature)
         survivors.extend(group[:BASEKEY_VARIANT_CAP])
     return tuple(survivors)
 
@@ -645,7 +653,7 @@ def _apply_step6_diversity(
     candidates — those are C5. The overuse set is computed *after* the variant cap, so the cap's
     drops change the denominator (N1).
     """
-    survivors = _apply_variant_cap(scored)
+    survivors = _apply_variant_cap(scored, context.reserved_full_signatures)
     overuse_set = _compute_overuse_set(survivors)
     return tuple(_rescore_with_diversity(sc, overuse_set, context) for sc in survivors)
 
@@ -695,9 +703,16 @@ def _select_fallback_pool(
     """
     step5_survivors = tuple(_score_candidate(candidate, context) for candidate in step4.survivors)
 
+    # Cooldown is a soft preference. It cannot eliminate the sole practical choice.
+    reserved_cooldown = ()
+    if context.reserved_full_signatures and not any(sc.candidate.full_signature in context.reserved_full_signatures for sc in step5_survivors):
+        choices = [_score_candidate(candidate, context, relaxed_cooldown=True) for candidate in step4.cooldown_reserve if candidate.full_signature in context.reserved_full_signatures]
+        if choices:
+            reserved_cooldown = (min(choices, key=lambda sc: (-sc.score, sc.candidate.full_signature)),)
+            step5_survivors += reserved_cooldown
     normal = _apply_step6_diversity(step5_survivors, context)
     if len(normal) >= context.k:
-        return normal, FallbackStage.none
+        return normal, FallbackStage.cooldown_relaxed if reserved_cooldown else FallbackStage.none
 
     # overuse_relaxed is a **score-only** rung: it drops the overuse penalty over the *same*
     # post-cap pool, so its count equals `normal`'s — it can never flip the count-based gate that
@@ -706,13 +721,13 @@ def _select_fallback_pool(
     # into the deeper, count-changing rungs below — `_score_without_overuse`).
     overuse_relaxed = tuple(_drop_overuse_penalty(scored) for scored in normal)
     if len(overuse_relaxed) >= context.k:
-        return overuse_relaxed, FallbackStage.overuse_relaxed
+        return overuse_relaxed, FallbackStage.cooldown_relaxed if reserved_cooldown else FallbackStage.overuse_relaxed
 
     variant_cap_relaxed = tuple(
         _score_without_overuse(scored, context) for scored in step5_survivors
     )
     if len(variant_cap_relaxed) >= context.k:
-        return variant_cap_relaxed, FallbackStage.variant_cap_relaxed
+        return variant_cap_relaxed, FallbackStage.cooldown_relaxed if reserved_cooldown else FallbackStage.variant_cap_relaxed
 
     cooldown_relaxed = tuple(
         _score_without_overuse(
@@ -720,6 +735,7 @@ def _select_fallback_pool(
             context,
         )
         for candidate in step4.cooldown_reserve
+        if not any(sc.candidate.full_signature == candidate.full_signature for sc in reserved_cooldown)
     )
     cooldown_pool = (*variant_cap_relaxed, *cooldown_relaxed)
     if len(cooldown_pool) >= context.k:
@@ -776,7 +792,8 @@ def _order_final_candidates(
             emitted_count[base_key] = emitted_count.get(base_key, 0) + 1
             group.remove(pick)
 
-    return tuple(ordered)
+    from fitted_core.layer_policy import reserve_choice
+    return reserve_choice(ordered, context.k, context.reserved_full_signatures, lambda sc: sc.candidate.full_signature)
 
 
 def _copy_slot_map(slot_map: SlotMap) -> SlotMap:

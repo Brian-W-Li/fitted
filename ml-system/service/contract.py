@@ -67,11 +67,11 @@ RENDER_BODY_OPTIONAL: frozenset[str] = frozenset()
 
 # --- controls (§C.3) — regenerate-lineage only; present-but-empty on a root render ----
 CONTROLS_REQUIRED = frozenset({"lockedItemIds", "dislikedItemIds"})
-CONTROLS_OPTIONAL: frozenset[str] = frozenset()
+CONTROLS_OPTIONAL = frozenset({"excludedOutfitItemIds"})
 
 # --- lens (§F) — the normalized request context --------------------------------------
 LENS_REQUIRED = frozenset({"occasion", "weather", "constraints", "seedDate"})
-LENS_OPTIONAL = frozenset({"weatherRaw", "location", "forcedItemId"})
+LENS_OPTIONAL = frozenset({"weatherSignals", "weatherRaw", "location", "forcedItemId"})
 
 # --- wardrobe[i] (§A) — one wire wardrobe item ----------------------------------------
 WARDROBE_ITEM_REQUIRED = frozenset({
@@ -328,7 +328,9 @@ CROSS_RUNTIME_FORMATS: dict[str, object] = {
 
 def cross_runtime_mirror() -> dict:
     """The `crossRuntime` block of the JSON mirror — clamps/enums derived from config, formats literal."""
+    from fitted_core.layer_policy import OFFERED_NOTE, GAP_NOTE
     return {
+        "layerChoiceNotes": {"offered": OFFERED_NOTE, "gap": GAP_NOTE},
         "_comment": (
             "Values/behaviors hand-mirrored across the Next app (TS/Mongoose) and this service "
             "(Python). This file is the single source; a TS test and a Python test each assert their "

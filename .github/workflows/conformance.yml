@@ -33,7 +33,7 @@ jobs:
         run: python -m pytest tests service/tests -q
 
   jest:
-    name: jest + tsc (Next)
+    name: jest + tsc + lint (Next)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: fitted/package-lock.json
       - name: Install (clean)
@@ -51,3 +51,26 @@ jobs:
         run: npm test
       - name: tsc --noEmit
         run: npx tsc --noEmit
+      - name: lint
+        run: npm run lint
+
+  documentation:
+    name: documentation contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fitted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: fitted/package-lock.json
+      - run: npm ci
+      - name: Active links, historical ratchets and frozen evidence
+        run: npm run hygiene -- --runInBand --testNamePattern='check (8|9|10|11|13|14):|active maintained'
+      - name: Shared workflow shell syntax
+        run: for script in ../scripts/workflow/*.sh ../.claude/scripts/*.sh; do bash -n "$script" || exit; done

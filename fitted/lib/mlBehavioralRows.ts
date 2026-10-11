@@ -1,3 +1,4 @@
+import { visibleSnapshots, type SnapshotVisibility } from "@/lib/snapshotVisibility";
 /**
  * M5 behavioral-rows projection (C5, seam #4) — the Mongo → wire projection the SERVICE reduces.
  *
@@ -68,7 +69,8 @@ export interface InteractionLean {
   items?: Stringable[];
   perItemFeedback?: Array<{ itemId?: Stringable; disliked?: boolean }> | null;
 }
-export interface SnapshotLean {
+export interface SnapshotLean extends SnapshotVisibility {
+  _id?: Stringable;
   nSurfaced?: number | null;
   shownFullSignatures?: (string | null | undefined)[];
 }
@@ -81,6 +83,7 @@ export interface BehavioralQueryModels {
 }
 interface BoundedQueryable<T> {
   find(filter: Record<string, unknown>): {
+    select(projection: Record<string, 1>): { lean(): Promise<T[]> };
     sort(spec: Record<string, 1 | -1>): {
       limit(n: number): { lean(): Promise<T[]> };
     };
@@ -139,13 +142,20 @@ export async function buildBehavioralRows(
       .sort({ createdAt: -1, _id: -1 })
       .limit(INTERACTION_ROWS_SCAN_LIMIT)
       .lean(),
-    models.GenerationSnapshot.find({ user: userId, nSurfaced: { $gt: 0 } })
+    models.GenerationSnapshot.find({ user: userId, nSurfaced: { $gt: 0 }, redacted: { $ne: true } })
       .sort({ createdAt: -1, _id: -1 })
       .limit(REPETITION_WINDOW_SNAPSHOTS)
       .lean(),
   ]);
+  // Existing reactions to a later-redacted proposal cannot keep teaching the reducer.
+  // Preserve the bounded scan; missing snapshots retain their historical treatment.
+  const bound = await models.GenerationSnapshot.find({ user: userId,
+    _id: { $in: interactions.map((row) => row.snapshotId) } })
+    .select({ _id: 1, redacted: 1, variationSourceExperienceId: 1, variationSourceRevision: 1 }).lean();
+  const visible = new Set(await visibleSnapshots(userId, bound));
+  const redactedIds = new Set(bound.filter(row => !visible.has(row)).map(row => hex(row._id)));
   return {
-    interactionRows: interactions.map(projectInteractionRow),
-    recentSnapshots: snapshots.map(projectSnapshotRow),
+    interactionRows: interactions.filter((row) => !redactedIds.has(String(row.snapshotId))).map(projectInteractionRow),
+    recentSnapshots: (await visibleSnapshots(userId, snapshots)).map(projectSnapshotRow),
   };
 }

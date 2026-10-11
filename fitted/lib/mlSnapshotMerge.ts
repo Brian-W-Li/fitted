@@ -21,6 +21,7 @@
  * Reference: docs/plans/m5-cutover.md §A/§C/§G/§G.1; docs/sessions/2026-07-08-m5-c5-seam6-route.md.
  */
 import { createHash } from "crypto";
+import { weatherSourceFromSnapshot, weatherSignalsFromSnapshot, validWeatherSignals, sameWeatherSignals, type WeatherSignals, type LayerChoice, type WeatherSource } from "@/lib/weatherContext";
 import type { ClothingType } from "@/lib/clothingType";
 import { RequestContractError, MAX_CONTROL_IDS, type GENERATOR_EXPECTATION } from "@/lib/mlRequestAdapter";
 import { PayloadContractError } from "@/lib/mlSnapshotValidation";
@@ -69,6 +70,7 @@ function normalizeIdList(ids: unknown, field: string): string[] {
 export interface NormalizedControls {
   lockedItemIds: string[];
   dislikedItemIds: string[];
+  excludedOutfitItemIds?: string[];
 }
 
 export function normalizeControls(controls: unknown): NormalizedControls {
@@ -79,11 +81,16 @@ export function normalizeControls(controls: unknown): NormalizedControls {
     throw new RequestContractError("controls must be an object");
   }
   const c = controls as Record<string, unknown>;
-  const unknownKeys = Object.keys(c).filter((k) => k !== "lockedItemIds" && k !== "dislikedItemIds");
+  const unknownKeys = Object.keys(c).filter((k) => k !== "lockedItemIds" && k !== "dislikedItemIds" && k !== "excludedOutfitItemIds");
   if (unknownKeys.length > 0) {
     throw new RequestContractError(`controls has unknown field(s): ${unknownKeys.sort().join(", ")}`);
   }
+  if ("excludedOutfitItemIds" in c && (!Array.isArray(c.excludedOutfitItemIds) || c.excludedOutfitItemIds.length < 1 ||
+    c.excludedOutfitItemIds.length > 5 || new Set(c.excludedOutfitItemIds).size !== c.excludedOutfitItemIds.length)) {
+    throw new RequestContractError("excludedOutfitItemIds must contain 1–5 unique item ids");
+  }
   return {
+    ...(c.excludedOutfitItemIds ? { excludedOutfitItemIds: normalizeIdList(c.excludedOutfitItemIds, "excludedOutfitItemIds") } : {}),
     lockedItemIds: normalizeIdList(c.lockedItemIds, "lockedItemIds"),
     dislikedItemIds: normalizeIdList(c.dislikedItemIds, "dislikedItemIds"),
   };
@@ -94,14 +101,10 @@ export function normalizeControls(controls: unknown): NormalizedControls {
 // same requestId is the SAME render (→ replay the winner) or a genuinely different one (→ 409). Two
 // deliberate exclusions:
 //   • seedDate — server-clock-derived, rolls over at 00:00 UTC on a legit retry.
-//   • weatherRaw — a human-readable provenance string ("Partly cloudy, 22°C") that does NOT shape
-//     generation (the seed/cache key uses the bucketed `weather`, never the raw text). On a geo
-//     resume the route re-resolves weather live, and the volatile raw string changes across
-//     open-meteo refreshes (~15 min) even when the bucket is unchanged; keeping it in the identity
-//     made an otherwise-identical resume false-409 and orphan its paid render. weatherRaw is still
-//     re-asserted by the SEPARATE authorship cross-check (the service must echo what Next sent) —
-//     it just isn't an idempotency discriminator. The bucketed `weather` STAYS: it genuinely shapes
-//     the render, so a rare bucket-boundary flip on resume is a real difference (DEFECTS-H73 residual).
+//   • weatherRaw — automatically resolved context is captured by the first completed render.
+//     An identical command replays that captured context even if a same-bucket forecast refreshes.
+//     Explicit frozen raw context is checked separately at both replay paths in mlRecommend.
+//     The bucket remains identity; authorship still requires each service attempt to echo its raw.
 // ---------------------------------------------------------------------------
 export interface RenderIdentity {
   user: string;
@@ -115,6 +118,10 @@ export interface RenderIdentity {
   parentSnapshotId: string | null;
   lockedItemIds: string[];
   dislikedItemIds: string[];
+  excludedOutfitItemIds: string[];
+  variationSourceCandidateId: string | null;
+  variationSourceExperienceId: string | null;
+  variationSourceRevision: number | null;
 }
 
 /** Build the comparable identity from raw fields (used for BOTH the incoming request and a stored
@@ -131,6 +138,9 @@ export function makeRenderIdentity(f: {
   generationIndex: unknown;
   parentSnapshotId?: unknown;
   controls?: unknown;
+  variationSourceCandidateId?: unknown;
+  variationSourceExperienceId?: unknown;
+  variationSourceRevision?: unknown;
 }): RenderIdentity {
   const controls = normalizeControls(f.controls);
   return {
@@ -145,6 +155,10 @@ export function makeRenderIdentity(f: {
     parentSnapshotId: s(f.parentSnapshotId),
     lockedItemIds: controls.lockedItemIds,
     dislikedItemIds: controls.dislikedItemIds,
+    excludedOutfitItemIds: controls.excludedOutfitItemIds ?? [],
+    variationSourceCandidateId: s(f.variationSourceCandidateId),
+    variationSourceExperienceId: s(f.variationSourceExperienceId),
+    variationSourceRevision: f.variationSourceRevision == null ? null : Number(f.variationSourceRevision),
   };
 }
 
@@ -164,7 +178,11 @@ export function identityMatches(a: RenderIdentity, b: RenderIdentity): boolean {
     a.generationIndex === b.generationIndex &&
     a.parentSnapshotId === b.parentSnapshotId &&
     arraysEqual(a.lockedItemIds, b.lockedItemIds) &&
-    arraysEqual(a.dislikedItemIds, b.dislikedItemIds)
+    arraysEqual(a.dislikedItemIds, b.dislikedItemIds) &&
+    arraysEqual(a.excludedOutfitItemIds, b.excludedOutfitItemIds) &&
+    a.variationSourceCandidateId === b.variationSourceCandidateId &&
+    a.variationSourceExperienceId === b.variationSourceExperienceId &&
+    a.variationSourceRevision === b.variationSourceRevision
   );
 }
 
@@ -180,6 +198,7 @@ export interface AuthorshipExpectation {
   occasion: string;
   weather: string;
   weatherRaw: string | null;
+  weatherSignals?: WeatherSignals;
   location: string | null;
   forcedItemId: string | null;
   seedDate: string;
@@ -189,7 +208,7 @@ export interface AuthorshipExpectation {
   generationIndex: number;
   controls: NormalizedControls;
   generator: typeof GENERATOR_EXPECTATION;
-  /** On a re-roll only: the parent row's candidateCacheKey (siblings share the Lens-chain key). */
+  /** On a same-Lens re-roll only. A changed-situation variation has a different Lens-chain key. */
   parentCandidateCacheKey?: string | null;
 }
 
@@ -213,6 +232,8 @@ export function crossCheckAuthorship(payload: unknown, expected: AuthorshipExpec
   eq(p.occasion, expected.occasion, "occasion");
   eq(p.weather, expected.weather, "weather");
   eq(s(p.weatherRaw), s(expected.weatherRaw), "weatherRaw");
+  if ((p.weatherSignals != null && !validWeatherSignals(p.weatherSignals)) ||
+    !sameWeatherSignals(p.weatherSignals, expected.weatherSignals)) fail4("authorship: weatherSignals mismatch");
   eq(s(p.location), s(expected.location), "location");
   eq(s(p.forcedItemId), s(expected.forcedItemId), "forcedItemId");
   eq(p.seedDate, expected.seedDate, "seedDate");
@@ -229,6 +250,9 @@ export function crossCheckAuthorship(payload: unknown, expected: AuthorshipExpec
 
   // controls == the normalizedControls Next used to shape generation (order-normalized both sides).
   const pc = normalizeControls(p.controls);
+  if (!arraysEqual(pc.excludedOutfitItemIds ?? [], expected.controls.excludedOutfitItemIds ?? [])) {
+    fail4("authorship: controls.excludedOutfitItemIds differs from the request");
+  }
   if (!arraysEqual(pc.lockedItemIds, expected.controls.lockedItemIds)) {
     fail4("authorship: controls.lockedItemIds != the normalized request controls");
   }
@@ -257,7 +281,7 @@ export function crossCheckAuthorship(payload: unknown, expected: AuthorshipExpec
   }
 
   // candidateCacheKey — a Python seed.py sha256; cannot be recomputed in TS, so validate
-  // structurally (64-hex) AND, on a re-roll, assert it equals the parent's (the Lens-chain invariant).
+  // structurally (64-hex) AND, on a same-Lens re-roll, assert it equals the parent's.
   const cck = p.candidateCacheKey;
   if (typeof cck !== "string" || !CACHE_KEY_RE.test(cck)) {
     fail4("authorship: candidateCacheKey is not 64-char lowercase hex");
@@ -456,6 +480,9 @@ export interface BrowserShownEntry {
 }
 
 export interface BrowserResponse {
+  weatherSource: WeatherSource;
+  weatherSignals?: WeatherSignals;
+  layerChoice?: LayerChoice;
   shown: BrowserShownEntry[];
   flags: BrowserFlags;
   bindable: boolean;
@@ -518,6 +545,9 @@ export function projectBrowserResponse(
   });
 
   const response: BrowserResponse = {
+    weatherSource: weatherSourceFromSnapshot(doc.weatherSource),
+    ...(weatherSignalsFromSnapshot(doc.weatherSignals) ? { weatherSignals: weatherSignalsFromSnapshot(doc.weatherSignals) } : {}),
+    ...(doc.layerChoice ? { layerChoice: doc.layerChoice } : {}),
     shown,
     flags: wireFlags ?? flagsFromDoc(doc),
     bindable: (doc.nSurfaced ?? 0) > 0,
@@ -531,7 +561,7 @@ export function projectBrowserResponse(
 }
 
 // ---------------------------------------------------------------------------
-// Merge — build the persistable document from the validated payload + the exactly-four TS-added
+// Merge — build the persistable document from the validated payload + the server-owned TS-added
 // fields (§G.1), stripping any schema-reserved key a compromised service might have injected via the
 // spread (redacted/schemaVersion/timestamps — else a row could be born redacted or backdated).
 // ---------------------------------------------------------------------------
@@ -559,6 +589,8 @@ const M5_PAYLOAD_KEYS = new Set([
   "occasion",
   "weather",
   "weatherRaw",
+  "weatherSignals",
+  "layerChoice",
   "location",
   "constraints",
   "forcedItemId",
@@ -588,10 +620,13 @@ export interface MergeInputs {
   interactionCountAtRequest: number;
   /** Full deployed WardrobeItem docs keyed by string id — the evidence{} source. */
   wardrobeById: Map<string, EvidenceSourceItem>;
+  /** Server-owned context provenance; never accepted from the service payload. */
+  weatherSource?: WeatherSource;
+  weatherSignals?: WeatherSignals;
 }
 
 /**
- * Merge the validated payload into the persistable doc. Applies the raw-field caps
+ * Merge the validated payload and server-owned weather provenance into the persistable doc. Applies the raw-field caps
  * (generationAttempts[].rawText, candidates[].rawEmitted) + builds per-item evidence, and asserts
  * every itemSnapshots[].itemId came from the request wardrobe (a service-invented id fails loud).
  */
@@ -608,6 +643,9 @@ export function buildSnapshotDoc(inputs: MergeInputs): Record<string, unknown> {
   doc._id = snapshotId;
   doc.user = user;
   doc.interactionCountAtRequest = interactionCountAtRequest;
+  doc.weatherSource = weatherSourceFromSnapshot(inputs.weatherSource);
+  if (inputs.weatherSignals) doc.weatherSignals = { ...inputs.weatherSignals };
+  else delete doc.weatherSignals;
 
   // Raw-field caps on the attempt text.
   doc.generationAttempts = (payload.generationAttempts ?? []).map((a: Any) => {

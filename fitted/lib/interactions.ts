@@ -1,3 +1,5 @@
+import { ownerWriteFence, OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
+import { snapshotVisible, visibleSnapshots } from "@/lib/snapshotVisibility";
 /**
  * M5 feedback boundary (C6, §I) — append-only interactions bound to `{snapshotId, candidateId}`.
  *
@@ -190,8 +192,9 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
 
     // Ownership + immutable re-read: never trust echoed content.
     const { OutfitInteraction, GenerationSnapshot } = deps.models;
-    const snapshot = await GenerationSnapshot.findOne({ _id: snapshotId, user: userObjectId }).lean();
-    if (!snapshot) return respondError(404, "snapshot_not_found", "snapshot not found");
+    const snapshot = await GenerationSnapshot.findOne({ _id: snapshotId, user: userObjectId,
+      redacted: { $ne: true } }).lean();
+    if (!snapshot || !await snapshotVisible(userObjectId, snapshot)) return respondError(404, "snapshot_not_found", "snapshot not found");
 
     // Bind only to what the user actually SAW (a candidate not in shownCandidateIds — incl. every
     // candidate of a degenerate/unbindable render — is unbindable).
@@ -274,7 +277,9 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
 
     // Append-only write via .create() so the co-presence pre('validate') guard fires. Everything the
     // reducers read is SERVER-DERIVED. `items` are hex strings — mongoose casts to the ObjectId refs.
-    const interaction = await OutfitInteraction.create({
+    const timestamp = new Date();
+    const payload = {
+      _id: new mongoose.Types.ObjectId(), createdAt: timestamp, updatedAt: timestamp,
       user: userObjectId,
       items: candidateItemIds,
       action,
@@ -285,20 +290,23 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
       fullSignature,
       ...(perItemFeedback ? { perItemFeedback } : {}),
       ...(feedbackReason ? { feedbackReason } : {}),
-    });
+    };
+    const [interaction] = await ownerWriteFence<Any[]>(deps.models.User, userObjectId, session =>
+      OutfitInteraction.create([payload], { session, timestamps: false }));
 
-    // Erasure race (§23-H43 — the mirror of mlRecommend step 11.5): auth re-reads the User row,
-    // so only an ALREADY-authed request can interleave with DELETE /api/account. If the account
-    // died while this request was in flight, the row just written is an orphan that would survive
-    // the phase-3 sweep — "delete means delete", so self-erase via the native driver (the same
-    // sanctioned erasure door the User cascade uses; the append-only guard stays intact for every
-    // other path) and reject non-committally.
-    const userStillExists = await deps.models.User.exists({ _id: userObjectId });
+    // Acknowledged writes from already-admitted requests self-erase once the owner
+    // is flagged or absent. Transactional admission is the erasure safety mechanism.
+    const userStillExists = await deps.models.User.exists({ _id: userObjectId, erasureStarted: { $ne: true } });
     if (!userStillExists) {
       await OutfitInteraction.db
         .collection("outfitinteractions")
         .deleteMany({ user: userObjectId });
       return respondError(401, "auth", "User not found");
+    }
+    const currentSnapshot = await GenerationSnapshot.findOne({ _id: snapshotId, user: userObjectId, redacted: { $ne: true } }).lean();
+    if (!currentSnapshot || !await snapshotVisible(userObjectId, currentSnapshot)) {
+      await OutfitInteraction.collection.deleteOne({ _id: interaction._id, user: userObjectId });
+      return respondError(404, "snapshot_not_found", "snapshot is no longer available");
     }
 
     return NextResponse.json({
@@ -306,6 +314,7 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
       interaction: { id: interaction._id.toString(), action: interaction.action },
     });
   } catch (error) {
+    if (error instanceof OwnerWriteUnavailable) return respondError(401, "auth", "User not found");
     console.error("Error saving interaction:", error);
     return respondError(500, "internal", "Failed to save interaction");
   }
@@ -416,23 +425,28 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
     const snapshotIds = [
       ...new Set(interactions.filter((i) => i.snapshotId).map((i) => i.snapshotId.toString())),
     ];
+    const hiddenDerivedIds = new Set<string>();
     const snapshotById = new Map<string, Any>();
     if (snapshotIds.length > 0) {
       // Project ONLY what projectHistoryCard reads — a full snapshot carries generationAttempts
       // rawText (up to 120KB each) + rawEmitted blobs, and the history page fires this join over the
       // deduped candidate set per view; unprojected, that's multi-MB reads growing with every week
       // of real use.
-      const snapshots = (await GenerationSnapshot.find({ _id: { $in: snapshotIds }, user: userObjectId, redacted: { $ne: true } })
+      const snapshots = (await GenerationSnapshot.find({ _id: { $in: snapshotIds }, user: userObjectId })
         .select(
-          "candidates.candidateId candidates.items candidates.styleMove candidates.optionPath " +
+          "variationSourceExperienceId variationSourceRevision redacted candidates.candidateId candidates.items candidates.styleMove candidates.optionPath " +
             "candidates.risk candidates.template itemSnapshots.itemId itemSnapshots.engineVisible",
         )
         .lean()
         .exec()) as Any[];
-      for (const s of snapshots) snapshotById.set(s._id.toString(), s);
+      const visible = new Set(await visibleSnapshots(userObjectId, snapshots));
+      for (const s of snapshots) {
+        if (visible.has(s)) snapshotById.set(s._id.toString(), s);
+        else if (s.variationSourceExperienceId != null || s.variationSourceRevision != null) hiddenDerivedIds.add(s._id.toString());
+      }
     }
 
-    const formatted = interactions.map((i) =>
+    const formatted = interactions.filter(i => !hiddenDerivedIds.has(String(i.snapshotId))).map((i) =>
       projectHistoryCard(i, i.snapshotId ? snapshotById.get(i.snapshotId.toString()) : undefined),
     );
 

@@ -49,6 +49,7 @@ beforeEach(() => {
 afterEach(async () => {
   consoleErrorSpy.mockRestore();
   await harness.clear();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
 });
 
@@ -107,7 +108,7 @@ describe("DELETE /api/wardrobe/clear — behavioral, real Mongo", () => {
 
     const res = await DELETE(makeRequest());
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, deletedCount: 3 });
+    expect(await res.json()).toEqual({ ok: true, deletedCount: 3, itemsCleared: true, cleanupComplete: true });
 
     expect(await WardrobeItem.countDocuments({ user: userId })).toBe(0);
     expect(await WardrobeImage.countDocuments({ user: userId })).toBe(0); // images not orphaned (§23-H14)
@@ -162,13 +163,126 @@ describe("DELETE /api/wardrobe/clear — behavioral, real Mongo", () => {
     expect(await WardrobeImage.countDocuments({ user: userId })).toBe(2);
   });
 
-  it("401s a valid token whose user does not exist (no rows to own → nothing deleted)", async () => {
+  it("404s a valid token whose user does not exist (no rows to own → nothing deleted)", async () => {
     // A stray item under some other id must survive an unknown caller.
     const strayOwner = new Types.ObjectId().toString();
     await seedWardrobe(strayOwner, 1);
 
     const res = await DELETE(makeRequest()); // token verifies to "firebase-uid" but no User row exists
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
     expect(await WardrobeItem.countDocuments({})).toBe(1);
+  });
+
+  it("rejects an already-pending owner before any wardrobe delete", async () => {
+    const userId = await seedUser("firebase-uid");
+    await seedWardrobe(userId, 1);
+    await User.updateOne({ _id: userId }, { $set: { erasureStarted: true } });
+    const res = await DELETE(makeRequest());
+    expect(res.status).toBe(409);
+    expect(await WardrobeItem.countDocuments({ user: userId })).toBe(1);
+    expect(await WardrobeImage.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("reports deleted garments and unfinished photo cleanup, then retries without garments", async () => {
+    const mine = await seedUser("firebase-uid");
+    const other = await seedUser("other");
+    await seedWardrobe(mine, 2);
+    await seedWardrobe(other, 1);
+    const fault = jest.spyOn(WardrobeImage, "distinct").mockImplementationOnce((() => ({ exec: async () => { throw new Error("lookup failed"); } })) as Any);
+    const failed = await DELETE(makeRequest());
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toMatchObject({ ok: false, deletedCount: 2, itemsCleared: true, cleanupComplete: false });
+    expect(await WardrobeItem.countDocuments({ user: mine })).toBe(0);
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(2);
+    expect(await WardrobeItem.countDocuments({ user: other })).toBe(1);
+    fault.mockRestore();
+    const retry = await DELETE(makeRequest());
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ deletedCount: 0, cleanupComplete: true });
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(0);
+    expect(await WardrobeImage.countDocuments({ user: other })).toBe(1);
+  });
+
+  it("keeps deletion uncertain when Mongo rejects before removing garments", async () => {
+    const mine = await seedUser("firebase-uid");
+    await seedWardrobe(mine, 2);
+    const fault = jest.spyOn(WardrobeItem, "deleteMany").mockImplementationOnce((() => ({ exec: async () => { throw new Error("delete unavailable"); } })) as Any);
+    const failed = await DELETE(makeRequest());
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toMatchObject({ deletedCount: null, itemsCleared: null, cleanupComplete: false });
+    expect(await WardrobeItem.countDocuments({ user: mine })).toBe(2);
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(2);
+    fault.mockRestore();
+    expect((await DELETE(makeRequest())).status).toBe(200);
+    expect(await WardrobeItem.countDocuments({ user: mine })).toBe(0);
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(0);
+  });
+
+  it("rejects an unacknowledged delete result without starting the image sweep", async () => {
+    const mine = await seedUser("firebase-uid");
+    const other = await seedUser("other");
+    await seedWardrobe(mine, 1);
+    await seedWardrobe(other, 1);
+    const deleteCall = jest.spyOn(WardrobeItem, "deleteMany").mockImplementationOnce((() => ({
+      exec: async () => ({ acknowledged: false }),
+    })) as Any);
+    const sweep = jest.spyOn(WardrobeImage, "distinct");
+    const response = await DELETE(makeRequest());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ deletedCount: null, itemsCleared: null, cleanupComplete: false });
+    expect(deleteCall).toHaveBeenCalledWith({ user: mine }, { writeConcern: { w: "majority" } });
+    expect(sweep).not.toHaveBeenCalled();
+    expect(await WardrobeItem.countDocuments({ user: mine })).toBe(1);
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(1);
+    expect(await WardrobeImage.countDocuments({ user: other })).toBe(1);
+  });
+
+  it("does not claim completion or sweep photos after a committed delete loses its response", async () => {
+    const mine = await seedUser("firebase-uid");
+    await seedWardrobe(mine, 2);
+    const realDelete = WardrobeItem.deleteMany.bind(WardrobeItem);
+    jest.spyOn(WardrobeItem, "deleteMany").mockImplementationOnce(((filter: Any) => ({
+      exec: async () => { await realDelete(filter).exec(); throw new Error("delete result lost"); },
+    })) as Any);
+    const res = await DELETE(makeRequest());
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, deletedCount: null, itemsCleared: null, cleanupComplete: false });
+    expect(await WardrobeItem.countDocuments({ user: mine })).toBe(0);
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(2);
+    const retry = await DELETE(makeRequest());
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ deletedCount: 0, itemsCleared: true, cleanupComplete: true });
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(0);
+  });
+
+  it("does not use an empty read to promote a failed delete to success", async () => {
+    const mine = await seedUser("firebase-uid");
+    const count = jest.spyOn(WardrobeItem, "countDocuments");
+    jest.spyOn(WardrobeItem, "deleteMany").mockImplementationOnce((() => ({ exec: async () => { throw new Error("delete result unavailable"); } })) as Any);
+    const res = await DELETE(makeRequest());
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ deletedCount: null, itemsCleared: null, cleanupComplete: false });
+    expect(count).not.toHaveBeenCalled();
+    expect(await WardrobeItem.find({ user: mine })).toHaveLength(0);
+  });
+
+  it("retries a reclamation fault while preserving historic and foreign photos", async () => {
+    const mine = await seedUser("firebase-uid");
+    const other = await seedUser("other");
+    await seedWardrobe(mine, 1);
+    const pinned = await seedReferencedImage(mine);
+    await seedWardrobe(other, 1);
+    const fault = jest.spyOn(WardrobeImage, "deleteOne").mockImplementationOnce((() => ({ exec: async () => { throw new Error("reclamation failed"); } })) as Any);
+    const failed = await DELETE(makeRequest());
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toMatchObject({ deletedCount: 2, itemsCleared: true, cleanupComplete: false });
+    expect(await WardrobeItem.countDocuments({ user: mine })).toBe(0);
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(2);
+    fault.mockRestore();
+    const retry = await DELETE(makeRequest());
+    expect(retry.status).toBe(200);
+    expect(await WardrobeImage.countDocuments({ user: mine })).toBe(1);
+    expect(await WardrobeImage.countDocuments({ _id: pinned, user: mine })).toBe(1);
+    expect(await WardrobeImage.countDocuments({ user: other })).toBe(1);
   });
 });

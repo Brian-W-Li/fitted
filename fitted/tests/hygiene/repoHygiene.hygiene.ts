@@ -94,6 +94,9 @@ function docCiteMissing(): string[] {
     const seen = new Set<string>();
     for (const m of read(f).matchAll(CITE_RE)) {
       const cite = m[1];
+      // Virtualenvs are untracked machine-local prerequisites, not repository
+      // source targets. Their absence in a clean checkout is expected.
+      if (cite.split("/").includes(".venv")) continue;
       if (seen.has(cite)) continue;
       seen.add(cite);
       const ok =

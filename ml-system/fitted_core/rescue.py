@@ -40,6 +40,7 @@ from fitted_core.config import (
     N_SURFACED,
 )
 from fitted_core.generation import FinishStatus, GenerationPrompt, Generator
+from fitted_core.layer_policy import exclude_source_membership, needs_layer_choice, normalize_weather_signals
 from fitted_core.models import IssueCode, ItemType, Role, SlotMap, Template, WardrobeItem
 from fitted_core.ranker import (
     FallbackStage,
@@ -54,6 +55,7 @@ from fitted_core.response import (
     OutfitVariant,
     build_variants,
     build_variants_with_trace,
+    selection_pool,
 )
 from fitted_core.reducers import BehavioralSignals
 from fitted_core.sampler import (
@@ -104,8 +106,12 @@ class RescueRequest:
     # Empty on a first/non-regen render (`controls` is present-but-empty in the payload, never absent).
     locked_item_ids: tuple[str, ...] = ()
     disliked_item_ids: tuple[str, ...] = ()
+    excluded_outfit_item_ids: tuple[str, ...] = ()
+    weather_summary: Optional[str] = None
+    weather_signals: Optional[dict[str, bool]] = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "weather_signals", normalize_weather_signals(self.weather_signals))
         self._validate_intent()
         self._validate_generation_index()
         self._validate_k()
@@ -183,7 +189,7 @@ class RescueRequest:
         the SERVICE normalizes (dedup / order-sort) before building the request, so this preserves
         the given order rather than re-normalizing (a second normalization could diverge, F6).
         """
-        for name in ("locked_item_ids", "disliked_item_ids"):
+        for name in ("locked_item_ids", "disliked_item_ids", "excluded_outfit_item_ids"):
             value = getattr(self, name)
             if isinstance(value, (str, bytes, bytearray)):
                 raise TypeError(
@@ -568,7 +574,15 @@ def _build_system_prompt(
         "- Return a RANGE of vibes across your outfits, from everyday/expected to adventurous, "
         "so the user sees genuinely different ways to wear the forced item. Do NOT label, "
         "score, or rank them.",
+        "- Keep that range within the user's requested style and level of dress. A put-together "
+        "request should not become a sporty request; an explicitly sporty request can use "
+        "athletic pieces. Honor stated garment preferences when the wardrobe supports them.",
+        "- Vary the base garment combinations when possible, rather than only changing shoes "
+        "or adding a layer. Describe styling actions using known garment details; do not invent "
+        "fit, fabric or construction.",
         "- Respect the given weather and occasion; treat weather as high-priority styling context.",
+        "- Do not claim waterproofing, wind resistance or walking comfort unless the provided item "
+        "attributes support it. Do not describe an unsupported practical property as a fact.",
         "",
         "Output format:",
         '- Return STRICTLY VALID JSON only, no prose, exactly: {"outfits":[{"items":'
@@ -594,13 +608,17 @@ def _build_user_message(
     """The §D user message — Lens (occasion + weather), the forced item called out, the
     scoped pool, and the ``candidate_requested`` upper-bound ask (spearhead.md §D).
 
-    Only weather + occasion are carried as context (decision 7: the richer ConstraintSet
-    defers to B-track/M5). Pure and deterministic.
+    Occasion, the weather bucket and an optional captured weather summary provide context.
+    Richer ConstraintSet enforcement remains deferred. Pure and deterministic.
     """
     return "\n".join(
         [
             f"Occasion: {request.occasion}",
             f"Weather: {request.weather}",
+            *(["Include at least one optional removable outer-layer outfit if the listed wardrobe and exact controls permit it. Outer category does not establish rain or wind protection; do not claim it."]
+              if needs_layer_choice(request) else []),
+            *([f"Weather details (context, not a guarantee): {json.dumps(request.weather_summary, ensure_ascii=False)}"]
+              if request.weather_summary else []),
             "",
             "Forced item — every outfit must include it:",
             f"  id={forced_item.id}, name={forced_item.name}, type={forced_item.type.value}",
@@ -661,7 +679,15 @@ def _build_daily_system_prompt(locked_item_ids: Sequence[str] = ()) -> str:
         "NON-EMPTY subset of that outfit's own item ids.",
         "- Return a RANGE of believable outfits, from everyday/expected to adventurous. Do NOT "
         "label, score, or rank them.",
+        "- Keep that range within the user's requested style and level of dress. A put-together "
+        "request should not become a sporty request; an explicitly sporty request can use "
+        "athletic pieces. Honor stated garment preferences when the wardrobe supports them.",
+        "- Vary the base garment combinations when possible, rather than only changing shoes "
+        "or adding a layer. Describe styling actions using known garment details; do not invent "
+        "fit, fabric or construction.",
         "- Respect the given weather and occasion; treat weather as high-priority styling context.",
+        "- Do not claim waterproofing, wind resistance or walking comfort unless the provided item "
+        "attributes support it. Do not describe an unsupported practical property as a fact.",
         "",
         "Output format:",
         '- Return STRICTLY VALID JSON only, no prose, exactly: {"outfits":[{"items":'
@@ -687,6 +713,10 @@ def _build_daily_user_message(
         [
             f"Occasion: {request.occasion}",
             f"Weather: {request.weather}",
+            *(["Include at least one optional removable outer-layer outfit if the listed wardrobe and exact controls permit it. Outer category does not establish rain or wind protection; do not claim it."]
+              if needs_layer_choice(request) else []),
+            *([f"Weather details (context, not a guarantee): {json.dumps(request.weather_summary, ensure_ascii=False)}"]
+              if request.weather_summary else []),
             "",
             "Build believable outfits for this occasion and weather from this wardrobe:",
             pool_json,
@@ -906,6 +936,7 @@ def _generate_and_parse(generator: Generator, prompt: GenerationPrompt) -> Optio
 def _build_ranker_context(
     request: RescueRequest,
     behavioral_signals: Optional[BehavioralSignals] = None,
+    candidates: Sequence[ValidatedCandidate] = (),
 ) -> RankerContext:
     """``RescueRequest`` → the M3 ``RankerContext`` (spearhead.md §G step 9).
 
@@ -916,7 +947,9 @@ def _build_ranker_context(
     context is byte-identical there. (Locks are enforced via the pool pin + prompt + post-validate
     drop, NOT the ranker's lock filter — §C.3 keeps ``locked_item_ids`` out of ``RankerContext``.)
     """
+    from fitted_core.layer_policy import eligible_signatures
     kwargs = {
+        "reserved_full_signatures": eligible_signatures(request, candidates),
         "session_id": request.session_id,
         "wardrobe_version": request.wardrobe_version,
         "occasion": request.occasion,
@@ -1035,7 +1068,8 @@ def rescue(
     # Step 9 — rank (cold start: empty behavioral signals; dislikes → the Step-4 contextual hard
     # filter, §C.3). ``rank([])`` is valid (M2/M3 "empty is valid") and yields an empty,
     # insufficient RankerResult, so the parse-fail and all-dropped paths share this single exit.
-    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals))
+    survivors, _ = exclude_source_membership(request, survivors)
+    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals, survivors))
 
     # Step 10 — response layer: wrap the ranked survivors into §6.5 OutfitVariants (path/risk via
     # the §G cold-start scoring) and spread-select ≤ n_surfaced spanning distinct (path, risk)
@@ -1049,7 +1083,7 @@ def rescue(
 
     # Rescue derives its OWN post-generation health from the surfaced budget, NOT the ranker's
     # k-relative insufficient_wardrobe (spearhead.md §G "Reading fallback_stage").
-    insufficient = len(ranked.outfits) < request.n_surfaced
+    insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
     return RescueResult(
         ranked=ranked,
         variants=variants,
@@ -1336,7 +1370,9 @@ def rescue_with_trace(
         rescue_drops = forced_drops + lock_drops
 
     # Step 9 — rank, capturing the full scored funnel (scored-but-unshown breakdowns).
-    ranker_context = _build_ranker_context(request, behavioral_signals)
+    survivors, source_drops = exclude_source_membership(request, survivors)
+    rescue_drops += tuple(RescueDrop(candidate, "source_membership_excluded", "render") for candidate in source_drops)
+    ranker_context = _build_ranker_context(request, behavioral_signals, survivors)
     rank_audit = rank_with_audit(survivors, ranker_context)
     ranked = rank_audit.result
 
@@ -1344,7 +1380,7 @@ def rescue_with_trace(
     items_by_id = {item.id: item for item in request.wardrobe}
     build_trace = build_variants_with_trace(ranked, items_by_id, request, request.n_surfaced)
 
-    insufficient = len(ranked.outfits) < request.n_surfaced
+    insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
     result = RescueResult(
         ranked=ranked,
         variants=build_trace.selected,
@@ -1462,10 +1498,11 @@ def _render_daily(
             _drop_missing_style_move(validation.candidates), request.locked_item_ids
         )
 
-    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals))
+    survivors, _ = exclude_source_membership(request, survivors)
+    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals, survivors))
     items_by_id = {item.id: item for item in request.wardrobe}
     variants, spread_collapsed = build_variants(ranked, items_by_id, request, request.n_surfaced)
-    insufficient = len(ranked.outfits) < request.n_surfaced
+    insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
     return RenderResult(
         ranked=ranked,
         variants=variants,
@@ -1551,12 +1588,14 @@ def _render_daily_with_trace(
         )
         rescue_drops = style_drops + lock_drops
 
-    ranker_context = _build_ranker_context(request, behavioral_signals)
+    survivors, source_drops = exclude_source_membership(request, survivors)
+    rescue_drops += tuple(RescueDrop(candidate, "source_membership_excluded", "render") for candidate in source_drops)
+    ranker_context = _build_ranker_context(request, behavioral_signals, survivors)
     rank_audit = rank_with_audit(survivors, ranker_context)
     ranked = rank_audit.result
     items_by_id = {item.id: item for item in request.wardrobe}
     build_trace = build_variants_with_trace(ranked, items_by_id, request, request.n_surfaced)
-    insufficient = len(ranked.outfits) < request.n_surfaced
+    insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
     result = RenderResult(
         ranked=ranked,
         variants=build_trace.selected,

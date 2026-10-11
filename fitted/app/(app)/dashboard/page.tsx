@@ -11,6 +11,9 @@ import { isEmptyDegradedRender } from "@/lib/renderResultGuards";
 import { useDislikeEnrich } from "@/lib/useDislikeEnrich";
 import { emptyStateMessage, recommendErrorMessage, partialRenderHint } from "@/lib/recommendCopy";
 import type { ClothingType } from "@/lib/clothingType";
+import { getEventTimeISO, localDateTimeValue, type EventTimeBucket } from "@/lib/eventTime";
+import { suggestionLink } from "@/lib/suggestionLink";
+import WearForm from "../memory/WearForm";
 import { reconcileShownFeedback, buildActionByKey, type HistoryActionRow } from "@/lib/feedbackReconcile";
 
 // ============================================================================
@@ -62,11 +65,28 @@ interface RenderResult {
   shown: ShownOutfit[];
   flags: RenderFlags;
   bindable: boolean;
+  layerChoice?: { status: "off" | "offered" | "gap"; note: string | null };
   generationIndex?: number;
   parentSnapshotId?: string | null;
 }
 
 /** The Lens inputs frozen once per Generate action (F10 — the retry re-sends these verbatim). */
+type ExpectedTemperature = "" | "cold" | "mild" | "hot";
+interface ExpectedWeather { temperature: ExpectedTemperature; rain: "" | "dry" | "rain"; wind: "" | "calm" | "windy" }
+const EMPTY_EXPECTED_WEATHER: ExpectedWeather = { temperature: "", rain: "", wind: "" };
+function manualWeatherLens(expected: ExpectedWeather): Pick<LensSummary, "weather" | "weatherRaw" | "weatherSource" | "weatherSignals" | "expectedWeather"> {
+  if (!expected.temperature) return {};
+  const temperature = { cold: "Cold", mild: "Mild", hot: "Hot" }[expected.temperature];
+  const rain = { "": "", dry: "dry conditions expected", rain: "rain expected" }[expected.rain];
+  const wind = { "": "", calm: "calm wind expected", windy: "windy" }[expected.wind];
+  return { weather: expected.temperature, weatherRaw: [temperature, rain, wind].filter(Boolean).join("; "), weatherSource: "manual", weatherSignals: { rain: expected.rain === "rain", wind: expected.wind === "windy" }, expectedWeather: { ...expected } };
+}
+function expectedWeatherFromLens(lens?: LensSummary): ExpectedWeather {
+  if (lens?.weatherSource !== "manual" || !["cold", "mild", "hot"].includes(lens.weather ?? "")) return EMPTY_EXPECTED_WEATHER;
+  return lens.expectedWeather ?? { temperature: lens.weather as ExpectedTemperature,
+    rain: lens.weatherSignals?.rain ? "rain" : "", wind: lens.weatherSignals?.wind ? "windy" : "" };
+}
+
 interface LensSummary {
   occasion: string;
   forcedItemId?: string | null;
@@ -75,6 +95,11 @@ interface LensSummary {
   lon?: number;
   eventTimeISO?: string;
   eventTimeLabel?: string;
+  weather?: "cold" | "mild" | "hot";
+  weatherRaw?: string | null;
+  weatherSource?: "manual";
+  weatherSignals?: { rain: boolean; wind: boolean };
+  expectedWeather?: ExpectedWeather;
 }
 
 interface NormalizedControls {
@@ -100,6 +125,7 @@ const PENDING_KEY = (uid: string) => `fitted_pending_render:${uid}`;
 
 interface PersistedDashboard {
   occasion: string;
+  lensSummary?: LensSummary;
   result: RenderResult;
   /** H100 — locks last submitted on this lineage's re-roll, so a restored render still seeds them. */
   activeLockedItemIds?: string[];
@@ -134,29 +160,6 @@ function removeKey(key: string): void {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-type EventTimeBucket = "now" | "later_today" | "tomorrow" | "custom";
-
-function getEventTimeISO(bucket: EventTimeBucket, customVal: string): string | undefined {
-  if (bucket === "now") return undefined;
-  if (bucket === "later_today") {
-    const d = new Date();
-    if (d.getHours() >= 18) d.setDate(d.getDate() + 1);
-    d.setHours(18, 0, 0, 0);
-    return d.toISOString();
-  }
-  if (bucket === "tomorrow") {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setHours(12, 0, 0, 0);
-    return d.toISOString();
-  }
-  if (customVal) {
-    const parsed = new Date(customVal);
-    return isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
-  }
-  return undefined;
-}
 
 // Resolve §6.5 displayItems.imageUrl (already "/api/images/<id>" or an external url) — plus mongo:
 // for defensiveness — to a browser <img src>. Shared, unit-tested (lib/imageUrl).
@@ -488,6 +491,7 @@ const RISK_TOOLTIP = "How much the look stands out: Safe (understated) → Notic
 
 function OutfitCard({
   outfit,
+  user,
   index,
   bindable,
   forcedItemId,
@@ -499,6 +503,7 @@ function OutfitCard({
   onRetryEnrich,
 }: {
   outfit: ShownOutfit;
+  user: FirebaseUser | null;
   index: number;
   bindable: boolean;
   forcedItemId: string | null;
@@ -612,6 +617,10 @@ function OutfitCard({
         })}
       </div>
 
+      {bindable && user && <WearForm user={user} suggestion={{ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId, suggestionContext: "", items: outfit.displayItems.map(item => ({ itemId: item.itemId, name: item.name ?? "Item", clothingType: item.clothingType ?? null, availability: "available" as const, changed: false })) }} />}
+
+      {bindable && <a href={suggestionLink(outfit)} className="inline-block text-blue-700 underline">Open proposal / plan an outfit</a>}
+
       {/* StyleMove card body — "the one thing that made it work" (from candidates[candidateId]). */}
       {outfit.styleMove?.oneSentence && (
         <div className="rounded-lg bg-white border border-slate-200 p-3">
@@ -634,8 +643,12 @@ function DashboardInner() {
   const [signingOut, setSigningOut] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const uid = firebaseUser?.uid ?? null;
+  const activeUserUidRef = useRef<string | null>(null);
+  const activeUserEpochRef = useRef(0);
+  const activeLensRef = useRef<LensSummary | null>(null);
 
   const [occasion, setOccasion] = useState("");
+  const [expectedWeather, setExpectedWeather] = useState<ExpectedWeather>(EMPTY_EXPECTED_WEATHER);
   const [eventTimeBucket, setEventTimeBucket] = useState<EventTimeBucket>("now");
   const [customEventDateTime, setCustomEventDateTime] = useState("");
   const [result, setResult] = useState<RenderResult | null>(null);
@@ -713,8 +726,14 @@ function DashboardInner() {
   }, [requestGeo]);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => setFirebaseUser(user));
-    return () => unsub();
+    const unsub = onAuthStateChanged(auth, (user) => {
+      const nextUid = user?.uid ?? null;
+      if (activeUserUidRef.current !== nextUid) activeUserEpochRef.current++;
+      activeUserUidRef.current = nextUid;
+      setFirebaseUser(user);
+    });
+    const invalidateOwner = () => { activeUserEpochRef.current++; activeUserUidRef.current = null; };
+    return () => { invalidateOwner(); unsub(); };
   }, []);
 
   // Closet size, for the empty-closet signpost below. `null` means NOT YET KNOWN (loading, or the
@@ -725,8 +744,8 @@ function DashboardInner() {
   // new API surface to keep honest.
   const [closetCount, setClosetCount] = useState<number | null>(null);
   useEffect(() => {
+    setClosetCount(null);
     if (!firebaseUser) {
-      setClosetCount(null);
       return;
     }
     let cancelled = false;
@@ -761,24 +780,33 @@ function DashboardInner() {
 
   // Read a rescue launch from the wardrobe (?rescue=<id>).
   useEffect(() => {
+    if (!uid) return;
     const r = searchParams.get("rescue");
-    if (r) {
-      setRescueItemId(r);
-      setRescueItemName(searchParams.get("name") ?? "");
-    }
-  }, [searchParams]);
+    setRescueItemId(r);
+    setRescueItemName(r ? searchParams.get("name") ?? "" : "");
+  }, [searchParams, uid]);
 
   // Restore persisted render on return + resume any un-cleared pending envelope (F10).
   useEffect(() => {
+    setResult(null); setOccasion(""); setExpectedWeather(EMPTY_EXPECTED_WEATHER);
+    setError(""); setInFlight(false); setFeedbackModal(null); setRegenModal(null);
+    activeLensRef.current = null; activeLocksRef.current = [];
+    setRescueItemId(null); setRescueItemName("");
     if (!uid) return;
+    const rescue = searchParams.get("rescue");
+    setRescueItemId(rescue); setRescueItemName(rescue ? searchParams.get("name") ?? "" : "");
     const saved = readJSON<PersistedDashboard>(DASHBOARD_KEY(uid));
     if (saved?.result) {
       setResult(saved.result);
       setOccasion(saved.occasion ?? "");
+      activeLensRef.current = saved.lensSummary ?? { occasion: saved.occasion ?? "" };
+      setExpectedWeather(expectedWeatherFromLens(saved.lensSummary));
       activeLocksRef.current = saved.activeLockedItemIds ?? [];
     }
     const pending = readJSON<PendingEnvelope>(PENDING_KEY(uid));
     if (pending) {
+      setOccasion(pending.lensSummary.occasion);
+      setExpectedWeather(expectedWeatherFromLens(pending.lensSummary));
       resumePending(uid, pending);
     } else if (saved?.result && firebaseUser) {
       // No render is resuming (which would replace the result), so reconcile the restored chips.
@@ -790,6 +818,9 @@ function DashboardInner() {
   }, [uid]);
 
   async function handleLogout() {
+    // Invalidate in-flight continuations before asynchronous cookie revocation or auth sign-out.
+    activeUserEpochRef.current++;
+    activeUserUidRef.current = null;
     try {
       setSigningOut(true);
       if (uid) {
@@ -802,6 +833,8 @@ function DashboardInner() {
       router.push("/");
     } catch (err) {
       console.error("Error signing out:", err);
+      activeUserUidRef.current = auth.currentUser?.uid ?? null;
+      setInFlight(false);
       setSigningOut(false);
     }
   }
@@ -811,9 +844,10 @@ function DashboardInner() {
     // (feedback marks) is fine there, but on a resumed render the closure predates the sessionStorage
     // restore — persisting state `occasion` would overwrite the saved occasion with "".
     (r: RenderResult, occasionForResult?: string) => {
-      if (!uid) return;
+      if (!uid || activeUserUidRef.current !== uid) return;
       writeJSON(DASHBOARD_KEY(uid), {
-        occasion: occasionForResult ?? occasion,
+        occasion: occasionForResult ?? activeLensRef.current?.occasion ?? occasion,
+        lensSummary: activeLensRef.current ?? undefined,
         result: r,
         activeLockedItemIds: activeLocksRef.current,
       } satisfies PersistedDashboard);
@@ -828,11 +862,15 @@ function DashboardInner() {
   // touched the restored result yet (identity guard) so it can never clobber a fresh in-session mark.
   const reconcileFeedbackFromServer = useCallback(
     async (user: FirebaseUser, baseResult: RenderResult, savedOccasion: string) => {
+      const ownerEpoch = activeUserEpochRef.current;
+      const isCurrentOwner = () => activeUserUidRef.current === user.uid && activeUserEpochRef.current === ownerEpoch;
       try {
         const token = await user.getIdToken();
+        if (!isCurrentOwner()) return;
         const res = await fetch("/api/interactions", { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) return;
         const data = (await res.json()) as { interactions?: HistoryActionRow[] };
+        if (!isCurrentOwner()) return;
         const actionByKey = buildActionByKey(data.interactions);
         const { shown, changed } = reconcileShownFeedback(baseResult.shown, actionByKey);
         if (!changed) return;
@@ -862,14 +900,18 @@ function DashboardInner() {
       onResult: (r: RenderResult) => void | boolean,
     ) => {
       const userUid = user.uid;
+      const ownerEpoch = activeUserEpochRef.current;
+      const isCurrentOwner = () => activeUserUidRef.current === userUid && activeUserEpochRef.current === ownerEpoch;
       try {
         const token = await user.getIdToken();
+        if (!isCurrentOwner()) return;
         const res = await fetch("/api/recommend", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify(body),
         });
         const data = await res.json().catch(() => null);
+        if (!isCurrentOwner()) return;
 
         if (!res.ok) {
           // A 5xx can land AFTER the render was paid for — the route's own 500 arm, or a platform
@@ -926,9 +968,10 @@ function DashboardInner() {
         // sessionStorage, and `writeJSON` swallows a refusal (private mode, blocked storage), so a
         // friend could reload on the strength of that sentence and lose a render you paid for.
         // Phrased so it is true in BOTH worlds, which needs no new state to decide between them.
+        if (!isCurrentOwner()) return;
         setError("The connection dropped. Try reloading — if that outfit finished, it'll come back.");
       } finally {
-        setInFlight(false);
+        if (isCurrentOwner()) setInFlight(false);
       }
     },
     [persistResult],
@@ -968,6 +1011,7 @@ function DashboardInner() {
         // starts a fresh lineage. Before setResult, so runRender's persist sees the fresh value.
         activeLocksRef.current =
           envelope.parentSnapshotId != null ? envelope.normalizedControls.lockedItemIds : [];
+        activeLensRef.current = envelope.lensSummary;
         setResult(r);
       });
     },
@@ -975,7 +1019,7 @@ function DashboardInner() {
   );
 
   const startGenerate = useCallback(async () => {
-    if (!firebaseUser || !uid) {
+    if (!firebaseUser || !uid || activeUserUidRef.current !== uid) {
       setError("Please sign in to get recommendations.");
       return;
     }
@@ -983,12 +1027,13 @@ function DashboardInner() {
       setError("Describe the event or context to get recommendations.");
       return;
     }
-    if (inFlight) return; // Generate is disabled while a render is in flight
+    if (inFlight || signingOut) return; // Generate is disabled while a render is in flight
 
     const requestId = newRequestId();
     const lensSummary: LensSummary = {
       occasion,
       forcedItemId: rescueItemId ?? null,
+      ...manualWeatherLens(expectedWeather),
       ...(geoCoords ? { lat: geoCoords.lat, lon: geoCoords.lon } : {}),
       ...(eventTimeBucket !== "now" ? { eventTimeISO: getEventTimeISO(eventTimeBucket, customEventDateTime) } : {}),
     };
@@ -1010,12 +1055,12 @@ function DashboardInner() {
     activeLocksRef.current = [];
     // Persist the envelope BEFORE the fetch (survives a reload/lost response).
     writeJSON(PENDING_KEY(uid), envelope);
-    await runRender(firebaseUser, envelope, buildRootBody(envelope), (r) => setResult(r));
-  }, [firebaseUser, uid, occasion, inFlight, rescueItemId, geoCoords, eventTimeBucket, customEventDateTime, runRender]);
+    await runRender(firebaseUser, envelope, buildRootBody(envelope), (r) => { activeLensRef.current = lensSummary; setResult(r); });
+  }, [firebaseUser, uid, occasion, inFlight, rescueItemId, geoCoords, eventTimeBucket, customEventDateTime, expectedWeather, signingOut, runRender]);
 
   const submitRegenerate = useCallback(
     async (controls: NormalizedControls) => {
-      if (!firebaseUser || !uid || !regenModal || inFlight) return;
+      if (!firebaseUser || !uid || activeUserUidRef.current !== uid || !regenModal || inFlight || signingOut) return;
       const parentSnapshotId = regenModal.outfit.snapshotId;
       const requestId = newRequestId(); // a re-roll is a new Generate action → new requestId
       const envelope: PendingEnvelope = {
@@ -1023,7 +1068,7 @@ function DashboardInner() {
         intent: "daily", // real intent is derived server-side from the parent; unused on a re-roll
         parentSnapshotId,
         normalizedControls: controls,
-        lensSummary: { occasion },
+        lensSummary: activeLensRef.current ?? { occasion },
       };
       setInFlight(true);
       setError("");
@@ -1044,12 +1089,13 @@ function DashboardInner() {
           // still held. Set before setResult so runRender's persist writes the fresh value; a
           // rejected (degraded) re-roll above keeps the previous locks, matching the kept render.
           activeLocksRef.current = controls.lockedItemIds;
+          activeLensRef.current = envelope.lensSummary;
           setResult(r);
           setRegenModal(null);
         },
       );
     },
-    [firebaseUser, uid, regenModal, inFlight, occasion, runRender],
+    [firebaseUser, uid, regenModal, inFlight, signingOut, occasion, runRender],
   );
 
   // --- Feedback binds {snapshotId, candidateId} (never itemIds). ---
@@ -1060,8 +1106,11 @@ function DashboardInner() {
       extra?: { perItemFeedback?: PerItemFeedback[]; codes?: string[] },
     ): Promise<boolean> => {
       if (!firebaseUser) return false;
+      const ownerEpoch = activeUserEpochRef.current;
+      const isCurrentOwner = () => activeUserUidRef.current === firebaseUser.uid && activeUserEpochRef.current === ownerEpoch;
       try {
         const token = await firebaseUser.getIdToken();
+        if (!isCurrentOwner()) return false;
         const res = await fetch("/api/interactions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -1073,7 +1122,7 @@ function DashboardInner() {
             ...(extra?.codes?.length ? { feedbackReason: { codes: extra.codes } } : {}),
           }),
         });
-        return res.ok;
+        return isCurrentOwner() && res.ok;
       } catch {
         return false;
       }
@@ -1095,10 +1144,13 @@ function DashboardInner() {
   );
 
   const handleLike = async (index: number) => {
+    if (!uid || activeUserUidRef.current !== uid) return;
     const outfit = result?.shown[index];
     if (!outfit) return;
+    const ownerEpoch = activeUserEpochRef.current;
     markFeedback(index, "liked");
     const ok = await postFeedback(outfit, "accepted");
+    if (activeUserEpochRef.current !== ownerEpoch) return;
     if (!ok) {
       markFeedbackClear(index);
       setError("Couldn't save your like. Please try again.");
@@ -1119,10 +1171,13 @@ function DashboardInner() {
   // making dislikes more expensive than likes and skewing the accept/reject balance the M6 re-measure
   // trains on toward the positive. Now the reasons are an optional follow-up (below), not a toll.
   const handleDislike = async (index: number) => {
+    if (!uid || activeUserUidRef.current !== uid) return;
     const outfit = result?.shown[index];
     if (!outfit) return;
+    const ownerEpoch = activeUserEpochRef.current;
     markFeedback(index, "disliked");
     const ok = await postFeedback(outfit, "rejected");
+    if (activeUserEpochRef.current !== ownerEpoch) return;
     if (!ok) {
       markFeedbackClear(index);
       setError("Couldn't save your feedback. Please try again.");
@@ -1143,6 +1198,7 @@ function DashboardInner() {
   // Optional "tell us why?" follow-up to a dislike. The one-tap already recorded a reasonless
   // 'rejected', so closing the modal here loses nothing — the reasons are held by the enrich hook.
   const handleSaveDislike = async (data: { perItemFeedback: PerItemFeedback[]; codes: string[] }) => {
+    if (!uid || activeUserUidRef.current !== uid) return;
     if (!feedbackModal) return;
     const { outfit, index } = feedbackModal;
     setFeedbackModal(null);
@@ -1265,56 +1321,52 @@ function DashboardInner() {
                 type="datetime-local"
                 value={customEventDateTime}
                 onChange={(e) => setCustomEventDateTime(e.target.value)}
-                min={new Date().toISOString().slice(0, 16)}
-                max={new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)}
+                min={localDateTimeValue(new Date())}
+                max={localDateTimeValue(new Date(Date.now() + 6 * 24 * 60 * 60 * 1000))}
                 className="mt-2 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
               />
             )}
           </div>
 
-          {/* Primed location ask — the in-app "why" that the native prompt can't give. */}
+          <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-sm font-medium text-slate-700">Expected weather (optional)</legend>
+            <p id="expected-weather-help" className="text-xs text-slate-500">Choose what you expect without sharing your location. Manual conditions override location weather for a new request. Unspecified rain or wind stays unknown.</p>
+            <div className="flex flex-wrap gap-3">
+              <label className="text-sm text-slate-700">Temperature
+                <select aria-describedby="expected-weather-help" value={expectedWeather.temperature} onChange={e => setExpectedWeather({ ...EMPTY_EXPECTED_WEATHER, temperature: e.target.value as ExpectedTemperature })} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
+                  <option value="">Automatic / unknown</option><option value="cold">Cold</option><option value="mild">Mild</option><option value="hot">Hot</option>
+                </select>
+              </label>
+              {expectedWeather.temperature && <>
+                <label className="text-sm text-slate-700">Rain
+                  <select value={expectedWeather.rain} onChange={e => setExpectedWeather(prev => ({ ...prev, rain: e.target.value as ExpectedWeather["rain"] }))} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
+                    <option value="">Not specified</option><option value="dry">Dry expected</option><option value="rain">Rain expected</option>
+                  </select>
+                </label>
+                <label className="text-sm text-slate-700">Wind
+                  <select value={expectedWeather.wind} onChange={e => setExpectedWeather(prev => ({ ...prev, wind: e.target.value as ExpectedWeather["wind"] }))} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
+                    <option value="">Not specified</option><option value="calm">Calm expected</option><option value="windy">Windy</option>
+                  </select>
+                </label>
+              </>}
+            </div>
+            <p className="text-xs text-slate-500">Regenerate keeps the original suggestion&apos;s weather. Use Get Recommendations for changed conditions.</p>
+          </fieldset>
+
           <div className="text-xs text-slate-500">
-            {geoStatus === "granted" ? (
-              <span>Using your location for local weather.</span>
-            ) : geoStatus === "unsupported" ? (
-              // No retry offered — this browser has no geolocation API, so a "Try again" would be a
-              // button that can never succeed. Give the same compensating advice as the denial.
-              <span>
-                This browser can&apos;t share a location, so outfits are picked without today&apos;s
-                weather. Mention it in the event description (e.g. &quot;it&apos;s cold out&quot;) and
-                the stylist will factor it in.
-              </span>
-            ) : geoStatus === "denied" ? (
-              <span>
-                No location — outfits are picked without today&apos;s weather. Mention it in the event
-                description (e.g. &quot;it&apos;s cold out&quot;) and the stylist will factor it in.{" "}
-                <button
-                  type="button"
-                  onClick={requestGeo}
-                  className="font-medium text-slate-700 underline hover:text-slate-900"
-                >
-                  Try again
-                </button>
-              </span>
-            ) : (
-              <span>
-                Outfits get better with the weather where you are.{" "}
-                <button
-                  type="button"
-                  onClick={requestGeo}
-                  disabled={geoStatus === "asking"}
-                  className="font-medium text-slate-700 underline hover:text-slate-900 disabled:opacity-50"
-                >
-                  {geoStatus === "asking" ? "Waiting for permission…" : "Use my location"}
-                </button>{" "}
-                — your browser will ask first, and it&apos;s only used to look up local weather.
-              </span>
-            )}
+            {expectedWeather.temperature ? <span>Your expected weather will be used, including when location is shared.</span>
+              : geoStatus === "granted" ? <span>Using your location to look up weather for the event time. If unavailable, the event description or a mild default is used.</span>
+              : geoStatus === "unsupported" ? <span>This browser can&apos;t share a location. Choose expected weather above, or let the event description and a mild default supply context.</span>
+              : <span>{geoStatus === "denied" ? "No location shared. Choose expected weather above, or " : "For automatic local weather, "}
+                  <button type="button" onClick={requestGeo} disabled={geoStatus === "asking"} className="font-medium text-slate-700 underline hover:text-slate-900 disabled:opacity-50">
+                    {geoStatus === "asking" ? "Waiting for permission…" : geoStatus === "denied" ? "try location again" : "Use my location"}
+                  </button>. Your browser will ask first; location is only used to look up weather.
+                </span>}
           </div>
 
           <button
             onClick={startGenerate}
-            disabled={inFlight}
+            disabled={inFlight || signingOut}
             className="self-start px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed"
           >
             {inFlight ? "Generating…" : "Get Recommendations"}
@@ -1339,6 +1391,7 @@ function DashboardInner() {
         {/* Results — §6.5 cards, or the degraded/empty state (no feedback controls when !bindable). */}
         {result && shown.length > 0 && (
           <div className="mt-6 space-y-4">
+            {result.layerChoice?.note && <p className="text-sm text-slate-700">{result.layerChoice.note}</p>}
             {result.generationIndex != null && result.generationIndex > 0 && (
               <p className="text-xs text-slate-500">Regenerated outfit (variation {result.generationIndex})</p>
             )}
@@ -1358,6 +1411,7 @@ function DashboardInner() {
               <OutfitCard
                 key={`${outfit.snapshotId}:${outfit.candidateId}`}
                 outfit={outfit}
+                user={firebaseUser}
                 index={index}
                 bindable={bindable}
                 forcedItemId={rescueItemId}
@@ -1377,6 +1431,7 @@ function DashboardInner() {
 
         {result && shown.length === 0 && !inFlight && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center border border-slate-200">
+            {result.layerChoice?.note && <p className="text-sm text-slate-700">{result.layerChoice.note}</p>}
             <p className="text-slate-600">{emptyStateMessage(result.flags)}</p>
             {/* F10 — a healthy-empty dead-end must offer the way out (the wardrobe), not just
                 describe it. Both empty shapes qualify: notEnoughItems AND the post-GPT
@@ -1427,15 +1482,16 @@ function DashboardInner() {
 }
 
 /** The root (first-render) request body from a pending envelope's frozen Lens (§C.4 F10). The frozen
- *  INPUTS (occasion + geo + time) are re-sent verbatim on a resume, so a same-second reload replays
+ *  INPUTS (occasion + manual weather + geo + time) are re-sent verbatim on a resume, so a same-second reload replays
  *  deterministically. Residual: when geo is present the route re-resolves weather live, so a reload
  *  that straddles a weather-bucket boundary could false-409 the replay — it degrades to a graceful
- *  "generate again", not a lost render (a fully-frozen resolved bucket is a post-M5 nicety). */
+ *  "generate again", not a lost render (manual weather is fully frozen; automatic cross-bucket replay remains limited). */
 function buildRootBody(envelope: PendingEnvelope): Record<string, unknown> {
   const l = envelope.lensSummary;
   return {
     requestId: envelope.requestId,
     occasion: l.occasion,
+    ...(l.weatherSource === "manual" ? { weather: l.weather, weatherRaw: l.weatherRaw ?? null, weatherSource: "manual", ...(l.weatherSignals ? { weatherSignals: l.weatherSignals } : {}) } : {}),
     ...(l.forcedItemId ? { forcedItemId: l.forcedItemId } : {}),
     ...(l.location ? { location: l.location } : {}),
     ...(l.lat != null && l.lon != null ? { lat: l.lat, lon: l.lon } : {}),

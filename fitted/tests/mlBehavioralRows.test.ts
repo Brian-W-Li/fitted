@@ -200,6 +200,21 @@ describe("real Mongo fetch — sort, tie-break, bound, serialization", () => {
     expect(rows.recentSnapshots.map((s) => s.shownFullSignatures)).toEqual([["keep"]]);
   });
 
+  it("excludes a redacted proposal and its prior reaction from later generation signals", async () => {
+    const user = oid();
+    const snapshot = await GenerationSnapshot.create(snapshotDoc(user, 1, ["old-proposal"], new Date("2026-07-03T00:00:00Z")));
+    await OutfitInteraction.create({ user, items: [oid()], action: "accepted", snapshotId: snapshot._id,
+      candidateId: "c0", baseKey: "old", fullSignature: "old-proposal" });
+    const before = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
+    expect(before.interactionRows.map(row => row.fullSignature)).toEqual(["old-proposal"]);
+    expect(before.recentSnapshots.flatMap(row => row.shownFullSignatures)).toEqual(["old-proposal"]);
+    await GenerationSnapshot.collection.updateOne({ _id: snapshot._id },
+      { $set: { redacted: true, redactedAt: new Date(), redactionReason: "experience_changed" } });
+    const after = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
+    expect(after.interactionRows).toEqual([]);
+    expect(after.recentSnapshots).toEqual([]);
+  });
+
   it("bounds recentSnapshots at the repetition-window snapshot limit", async () => {
     const user = oid();
     await GenerationSnapshot.create(

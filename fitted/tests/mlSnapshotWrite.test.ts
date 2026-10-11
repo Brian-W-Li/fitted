@@ -10,6 +10,7 @@
  * These need the index built (harness Model.init) + a real insert — validateSync could not prove
  * uniqueness or the delete-hook wiring.
  */
+import User from "@/models/User";
 import { Types } from "mongoose";
 import GenerationSnapshot, { type GenerationSnapshotDocument } from "@/models/GenerationSnapshot";
 import {
@@ -21,7 +22,7 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 
 let harness: MongoHarness;
 beforeAll(async () => {
-  harness = await startMemoryMongo([GenerationSnapshot]);
+  harness = await startMemoryMongo([GenerationSnapshot, User], { replicaSet: true });
 }, 120_000);
 afterAll(async () => await harness.stop());
 afterEach(async () => await harness.clear());
@@ -136,15 +137,16 @@ describe("idempotency — partial unique index + E11000 winner re-read (§C.4)",
   it("writeSnapshotWithIdempotency: first wins (deduped:false), second replays the winner (deduped:true)", async () => {
     const user = oid();
     const rid = UUID;
+    await User.create({ _id: user, authId: String(user), email: `${user}@example.test` });
     const winnerDoc = validDoc({ _id: oid(), user, requestId: rid, occasion: "the-winner" });
     const first = await writeSnapshotWithIdempotency<{ _id: Types.ObjectId; occasion: string }>(
-      model, winnerDoc, user, rid,
+      model, winnerDoc, user, rid, User,
     );
     expect(first.deduped).toBe(false);
 
     const loserDoc = validDoc({ _id: oid(), user, requestId: rid, occasion: "the-loser" });
     const second = await writeSnapshotWithIdempotency<{ _id: Types.ObjectId; occasion: string }>(
-      model, loserDoc, user, rid,
+      model, loserDoc, user, rid, User,
     );
     expect(second.deduped).toBe(true);
     // the replayed snapshot is the WINNER, not the loser's would-be row

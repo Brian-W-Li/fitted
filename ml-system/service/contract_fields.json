@@ -153,6 +153,10 @@
         "MAX_COMPLETION_TOKENS_CEILING",
         "MIN_COMPLETION_TOKENS_FLOOR"
       ]
+    },
+    "layerChoiceNotes": {
+      "offered": "An optional removable layer is included. Rain and wind protection are unknown; check the garment and conditions before relying on it.",
+      "gap": "No eligible removable-layer option was found for these conditions. Rain and wind protection are unknown."
     }
   },
   "engineFailureVocab": {
@@ -206,7 +210,9 @@
       "required": []
     },
     "controls": {
-      "optional": [],
+      "optional": [
+        "excludedOutfitItemIds"
+      ],
       "required": [
         "dislikedItemIds",
         "lockedItemIds"
@@ -232,7 +238,8 @@
       "optional": [
         "forcedItemId",
         "location",
-        "weatherRaw"
+        "weatherRaw",
+        "weatherSignals"
       ],
       "required": [
         "constraints",

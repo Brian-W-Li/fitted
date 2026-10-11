@@ -41,6 +41,6 @@ from fitted_core.config import PROMPT_VERSION, RANKER_CONFIG_VERSION
 # M6 can't separate them), so these comments are the guardrail. On any change to the
 # behavioral logic above, bump __version__ here; on any §D prompt-text edit, bump
 # PROMPT_VERSION in config.py. RANKER_CONFIG_VERSION needs no manual action.
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = ["__version__", "PROMPT_VERSION", "RANKER_CONFIG_VERSION"]

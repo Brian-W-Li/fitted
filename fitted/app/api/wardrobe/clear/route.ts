@@ -1,39 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDatabase } from "@/lib/db";
-import { adminAuth } from "@/lib/firebaseAdmin";
-import { clearUserWardrobe } from "@/lib/clearWardrobe";
+import { verifyFirebaseUser } from "@/lib/apiAuth";
+import { clearUserWardrobe, WardrobeClearIncomplete } from "@/lib/clearWardrobe";
 
 export async function DELETE(request: NextRequest) {
   try {
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Missing or invalid Authorization header" }, { status: 401 });
-    }
+    const owner = await verifyFirebaseUser(request);
+    if ("error" in owner) return NextResponse.json({ error: owner.error }, { status: owner.status });
 
-    const idToken = authHeader.slice("Bearer ".length).trim();
-    let decoded;
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken);
-    } catch {
-      // A bad/expired token is a client auth failure (401), not a server fault (500). Without this
-      // its own catch, verifyIdToken's throw falls to the generic catch below and mislabels as 500.
-      return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
-    }
-
-    const { User, WardrobeItem, WardrobeImage, GenerationSnapshot } = await initDatabase();
-    const user = await User.findOne({ authProvider: "firebase", authId: decoded.uid }).exec();
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 401 });
-    }
-
-    const deletedCount = await clearUserWardrobe(
+    const { WardrobeItem, WardrobeImage, GenerationSnapshot } = await initDatabase();
+    const receipt = await clearUserWardrobe(
       { WardrobeItem, WardrobeImage, GenerationSnapshot },
-      user._id,
+      owner.userId,
     );
 
-    return NextResponse.json({ ok: true, deletedCount });
+    return NextResponse.json({ ok: true, ...receipt });
   } catch (error) {
     console.error("Error clearing wardrobe:", error);
+    if (error instanceof WardrobeClearIncomplete) {
+      return NextResponse.json({
+        ok: false, error: error.receipt.itemsCleared === true
+          ? "Wardrobe deletion completed, but photo cleanup is incomplete. Reload and retry."
+          : "Wardrobe deletion may be incomplete. Reload the closet, then retry.",
+        ...error.receipt,
+      }, { status: 503 });
+    }
     return NextResponse.json({ error: "Failed to clear wardrobe" }, { status: 500 });
   }
 }

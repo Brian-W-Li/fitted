@@ -31,6 +31,11 @@ const WardrobeItemSchema = new Schema(
 
     // Points to the WardrobeImage doc in Mongo that holds the image bytes.
     imagePath: { type: String },
+    // Current views only: never projected into generation evidence or the stylist/CV wire.
+    supplementalImages: { type: [String], default: [], validate: {
+      validator: (refs: string[]) => refs.length <= 2 && refs.every(ref => /^mongo:[a-f0-9]{24}$/i.test(ref)),
+      message: "At most two server-authored supplemental images are allowed",
+    } },
 
     notes: { type: String },
     tags: { type: [String], default: [] },

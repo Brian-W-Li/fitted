@@ -103,6 +103,7 @@ _ID_SEQUENCE_KEYS: frozenset[str] = frozenset(
         # cross as inert numbers or mismatched persisted controls.
         "lockedItemIds", "locked_item_ids",
         "dislikedItemIds", "disliked_item_ids",
+        "excludedOutfitItemIds", "excluded_outfit_item_ids",
     }
 )
 

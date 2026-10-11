@@ -26,6 +26,20 @@ function stubDb() {
   };
 }
 
+function hookContext(db: ReturnType<typeof stubDb>, userId?: unknown, query: Record<string, unknown> = {}) {
+  const barrier = jest.fn(async () => ({ matchedCount: 1 }));
+  return {
+    getQuery: () => query,
+    setQuery: jest.fn(),
+    getOptions: () => ({}),
+    setOptions: jest.fn(),
+    model: {
+      db, updateOne: barrier,
+      findOne: () => ({ select: () => ({ lean: async () => userId ? { _id: userId } : null }) }),
+    },
+  };
+}
+
 describe("User cascade — cascadeDeleteUserData", () => {
   it("hard-deletes wardrobeitems, outfitinteractions, wardrobeimages, AND generationsnapshots", async () => {
     const db = stubDb();
@@ -37,6 +51,7 @@ describe("User cascade — cascadeDeleteUserData", () => {
     expect(db.calls.outfitinteractions).toEqual([{ user: userId }]);
     expect(db.calls.wardrobeimages).toEqual([{ user: userId }]); // the C7 arm
     expect(db.calls.generationsnapshots).toEqual([{ user: userId }]); // §23-H43 erasure arm
+    expect(db.calls.outfitexperiences).toEqual([{ user: userId }]);
   });
 });
 
@@ -48,25 +63,32 @@ describe("User cascade — the registered hook", () => {
     expect((pres.get("findOneAndDelete") || []).length).toBeGreaterThan(0);
   });
 
-  it("the hook cascades all four collections then calls next (covers both delete paths)", async () => {
+  it("the hook cascades all owned collections then calls next (covers both delete paths)", async () => {
     // Both User.deleteOne (direct) and deleteUserWithData (→ User.deleteOne) fire this same hook.
     const db = stubDb();
     const userId = new Types.ObjectId();
     const next = jest.fn();
 
-    await cascadeUserDataHook.call({ getQuery: () => ({ _id: userId }), model: { db } }, next);
+    const context = hookContext(db, userId, { _id: userId });
+    await cascadeUserDataHook.call(context, next);
+    expect(context.model.updateOne).toHaveBeenCalledWith({ _id: userId }, { $set: { erasureStarted: true } }, { writeConcern: { w: "majority" } });
+    expect(context.setQuery).toHaveBeenCalledWith({ $and: [{ _id: userId }, { _id: userId }] });
 
     expect(db.calls.wardrobeimages).toEqual([{ user: userId }]);
     expect(db.calls.wardrobeitems).toEqual([{ user: userId }]);
     expect(db.calls.outfitinteractions).toEqual([{ user: userId }]);
     expect(db.calls.generationsnapshots).toEqual([{ user: userId }]);
+    expect(db.calls.outfitexperiences).toEqual([{ user: userId }]);
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it("is a no-op when the delete query carries no _id", async () => {
+  it("binds an absent owner to an impossible delete predicate", async () => {
     const db = stubDb();
     const next = jest.fn();
-    await cascadeUserDataHook.call({ getQuery: () => ({}), model: { db } }, next);
+    const context = hookContext(db);
+    await cascadeUserDataHook.call(context, next);
+    expect(context.setQuery).toHaveBeenCalledWith({ $and: [{}, { _id: { $in: [] } }] });
+    expect(context.model.updateOne).not.toHaveBeenCalled();
     expect(db.calls).toEqual({});
     expect(next).toHaveBeenCalledTimes(1);
   });

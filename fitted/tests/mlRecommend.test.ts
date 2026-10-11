@@ -1,3 +1,4 @@
+import { LAYER_CHOICE_NOTES } from "@/lib/weatherContext";
 /**
  * M5 recommend orchestrator — BEHAVIORAL test (C5, seam #6). The behavior-first cure: drive the
  * real `mlRecommend` core over a REAL in-memory Mongo (write → read back) with a fake in-process
@@ -20,6 +21,9 @@ import WardrobeItem from "@/models/WardrobeItem";
 import WardrobeImage from "@/models/WardrobeImage";
 import OutfitInteraction from "@/models/OutfitInteraction";
 import User from "@/models/User";
+import OutfitExperience, { experienceCollection } from "@/models/OutfitExperience";
+import { ExperienceStore } from "@/lib/outfitExperience/store";
+import { getSuggestion, getExperience, recallExperiences, recentSuggestions } from "@/lib/outfitExperience/read";
 
 // Mocks used ONLY by the composed erasure-race case (the real DELETE /api/account route runs in
 // this suite): every mlRecommend test injects deps, so these never affect the render paths.
@@ -54,7 +58,7 @@ beforeAll(async () => {
   // hook timeout under parallel load, and when it does this hook throws, `harness` stays
   // undefined, and EVERY test in the file fails on `harness.clear()` — an intermittent red that
   // reads as flake and trains people to re-run instead of investigate.
-  harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, WardrobeImage, OutfitInteraction, User]);
+  harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, WardrobeImage, OutfitInteraction, User, OutfitExperience], { replicaSet: true });
 }, 120_000);
 afterAll(async () => {
   await harness.stop();
@@ -136,6 +140,7 @@ interface FakeOptions {
   overridePayload?: (p: Any) => void; // mutate the echoed payload (to inject an authorship mismatch)
   fail?: RenderServiceResult; // return a degraded result instead
   degenerate?: boolean; // set the wire `degenerate` flag (a paid-but-nothing-surfaced §D render)
+  respectControls?: boolean;
 }
 
 function fakeService(opts: FakeOptions = {}) {
@@ -147,7 +152,7 @@ function fakeService(opts: FakeOptions = {}) {
     const itemSnapshots = [itemIds.top, itemIds.b1, itemIds.b2].map((id) => ({
       itemId: id,
       engineVisible: {
-        name: "x",
+        name: body.wardrobe.find(item => item.id === id)?.name ?? "Unknown item",
         clothingType: id === itemIds.top ? "top" : "bottom",
         warmth: 5,
         styleTags: [],
@@ -155,7 +160,7 @@ function fakeService(opts: FakeOptions = {}) {
         occasionTags: ["casual"],
         material: null,
         formality: null,
-        imageUrl: "",
+        imageUrl: body.wardrobe.find(item => item.id === id)?.imageUrl ?? "",
       },
     }));
     const payload: Any = {
@@ -167,6 +172,7 @@ function fakeService(opts: FakeOptions = {}) {
       occasion: body.lens.occasion,
       weather: body.lens.weather,
       weatherRaw: body.lens.weatherRaw,
+      ...(body.lens.weatherSignals ? { weatherSignals: body.lens.weatherSignals } : {}),
       location: body.lens.location,
       forcedItemId: body.lens.forcedItemId,
       seedDate: body.lens.seedDate,
@@ -208,6 +214,21 @@ function fakeService(opts: FakeOptions = {}) {
       nSurfaced: 2,
       spreadCollapsed: false,
     };
+    if (opts.respectControls) {
+      const blocked = new Set(body.controls.dislikedItemIds);
+      const shownCandidates = candidates.filter(c => c.items.some((item: Any) => item.itemId === body.lens.forcedItemId) &&
+        c.items.every((item: Any) => !blocked.has(item.itemId)) &&
+        (!body.controls.excludedOutfitItemIds || c.items.length !== body.controls.excludedOutfitItemIds.length ||
+          c.items.some((item: Any) => !body.controls.excludedOutfitItemIds!.includes(item.itemId))));
+      candidates.forEach(c => {
+        c.shown = shownCandidates.includes(c);
+        if (!c.shown) { c.stageReached = "ranked"; delete c.shownPosition; }
+        else c.shownPosition = shownCandidates.indexOf(c);
+      });
+      payload.shownCandidateIds = shownCandidates.map(c => c.candidateId);
+      payload.shownFullSignatures = shownCandidates.map(c => c.fullSignature);
+      payload.nSurfaced = shownCandidates.length;
+    }
     opts.overridePayload?.(payload);
     const rescueFlags = payload.diagnostics?.rescue ?? {};
     const shown = payload.shownCandidateIds.map((cid: string) => ({
@@ -240,7 +261,7 @@ function fakeService(opts: FakeOptions = {}) {
 function makeDeps(over: Partial<MlRecommendDeps> = {}): MlRecommendDeps {
   return {
     verifyUser: async () => ({ userId }),
-    models: { GenerationSnapshot, WardrobeItem, OutfitInteraction, User },
+    models: { GenerationSnapshot, WardrobeItem, WardrobeImage, OutfitInteraction, User },
     callService: fakeService(),
     today: () => "2026-07-08",
     newId: () => new mongoose.Types.ObjectId().toString(),
@@ -517,6 +538,402 @@ describe("§C.1 lineage (re-roll)", () => {
   });
 });
 
+describe("R2 shown-outfit variation", () => {
+  async function classSource(occasion = "Class", weatherRaw: string | null = null) {
+    const first = await mlRecommend(req({ requestId: uuid(), occasion, forcedItemId: itemIds.top }), makeDeps({ resolveWeather: async () => ({ weather: "mild", weatherRaw }) }));
+    const source = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+    return { first, sourceId: source._id.toString() };
+  }
+  const variation = (sourceCandidateId: string, anchorItemId: string, leaveOutItemId: string, occasion = "Dinner") =>
+    ({ sourceCandidateId, anchorItemId, leaveOutItemId, occasion });
+
+  it("adapts without rejecting a source piece and distinguishes an added exclusion on retry", async () => {
+    const { sourceId } = await classSource();
+    const requestId = uuid();
+    const body = { requestId, parentSnapshotId: sourceId,
+      variation: { sourceCandidateId: "c0", anchorItemId: itemIds.top, occasion: "Relaxed dinner" } };
+    const service = jest.fn(fakeService({ respectControls: true }));
+    const deps = makeDeps({ callService: service });
+    const first = await mlRecommend(req(body), deps);
+    expect(first.status).toBe(200);
+    const result = await first.json();
+    expect(result.shown).toHaveLength(2); // Original combination remains eligible.
+    expect(service.mock.calls[0][0].controls.dislikedItemIds).toEqual([]);
+    expect(service.mock.calls[0][0].lens).toMatchObject({ forcedItemId: itemIds.top, occasion: "Relaxed dinner", constraints: {} });
+    const child = (await GenerationSnapshot.findOne({ user: userId, requestId }).lean()) as Any;
+    expect(child.variationSourceCandidateId).toBe("c0");
+    expect((await (await mlRecommend(req(body), deps)).json()).shown[0].snapshotId).toBe(result.shown[0].snapshotId);
+    expect(service).toHaveBeenCalledTimes(1);
+    expect((await mlRecommend(req({ ...body, variation: { ...body.variation, leaveOutItemId: itemIds.b1 } }), deps)).status).toBe(409);
+    for (const leaveOutItemId of [null, "", "bad"]) {
+      expect((await mlRecommend(req({ ...body, requestId: uuid(), variation: { ...body.variation, leaveOutItemId } }), deps)).status).toBe(400);
+    }
+    expect(service).toHaveBeenCalledTimes(1);
+    expect(await OutfitExperience.countDocuments({ user: userId })).toBe(0);
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("still rejects non-source anchors and shown output missing the anchor without an exclusion", async () => {
+    const { sourceId } = await classSource();
+    const body = { requestId: uuid(), parentSnapshotId: sourceId,
+      variation: { sourceCandidateId: "c0", anchorItemId: itemIds.b2, occasion: "Dinner" } };
+    const service = jest.fn(fakeService());
+    expect((await mlRecommend(req(body), makeDeps({ callService: service }))).status).toBe(404);
+    expect(service).not.toHaveBeenCalled();
+    const result = await (await mlRecommend(req({ ...body, variation: { ...body.variation, anchorItemId: itemIds.b1 } }),
+      makeDeps({ callService: service }))).json();
+    expect(result.shown).toEqual([]);
+    expect(result.flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("explores an authoritative saved situation with different membership and replay identity", async () => {
+    const { sourceId } = await classSource(" Class ", "Light rain, 16°C");
+    const body = { requestId: uuid(), parentSnapshotId: sourceId,
+      variation: { mode: "explore", sourceCandidateId: "c0", anchorItemId: itemIds.top, occasion: " Class " } };
+    const service = jest.fn(fakeService({ respectControls: true }));
+    const weather = jest.fn(async () => { throw new Error("exploration must use saved weather"); });
+    const deps = makeDeps({ callService: service, resolveWeather: weather });
+    const result = await (await mlRecommend(req(body), deps)).json();
+    expect(result.shown.map((c: Any) => c.candidateId)).toEqual(["c1"]);
+    const child = (await GenerationSnapshot.findOne({ user: userId, requestId: body.requestId }).lean()) as Any;
+    expect(child.controls.excludedOutfitItemIds).toEqual([itemIds.top, itemIds.b1].sort());
+    expect(child.occasion).toBe(" Class ");
+    expect(child.variationSourceCandidateId).toBe("c0");
+    expect(child.candidates.find((c: Any) => c.candidateId === "c0").shown).toBe(false);
+    expect((await (await mlRecommend(req(body), deps)).json()).shown[0].snapshotId).toBe(result.shown[0].snapshotId);
+    expect(service).toHaveBeenCalledTimes(1);
+    expect(weather).not.toHaveBeenCalled();
+    expect(service.mock.calls[0][0].lens.weatherRaw).toBe("Light rain, 16°C");
+    const adaptationService = jest.fn(fakeService({ respectControls: true }));
+    const adaptation = await mlRecommend(req({ ...body, requestId: uuid(), variation: { sourceCandidateId: "c0", anchorItemId: itemIds.top, occasion: "Dinner" } }),
+      makeDeps({ callService: adaptationService, resolveWeather: async () => ({ weather: "cold", weatherRaw: "Clear, 8°C" }) }));
+    expect(adaptation.status).toBe(200);
+    expect(adaptationService.mock.calls[0][0].lens.weatherRaw).toBe("Clear, 8°C");
+    expect((await mlRecommend(req({ ...body, variation: { ...body.variation, occasion: "Dinner" } }), deps)).status).toBe(400);
+    const adapt = { sourceCandidateId: "c0", anchorItemId: itemIds.top, occasion: " Class " };
+    expect((await mlRecommend(req({ ...body, variation: { ...adapt, occasion: "Dinner" } }), makeDeps())).status).toBe(409);
+    expect((await mlRecommend(req({ requestId: uuid(), parentSnapshotId: String(child._id) }), deps)).status).toBe(400);
+    expect((await mlRecommend(req({ ...body, controls: { excludedOutfitItemIds: [itemIds.top] } }), deps)).status).toBe(400);
+    const malicious = await (await mlRecommend(req({ ...body, requestId: uuid() }), makeDeps())).json();
+    expect(malicious.shown).toEqual([]); // An echoing but non-enforcing service is rejected.
+    expect(malicious.flags.reasonHint).toBe("contract_invalid");
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+    expect(await OutfitExperience.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("allows adapting a shown source to its original occasion after a report-context correction", async () => {
+    const { sourceId } = await classSource();
+    const response = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: sourceId,
+      variation: { sourceCandidateId: "c0", anchorItemId: itemIds.top, occasion: "Class" } }),
+      makeDeps({ callService: fakeService({ respectControls: true }) }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).shown).toHaveLength(2);
+  });
+
+  it("builds a new-occasion proposal bound to one owned shown candidate and excludes the selected old piece", async () => {
+    const { sourceId } = await classSource();
+    const requestId = uuid();
+    const body = { requestId, parentSnapshotId: sourceId, variation: variation("c0", itemIds.top, itemIds.b1) };
+    const deps = makeDeps({ callService: fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) });
+    const first = await mlRecommend(req(body), deps);
+    expect(first.status).toBe(200);
+    const result = await first.json();
+    expect(result.flags.reasonHint).toBeNull();
+    expect(result.shown.map((candidate: Any) => candidate.candidateId)).toEqual(["c1"]);
+    expect(result.shown[0].displayItems.map((item: Any) => item.itemId)).toEqual([itemIds.top, itemIds.b2]);
+    const child = (await GenerationSnapshot.findOne({ user: userId, requestId }).lean()) as Any;
+    expect(child.occasion).toBe("Dinner");
+    expect(child.intent).toBe("rescue_item");
+    expect(child.forcedItemId).toBe(itemIds.top);
+    expect(child.parentSnapshotId.toString()).toBe(sourceId);
+    expect(child.variationSourceCandidateId).toBe("c0");
+    expect(child.controls.dislikedItemIds).toEqual([itemIds.b1]);
+    expect(child.candidateCacheKey).toBe("b".repeat(64));
+    const replay = await mlRecommend(req(body), deps);
+    expect(replay.status).toBe(200);
+    expect((await replay.json()).shown[0].snapshotId).toBe(result.shown[0].snapshotId);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(2);
+    expect(await OutfitExperience.countDocuments({ user: userId })).toBe(0);
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+    const grandchild = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: String(child._id),
+      variation: variation("c1", itemIds.top, itemIds.b2, "Office lunch") }),
+      makeDeps({ callService: fakeService({ respectControls: true }) }));
+    expect(grandchild.status).toBe(200);
+    expect((await grandchild.json()).shown[0].displayItems.map((item: Any) => item.itemId)).toEqual([itemIds.top, itemIds.b1]);
+  });
+
+  it("rejects unshown, foreign, contradictory and unavailable source controls before the service", async () => {
+    const { sourceId } = await classSource();
+    const original = await GenerationSnapshot.collection.findOne({ _id: new mongoose.Types.ObjectId(sourceId) });
+    const foreignId = new mongoose.Types.ObjectId();
+    await GenerationSnapshot.collection.insertOne({ ...original!, _id: foreignId, user: new mongoose.Types.ObjectId() });
+    let called = false;
+    const deps = makeDeps({ callService: async body => { called = true; return fakeService()(body); } });
+    const invalid = [
+      { parentSnapshotId: String(foreignId), variation: variation("c0", itemIds.top, itemIds.b1) },
+      { parentSnapshotId: new mongoose.Types.ObjectId().toString(), variation: variation("c0", itemIds.top, itemIds.b1) },
+      { parentSnapshotId: sourceId, variation: variation("never-shown", itemIds.top, itemIds.b1) },
+      { parentSnapshotId: sourceId, variation: variation("c0", itemIds.top, itemIds.top) },
+      { parentSnapshotId: sourceId, variation: variation("c0", itemIds.top, itemIds.b2) },
+    ];
+    for (const candidate of invalid) {
+      const response = await mlRecommend(req({ requestId: uuid(), ...candidate }), deps);
+      expect([400, 404]).toContain(response.status);
+    }
+    await WardrobeItem.updateOne({ _id: itemIds.b1 }, { $set: { isAvailable: false } });
+    const unavailable = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: sourceId,
+      variation: variation("c0", itemIds.top, itemIds.b1) }), deps);
+    expect(unavailable.status).toBe(400);
+    expect((await unavailable.json()).error.code).toBe("control_item_unavailable");
+    expect(called).toBe(false);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("rejects a service result that includes the explicitly avoided item instead of writing a false guarantee", async () => {
+    const { sourceId } = await classSource();
+    const response = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: sourceId,
+      variation: variation("c0", itemIds.top, itemIds.b1) }), makeDeps());
+    expect((await response.json()).flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("does not persist a proposal if its shown source is redacted while the service runs", async () => {
+    const { sourceId } = await classSource();
+    const deps = makeDeps({ callService: async body => {
+      await GenerationSnapshot.updateOne({ _id: sourceId }, { $set: { redacted: true, redactedAt: new Date(), redactionReason: "test" } });
+      return fakeService({ respectControls: true })(body);
+    } });
+    const response = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: sourceId,
+      variation: variation("c0", itemIds.top, itemIds.b1) }), deps);
+    expect(response.status).toBe(404);
+    expect((await response.json()).error.code).toBe("variation_source_unavailable");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+});
+
+describe("R4 actual-outfit variation", () => {
+  const store = new ExperienceStore({ now: () => new Date("2026-07-08T12:00:00Z") });
+  async function reportedChange() {
+    await mlRecommend(req({ requestId: uuid(), occasion: "Class", forcedItemId: itemIds.top }), makeDeps());
+    const source = (await GenerationSnapshot.findOne({ user: userId }).lean()) as Any;
+    const experienceId = uuid();
+    await store.create(userId, { experienceId, operationId: uuid(), snapshotId: source._id.toString(), candidateId: "c0",
+      occurredOn: "2026-07-07", timezone: "UTC", context: { kind: "user", text: "Class" }, outcome: "unknown",
+      compositionStatus: "changed", memberItemIds: [itemIds.top, itemIds.b2] });
+    return { experienceId, sourceId: source._id.toString() };
+  }
+  const actualVariation = (experienceId: string, anchorItemId: string, leaveOutItemId: string, expectedRevision = 1) =>
+    ({ experienceId, expectedRevision, anchorItemId, leaveOutItemId, occasion: "Dinner" });
+
+  it("adapts actual members without exclusion and rejects a stale revision before replay", async () => {
+    const { experienceId } = await reportedChange();
+    const body = { requestId: uuid(), actualVariation: { experienceId, expectedRevision: 1, anchorItemId: itemIds.top, occasion: "Dinner" } };
+    const service = jest.fn(fakeService({ respectControls: true }));
+    const deps = makeDeps({ callService: service });
+    const first = await mlRecommend(req(body), deps);
+    expect(first.status).toBe(200);
+    expect((await first.json()).shown).toHaveLength(2);
+    const child = (await GenerationSnapshot.findOne({ user: userId, requestId: body.requestId }).lean()) as Any;
+    expect(child).toMatchObject({ variationSourceExperienceId: experienceId, variationSourceRevision: 1,
+      forcedItemId: itemIds.top, controls: { dislikedItemIds: [] } });
+    expect((await mlRecommend(req(body), deps)).status).toBe(200);
+    await experienceCollection().updateOne({ user: new mongoose.Types.ObjectId(userId), experienceId }, { $set: { currentRevision: 2 } });
+    expect((await mlRecommend(req(body), deps)).status).toBe(409);
+    expect(service).toHaveBeenCalledTimes(1);
+  });
+
+  it("derives controls from the reported actual members, preserves the report, and safely replays", async () => {
+    const { experienceId, sourceId } = await reportedChange();
+    const requestId = uuid();
+    const body = { requestId, actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) };
+    const deps = makeDeps({ callService: fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) });
+    const response = await mlRecommend(req(body), deps);
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.shown.map((candidate: Any) => candidate.displayItems.map((item: Any) => item.itemId))).toEqual([[itemIds.top, itemIds.b1]]);
+    const child = (await GenerationSnapshot.findOne({ user: userId, requestId }).lean()) as Any;
+    expect(child).toMatchObject({ variationSourceExperienceId: experienceId, variationSourceRevision: 1,
+      forcedItemId: itemIds.top, controls: { dislikedItemIds: [itemIds.b2] }, occasion: "Dinner" });
+    expect(child.parentSnapshotId.toString()).toBe(sourceId);
+    expect((await experienceCollection().findOne({ user: new mongoose.Types.ObjectId(userId), experienceId }))!.memberItemIds!.map(String))
+      .toEqual([itemIds.top, itemIds.b2]);
+    const reroll = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: String(child._id), controls: {} }), deps);
+    expect(reroll.status).toBe(400);
+    expect((await reroll.json()).error.code).toBe("variation_invalid");
+    const shownAttempt = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: String(child._id),
+      variation: { sourceCandidateId: "c0", anchorItemId: itemIds.top, leaveOutItemId: itemIds.b1, occasion: "Office" } }),
+      makeDeps({ callService: async () => { throw new Error("must not render report-bound shown variation"); } }));
+    expect(shownAttempt.status).toBe(400);
+    expect((await shownAttempt.json()).error.code).toBe("variation_invalid");
+    const replay = await mlRecommend(req(body), deps);
+    expect(replay.status).toBe(200);
+    expect((await replay.json()).shown[0].snapshotId).toBe(result.shown[0].snapshotId);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(2);
+  });
+
+  it("rejects forged source membership, stale revisions, foreign reports, and unavailable actual controls before render", async () => {
+    const { experienceId } = await reportedChange();
+    const render = jest.fn(fakeService({ respectControls: true }));
+    const deps = makeDeps({ callService: render });
+    const forged = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b1) }), deps);
+    expect(forged.status).toBe(404);
+    expect((await forged.json()).error.code).toBe("experience_source_unavailable");
+    const stale = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2, 2) }), deps);
+    expect(stale.status).toBe(409);
+    expect((await stale.json()).error.code).toBe("experience_revision_conflict");
+    const other = await User.create({ authProvider: "firebase", authId: uuid(), email: `${uuid()}@example.test` });
+    const foreign = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }),
+      makeDeps({ verifyUser: async () => ({ userId: String(other._id) }), callService: render }));
+    expect(foreign.status).toBe(404);
+    await WardrobeItem.updateOne({ _id: itemIds.b2 }, { $set: { isAvailable: false } });
+    const unavailable = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }), deps);
+    expect(unavailable.status).toBe(400);
+    expect((await unavailable.json()).error.code).toBe("control_item_unavailable");
+    expect(render).not.toHaveBeenCalled();
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("uses changed-wear facts after shown-source redaction but rejects an in-flight correction", async () => {
+    const { experienceId, sourceId } = await reportedChange();
+    await GenerationSnapshot.collection.updateOne({ _id: new mongoose.Types.ObjectId(sourceId) },
+      { $set: { redacted: true, redactedAt: new Date(), redactionReason: "test" } });
+    const good = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }),
+      makeDeps({ callService: fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) }));
+    expect(good.status).toBe(200);
+    const raced = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }),
+      makeDeps({ callService: async body => {
+        await store.revise(userId, experienceId, { operationId: uuid(), expectedPreviousRevision: 1,
+          occurredOn: "2026-07-07", timezone: "UTC", context: { kind: "user", text: "Class" }, outcome: "worked",
+          compositionStatus: "changed", memberItemIds: [itemIds.top, itemIds.b2] });
+        return fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } })(body);
+      } }));
+    expect(raced.status).toBe(409);
+    expect((await raced.json()).error.code).toBe("experience_revision_conflict");
+    expect(await GenerationSnapshot.countDocuments({ user: userId, variationSourceExperienceId: experienceId, redacted: { $ne: true } })).toBe(0);
+  });
+
+  it.each(["revise", "erase"] as const)("rejects retries and parent reuse after interrupted %s, before service spend", async mutation => {
+    const { experienceId } = await reportedChange();
+    const requestId = uuid();
+    const body = { requestId, actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) };
+    const deps = makeDeps({ callService: fakeService({ respectControls: true,
+      overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) });
+    expect((await mlRecommend(req(body), deps)).status).toBe(200);
+    const child = (await GenerationSnapshot.findOne({ user: userId, requestId }).lean()) as Any;
+    const interrupted = new ExperienceStore({ now: () => new Date("2026-07-08T12:00:00Z"),
+      afterNativeWrite: async operation => { if (operation === mutation) throw new Error("interrupted"); } });
+    await expect(mutation === "erase" ? interrupted.erase(userId, experienceId) : interrupted.revise(userId, experienceId,
+      { operationId: uuid(), expectedPreviousRevision: 1, occurredOn: "2026-07-07", timezone: "UTC",
+        context: { kind: "user", text: "Class" }, outcome: "worked", compositionStatus: "changed",
+        memberItemIds: [itemIds.top, itemIds.b2] })).rejects.toThrow("interrupted");
+    expect(((await GenerationSnapshot.findOne({ _id: child._id }).lean()) as Any).redacted).not.toBe(true);
+    const service = jest.fn(async () => { throw new Error("must not spend"); });
+    const guarded = makeDeps({ callService: service });
+    expect([404, 409]).toContain((await mlRecommend(req(body), guarded)).status);
+    expect((await mlRecommend(req({ requestId: uuid(), parentSnapshotId: String(child._id), controls: {} }), guarded)).status).toBe(404);
+    // Even a corrupted binding reused under an ordinary request cannot bypass early replay.
+    await GenerationSnapshot.collection.updateOne({ _id: child._id }, { $set: { requestId: "11111111-1111-4111-8111-111111111111" } });
+    expect((await mlRecommend(req({ requestId: "11111111-1111-4111-8111-111111111111", occasion: "Class" }), guarded)).status).toBe(404);
+    expect(service).not.toHaveBeenCalled();
+  });
+
+  it("does not redact a current-revision proposal when an older correction acknowledgement is retried", async () => {
+    const { experienceId } = await reportedChange();
+    const edit = { operationId: uuid(), expectedPreviousRevision: 1,
+      occurredOn: "2026-07-07", timezone: "UTC", context: { kind: "user", text: "Class" }, outcome: "worked",
+      compositionStatus: "changed", memberItemIds: [itemIds.top, itemIds.b2] };
+    await store.revise(userId, experienceId, edit);
+    const requestId = uuid();
+    const body = { requestId, actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2, 2) };
+    const response = await mlRecommend(req(body), makeDeps({ callService: fakeService({ respectControls: true,
+      overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) }));
+    expect(response.status).toBe(200);
+    await store.revise(userId, experienceId, edit);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId, redacted: { $ne: true } })).toBe(1);
+  });
+
+  it("does not replay a redacted proposal back into the browser", async () => {
+    const { experienceId } = await reportedChange();
+    const requestId = uuid();
+    const body = { requestId, actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) };
+    const deps = makeDeps({ callService: fakeService({ respectControls: true,
+      overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) });
+    expect((await mlRecommend(req(body), deps)).status).toBe(200);
+    await GenerationSnapshot.collection.updateOne({ user: new mongoose.Types.ObjectId(userId), requestId },
+      { $set: { redacted: true, redactedAt: new Date(), redactionReason: "test" } });
+    const replay = await mlRecommend(req(body), deps);
+    expect(replay.status).toBe(404);
+    expect((await replay.json()).error.code).toBe("proposal_unavailable");
+  });
+
+  it("redacts a saved derivative when its wear report is erased", async () => {
+    const { experienceId } = await reportedChange();
+    const requestId = uuid();
+    await mlRecommend(req({ requestId, actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }),
+      makeDeps({ callService: fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) }));
+    await store.erase(userId, experienceId);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId, redacted: true })).toBe(1);
+    const derivativeId = String(((await GenerationSnapshot.findOne({ user: userId, requestId }).lean()) as Any)._id);
+    expect((await recentSuggestions(userId, itemIds.top)).suggestions.some(s => s.snapshotId === derivativeId)).toBe(false);
+    const reroll = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: derivativeId, controls: {} }), makeDeps());
+    expect(reroll.status).toBe(404);
+    expect((await reroll.json()).error.code).toBe("parent_not_found");
+    expect(Object.keys((await experienceCollection().findOne({ user: new mongoose.Types.ObjectId(userId), experienceId }))!).sort())
+      .toEqual(["_id", "experienceId", "lifecycle", "user"]);
+    const retry = await mlRecommend(req({ requestId, actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }), makeDeps());
+    expect(retry.status).toBe(404);
+    expect((await retry.json()).error.code).toBe("experience_unavailable");
+  });
+
+  it.each(["correction", "retraction", "erasure"] as const)(
+    "keeps a later confirmed wear recallable after %s redacts its proposal source", async action => {
+      const { experienceId } = await reportedChange();
+      const requestId = uuid();
+      const proposal = await mlRecommend(req({ requestId, actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }),
+        makeDeps({ callService: fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) }));
+      expect(proposal.status).toBe(200);
+      const shown = (await proposal.json()).shown[0];
+      const laterId = uuid();
+      await store.create(userId, { experienceId: laterId, operationId: uuid(), snapshotId: shown.snapshotId,
+        candidateId: shown.candidateId, occurredOn: "2026-07-08", timezone: "UTC", context: { kind: "user", text: "Dinner" },
+        outcome: "worked", compositionStatus: "as_shown" });
+      if (action === "correction") await store.revise(userId, experienceId, { operationId: uuid(), expectedPreviousRevision: 1,
+        occurredOn: "2026-07-07", timezone: "UTC", context: { kind: "user", text: "Class" }, outcome: "worked",
+        compositionStatus: "changed", memberItemIds: [itemIds.top, itemIds.b2] });
+      else if (action === "retraction") await store.retract(userId, experienceId, { operationId: uuid(), expectedPreviousRevision: 1 });
+      else await store.erase(userId, experienceId);
+      expect(await GenerationSnapshot.countDocuments({ user: userId, requestId, redacted: true })).toBe(1);
+      const later = await getExperience(userId, laterId);
+      expect(later).toMatchObject({ sourceAvailable: false, source: null,
+        items: [{ itemId: itemIds.top, name: "White Tee" }, { itemId: itemIds.b1, name: "Blue Jeans" }],
+        state: { occurredOn: "2026-07-08", context: { rawOccasion: "Dinner", source: "user", confirmed: true }, outcome: "worked" } });
+      const recalled = await recallExperiences(userId, { itemId: itemIds.b1, context: "Dinner" });
+      expect(recalled.experiences.map(row => row.experienceId)).toEqual([laterId]);
+      expect((await recallExperiences(userId, { itemId: itemIds.b2, context: "Dinner" })).experiences).toEqual([]);
+      expect((await recentSuggestions(userId, itemIds.top)).suggestions.some(s => s.snapshotId === shown.snapshotId)).toBe(false);
+    });
+
+  it("prevents an in-flight erase from writing a proposal and account deletion removes saved derivatives", async () => {
+    const { experienceId } = await reportedChange();
+    const erased = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }),
+      makeDeps({ callService: async body => {
+        await store.erase(userId, experienceId);
+        return fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } })(body);
+      } }));
+    expect(erased.status).toBe(409);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, variationSourceExperienceId: experienceId })).toBe(0);
+
+    const another = await reportedChange();
+    await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(another.experienceId, itemIds.top, itemIds.b2) }),
+      makeDeps({ callService: fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) }));
+    expect(await GenerationSnapshot.countDocuments({ user: userId, variationSourceExperienceId: another.experienceId })).toBe(1);
+    await User.deleteOne({ _id: userId });
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+    expect(await experienceCollection().countDocuments({ user: new mongoose.Types.ObjectId(userId) })).toBe(0);
+  });
+});
+
 describe("§C.4 idempotency + G5", () => {
   it("a duplicate requestId with the SAME identity writes one snapshot and replays the winner", async () => {
     const rid = uuid();
@@ -733,13 +1150,11 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     // the user row's death — has no injection seam between callService and the step-11 write, so
     // it cannot be composed with a real render; accountDeleteRoute.test.ts's hand-injected
     // phase-3 test remains that window's guard.
-    await WardrobeImage.create({
-      user: userId,
-      wardrobeItem: itemIds.top,
-      base64: "aGk=",
-      contentType: "image/jpeg",
-      sizeBytes: 2,
+    const erasedPhoto = await WardrobeImage.create({
+      user: userId, wardrobeItem: itemIds.top, base64: "aGk=", contentType: "image/jpeg",
+      sizeBytes: 2, snapshotRetained: true, generationLeases: ["crash-leftover"],
     });
+    await WardrobeItem.updateOne({ _id: itemIds.top }, { $set: { imagePath: `mongo:${erasedPhoto._id}` } });
     const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
     initDatabase.mockResolvedValue({ User, WardrobeItem, WardrobeImage, OutfitInteraction, GenerationSnapshot });
     const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
@@ -1133,5 +1548,455 @@ describe("edge quantifier paths (review absence-shaped gaps)", () => {
 
     // ...but the browser response leaks NONE of it (G15 negative allowlist).
     expect(JSON.stringify(body)).not.toContain("engineFailure");
+  });
+});
+
+
+describe("captured weather context replay", () => {
+  it("replays automatic same-bucket weather refreshes using the original saved summary", async () => {
+    const requestId = uuid(); let raw = "Light rain, 16°C"; let calls = 0;
+    const deps = makeDeps({ resolveWeather: async () => ({ weather: "mild", weatherRaw: raw }),
+      callService: async body => { calls++; return fakeService()(body); } });
+    await mlRecommend(req({ requestId, occasion: "brunch" }), deps);
+    raw = "Clear, 18°C";
+    const result = await mlRecommend(req({ requestId, occasion: "brunch" }), deps);
+    expect(result.status).toBe(200); expect(calls).toBe(1);
+    expect((await GenerationSnapshot.findOne({ user: userId, requestId }).lean() as Any).weatherRaw).toBe("Light rain, 16°C");
+  });
+  it("conflicts on changed explicitly frozen raw context and replays equal context", async () => {
+    const requestId = uuid();
+    const deps = makeDeps({ resolveWeather: async input => ({ weather: "mild", weatherRaw: typeof input.weatherRaw === "string" ? input.weatherRaw : null }) });
+    const command = { requestId, occasion: "brunch", weather: "mild", weatherRaw: "Light rain" };
+    expect((await mlRecommend(req(command), deps)).status).toBe(200);
+    expect((await mlRecommend(req(command), deps)).status).toBe(200);
+    expect((await mlRecommend(req({ ...command, weatherRaw: "Clear" }), deps)).status).toBe(409);
+    expect((await mlRecommend(req({ ...command, weatherRaw: {} }), deps)).status).toBe(400);
+    const blank = { ...command, requestId: uuid(), weatherRaw: null };
+    expect((await mlRecommend(req(blank), deps)).status).toBe(200);
+    expect((await mlRecommend(req({ ...blank, weatherRaw: "" }), deps)).status).toBe(200);
+    expect((await mlRecommend(req({ ...blank, weatherRaw: "Rain" }), deps)).status).toBe(409);
+  });
+  it.each([false, true])("checks captured weather after concurrent writes (explicit=%s)", async explicit => {
+    const requestId = uuid(); let arrivals = 0; let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const deps = makeDeps({ resolveWeather: async input => ({ weather: "mild", weatherRaw: String(input.weatherRaw) }),
+      callService: async body => { if (++arrivals === 2) release(); await barrier; return fakeService()(body); } });
+    const command = { requestId, occasion: "brunch", ...(explicit ? { weather: "mild" } : {}) };
+    const responses = await Promise.all([mlRecommend(req({ ...command, weatherRaw: "Rain" }), deps), mlRecommend(req({ ...command, weatherRaw: "Clear" }), deps)]);
+    expect(responses.map(response => response.status).sort()).toEqual(explicit ? [200, 409] : [200, 200]);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId })).toBe(1);
+    if (!explicit) {
+      const bodies = await Promise.all(responses.map(response => response.json()));
+      expect(bodies[0].shown[0].snapshotId).toBe(bodies[1].shown[0].snapshotId);
+    }
+  });
+});
+
+
+describe("R14 atomic photo retention across generation", () => {
+  async function photo(itemId = itemIds.top, owner = userId) {
+    const image = await WardrobeImage.create({ user: owner, wardrobeItem: itemId,
+      base64: "exact-old-pixels", contentType: "image/png", sizeBytes: 16 });
+    await WardrobeItem.updateOne({ _id: itemId }, { $set: { imagePath: `mongo:${image._id}` } });
+    return image;
+  }
+  function authedRoutes() {
+    jest.requireMock("@/lib/db").initDatabase.mockResolvedValue({
+      User, WardrobeItem, WardrobeImage, OutfitInteraction, GenerationSnapshot,
+    });
+    jest.requireMock("@/lib/firebaseAdmin").adminAuth.verifyIdToken.mockResolvedValue({ uid: "uid-test" });
+    return { headers: { get: (h: string) => h === "authorization" ? "Bearer fake" : null } } as Any;
+  }
+  function parkedRender(over: Partial<MlRecommendDeps> = {}, requestId = uuid()) {
+    let parked!: () => void;
+    const ready = new Promise<void>(resolve => { parked = resolve; });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const run = mlRecommend(req({ requestId, occasion: "class" }), makeDeps({ ...over,
+      callService: async body => { parked(); await gate; return (over.callService ?? fakeService())(body); },
+    }));
+    return { ready, release, run };
+  }
+  async function destructive(action: string) {
+    const request = authedRoutes();
+    if (action === "replace") {
+      const form = new FormData();
+      form.append("file", new File([new Uint8Array([0x89,0x50,0x4e,0x47,13,10,26,10])], "new.png", { type: "image/png" }));
+      request.formData = async () => form;
+      const { POST } = await import("@/app/api/wardrobe/[id]/image/route");
+      return POST(request, { params: Promise.resolve({ id: itemIds.top }) });
+    }
+    if (action === "delete") {
+      const { DELETE } = await import("@/app/api/wardrobe/[id]/route");
+      return DELETE(request, { params: Promise.resolve({ id: itemIds.top }) });
+    }
+    const { DELETE } = await import("@/app/api/wardrobe/clear/route");
+    return DELETE(request);
+  }
+  it.each(["replace", "delete", "clear"])("retains exact captured bytes through %s during paused render", async action => {
+    const old = await photo();
+    const render = parkedRender();
+    await render.ready;
+    expect((await WardrobeImage.findById(old._id).lean<Any>()).generationLeases).toHaveLength(1);
+    expect((await destructive(action)).status).toBe(200);
+    expect((await WardrobeImage.findById(old._id).lean<Any>()).base64).toBe("exact-old-pixels");
+    render.release();
+    expect((await json(await render.run)).body.bindable).toBe(true);
+    const stored = await GenerationSnapshot.findOne({ user: userId }).lean<Any>();
+    expect(stored.itemSnapshots.find((item: Any) => item.itemId === itemIds.top).evidence.image.imageRef).toBe(`mongo:${old._id}`);
+    expect(stored.itemSnapshots.find((item: Any) => item.itemId === itemIds.top).engineVisible.imageUrl).toBe(`/api/images/${old._id}`);
+    const retained = await WardrobeImage.findById(old._id).lean<Any>();
+    expect(retained).toMatchObject({ base64: "exact-old-pixels", snapshotRetained: true, generationLeases: [] });
+  });
+  it.each(["replace", "delete", "clear"])("reclaims superseded bytes after service failure and %s", async action => {
+    const old = await photo();
+    const render = parkedRender({ callService: fakeService({ fail: { ok: false, reasonHint: "service_unavailable" } }) });
+    await render.ready;
+    expect((await destructive(action)).status).toBe(200);
+    render.release();
+    expect((await json(await render.run)).body.bindable).toBe(false);
+    expect(await WardrobeImage.findById(old._id)).toBeNull();
+  });
+  it("omits evidence and engine URL if photo deletion wins before atomic acquisition", async () => {
+    const old = await photo();
+    // Capture the old wardrobe, then delete the item+photo at the acquisition boundary.
+    const update = WardrobeImage.updateOne.bind(WardrobeImage);
+    const pin = jest.spyOn(WardrobeImage, "updateOne").mockImplementationOnce(((...args: Any[]) => ({ exec: async () => {
+      expect((await destructive("delete")).status).toBe(200);
+      return update(...args as [Any, Any]).exec();
+    } })) as Any);
+    try {
+      expect((await json(await mlRecommend(req({ requestId: uuid(), occasion: "class" }), makeDeps()))).body.bindable).toBe(true);
+    } finally { pin.mockRestore(); }
+    expect(await WardrobeImage.findById(old._id)).toBeNull();
+    const item = (await GenerationSnapshot.findOne({ user: userId }).lean<Any>()).itemSnapshots.find((i: Any) => i.itemId === itemIds.top);
+    expect(item.evidence.image).toBeUndefined();
+    expect(item.engineVisible.imageUrl).toBe("");
+  });
+  it("does not retain a foreign owner's exact image reference", async () => {
+    const other = await User.create({ authProvider: "firebase", authId: "foreign", email: "foreign@example.com" });
+    const old = await photo(itemIds.top, other._id.toString());
+    await mlRecommend(req({ requestId: uuid(), occasion: "class" }), makeDeps());
+    const item = (await GenerationSnapshot.findOne({ user: userId }).lean<Any>()).itemSnapshots.find((i: Any) => i.itemId === itemIds.top);
+    expect(item.evidence.image).toBeUndefined();
+    expect(item.engineVisible.imageUrl).toBe("");
+    expect((await WardrobeImage.findById(old._id).lean<Any>())).toMatchObject({ snapshotRetained: false, generationLeases: [] });
+  });
+  it("one failed invocation cannot release another invocation's pin", async () => {
+    const old = await photo();
+    const failing = parkedRender({ callService: fakeService({ fail: { ok: false, reasonHint: "service_unavailable" } }) });
+    const successful = parkedRender();
+    await Promise.all([failing.ready, successful.ready]);
+    expect((await WardrobeImage.findById(old._id).lean<Any>()).generationLeases).toHaveLength(2);
+    expect((await destructive("delete")).status).toBe(200);
+    failing.release(); await failing.run;
+    expect((await WardrobeImage.findById(old._id).lean<Any>()).generationLeases).toHaveLength(1);
+    successful.release(); await successful.run;
+    expect((await WardrobeImage.findById(old._id).lean<Any>())).toMatchObject({ snapshotRetained: true, generationLeases: [] });
+  });
+  it("ambiguous write failure conservatively keeps pins without a visible snapshot", async () => {
+    const old = await photo();
+    const create = jest.spyOn(GenerationSnapshot, "create").mockRejectedValueOnce(new Error("transport timed out before server result") as never);
+    const log = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await json(await mlRecommend(req({ requestId: uuid(), occasion: "class" }), makeDeps()))).body.bindable).toBe(false);
+      expect((await WardrobeImage.findById(old._id).lean<Any>()).generationLeases).toHaveLength(1);
+      expect((await destructive("delete")).status).toBe(200);
+      expect(await WardrobeImage.findById(old._id)).not.toBeNull();
+      expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+    } finally { create.mockRestore(); log.mockRestore(); }
+  });
+  it("promotes actual refs when transaction committed but its acknowledgement failed", async () => {
+    const old = await photo();
+    const session = await User.db.startSession();
+    const transaction = session.withTransaction.bind(session);
+    session.withTransaction = (async (...args: Any[]) => {
+      await transaction(...args as [Any, Any]); throw new Error("lost acknowledgement");
+    }) as Any;
+    const startSession = jest.spyOn(User.db, "startSession").mockResolvedValueOnce(session);
+    const log = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await mlRecommend(req({ requestId: uuid(), occasion: "class" }), makeDeps());
+      expect((await WardrobeImage.findById(old._id).lean<Any>())).toMatchObject({ snapshotRetained: true, generationLeases: [] });
+    } finally { startSession.mockRestore(); log.mockRestore(); }
+  });
+  it("successful commit with failed transfer leaves the durable lease for exact pixels", async () => {
+    const old = await photo();
+    const realUpdate = WardrobeImage.updateOne.bind(WardrobeImage);
+    const update = jest.spyOn(WardrobeImage, "updateOne").mockImplementation(((filter: Any, operation: Any) => {
+      if (operation.$pull) return { exec: async () => { throw new Error("database unavailable during transfer"); } };
+      return realUpdate(filter, operation);
+    }) as Any);
+    const log = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await json(await mlRecommend(req({ requestId: uuid(), occasion: "class" }), makeDeps()))).body.bindable).toBe(true);
+      expect((await WardrobeImage.findById(old._id).lean<Any>()).generationLeases).toHaveLength(1);
+      expect((await destructive("delete")).status).toBe(200);
+      expect(await WardrobeImage.findById(old._id)).not.toBeNull();
+    } finally { update.mockRestore(); log.mockRestore(); }
+  });
+  it("idempotent loser releases only its unused replacement photo", async () => {
+    const old = await photo();
+    const requestId = uuid();
+    const winner = parkedRender({}, requestId);
+    await winner.ready;
+    expect((await destructive("replace")).status).toBe(200);
+    const current = (await WardrobeItem.findById(itemIds.top).lean<Any>()).imagePath;
+    const loser = parkedRender({}, requestId);
+    await loser.ready;
+    winner.release(); const winningBody = (await json(await winner.run)).body;
+    expect((await destructive("delete")).status).toBe(200);
+    loser.release(); const losingBody = (await json(await loser.run)).body;
+    expect(losingBody.shown[0].snapshotId).toBe(winningBody.shown[0].snapshotId);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId })).toBe(1);
+    expect(await WardrobeImage.findById(current.slice(6))).toBeNull();
+    expect((await WardrobeImage.findById(old._id).lean<Any>())).toMatchObject({ snapshotRetained: true, generationLeases: [] });
+  });
+  it("an unused leased pool image is reclaimed after successful snapshot persistence", async () => {
+    const unused = await photo(itemIds.shoes);
+    const render = parkedRender(); await render.ready;
+    const { DELETE } = await import("@/app/api/wardrobe/[id]/route");
+    expect((await DELETE(authedRoutes(), { params: Promise.resolve({ id: itemIds.shoes }) })).status).toBe(200);
+    render.release(); expect((await json(await render.run)).body.bindable).toBe(true);
+    expect(await WardrobeImage.findById(unused._id)).toBeNull();
+  });
+  it("a URL-only current garment keeps its bytes after a failed render", async () => {
+    const image = await photo();
+    await WardrobeItem.updateOne({ _id: itemIds.top }, {
+      $unset: { imagePath: "" }, $set: { imageUrl: `/api/images/${image._id}` },
+    });
+    await mlRecommend(req({ requestId: uuid(), occasion: "class" }), makeDeps({
+      callService: fakeService({ fail: { ok: false, reasonHint: "service_unavailable" } }),
+    }));
+    expect((await WardrobeImage.findById(image._id).lean<Any>())).toMatchObject({ generationLeases: [], snapshotRetained: false });
+  });
+  it("URL-only exact owned photo captures canonical evidence and survives clear during render", async () => {
+    const image = await photo();
+    await WardrobeItem.updateOne({ _id: itemIds.top }, {
+      $unset: { imagePath: "" }, $set: { imageUrl: `/api/images/${image._id}` },
+    });
+    const render = parkedRender(); await render.ready;
+    expect((await destructive("clear")).status).toBe(200);
+    render.release(); expect((await json(await render.run)).body.bindable).toBe(true);
+    const item = (await GenerationSnapshot.findOne({ user: userId }).lean<Any>()).itemSnapshots.find((i: Any) => i.itemId === itemIds.top);
+    expect(item.evidence.image.imageRef).toBe(`mongo:${image._id}`);
+    expect(item.engineVisible.imageUrl).toBe(`/api/images/${image._id}`);
+    expect((await WardrobeImage.findById(image._id).lean<Any>())).toMatchObject({ snapshotRetained: true, generationLeases: [] });
+  });
+  it("historic engine URL-only snapshot protects exact bytes without modern flags", async () => {
+    const image = await photo();
+    await GenerationSnapshot.collection.insertOne({ user: new mongoose.Types.ObjectId(userId),
+      itemSnapshots: [{ engineVisible: { imageUrl: `/api/images/${image._id}` } }],
+    });
+    expect((await destructive("clear")).status).toBe(200);
+    expect(await WardrobeImage.findById(image._id)).not.toBeNull();
+  });
+  it("malformed local URLs are omitted while external photo URLs remain ordinary evidence", async () => {
+    await WardrobeItem.updateOne({ _id: itemIds.top }, { $set: { imageUrl: "/api/images/not-an-id", imagePath: "mongo:bad" } });
+    await WardrobeItem.updateOne({ _id: itemIds.b1 }, { $set: { imageUrl: "https://example.com/photo.png" } });
+    await mlRecommend(req({ requestId: uuid(), occasion: "class" }), makeDeps());
+    const snapshot = await GenerationSnapshot.findOne({ user: userId }).lean<Any>();
+    const top = snapshot.itemSnapshots.find((i: Any) => i.itemId === itemIds.top);
+    expect(top.evidence.image).toBeUndefined(); expect(top.engineVisible.imageUrl).toBe("");
+    expect(snapshot.itemSnapshots.find((i: Any) => i.itemId === itemIds.b1).engineVisible.imageUrl).toBe("https://example.com/photo.png");
+  });
+
+});
+
+
+describe("R15 durable manual weather", () => {
+  const manual = () => ({ requestId: uuid(), occasion: "Class tomorrow", weatherSource: "manual",
+    weather: "cold", weatherRaw: " Rain and wind, 8°C " });
+
+  it.each([false, true])("captures manual root conditions/source in real Mongo and the prompt (rescue=%s)", async rescue => {
+    const automatic = jest.fn(async (): Promise<WeatherResolution> => ({ weather: "hot", weatherRaw: "Clear", weatherSource: "current" }));
+    const service = jest.fn(fakeService());
+    const command = { ...manual(), ...(rescue ? { forcedItemId: itemIds.top } : {}), lat: 40, lon: -74 };
+    const deps = makeDeps({ resolveWeather: automatic, callService: service });
+    const response = await mlRecommend(req(command), deps);
+    expect(response.status).toBe(200);
+    expect((await response.json()).weatherSource).toBe("manual");
+    const row = await GenerationSnapshot.findOne({ user: userId, requestId: command.requestId }).lean() as Any;
+    expect(row.weatherSource).toBe("manual"); expect(row.weather).toBe("cold");
+    expect(row.weatherRaw).toBe(command.weatherRaw);
+    expect(service.mock.calls[0][0].lens.weatherRaw).toBe(command.weatherRaw);
+    expect(automatic).not.toHaveBeenCalled();
+    expect((await mlRecommend(req(command), deps)).status).toBe(200);
+    expect((await mlRecommend(req({ ...command, weatherRaw: "Snow, 8°C" }), deps)).status).toBe(409);
+    expect(service).toHaveBeenCalledTimes(1);
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+    expect(await OutfitExperience.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("requires manual source identity both when replacing automatic and when dropping manual", async () => {
+    const deps = makeDeps({ resolveWeather: async () => ({ weather: "cold", weatherRaw: "Rain", weatherSource: "forecast" }) });
+    const command = { ...manual(), weatherRaw: "Rain" };
+    expect((await mlRecommend(req(command), deps)).status).toBe(200);
+    const { weatherSource: _source, ...automatic } = command;
+    void _source;
+    expect((await mlRecommend(req(automatic), deps)).status).toBe(409);
+    const automaticFirst = { ...automatic, requestId: uuid() };
+    expect((await mlRecommend(req(automaticFirst), deps)).status).toBe(200);
+    expect((await mlRecommend(req({ ...automaticFirst, weatherSource: "manual" }), deps)).status).toBe(409);
+  });
+
+  it("preserves manual source on re-roll/explore and conservatively projects legacy missing provenance", async () => {
+    const command = { ...manual(), forcedItemId: itemIds.top };
+    const deps = makeDeps({ callService: fakeService({ respectControls: true }) });
+    const source = await (await mlRecommend(req(command), deps)).json();
+    const parentSnapshotId = source.shown[0].snapshotId;
+    const reroll = { requestId: uuid(), parentSnapshotId };
+    const child = await (await mlRecommend(req(reroll), deps)).json();
+    expect(child.weatherSource).toBe("manual");
+    const explore = { requestId: uuid(), parentSnapshotId, variation: { mode: "explore", sourceCandidateId: "c0",
+      anchorItemId: itemIds.top, occasion: command.occasion } };
+    const explored = await (await mlRecommend(req(explore), deps)).json();
+    expect(explored.weatherSource).toBe("manual");
+    const rows = await GenerationSnapshot.find({ user: userId }).lean() as Any[];
+    expect(rows).toHaveLength(3);
+    expect(rows.every(row => row.weatherSource === "manual" && row.weatherRaw === command.weatherRaw)).toBe(true);
+    // Native insertion represents a historical row; do not mutate the immutable current snapshot.
+    const historical = { ...rows.find(row => String(row._id) === parentSnapshotId), _id: new mongoose.Types.ObjectId(), requestId: uuid() };
+    delete historical.weatherSource;
+    await GenerationSnapshot.collection.insertOne(historical);
+    const legacy = await (await mlRecommend(req({ requestId: uuid(), parentSnapshotId: String(historical._id) }), deps)).json();
+    expect(legacy.weatherSource).toBe("unknown");
+  });
+
+  it.each([
+    { weather: "rainy" }, { weather: undefined }, { weatherRaw: 5 }, { weatherRaw: "x".repeat(121) },
+    { weatherRaw: "Rain\nwind" }, { weatherRaw: "\ud800" }, { weatherSource: "forecast" },
+  ])("rejects malformed input without service spend or writes %j", async patch => {
+    const service = jest.fn(fakeService());
+    const response = await mlRecommend(req({ ...manual(), ...patch }), makeDeps({ callService: service }));
+    expect(response.status).toBe(400); expect(service).not.toHaveBeenCalled();
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
+  it("rejects the manual control on child requests and binds absent manual details as null", async () => {
+    const command = { ...manual(), weatherRaw: null };
+    const deps = makeDeps();
+    const source = await (await mlRecommend(req(command), deps)).json();
+    expect((await mlRecommend(req({ requestId: uuid(), parentSnapshotId: source.shown[0].snapshotId,
+      weatherSource: "manual", weather: "cold" }), deps)).status).toBe(400);
+    expect((await mlRecommend(req({ ...command, weatherRaw: "" }), deps)).status).toBe(200);
+    expect((await mlRecommend(req({ ...command, weatherRaw: "rain" }), deps)).status).toBe(409);
+  });
+
+  it.each(["raw", "source"])("checks manual %s identity after a real concurrent duplicate-key write", async changed => {
+    let arrivals = 0; let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const deps = makeDeps({ resolveWeather: async () => ({ weather: "cold", weatherRaw: " Rain and wind, 8°C ", weatherSource: "forecast" }),
+      callService: async body => { if (++arrivals === 2) release(); await barrier; return fakeService()(body); } });
+    const first = manual();
+    const second = { ...first, ...(changed === "raw" ? { weatherRaw: "snow" } : { weatherSource: undefined }) };
+    const results = await Promise.all([mlRecommend(req(first), deps), mlRecommend(req(second), deps)]);
+    expect(results.map(result => result.status).sort()).toEqual([200, 409]);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId: first.requestId })).toBe(1);
+  });
+
+  it("keeps automatic cross-bucket retry conflicts while same-bucket summaries replay", async () => {
+    let weather: "mild" | "cold" = "mild";
+    const deps = makeDeps({ resolveWeather: async () => ({ weather, weatherRaw: "Forecast", weatherSource: "forecast" }) });
+    const command = { requestId: uuid(), occasion: "Class" };
+    expect((await mlRecommend(req(command), deps)).status).toBe(200);
+    weather = "cold";
+    expect((await mlRecommend(req(command), deps)).status).toBe(409);
+  });
+});
+
+
+describe("R16 durable positive weather signals", () => {
+  const command = () => ({ requestId: uuid(), occasion: "Class", weatherSource: "manual", weather: "mild",
+    weatherRaw: "Expected wet and windy", weatherSignals: { rain: true, wind: true } });
+  it("persists server-captured signals with exact manual replay/conflicts, saved return and source inheritance", async () => {
+    const service = jest.fn(fakeService({ respectControls: true }));
+    const deps = makeDeps({ callService: service });
+    const root = { ...command(), forcedItemId: itemIds.top };
+    const response = await (await mlRecommend(req(root), deps)).json();
+    expect(response.weatherSignals).toEqual(root.weatherSignals);
+    const snapshotId = response.shown[0].snapshotId;
+    expect((await GenerationSnapshot.findById(snapshotId).lean<Any>()).weatherSignals).toEqual(root.weatherSignals);
+    expect(service.mock.calls[0][0].lens.weatherSignals).toEqual(root.weatherSignals);
+    expect(await getSuggestion(userId, snapshotId, "c0")).toMatchObject({ weatherSignals: root.weatherSignals });
+    expect((await mlRecommend(req(root), deps)).status).toBe(200);
+    expect((await mlRecommend(req({ ...root, weatherSignals: { rain: true, wind: false } }), deps)).status).toBe(409);
+    expect((await mlRecommend(req({ ...root, weatherSignals: undefined }), deps)).status).toBe(409);
+    const reroll = await (await mlRecommend(req({ requestId: uuid(), parentSnapshotId: snapshotId }), deps)).json();
+    const explored = await (await mlRecommend(req({ requestId: uuid(), parentSnapshotId: snapshotId,
+      variation: { mode: "explore", sourceCandidateId: "c0", anchorItemId: itemIds.top, occasion: root.occasion } }), deps)).json();
+    expect(reroll.weatherSignals).toEqual(root.weatherSignals); expect(explored.weatherSignals).toEqual(root.weatherSignals);
+    expect(service.mock.calls.every(([body]) => JSON.stringify(body.lens.weatherSignals) === JSON.stringify(root.weatherSignals))).toBe(true);
+    expect(await OutfitInteraction.countDocuments()).toBe(0); expect(await OutfitExperience.countDocuments()).toBe(0);
+    const other = await User.create({ authProvider: "firebase", authId: "other-r16", email: "other@example.com" });
+    await expect(getSuggestion(String(other._id), snapshotId, "c0")).rejects.toMatchObject({ status: 404 });
+    expect((await mlRecommend(req({ requestId: uuid(), parentSnapshotId: snapshotId }), makeDeps({ verifyUser: async () => ({ userId: String(other._id) }) }))).status).toBe(404);
+  });
+  it("does not infer signals from arbitrary manual text or legacy saved context", async () => {
+    const service = jest.fn(fakeService()); const deps = makeDeps({ callService: service });
+    const root = { ...command(), weatherSignals: undefined, weatherRaw: "Rain and windy" };
+    const result = await (await mlRecommend(req(root), deps)).json();
+    expect(result).not.toHaveProperty("weatherSignals");
+    const child = await (await mlRecommend(req({ requestId: uuid(), parentSnapshotId: result.shown[0].snapshotId }), deps)).json();
+    expect(child).not.toHaveProperty("weatherSignals");
+    expect(service.mock.calls.every(([body]) => body.lens.weatherSignals === undefined)).toBe(true);
+  });
+  it("same-bucket automatic retries replay the first captured signals without new service spend", async () => {
+    let weatherSignals = { rain: true, wind: false };
+    const service = jest.fn(fakeService());
+    const deps = makeDeps({ callService: service, resolveWeather: async () => ({ weather: "mild", weatherRaw: "Forecast", weatherSource: "forecast", weatherSignals }) });
+    const root = { requestId: uuid(), occasion: "Class" };
+    const first = await (await mlRecommend(req(root), deps)).json();
+    weatherSignals = { rain: false, wind: true };
+    const retry = await (await mlRecommend(req(root), deps)).json();
+    expect(retry.shown).toEqual(first.shown); expect(retry.weatherSignals).toEqual({ rain: true, wind: false }); expect(service).toHaveBeenCalledTimes(1);
+  });
+  it.each([null, {}, { rain: true }, { rain: 1, wind: false }, { rain: true, wind: false, extra: true }, []])("rejects malformed signals %j before spend", async weatherSignals => {
+    const service = jest.fn(fakeService());
+    expect((await mlRecommend(req({ ...command(), weatherSignals }), makeDeps({ callService: service }))).status).toBe(400);
+    expect(service).not.toHaveBeenCalled(); expect(await GenerationSnapshot.countDocuments()).toBe(0);
+  });
+  it("checks changed signal identity after concurrent duplicate-key reconciliation", async () => {
+    let arrivals = 0; let release!: () => void; const barrier = new Promise<void>(resolve => { release = resolve; });
+    const deps = makeDeps({ callService: async body => { if (++arrivals === 2) release(); await barrier; return fakeService()(body); } });
+    const first = command();
+    const results = await Promise.all([mlRecommend(req(first), deps), mlRecommend(req({ ...first, weatherSignals: { rain: false, wind: true } }), deps)]);
+    expect(results.map(result => result.status).sort()).toEqual([200,409]);
+    expect(await GenerationSnapshot.countDocuments({ requestId: first.requestId })).toBe(1);
+  });
+});
+
+
+describe("R16 layer-choice response integrity", () => {
+  const command = () => ({ requestId: uuid(), occasion: "Class", weatherSource: "manual", weather: "mild", weatherSignals: { rain: true, wind: false } });
+  it("accepts a service null signal echo for legacy unknown context without inventing captured signals", async () => {
+    const deps = makeDeps({ callService: fakeService({ overridePayload: payload => { payload.weatherSignals = null; } }) });
+    const response = await (await mlRecommend(req({ requestId: uuid(), occasion: "Class" }), deps)).json();
+    expect(response.bindable).toBe(true); expect(response).not.toHaveProperty("weatherSignals");
+    expect((await GenerationSnapshot.findById(response.shown[0].snapshotId).lean<Any>()).weatherSignals).toBeUndefined();
+  });
+  it("captures the honest no-layer gap in strict Mongo, replay and saved return", async () => {
+    const layerChoice = { status: "gap", note: LAYER_CHOICE_NOTES.gap };
+    const deps = makeDeps({ callService: fakeService({ overridePayload: payload => { payload.layerChoice = layerChoice; } }) });
+    const root = command(); const response = await (await mlRecommend(req(root), deps)).json();
+    expect(response.layerChoice).toEqual(layerChoice);
+    const id = response.shown[0].snapshotId;
+    expect((await GenerationSnapshot.findById(id).lean<Any>()).layerChoice).toEqual(layerChoice);
+    expect((await (await mlRecommend(req(root), deps)).json()).layerChoice).toEqual(layerChoice);
+    expect((await getSuggestion(userId, id, "c0")).layerChoice).toEqual(layerChoice);
+  });
+  it.each([
+    { status: "off", note: null }, { status: "offered", note: LAYER_CHOICE_NOTES.offered },
+    { status: "gap", note: "This jacket is waterproof." }, { status: "gap", note: null },
+  ])("rejects contradictory or untrusted choice %j without persistence", async layerChoice => {
+    const deps = makeDeps({ callService: fakeService({ overridePayload: payload => { payload.layerChoice = layerChoice; } }) });
+    const result = await (await mlRecommend(req(command()), deps)).json();
+    expect(result.bindable).toBe(false); expect(result.flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments()).toBe(0);
+  });
+  it.each([undefined, null, { rain: false, wind: false }, { rain: 1, wind: true }])("rejects missing or altered service signal echo %j", async weatherSignals => {
+    const deps = makeDeps({ callService: fakeService({ overridePayload: payload => { payload.weatherSignals = weatherSignals; } }) });
+    const result = await (await mlRecommend(req(command()), deps)).json();
+    expect(result.bindable).toBe(false); expect(await GenerationSnapshot.countDocuments()).toBe(0);
   });
 });

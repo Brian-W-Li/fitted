@@ -781,8 +781,9 @@ def test_canonical_render_body_fixture_matches_the_contract():
     }
     for name, keys in checks.items():
         required, optional = contract.BOUNDARIES[name]
-        # The base fixture populates every optional field, so keys == required ∪ optional exactly.
-        assert keys == required | optional, (
+        # The root fixture cannot carry the nonempty, lineage-only exploration control.
+        expected = required | (optional - {"excludedOutfitItemIds"} if name == "controls" else optional)
+        assert keys == expected, (
             f"{name}: fixture carries {sorted(keys)} but the contract is "
             f"{sorted(required | optional)}"
         )

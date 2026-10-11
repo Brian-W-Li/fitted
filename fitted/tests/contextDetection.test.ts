@@ -458,6 +458,7 @@ describe("resolveWeatherProd — geo branch wires bucketFromTemp, NOT bucketFrom
     mockedGetWeatherContext.mockResolvedValue({
       weatherSummary: "Clear sky, 34°C",
       isForecast: false,
+      weatherSignals: { rain: false, wind: false },
       tempC: 34,
       feelsLikeC: 34,
     });
@@ -472,6 +473,7 @@ describe("resolveWeatherProd — geo branch wires bucketFromTemp, NOT bucketFrom
     mockedGetWeatherContext.mockResolvedValue({
       weatherSummary: "Clear sky, 3°C",
       isForecast: false,
+      weatherSignals: { rain: false, wind: false },
       tempC: 3,
       feelsLikeC: 1,
     });
@@ -485,5 +487,46 @@ describe("resolveWeatherProd — geo branch wires bucketFromTemp, NOT bucketFrom
     expect(res.weather).toBe("cold"); // bucketFromSummary(occasion): "freezing"/"winter" → cold
     expect(res.weatherRaw).toBeNull(); // no raw summary when geo yielded nothing
     expect(mockedGetWeatherContext).toHaveBeenCalledTimes(1); // geo WAS attempted (lat/lon present)
+  });
+});
+
+
+describe("R15 weather provenance and manual precedence", () => {
+  afterEach(() => mockedGetWeatherContext.mockReset());
+
+  it("uses exact manual conditions ahead of location or occasion inference", async () => {
+    const result = await resolveWeatherProd({ occasion: "hot summer picnic", weatherSource: "manual",
+      weather: "cold", weatherRaw: "Rainy with strong wind, 8°C", lat: 40, lon: -74 });
+    expect(result).toEqual({ weather: "cold", weatherRaw: "Rainy with strong wind, 8°C", weatherSource: "manual" });
+    expect(mockedGetWeatherContext).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("labels fetched context from the provider's forecast flag (%s)", async isForecast => {
+    mockedGetWeatherContext.mockResolvedValue({ weatherSummary: "Clear, 16°C", tempC: 16, weatherSignals: { rain: false, wind: false }, isForecast });
+    expect((await resolveWeatherProd({ occasion: "brunch", lat: 40, lon: -74 })).weatherSource)
+      .toBe(isForecast ? "forecast" : "current");
+  });
+
+  it("distinguishes occasion inference from the mild fallback after fetch failure", async () => {
+    mockedGetWeatherContext.mockResolvedValue(null);
+    expect(await resolveWeatherProd({ occasion: "freezing class", lat: 40, lon: -74 }))
+      .toEqual({ weather: "cold", weatherRaw: null, weatherSource: "occasion" });
+    expect(await resolveWeatherProd({ occasion: "class", lat: 40, lon: -74 }))
+      .toEqual({ weather: "mild", weatherRaw: null, weatherSource: "default" });
+    expect((await resolveWeatherProd({ occasion: "class", weather: "mild", weatherRaw: "Rain" })).weatherSource)
+      .toBe("unknown");
+  });
+
+  it.each([
+    { weatherSource: "forecast", weather: "cold" },
+    { weatherSource: "manual" },
+    { weatherSource: "manual", weather: "rainy" },
+    { weatherSource: "manual", weather: "cold", weatherRaw: {} },
+    { weatherSource: "manual", weather: "cold", weatherRaw: "x".repeat(121) },
+    { weatherSource: "manual", weather: "cold", weatherRaw: "rain\nwind" },
+    { weatherSource: "manual", weather: "cold", weatherRaw: "\ud800" },
+  ])("rejects invalid manual/source input before fetching %j", async input => {
+    await expect(resolveWeatherProd({ occasion: "class", lat: 40, lon: -74, ...input })).rejects.toThrow();
+    expect(mockedGetWeatherContext).not.toHaveBeenCalled();
   });
 });
