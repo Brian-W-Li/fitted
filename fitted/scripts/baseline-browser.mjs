@@ -163,13 +163,18 @@ async function run() {
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: `${project}.firebaseapp.com`, NEXT_PUBLIC_FIREBASE_APP_ID: "baseline-app",
     ...(production ? { FITTED_LOCAL_PRODUCTION_BASELINE: "1", NEXT_PUBLIC_FITTED_LOCAL_PRODUCTION_BASELINE: "1" } : {}),
   };
+  // Hosted loaders may reject require(ESM) despite native Node 24 support.
+  // Exercise the compiled auth chain with that native escape hatch disabled.
+  const servingEnv = production
+    ? { ...nextEnv, NODE_OPTIONS: "--no-experimental-require-module" }
+    : nextEnv;
   if (production) {
     console.log("Building isolated production browser baseline");
     await completed(child("npm", ["run", "build"], path.join(temp, "app"), nextEnv));
     // Verify the compiled server refuses an incomplete production test opt-in.
     const invalid = child(path.join(fitted, "node_modules/.bin/next"),
       ["start", "--hostname", "127.0.0.1", "--port", "3107"], path.join(temp, "app"),
-      { ...nextEnv, FITTED_LOCAL_PRODUCTION_BASELINE: "0" });
+      { ...servingEnv, FITTED_LOCAL_PRODUCTION_BASELINE: "0" });
     await ready(`${origin}/signin`, invalid);
     const rejected = await fetch(`${origin}/api/auth/sync`, {
       method: "POST", headers: { Authorization: "Bearer synthetic-guard-check", "Content-Type": "application/json" }, body: "{}",
@@ -184,7 +189,7 @@ async function run() {
   }
   const next = child(path.join(fitted, "node_modules/.bin/next"),
     [production ? "start" : "dev", ...(production ? [] : ["--webpack"]), "--hostname", "127.0.0.1", "--port", "3107"],
-    path.join(temp, "app"), nextEnv);
+    path.join(temp, "app"), servingEnv);
   await ready(`${origin}/signin`, next, 120000);
 
   const owner = await account("owner@baseline.test");
