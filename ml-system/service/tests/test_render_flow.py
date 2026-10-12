@@ -864,3 +864,32 @@ def test_absent_weather_details_do_not_invent_a_forecast():
     status, _, stub = _render(render_body(lens={"weatherRaw": None}))
     assert status == 200
     assert "Weather details" not in stub.prompts[0].user
+
+
+def test_declared_fit_and_pattern_reach_prompt_and_immutable_snapshot():
+    wardrobe = [
+        wire_item("t1", "top", pattern="graphic print", fit="relaxed"),
+        wire_item("b1", "bottom", pattern=None, fit=None),
+    ]
+    status, response, stub = _render(render_body(wardrobe=wardrobe))
+    assert status == 200
+    prompt = stub.prompts[0]
+    assert '"pattern": "graphic print"' in prompt.user
+    assert '"fit": "relaxed"' in prompt.user
+    assert '"pattern": null' in prompt.user and '"fit": null' in prompt.user
+    assert "Treat missing fit, pattern or material as unknown" in prompt.system
+    items = {row["itemId"]: row["engineVisible"] for row in response["payload"]["itemSnapshots"]}
+    assert items["t1"]["pattern"] == "graphic print" and items["t1"]["fit"] == "relaxed"
+    assert items["b1"]["pattern"] is None and items["b1"]["fit"] is None
+
+
+def test_blank_fit_and_pattern_normalize_to_unknown_without_dropping_item():
+    wardrobe = [
+        wire_item("t1", "top", pattern="  ", fit="\t"),
+        wire_item("b1", "bottom"),
+    ]
+    status, response, _ = _render(render_body(wardrobe=wardrobe))
+    assert status == 200
+    items = {row["itemId"]: row["engineVisible"] for row in response["payload"]["itemSnapshots"]}
+    assert "t1" in items
+    assert items["t1"]["pattern"] is None and items["t1"]["fit"] is None

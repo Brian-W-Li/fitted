@@ -222,7 +222,7 @@ async function run() {
     _id: ids[i], user: new ObjectId(owner.userId), name, clothingType, category,
     warmth: 5, colors: ["navy"], occasions: ["casual"], isAvailable: true,
     createdAt: new Date(), updatedAt: new Date(),
-    ...(i === 0 ? { imagePath: "mongo:650000000000000000000010" } : {}),
+    ...(i === 0 ? { imagePath: "mongo:650000000000000000000010", pattern: "striped", fit: "Regular", size: "M", notes: "Synthetic note kept across edits" } : {}),
   })));
   const imageId = new ObjectId("650000000000000000000010");
   await db.collection("wardrobeimages").insertOne({
@@ -277,6 +277,9 @@ async function run() {
   assert.ok(recommendation.bindable && recommendation.shown?.length > 0, `empty rescue: ${JSON.stringify(recommendation)}`);
   assert.ok(recommendation.shown[0].displayItems.some(item => item.itemId === ids[0].toString()), "shown candidate includes forced item");
   const rescueCommand = recommendResponse.request().postDataJSON();
+  const originalDetails = await db.collection("generationsnapshots").findOne({ user: new ObjectId(owner.userId), requestId: rescueCommand.requestId });
+  assert.equal(originalDetails.itemSnapshots.find(item => item.itemId === String(ids[0])).engineVisible.pattern, "striped");
+  assert.equal(originalDetails.itemSnapshots.find(item => item.itemId === String(ids[0])).engineVisible.fit, "Regular");
   assert.equal(rescueCommand.weatherSource, "manual");
   assert.equal(rescueCommand.weather, "cold");
   assert.equal(rescueCommand.weatherRaw, "Cold; rain expected; windy");
@@ -661,12 +664,22 @@ async function run() {
   // it as current evidence without changing the photo captured by the saved proposal.
   const primaryBytes = await db.collection("wardrobeimages").findOne({ _id: imageId });
   await currentGarment.getByRole("button", { name: "Edit this garment", exact: true }).click();
+  await page.getByText("More details (optional)", { exact: true }).click();
+  await page.getByLabel("Pattern", { exact: true }).selectOption("solid");
+  await page.getByLabel("Fit", { exact: true }).selectOption("Relaxed");
   await page.getByLabel("Additional view 1", { exact: true }).setInputFiles({
     name: "detail.png", mimeType: "image/png", buffer: Buffer.from(primaryBytes.base64, "base64"),
   });
   await page.getByRole("button", { name: "Save item", exact: true }).click();
   await page.getByRole("button", { name: "Select additional view 1", exact: true }).first().waitFor();
   const withDetail = await db.collection("wardrobeitems").findOne({ _id: ids[0] });
+  assert.equal(withDetail.pattern, "solid");
+  assert.equal(withDetail.fit, "Relaxed");
+  assert.equal(withDetail.size, "M", "detail edit retains the hidden size");
+  assert.equal(withDetail.notes, "Synthetic note kept across edits", "detail edit retains the hidden note");
+  const originalDetailCapture = await db.collection("generationsnapshots").findOne({ user: new ObjectId(owner.userId), requestId: rescueCommand.requestId });
+  assert.equal(originalDetailCapture.itemSnapshots.find(item => item.itemId === String(ids[0])).engineVisible.pattern, "striped", "saved capture survives current correction");
+  assert.equal(originalDetailCapture.itemSnapshots.find(item => item.itemId === String(ids[0])).engineVisible.fit, "Regular");
   assert.equal(withDetail.supplementalImages.length, 1, "edit saves one extra view on the same garment");
   const detailId = withDetail.supplementalImages[0].slice("mongo:".length);
   await page.reload();
@@ -716,6 +729,10 @@ async function run() {
   ]);
   assert.equal(unwornResponse.status(), 200);
   const adapted = await unwornResponse.json();
+  const adaptedRow = await db.collection("generationsnapshots").findOne({ user: new ObjectId(owner.userId), requestId: unwornResponse.request().postDataJSON().requestId });
+  const correctedDetails = adaptedRow.itemSnapshots.find(item => item.itemId === String(ids[0])).engineVisible;
+  assert.equal(correctedDetails.pattern, "solid", "new request uses the corrected pattern");
+  assert.equal(correctedDetails.fit, "Relaxed", "new request uses the corrected fit");
   await page.setViewportSize(desktopViewport);
   assert.ok(adapted.shown.length, "planned unworn proposal can produce an alternative");
   for (const proposal of adapted.shown) {
@@ -935,7 +952,7 @@ async function run() {
   assert.equal(await db.collection("users").countDocuments({ email: other.email }), 1);
   await otherContext.close();
   await context.close();
-  console.log(`PASS ${production ? "production-build synthetic" : "development synthetic"} local browser: mid-layer rescue/saved plan/wear/correction, same-situation exploration, optional adaptation on narrow screen, rescue, plan photos and inline date carryover, direct unworn planned variation, dated planning/reschedule/removal, changed and second wear recall, shown/actual variation, no-option, correction, retraction, clear, erasure, image, history and owner isolation`);
+  console.log(`PASS ${production ? "production-build synthetic" : "development synthetic"} local browser: detail correction/captured preservation, mid-layer rescue/saved plan/wear/correction, same-situation exploration, optional adaptation on narrow screen, rescue, plan photos and inline date carryover, direct unworn planned variation, dated planning/reschedule/removal, changed and second wear recall, shown/actual variation, no-option, correction, retraction, clear, erasure, image, history and owner isolation`);
 }
 
 try {

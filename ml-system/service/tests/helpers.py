@@ -133,6 +133,8 @@ def wire_item(item_id: str, clothing_type: str, **overrides) -> dict:
         "occasionTags": ["casual"],
         "material": None,
         "formality": None,
+        "pattern": None,
+        "fit": None,
         "layerRole": None,
         "imageUrl": f"https://img/{item_id}.png",
     }

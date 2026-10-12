@@ -177,13 +177,15 @@ def test_committed_fixture_matches_a_fresh_build():
     current = _build_e2e_wire()
     # R23 preserves legacy saved evidence byte-for-byte. Only the new projection field
     # and the declared provenance revision differ for this unlayered synthetic journey.
-    assert current["fittedCoreVersion"] == "0.7.0"
-    assert current["generator"]["promptVersion"] == "style-context-mid.v3"
+    assert current["fittedCoreVersion"] == "0.8.0"
+    assert current["generator"]["promptVersion"] == "style-context-details.v4"
     for candidate in current["candidates"]:
         assert "mid" not in (candidate.get("slotMap") or {})
         assert all(entry["role"] != "mid_layer" for entry in (candidate.get("items") or []))
     for item in current["itemSnapshots"]:
         assert item["engineVisible"].pop("layerRole") is None
+        assert item["engineVisible"].pop("pattern") is None
+        assert item["engineVisible"].pop("fit") is None
     current["fittedCoreVersion"] = committed["fittedCoreVersion"]
     current["generator"]["promptVersion"] = committed["generator"]["promptVersion"]
     assert committed == current, "unlayered contract drifted beyond the explicit R23 additions"

@@ -328,6 +328,8 @@ def _engine_visible(item: WardrobeItem) -> dict:
         "occasion_tags": list(item.occasion_tags),
         "material": item.material,
         "formality": item.formality,
+        "pattern": item.pattern,
+        "fit": item.fit,
         "layer_role": item.layer_role,
         "image_url": item.image_url,
     }

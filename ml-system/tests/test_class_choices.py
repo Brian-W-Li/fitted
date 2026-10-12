@@ -92,6 +92,7 @@ def test_requested_class_register_reaches_prompt_with_bounded_styling_guidance(o
     assert "within the user's requested style and level of dress" in prompt.system
     assert "Honor stated garment preferences" in prompt.system
     assert "Vary the base garment combinations" in prompt.system
-    assert "do not invent fit, fabric or construction" in prompt.system
+    assert "Treat missing fit, pattern or material as unknown" in prompt.system
+    assert "never guess them or invent fabric, fit, or construction" in prompt.system
     if forced:
         assert all("a-polo" in {id for id, _ in v.items} for v in trace.result.variants)

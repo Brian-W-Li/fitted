@@ -1,3 +1,4 @@
+import { MAX_ITEM_ATTR_CHARS } from "@/lib/garmentDetails";
 import { LAYER_ROLES } from "@/lib/layerRole";
 import { LAYER_CHOICE_NOTES } from "@/lib/weatherContext";
 /**
@@ -93,6 +94,7 @@ const TS_CLAMPS: Record<string, number> = {
   MAX_ITEM_NAME_CHARS,
   MAX_ITEM_TAG_CHARS,
   MAX_ITEM_TAGS,
+  MAX_ITEM_ATTR_CHARS,
   MAX_IMAGE_URL_CHARS,
   MAX_PER_ITEM_FEEDBACK,
   FEEDBACK_REASON_RAW_TEXT_MAX_CHARS,

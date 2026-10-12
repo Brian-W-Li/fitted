@@ -219,8 +219,10 @@ const ItemSnapshotSchema = new Schema(
       type: new Schema(
         {
           name: { type: String },
-          clothingType: { type: String, enum: [...CLOTHING_TYPES] },
-          layerRole: { type: String, enum: ["base", "mid", "outer", null] }, // single-homed in lib/clothingType
+          clothingType: { type: String, enum: [...CLOTHING_TYPES] }, // single-homed in lib/clothingType
+          layerRole: { type: String, enum: ["base", "mid", "outer", null] },
+          pattern: { type: String },
+          fit: { type: String },
           warmth: { type: Number, required: true }, // engine-required; keyword-derived at ingestion
           styleTags: { type: [String], default: [] },
           colorTags: { type: [String], default: [] },

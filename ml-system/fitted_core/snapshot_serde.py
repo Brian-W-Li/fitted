@@ -63,6 +63,8 @@ ENGINE_VISIBLE_TO_WIRE: dict[str, str] = {
     "occasion_tags": "occasionTags",
     "material": "material",
     "formality": "formality",
+    "pattern": "pattern",
+    "fit": "fit",
     "layer_role": "layerRole",
     "image_url": "imageUrl",
 }

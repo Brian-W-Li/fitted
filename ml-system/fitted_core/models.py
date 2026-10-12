@@ -121,7 +121,7 @@ WARMTH_MAX = 10
 class WardrobeItem:
     """A single wardrobe item (v2 §6.1).
 
-    warmth is a WARMTH_MIN..WARMTH_MAX weather signal; material/formality are optional
+    warmth is a WARMTH_MIN..WARMTH_MAX weather signal; material/formality/pattern/fit are optional
     CV-derived attributes. Tags default empty because an item legitimately may carry none.
     """
 
@@ -135,6 +135,8 @@ class WardrobeItem:
     occasion_tags: list[str] = field(default_factory=list)
     material: Optional[str] = None
     formality: Optional[str] = None
+    pattern: Optional[str] = None
+    fit: Optional[str] = None
     layer_role: Optional[str] = None
 
     def __post_init__(self) -> None:

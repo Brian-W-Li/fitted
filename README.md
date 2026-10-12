@@ -8,12 +8,17 @@ are in `ml-system/`.
 The application source includes owned-item rescue, saved proposals, same-situation
 exploration, weather and removable-layer context, dated plans, explicit wear memory,
 correction and retraction. Suggestions, plans, reactions and actual wear remain
-separate records. Account deletion fences new owned writes and supports manual
+separate records. One explicitly marked mid-layer may accompany a base tee/shirt;
+a sweater may also be the sole top. S1 forwards declared pattern and fit to the
+stylist and captured inputs, without guessing missing detail or changing ranking
+weights. Account deletion fences new owned writes and supports manual
 recovery for interrupted cleanup. Wardrobe clear reports acknowledged deletion,
 partial photo cleanup or an uncertain result and reloads the current closet.
 
-The [hosted app](https://fitted-three.vercel.app) was updated on 2026-10-11 from
-source commit `fe8618eed`. Release checks verified retained Firebase sign-in/session
+The [hosted app](https://fitted-three.vercel.app) received the R22 release from
+source commit `fe8618eed`, followed by R23 layering (now merged into main).
+The [S1 contract](docs/plans/styling-s1.md) and its pull request separate source
+validation from subsequent hosted release evidence. Release checks verified retained Firebase sign-in/session
 admission, owned photos, one ordinary-deadline recommendation and exact saved
 proposal return. Wear/planning/photo mutations, owner denial and account deletion
 pass the compiled synthetic journey; hosted destructive lifecycle tests were not

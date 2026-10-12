@@ -106,7 +106,7 @@ MAX_ID_CHARS = 64  # wardrobe/forced/lock ids + requestId (§C.4 pins ≤ 64)
 MAX_ITEM_NAME_CHARS = 200
 MAX_ITEM_TAG_CHARS = 60
 MAX_ITEM_TAGS = 25  # per tag field (styleTags / colorTags / occasionTags)
-MAX_ITEM_ATTR_CHARS = 60  # material / formality
+MAX_ITEM_ATTR_CHARS = 60  # material / formality / pattern / fit
 MAX_IMAGE_URL_CHARS = 2048  # never reaches the prompt (H33) but is stored engineVisible
 # Upper bound for non-negative integer wire fields (generationIndex/wardrobeVersion/
 # interactionCountAtRequest). A 400-digit JSON int is otherwise accepted and framed into the seed;

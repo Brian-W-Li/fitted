@@ -1,3 +1,4 @@
+import { normalizeGarmentDetail } from "@/lib/garmentDetails";
 import { normalizeLayerRole, type LayerRole } from "@/lib/layerRole";
 import { validWeatherSignals, type WeatherSignals } from "@/lib/weatherContext";
 /**
@@ -125,6 +126,8 @@ export interface WardrobeItemSource {
   name: string;
   clothingType: string; // M4 5-value, written natively
   layerRole?: string;
+  pattern?: unknown;
+  fit?: unknown;
   warmth: number; // M4 column, keyword-derived at ingestion (0..10)
   colors?: string[];
   occasions?: string[];
@@ -176,6 +179,8 @@ export interface WardrobeItemWire {
   clothingType: string;
   warmth: number;
   layerRole: LayerRole | null;
+  pattern: string | null;
+  fit: string | null;
   colorTags: string[];
   occasionTags: string[];
   styleTags: string[]; // no column until the W-track → []
@@ -263,6 +268,8 @@ function tryProjectWardrobeItem(
       clothingType: item.clothingType,
       warmth: item.warmth,
       layerRole: normalizeLayerRole(item.layerRole),
+      pattern: normalizeGarmentDetail(item.pattern),
+      fit: normalizeGarmentDetail(item.fit),
       colorTags: sanitizeTags(item.colors),
       occasionTags: sanitizeTags(item.occasions),
       styleTags: [],
