@@ -80,7 +80,7 @@ describe("dashboard — an EXISTING grant resumes without re-asking (#5)", () =>
       okCb({ coords: { latitude: 34.4, longitude: -119.8 } }),
     );
     render(<Dashboard />);
-    expect(await screen.findByText(/using your location for local weather/i)).toBeInTheDocument();
+    expect(await screen.findByText(/using your location to look up weather/i)).toBeInTheDocument();
   });
 
   it("does NOT resume when the browser would still prompt", async () => {
@@ -118,7 +118,7 @@ describe("dashboard — location is primed, not sprung (#5)", () => {
     render(<Dashboard />);
     await userEvent.click(await screen.findByRole("button", { name: /use my location/i }));
     expect(getCurrentPosition).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText(/using your location for local weather/i)).toBeInTheDocument();
+    expect(await screen.findByText(/using your location to look up weather/i)).toBeInTheDocument();
   });
 
   it("degrades gracefully on denial — says what is lost and how to compensate, no dead end", async () => {
@@ -126,11 +126,11 @@ describe("dashboard — location is primed, not sprung (#5)", () => {
     getCurrentPosition.mockImplementation((_ok: unknown, fail: () => void) => fail());
     render(<Dashboard />);
     await userEvent.click(await screen.findByRole("button", { name: /use my location/i }));
-    expect(await screen.findByText(/outfits are picked without today's weather/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no location shared. choose expected weather above/i)).toBeInTheDocument();
     // Generate stays available — declining location must never block the product.
     expect(screen.getByRole("button", { name: /get recommendations/i })).toBeEnabled();
     // And the decision is reversible.
-    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /try location again/i })).toBeInTheDocument();
   });
 
   it("passes a timeout so an unanswered prompt can't strand the button on 'Waiting…'", async () => {

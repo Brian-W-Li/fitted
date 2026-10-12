@@ -34,6 +34,7 @@ from fitted_core.generation import (
 from fitted_core.models import Role, SlotMap, WardrobeItem
 from fitted_core.ranker import _breakdown_total
 from fitted_core.reducers import REDUCER_CONFIG_VERSION
+from fitted_core.layer_policy import layer_choice
 from fitted_core.rescue import RenderRequest, RenderTrace
 from fitted_core.response import cold_start_scorer
 from fitted_core.scorer import OutfitScorer
@@ -203,6 +204,8 @@ class GenerationSnapshotPayload:
     shown_full_signatures: tuple[str, ...]
     n_surfaced: int
     spread_collapsed: bool
+    layer_choice: Optional[dict] = None
+    weather_signals: Optional[dict[str, bool]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +307,7 @@ _SLOT_ROLE = {
     "dress": Role.one_piece,
     "top": Role.base_top,
     "bottom": Role.base_bottom,
+    "mid": Role.mid_layer,
     "outer": Role.outer_layer,
     "shoes": Role.shoes,
 }
@@ -324,6 +328,7 @@ def _engine_visible(item: WardrobeItem) -> dict:
         "occasion_tags": list(item.occasion_tags),
         "material": item.material,
         "formality": item.formality,
+        "layer_role": item.layer_role,
         "image_url": item.image_url,
     }
 
@@ -341,7 +346,7 @@ def _slot_dict(slot_map: SlotMap) -> dict:
     """The filled-slot map (§8.3 candidate.slotMap)."""
     return {
         slot: getattr(slot_map, slot)
-        for slot in ("dress", "top", "bottom", "outer", "shoes")
+        for slot in ("dress", "top", "bottom", "mid", "outer", "shoes")
         if getattr(slot_map, slot) is not None
     }
 
@@ -365,6 +370,7 @@ def _controls_dict(request: RenderRequest) -> dict:
     return {
         "locked_item_ids": list(request.locked_item_ids),
         "disliked_item_ids": list(request.disliked_item_ids),
+        **({"excluded_outfit_item_ids": list(request.excluded_outfit_item_ids)} if request.excluded_outfit_item_ids else {}),
     }
 
 
@@ -508,6 +514,7 @@ def _build_candidates(
             if idx is None:
                 continue
             c = get(idx)
+            c.style_move = _style_move_dict(variant.style_move)
             c.option_path = variant.option_path.value
             c.risk = variant.risk.value
         for position, variant in enumerate(trace.build_trace.selected):
@@ -777,6 +784,8 @@ def build_snapshot_payload(
         intent=request.intent,
         occasion=request.occasion,
         weather=request.weather,
+        weather_signals=dict(request.weather_signals) if request.weather_signals is not None else None,
+        layer_choice=layer_choice(request, trace.result.variants),
         weather_raw=weather_raw,
         location=location,
         forced_item_id=request.forced_item_id,
@@ -991,6 +1000,8 @@ def build_degenerate_payload(
         intent=request.intent,
         occasion=request.occasion,
         weather=request.weather,
+        weather_signals=dict(request.weather_signals) if request.weather_signals is not None else None,
+        layer_choice=layer_choice(request, ()),
         weather_raw=weather_raw,
         location=location,
         forced_item_id=request.forced_item_id,

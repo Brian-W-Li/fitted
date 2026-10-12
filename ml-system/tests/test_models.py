@@ -70,7 +70,7 @@ def test_item_type_members_and_order():
 def test_template_and_role_members():
     assert {t.value for t in Template} == {"one_piece", "two_piece"}
     assert {r.value for r in Role} == {
-        "base_top", "base_bottom", "one_piece", "outer_layer", "shoes",
+        "base_top", "base_bottom", "one_piece", "outer_layer", "shoes", "mid_layer",
     }
 
 

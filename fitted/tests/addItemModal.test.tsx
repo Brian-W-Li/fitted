@@ -2,7 +2,7 @@
  * Client-component behavioral tests for the wardrobe add/edit modal
  * (wardrobe-ingestion-honesty-pass D5 — the two behaviors that can corrupt friend data).
  *
- * AddItemModal lives inside app/(app)/wardrobe/page.tsx; importing that module pulls in the
+ * AddItemModal lives inside app/(app)/wardrobe/WardrobeClient.tsx; importing that module pulls in the
  * page-level Firebase client, so we mock it (the modal itself never touches Firebase — it is a
  * pure props-driven component whose only outside effect is the injected onSave).
  */
@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 jest.mock("@/lib/firebaseClient", () => ({ auth: {} }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { AddItemModal, MAX_UPLOAD_BYTES } = require("@/app/(app)/wardrobe/page") as typeof import("@/app/(app)/wardrobe/page");
+const { AddItemModal, MAX_UPLOAD_BYTES } = require("@/app/(app)/wardrobe/WardrobeClient") as typeof import("@/app/(app)/wardrobe/WardrobeClient");
 
 // A fully-valid form payload so validateWardrobeForm passes without simulated typing — lets each
 // test isolate the photo-gate behavior. (WardrobeFormValues = Omit<WardrobeItem,"id">.)
@@ -230,9 +230,9 @@ describe("AddItemModal — photo preview (iOS tab-switch resilience + enlarge)",
     // DOM order) + the main preview. Losing the header button drops this to 1 and reddens the test.
     const enlargeBtns = await screen.findAllByRole("button", { name: "Enlarge photo" });
     expect(enlargeBtns).toHaveLength(2);
-    expect(screen.queryByLabelText("Close enlarged photo")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Current photo: Blue tee" })).not.toBeInTheDocument();
     await userEvent.click(enlargeBtns[0]); // the header thumbnail
-    expect(screen.getByLabelText("Close enlarged photo")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Current photo: Blue tee" })).toBeInTheDocument();
   });
 });
 

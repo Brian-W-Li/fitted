@@ -34,6 +34,11 @@
         "accepted",
         "rejected"
       ],
+      "layerRole": [
+        "base",
+        "mid",
+        "outer"
+      ],
       "weather": [
         "cold",
         "hot",
@@ -100,6 +105,10 @@
       "temperature": 0.5,
       "timeoutSeconds": 30.0
     },
+    "layerChoiceNotes": {
+      "gap": "No eligible removable-layer option was found for these conditions. Rain and wind protection are unknown.",
+      "offered": "An optional removable layer is included. Rain and wind protection are unknown; check the garment and conditions before relying on it."
+    },
     "reducerScanBounds": {
       "INTERACTION_ROWS_SCAN_LIMIT": 500,
       "REPETITION_WINDOW_SNAPSHOTS": 50
@@ -107,6 +116,7 @@
     "roleToSlot": {
       "base_bottom": "bottom",
       "base_top": "top",
+      "mid_layer": "mid",
       "one_piece": "dress",
       "outer_layer": "outer",
       "shoes": "shoes"
@@ -125,6 +135,7 @@
       "role": [
         "base_bottom",
         "base_top",
+        "mid_layer",
         "one_piece",
         "outer_layer",
         "shoes"
@@ -206,7 +217,9 @@
       "required": []
     },
     "controls": {
-      "optional": [],
+      "optional": [
+        "excludedOutfitItemIds"
+      ],
       "required": [
         "dislikedItemIds",
         "lockedItemIds"
@@ -232,7 +245,8 @@
       "optional": [
         "forcedItemId",
         "location",
-        "weatherRaw"
+        "weatherRaw",
+        "weatherSignals"
       ],
       "required": [
         "constraints",
@@ -262,6 +276,7 @@
     "wardrobeItem": {
       "optional": [
         "formality",
+        "layerRole",
         "material"
       ],
       "required": [

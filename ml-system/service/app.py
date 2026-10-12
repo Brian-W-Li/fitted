@@ -330,6 +330,9 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
     }
     material = _optional_string(raw.get("material"), f"{where}.material", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
     formality = _optional_string(raw.get("formality"), f"{where}.formality", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
+    layer_role = raw.get("layerRole")
+    if layer_role is not None and (not isinstance(layer_role, str) or layer_role not in ("base", "mid", "outer")):
+        raise ContractInvalid(f"{where}.layerRole must be base, mid, outer or null")
     # Blank is a LEGITIMATE value here (spec §15.2: imageUrl → else imagePath → else "" — the
     # deployed model does not require an image), unlike id/name; the engine never prompts on it
     # (H33 strips image_url) and stores it verbatim in the engineVisible snapshot.
@@ -348,12 +351,13 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
             occasion_tags=tags["occasionTags"],
             material=material,
             formality=formality,
+            layer_role=layer_role,
         )
     except (TypeError, ValueError) as exc:  # the dataclass guards are inside the boundary (§D)
         raise ContractInvalid(f"{where} failed engine validation: {exc}") from exc
 
 
-def _normalize_controls(raw: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _normalize_controls(raw: Any) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     """The §C.3 F6 control normalization — ONE normalized set drives generation AND persistence.
 
     Reject blank/non-string ids (via ``_string_list``), **dedup + order-normalize** (stable sort →
@@ -380,7 +384,13 @@ def _normalize_controls(raw: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
             f"{where}: an item cannot be both locked and disliked "
             f"(overlap: {sorted(overlap)})"
         )
-    return locked, disliked
+    excluded = ()
+    if "excludedOutfitItemIds" in raw:
+        ids = _string_list(raw["excludedOutfitItemIds"], "controls.excludedOutfitItemIds", max_items=5, max_chars=cfg.MAX_ID_CHARS)
+        if not ids or len(set(ids)) != len(ids):
+            raise ContractInvalid("excludedOutfitItemIds must contain 1–5 unique item ids")
+        excluded = tuple(sorted(ids))
+    return locked, disliked, excluded
 
 
 def _lock_feasibility_error(pin_types: list[ItemType]) -> Optional[str]:
@@ -447,7 +457,13 @@ def _preflight_controls(
     pin_ids = set(locked)
     if intent == "rescue_item" and forced_item_id is not None:
         pin_ids.add(forced_item_id)  # the forced item is an implicit lock (every outfit includes it)
-    pin_types = [by_id[pid].type for pid in sorted(pin_ids) if pid in by_id]
+    pin_items = [by_id[pid] for pid in sorted(pin_ids) if pid in by_id]
+    top_pins = [item for item in pin_items if item.type == ItemType.top]
+    # Two tops occupy base+mid only with one explicit mid and one ordinary base.
+    layered_tops = len(top_pins) == 2 and sum(item.layer_role == "mid" for item in top_pins) == 1
+    pin_types = [item.type for item in pin_items]
+    if layered_tops:
+        pin_types.remove(ItemType.top)
     error = _lock_feasibility_error(pin_types)
     if error is not None:
         raise ContractInvalid(error)
@@ -573,7 +589,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
             "null parent; a re-roll carries both"
         )
 
-    locked_item_ids, disliked_item_ids = _normalize_controls(body["controls"])
+    locked_item_ids, disliked_item_ids, excluded_outfit_item_ids = _normalize_controls(body["controls"])
     # §C.3 root-controls invariant: controls are regenerate-LINEAGE only. A root render
     # (null parent / index 0) must carry empty controls — non-empty locked/disliked on a
     # parentless render is a caller bug, rejected pre-spend before any preflight or generator
@@ -581,7 +597,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     # on a re-roll (generationIndex > 0 with a parent); the service must never accept a root
     # controlled render even if that derivation drifts. (The lineage check above already
     # guarantees parent-None ⟺ index-0, so this equivalently reads "index 0 → empty controls".)
-    if parent_snapshot_id is None and (locked_item_ids or disliked_item_ids):
+    if parent_snapshot_id is None and (locked_item_ids or disliked_item_ids or excluded_outfit_item_ids):
         raise ContractInvalid(
             "controls must be empty on a root render — locked/disliked controls are carried "
             "only by a re-roll (generationIndex > 0 with a parentSnapshotId)"
@@ -601,6 +617,13 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     if not isinstance(weather, str) or weather not in cfg.WEATHER_BUCKETS:
         raise ContractInvalid(f"lens.weather must be one of {sorted(cfg.WEATHER_BUCKETS)}")
     weather_raw = _optional_string(lens.get("weatherRaw"), "lens.weatherRaw", max_chars=cfg.MAX_WEATHER_RAW_CHARS)
+    from fitted_core.layer_policy import normalize_weather_signals
+    try:
+        if "weatherSignals" in lens and lens["weatherSignals"] is None:
+            raise ValueError("must be an object when supplied")
+        weather_signals = normalize_weather_signals(lens.get("weatherSignals"))
+    except ValueError as exc:
+        raise ContractInvalid(f"lens.weatherSignals: {exc}") from exc
     location = _optional_string(lens.get("location"), "lens.location", max_chars=cfg.MAX_LOCATION_CHARS)
     forced_item_id = lens.get("forcedItemId")
     if forced_item_id is not None:
@@ -652,6 +675,8 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
             forced_item_id=forced_item_id,
             occasion=occasion,
             weather=weather,
+            weather_summary=weather_raw,
+            weather_signals=weather_signals,
             session_id=session_id,
             wardrobe_version=wardrobe_version,
             generation_index=generation_index,
@@ -662,6 +687,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
             interaction_count=interaction_count,
             locked_item_ids=locked_item_ids,
             disliked_item_ids=disliked_item_ids,
+            excluded_outfit_item_ids=excluded_outfit_item_ids,
         )
     except (TypeError, ValueError) as exc:
         # RenderRequest guard raises are inside the pre-validation boundary (§D).
@@ -847,7 +873,7 @@ class FittedService:
                 request, failure, generator_calls=calls, **provenance
             )
             return 200, {
-                "payload": to_wire(dataclasses.asdict(payload)),
+                "payload": _snapshot_wire(payload),
                 "shown": [],
                 "flags": _flags(reason_hint=_ENGINE_FAILURE_HINT),
                 "degenerate": True,
@@ -859,7 +885,7 @@ class FittedService:
                 generator_finish_status=abnormal_finish_status(trace),
             )
             shown = _shown_entries(payload, trace)
-            wire_payload = to_wire(dataclasses.asdict(payload))
+            wire_payload = _snapshot_wire(payload)
         except Exception:
             # §D "constructable at EVERY internal failure point" — a payload/zip/serde bug
             # AFTER generation is still an internal engine failure on a valid request: the
@@ -878,7 +904,7 @@ class FittedService:
                     request, failure, generator_calls=generator.calls, **provenance
                 )
             try:
-                wire_payload = to_wire(dataclasses.asdict(degenerate_payload))
+                wire_payload = _snapshot_wire(degenerate_payload)
             except Exception:
                 # A salvaged piece (attempts / itemSnapshots / trace diagnostics) itself
                 # refuses to serialize — rebuild the trace-free degenerate payload (honest
@@ -887,7 +913,7 @@ class FittedService:
                 stripped = build_degenerate_payload(
                     request, failure, generator_calls=generator.calls, **provenance
                 )
-                wire_payload = to_wire(dataclasses.asdict(stripped))
+                wire_payload = _snapshot_wire(stripped)
             return 200, {
                 "payload": wire_payload,
                 "shown": [],
@@ -910,6 +936,13 @@ class FittedService:
             ),
             "degenerate": degenerate,
         }
+
+
+def _snapshot_wire(payload: GenerationSnapshotPayload) -> dict:
+    wire = to_wire(dataclasses.asdict(payload))
+    if payload.weather_signals is None:
+        wire.pop("weatherSignals", None)
+    return wire
 
 
 def _shown_entries(payload: GenerationSnapshotPayload, trace: RenderTrace) -> list[dict]:

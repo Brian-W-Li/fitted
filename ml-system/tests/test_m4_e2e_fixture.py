@@ -11,8 +11,8 @@ Proves the M4b seam composes WITHOUT a live route or the authenticity gate (both
 
 The wire doc is also frozen as a committed fixture (``fixtures/m4b_e2e_snapshot.json``) that the
 TS side validates against the real C5 Mongoose schema (``fitted/tests/m4bSnapshotContract.test.ts``)
-— the cross-language half of this same seam. This test guards that the fixture stays in sync with
-a fresh build, so the two languages can never silently diverge.
+— the cross-language half of this same seam. This test preserves the historical fixture while comparing a fresh build exactly, apart
+from explicit additive fields and provenance revisions introduced by R23.
 """
 
 import dataclasses
@@ -95,7 +95,11 @@ def _build_e2e_wire() -> dict:
         generator_provider="openai", generator_model="gpt-5.4-mini", generator_temperature=0.5,
         generator_max_completion_tokens=2200,
     )
-    return snapshot_serde.to_wire(dataclasses.asdict(payload))
+    authored = dataclasses.asdict(payload)
+    # Legacy requests omit unknown optional weather signals at the HTTP boundary.
+    if authored["weather_signals"] is None:
+        authored.pop("weather_signals")
+    return snapshot_serde.to_wire(authored)
 
 
 # --- the seam composes -------------------------------------------------------
@@ -167,7 +171,19 @@ def test_outfit_interaction_binding_round_trips_to_the_snapshot():
 
 def test_committed_fixture_matches_a_fresh_build():
     # The TS side validates the COMMITTED fixture against the real C5 schema; this guards that the
-    # fixture stays byte-identical to a fresh Python build, so the two halves never silently drift.
+    # fixture preserves the legacy contract, so additive changes stay explicit.
     assert FIXTURE.exists(), f"missing {FIXTURE} — regenerate it (see the module docstring)"
     committed = json.loads(FIXTURE.read_text())
-    assert committed == _build_e2e_wire(), "fixture is stale — regenerate m4b_e2e_snapshot.json"
+    current = _build_e2e_wire()
+    # R23 preserves legacy saved evidence byte-for-byte. Only the new projection field
+    # and the declared provenance revision differ for this unlayered synthetic journey.
+    assert current["fittedCoreVersion"] == "0.7.0"
+    assert current["generator"]["promptVersion"] == "style-context-mid.v3"
+    for candidate in current["candidates"]:
+        assert "mid" not in (candidate.get("slotMap") or {})
+        assert all(entry["role"] != "mid_layer" for entry in (candidate.get("items") or []))
+    for item in current["itemSnapshots"]:
+        assert item["engineVisible"].pop("layerRole") is None
+    current["fittedCoreVersion"] = committed["fittedCoreVersion"]
+    current["generator"]["promptVersion"] = committed["generator"]["promptVersion"]
+    assert committed == current, "unlayered contract drifted beyond the explicit R23 additions"

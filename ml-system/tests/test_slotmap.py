@@ -33,10 +33,10 @@ def test_normalize_two_piece_with_outer_and_shoes():
     assert sm == SlotMap(top="t1", bottom="b1", outer="o1", shoes="s1")
 
 
-# --- normalizer-owned rejects: a duplicate of EACH of the five role-owned slots ---
+# --- normalizer-owned rejects: a duplicate of EACH of the six role-owned slots ---
 
 @pytest.mark.parametrize("role", [
-    "base_top", "base_bottom", "one_piece", "outer_layer", "shoes",
+    "base_top", "base_bottom", "one_piece", "outer_layer", "shoes", "mid_layer",
 ])
 def test_normalize_rejects_duplicate_role(role):
     # A second item for an already-seen role would be silently overwritten — reject.
@@ -49,7 +49,7 @@ def test_normalize_rejects_duplicate_role(role):
 
 
 def test_normalize_rejects_unknown_role():
-    sm, code = normalize_to_slotmap([{"itemId": "x1", "role": "mid_layer"}])
+    sm, code = normalize_to_slotmap([{"itemId": "x1", "role": "accessory"}])
     assert sm is None
     assert code is IssueCode.unknown_role
 

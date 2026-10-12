@@ -6,7 +6,8 @@ import { CLOTHING_TYPES, deriveClothingType, type ClothingType } from "@/lib/clo
 import { deriveWarmth } from "@/lib/deriveWarmth";
 import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 import { validateWardrobePatchPayload } from "@/lib/wardrobeRequestValidation";
-import { isImagePathReferenced } from "@/lib/imageReferences";
+import { reclaimWardrobeImage } from "@/lib/imageRetention";
+import { attachmentImageIds, attachmentState } from "@/lib/imageAttachments";
 
 // Auth is the shared, failure-class-split helper (DEFECTS-H88): this file used to carry its own
 // inline copy that mapped a DATABASE fault to 401 "Invalid or expired token" — do not reintroduce
@@ -157,7 +158,7 @@ export async function PATCH(
         occasions: doc.occasions ?? [],
         notes: doc.notes ?? "",
         isAvailable: doc.isAvailable ?? true,
-        imagePath: doc.imagePath ?? undefined,
+        ...attachmentState(doc),
         createdAt: (doc as unknown as { createdAt?: Date }).createdAt?.toISOString(),
         updatedAt: (doc as unknown as { updatedAt?: Date }).updatedAt?.toISOString(),
       },
@@ -204,20 +205,12 @@ export async function DELETE(
       );
     }
 
-    // Best-effort cleanup of the linked WardrobeImage — UNLESS a GenerationSnapshot references it.
-    // A referenced image is corpus provenance for the M6 image-embedding re-measure (§D2 /
-    // lib/imageReferences); hard-deleting it would silently void the image side of every already-
-    // labeled outfit built from this item. Kept images are still purged on account-delete (erasure).
-    const imagePath = (doc as { imagePath?: unknown }).imagePath;
-    const imagePathStr = typeof imagePath === "string" ? imagePath : undefined;
-    if (imagePathStr?.startsWith("mongo:")) {
-      const imageId = imagePathStr.slice("mongo:".length);
+    const imageIds = attachmentImageIds(doc);
+    for (const imageId of imageIds) {
+      if (!imageId) continue;
       try {
-        if (!(await isImagePathReferenced(GenerationSnapshot, userId, imagePathStr))) {
-          await WardrobeImage.deleteOne({ _id: imageId, user: userId }).exec();
-        }
+        await reclaimWardrobeImage({ WardrobeItem, WardrobeImage, GenerationSnapshot }, userId, imageId);
       } catch (e) {
-        // Log and continue; the main deletion has already succeeded
         console.error("Failed to delete linked wardrobe image:", e);
       }
     }

@@ -12,6 +12,12 @@ module.exports = {
       roots: ["<rootDir>"],
       testMatch: ["**/tests/**/*.test.ts"],
       moduleNameMapper,
+      // firebase-admin's jwks-rsa now loads jose 6 (ESM-only). Jest 29 runs this
+      // project as CommonJS, so transpile only jose's JS alongside our TS tests.
+      transformIgnorePatterns: ["/node_modules/(?!jose/)"],
+      transform: {
+        "^.+\\.[jt]sx?$": ["ts-jest", { tsconfig: { allowJs: true, module: "CommonJS" } }],
+      },
     },
     {
       // Client-component behavioral tests (jsdom + React Testing Library). Kept minimal on purpose

@@ -166,6 +166,7 @@ describe("item map (§15.2) + control caps", () => {
       name: "Oxford shirt",
       clothingType: "top",
       warmth: 4,
+      layerRole: null,
       colorTags: ["white"],
       occasionTags: ["work"],
       styleTags: [],
@@ -173,6 +174,12 @@ describe("item map (§15.2) + control caps", () => {
       formality: null,
       imageUrl: "https://img/x.jpg",
     });
+  });
+
+  it("passes explicit normalized layering eligibility without guessing from a name", () => {
+    expect(projectOne({ ...sampleItem, layerRole: " MID " }).layerRole).toBe("mid");
+    expect(projectOne({ ...sampleItem, name: "Sweater" }).layerRole).toBeNull();
+    expect(projectOne({ ...sampleItem, layerRole: "custom" }).layerRole).toBeNull();
   });
 
   it("resolves imagePath (mongo:<id>) when imageUrl is absent (§15.2 fallback, the common deployed case)", () => {

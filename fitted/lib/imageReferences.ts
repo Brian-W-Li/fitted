@@ -9,6 +9,7 @@
 // purged on account-delete. (Track2 stable-audit D2 / Fable#2.)
 
 const MONGO_PREFIX = "mongo:";
+const ENGINE_IMAGE_PATH = "itemSnapshots.engineVisible.imageUrl";
 const IMAGE_REF_PATH = "itemSnapshots.evidence.image.imageRef";
 // A WardrobeImage _id is always a 24-hex ObjectId. `imagePath` is a free-form PATCH field, so a
 // snapshot's imageRef could carry a non-hex tail ("mongo:garbage"); a non-hex id must NOT reach the
@@ -32,7 +33,10 @@ export async function isImagePathReferenced(
   imagePath: string | undefined,
 ): Promise<boolean> {
   if (!imagePath || !imagePath.startsWith(MONGO_PREFIX)) return false;
-  const hit = await SnapshotModel.exists({ user: userId, [IMAGE_REF_PATH]: imagePath }).exec();
+  const hit = await SnapshotModel.exists({ user: userId, $or: [
+    { [IMAGE_REF_PATH]: imagePath },
+    { [ENGINE_IMAGE_PATH]: { $in: [imagePath, `/api/images/${imagePath.slice(MONGO_PREFIX.length)}`] } },
+  ] }).exec();
   return hit != null;
 }
 
@@ -42,11 +46,16 @@ export async function referencedImageIds(
   SnapshotModel: Pick<SnapshotRefModel, "distinct">,
   userId: unknown,
 ): Promise<string[]> {
-  const refs = await SnapshotModel.distinct(IMAGE_REF_PATH, { user: userId }).exec();
+  const [evidence, engine] = await Promise.all([
+    SnapshotModel.distinct(IMAGE_REF_PATH, { user: userId }).exec(),
+    SnapshotModel.distinct(ENGINE_IMAGE_PATH, { user: userId }).exec(),
+  ]);
+  const refs = [...evidence, ...engine];
   const ids = new Set<string>();
   for (const r of refs) {
-    if (typeof r !== "string" || !r.startsWith(MONGO_PREFIX)) continue;
-    const id = r.slice(MONGO_PREFIX.length);
+    if (typeof r !== "string") continue;
+    const id = r.startsWith(MONGO_PREFIX) ? r.slice(MONGO_PREFIX.length) :
+      r.startsWith("/api/images/") ? r.slice("/api/images/".length) : "";
     // Only real 24-hex ids can name a WardrobeImage; a non-hex tail would CastError the $nin filter.
     if (IMAGE_ID_RE.test(id)) ids.add(id);
   }

@@ -133,6 +133,7 @@ def wire_item(item_id: str, clothing_type: str, **overrides) -> dict:
         "occasionTags": ["casual"],
         "material": None,
         "formality": None,
+        "layerRole": None,
         "imageUrl": f"https://img/{item_id}.png",
     }
     item.update(overrides)
@@ -162,6 +163,7 @@ def render_body(**overrides) -> dict:
             "occasion": "weekend brunch",
             "weather": "mild",
             "weatherRaw": "72F sunny",
+            "weatherSignals": {"rain": False, "wind": False},
             "location": "Santa Barbara, CA",
             "forcedItemId": None,
             "seedDate": "2026-07-07",

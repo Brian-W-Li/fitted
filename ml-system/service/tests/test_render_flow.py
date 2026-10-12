@@ -3,6 +3,7 @@ the §D degenerate arms (both recording loci), §A.6 refusal/truncation routing,
 §G.1 echo-through + §A.6 generator-provenance read-backs — all on a fake ``Generator``."""
 
 
+from fitted_core.config import PROMPT_VERSION
 from fitted_core.generation import FinishStatus
 from fitted_core.models import Role
 from fitted_core.reducers import AffinitySignalScorer
@@ -813,3 +814,53 @@ def test_attempt_salvage_failure_still_ships_the_failure_record(monkeypatch):
     assert payload["generationAttempts"] == []  # salvage failed — never fabricate
     assert payload["diagnostics"]["engineFailure"]["stage"] == "assemble"
     assert payload["diagnostics"]["parse"]["generatorCalls"] == 1
+
+
+def test_exploration_filters_membership_before_spread_and_preserves_unshown_trace():
+    controls = {"lockedItemIds": [], "dislikedItemIds": [], "excludedOutfitItemIds": ["b1", "t1"]}
+    emitted = envelope(
+        outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]),
+        outfit([("t1", Role.base_top), ("b2", Role.base_bottom)], ["t1"]),
+        outfit([("t1", Role.base_top), ("b1", Role.base_bottom), ("s1", Role.shoes)], ["s1"]),
+    )
+    status, body, stub = _render(regen_body(intent="rescue_item", lens={"forcedItemId": "t1"}, controls=controls), responses=emitted)
+    assert status == 200
+    assert len(body["shown"]) == 2
+    assert all({item["itemId"] for item in row["outfit"]["items"]} != {"t1", "b1"} for row in body["shown"])
+    assert body["payload"]["controls"]["excludedOutfitItemIds"] == ["b1", "t1"]
+    unshown = [c for c in body["payload"]["candidates"] if {i["itemId"] for i in c["items"]} == {"t1", "b1"}]
+    assert unshown and all(c["accepted"] and not c["shown"] and c["scoreTrace"] is None
+                           and c["dropReason"] == "source_membership_excluded" for c in unshown)
+    assert body["flags"]["insufficientAfterGeneration"] is True
+    assert stub.call_count == 1
+    status, empty, _ = _render(regen_body(intent="rescue_item", lens={"forcedItemId": "t1"}, controls=controls),
+        responses=envelope(outfit([("b1", Role.base_bottom), ("t1", Role.base_top)], ["t1"])))
+    assert status == 200 and empty["shown"] == []
+    assert empty["flags"]["insufficientAfterGeneration"] is True
+
+
+def test_exploration_control_rejects_root_empty_duplicate_and_oversized_input_before_spend():
+    for ids in ([], ["t1", "t1"], ["a", "b", "c", "d", "e", "f"], None):
+        status, _, stub = _render(regen_body(controls={"excludedOutfitItemIds": ids}))
+        assert status == 400 and stub.call_count == 0
+    status, _, stub = _render(render_body(controls={"excludedOutfitItemIds": ["t1"]}))
+    assert status == 400 and stub.call_count == 0
+
+
+def test_weather_details_reach_daily_and_rescue_prompt_and_provenance():
+    for summary, bucket in (("Light rain, 16°C, wind 20 km/h", "mild"),
+                            ("Cold; rain expected; windy", "cold")):
+        for make_body in (render_body, rescue_body):
+            status, response, stub = _render(make_body(lens={"weather": bucket, "weatherRaw": summary}))
+            assert status == 200
+            assert summary in stub.prompts[0].user
+            assert f"Weather: {bucket}" in stub.prompts[0].user
+            assert "Do not claim waterproofing" in stub.prompts[0].system
+            assert response["payload"]["weatherRaw"] == summary
+            assert response["payload"]["generator"]["promptVersion"] == PROMPT_VERSION
+
+
+def test_absent_weather_details_do_not_invent_a_forecast():
+    status, _, stub = _render(render_body(lens={"weatherRaw": None}))
+    assert status == 200
+    assert "Weather details" not in stub.prompts[0].user

@@ -6,7 +6,7 @@ Two responsibilities, split by *what a single-valued SlotMap can express*:
   (``[{itemId, role}]``, the v2 §12 output schema) into a named-slot SlotMap.
   It owns every reject that becomes *inexpressible* once collapsed — a **duplicate
   assignment to any role-owned slot** and an **unknown role** — because each of the
-  five roles maps to exactly one slot, so a second item for an already-seen role
+  six roles maps to exactly one slot, so a second item for an already-seen role
   would be silently overwritten (last-write-wins), emitting a valid-looking SlotMap
   with an item erased. These cannot be caught downstream; they must be caught here.
 
@@ -39,6 +39,7 @@ _ROLE_TO_SLOT = {
     Role.one_piece: "dress",
     Role.outer_layer: "outer",
     Role.shoes: "shoes",
+    Role.mid_layer: "mid",
 }
 
 
@@ -81,7 +82,7 @@ def is_valid_slotmap(slotmap: SlotMap) -> tuple[bool, Optional[IssueCode]]:
     """Structural validity over the slot-level v2 §8/§13 rules.
 
     Valid: (dress set, top/bottom null → one_piece) XOR (top+bottom set, dress
-    null → two_piece), plus optional outer/shoes. Returns ``(True, None)`` or
+    null → two_piece), plus optional mid (two_piece only), outer/shoes. Returns ``(True, None)`` or
     ``(False, code)`` where ``code`` is the stable structural ``IssueCode`` for the
     failing rule (M2 plan Decision D7 — owner-emits-code, not prose).
     """
@@ -89,14 +90,14 @@ def is_valid_slotmap(slotmap: SlotMap) -> tuple[bool, Optional[IssueCode]]:
     has_top = slotmap.top is not None
     has_bottom = slotmap.bottom is not None
 
-    if has_dress and (has_top or has_bottom):
+    if has_dress and (has_top or has_bottom or slotmap.mid is not None):
         return False, IssueCode.mixed_template
     if not (has_dress or has_top or has_bottom):
         return False, IssueCode.empty_base
     if not has_dress and not (has_top and has_bottom):
         return False, IssueCode.incomplete_two_piece
 
-    ids = [v for v in (slotmap.dress, slotmap.top, slotmap.bottom, slotmap.outer, slotmap.shoes)
+    ids = [v for v in (slotmap.dress, slotmap.top, slotmap.bottom, slotmap.mid, slotmap.outer, slotmap.shoes)
            if v is not None]
     if len(ids) != len(set(ids)):
         return False, IssueCode.duplicate_item_id

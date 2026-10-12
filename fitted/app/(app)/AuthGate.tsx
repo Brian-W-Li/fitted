@@ -4,10 +4,11 @@ import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signOut, type User as FirebaseUser } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import DeletionPending from "@/app/(app)/DeletionPending";
 import { ensureSessionCookie } from "@/lib/sessionCookie";
 
 /** What the repair-net sync attempt concluded. Never throws — the branch decides admission. */
-type SyncOutcome = "ok" | "auth_rejected" | "unreachable";
+type SyncOutcome = "ok" | "auth_rejected" | "deletion_pending" | "unreachable";
 
 export default function AuthGate({
   children,
@@ -15,8 +16,9 @@ export default function AuthGate({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const [status, setStatus] = useState<"loading" | "ready" | "trouble">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "trouble" | "deletion_pending">("loading");
   const userRef = useRef<FirebaseUser | null>(null);
+  const [pendingUser, setPendingUser] = useState<FirebaseUser | null>(null);
 
   // Repair net for a failed first-sign-in sync: without a Mongo User row every API in the app
   // 404s ("User not found") and nothing else retries — so re-run the idempotent sync (a findOne
@@ -40,6 +42,10 @@ export default function AuthGate({
         // 401 = the TOKEN was rejected (e.g. revoked after an account deletion) — a genuine
         // credential problem, the one case where signing out is the honest remedy.
         if (res.status === 401) return "auth_rejected";
+        if (res.status === 409) {
+          const body = await res.json().catch(() => ({}));
+          if (body.code === "account_deletion_pending") return "deletion_pending";
+        }
         // Any other failure (503/500) is the server or database, not the person — retryable.
         return "unreachable";
       } catch {
@@ -61,7 +67,8 @@ export default function AuthGate({
       }
       return;
     }
-    setStatus(outcome === "ok" ? "ready" : "trouble");
+    if (outcome === "deletion_pending") setPendingUser(user);
+    setStatus(outcome === "ok" ? "ready" : outcome === "deletion_pending" ? "deletion_pending" : "trouble");
   }, []);
 
   useEffect(() => {
@@ -77,6 +84,8 @@ export default function AuthGate({
     return () => unsubscribe();
   }, [router, admit]);
 
+  if (status === "deletion_pending" && pendingUser) return <DeletionPending user={pendingUser} />;
+
   if (status === "trouble") {
     // A database/server fault must not read as a login problem (DEFECTS-H88): say what it is —
     // temporary, not the friend's fault, fixed by trying again — and offer the retry.
@@ -84,7 +93,7 @@ export default function AuthGate({
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
         <p className="max-w-md text-slate-600">
           We&apos;re having trouble reaching your closet right now. It&apos;s a temporary problem on
-          our side — your sign-in and your data are fine.
+          our side. Please try again.
         </p>
         <button
           type="button"

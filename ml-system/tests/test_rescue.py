@@ -483,7 +483,7 @@ def test_serialize_pool_item_has_exactly_the_gpt_visible_fields():
     item = _rich_top()
     out = _serialize_pool_item(item)
     assert set(out) == {
-        "id", "name", "type", "style_tags", "color_tags", "occasion_tags", "material", "formality",
+        "id", "name", "type", "style_tags", "color_tags", "occasion_tags", "material", "formality", "layer_role",
     }
     # imageUrl + warmth are stripped from GPT-visible item data (§12 GPT-payload rule).
     assert "image_url" not in out and "imageUrl" not in out

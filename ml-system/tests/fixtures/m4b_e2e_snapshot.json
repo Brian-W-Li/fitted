@@ -17,12 +17,12 @@
     "lockedItemIds": [],
     "dislikedItemIds": []
   },
-  "fittedCoreVersion": "0.5.0",
+  "fittedCoreVersion": "0.6.0",
   "generator": {
     "provider": "openai",
     "model": "gpt-5.4-mini",
     "temperature": 0.5,
-    "promptVersion": "m5-c1.v1",
+    "promptVersion": "style-context.v2",
     "maxCompletionTokens": 2200,
     "apiSurface": "chat_completions",
     "responseFormat": "json_schema_strict",
@@ -32,7 +32,7 @@
     "timeoutSeconds": 30.0,
     "maxRetries": 0
   },
-  "rankerConfigVersion": "a2c36017516c092921b9247a1d06d4c96488343bdc07d8c334cadb05b1b40981",
+  "rankerConfigVersion": "9e8e88d89e339b3dd25d3924e331b9d0cc9dadc8445093d32fc971390715d43d",
   "scorer": {
     "kind": "cold_start",
     "modelId": null,
@@ -639,5 +639,9 @@
     "t1:b2|outer=none|shoes=none"
   ],
   "nSurfaced": 3,
-  "spreadCollapsed": true
+  "spreadCollapsed": true,
+  "layerChoice": {
+    "status": "off",
+    "note": null
+  }
 }

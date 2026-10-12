@@ -5,9 +5,11 @@ import User from "@/models/User";
 import WardrobeItem from "@/models/WardrobeItem";
 import WardrobeImage from "@/models/WardrobeImage";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
+import OutfitExperience from "@/models/OutfitExperience";
 
 /**
- * Connects to MongoDB and ensures indexes are registered.
+ * Connects to MongoDB and initializes the registered models.
+ * Production disables automatic index builds; memory writes ensure their own indexes.
  * Use this helper in API routes or server actions before DB work.
  */
 export async function initDatabase() {
@@ -17,12 +19,12 @@ export async function initDatabase() {
     WardrobeItem.init(),
     OutfitInteraction.init(),
     WardrobeImage.init(),
-    // Registered dormant at M4 (C5): nothing writes it until the M5 cutover, but it must
-    // init here or its indexes + immutability guard never load (§14.2 index-mechanism note).
+    // Initialize the snapshot model; production indexes are managed out of band.
     GenerationSnapshot.init(),
+    OutfitExperience.init(),
   ]);
 
-  return { User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot };
+  return { User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot, OutfitExperience };
 }
 
 export type DatabaseModels = Awaited<ReturnType<typeof initDatabase>>;
@@ -58,7 +60,7 @@ export function getUserOutfitInteractions(userId: UserId) {
 
 /**
  * Delete a user and hard-delete their cascade-owned data (wardrobe items, interactions, wardrobe
- * images, AND generation snapshots — account deletion is erasure, §23-H43 Track 2 policy; the
+ * images, generation snapshots and outfit experiences — account deletion is erasure, §23-H43 Track 2 policy; the
  * account route redacts first as a two-phase fail-safe). Uses the cascade delete middleware
  * defined on User schema.
  */

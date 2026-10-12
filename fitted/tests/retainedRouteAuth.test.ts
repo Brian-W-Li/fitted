@@ -17,7 +17,7 @@ jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
 let harness: MongoHarness;
 
 beforeAll(async () => {
-  harness = await startMemoryMongo([User]);
+  harness = await startMemoryMongo([User], { replicaSet: true });
   const { initDatabase } = jest.requireMock("@/lib/db") as { initDatabase: jest.Mock };
   // Real model, real (in-memory) connection — only the connect step is mocked away.
   initDatabase.mockResolvedValue({ User });
@@ -139,7 +139,7 @@ describe("auth/sync route — token-derived identity + email (§I)", () => {
       adminAuth: { verifyIdToken: jest.Mock };
     };
     adminAuth.verifyIdToken.mockImplementation(async (_token: string, checkRevoked?: boolean) => {
-      if (checkRevoked) throw new Error("token revoked"); // Firebase's checkRevoked rejection
+      if (checkRevoked) throw Object.assign(new Error("token revoked"), { code: "auth/id-token-revoked" }); // Firebase's checkRevoked rejection
       return { uid: "uidGhost", email: "ghost@x.com" };
     });
     const { POST } = await import("@/app/api/auth/sync/route");
@@ -162,39 +162,23 @@ describe("auth/sync route — token-derived identity + email (§I)", () => {
     expect(res.status).toBe(200); // create-path-only cost, as documented in the route
   });
 
-  it("the concurrent first-sign-in race loser re-finds the winner's row (E11000 on {authProvider,authId})", async () => {
-    // First sign-in fires sync twice concurrently; simulate the loser by inserting the winner's
-    // row in the window between the findOne miss and the create — the checkRevoked round-trip
-    // sits exactly there, so its mock is the injection point.
-    const { adminAuth } = jest.requireMock("@/lib/firebaseAdmin") as {
-      adminAuth: { verifyIdToken: jest.Mock };
-    };
-    let winnerId = "";
-    adminAuth.verifyIdToken.mockImplementation(async (_token: string, checkRevoked?: boolean) => {
-      if (checkRevoked) {
-        const winner = await User.create({
-          authProvider: "firebase",
-          authId: "uidRace",
-          email: "race@x.com",
-        });
-        winnerId = winner._id.toString();
-      }
-      return { uid: "uidRace", email: "race@x.com" };
-    });
+  it("concurrent first sign-ins return the same committed owner", async () => {
+    setToken("uidRace", "race@x.com");
     const { POST } = await import("@/app/api/auth/sync/route");
-    const res = await POST(req({}));
-    expect(res.status).toBe(200); // no "Failed to sync user" flash on a healthy sign-in
-    expect(((await res.json()) as Any).userId).toBe(winnerId); // the winner's row, not a dup
+    const results = await Promise.all([POST(req({})), POST(req({}))]);
+    expect(results.map(response => response.status)).toEqual([200, 200]);
+    const bodies = await Promise.all(results.map(response => response.json()));
+    expect(bodies[0].userId).toBe(bodies[1].userId);
     expect(await User.countDocuments({ authId: "uidRace" })).toBe(1);
   });
 
-  it("an E11000 on the unique EMAIL index (another account squatting the address) still rethrows → 500, no row", async () => {
+  it("an E11000 on the unique EMAIL index (another account squatting the address) fails closed → 503, no row", async () => {
     await User.create({ authProvider: "firebase", authId: "uidOther", email: "taken@x.com" });
     setToken("uidNewcomer", "taken@x.com"); // new uid, already-taken email
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
     const { POST } = await import("@/app/api/auth/sync/route");
     const res = await POST(req({}));
-    expect(res.status).toBe(500); // the §19 squat rejection survives the E11000 re-find catch
+    expect(res.status).toBe(503); // the §19 squat rejection survives the E11000 re-find catch
     expect(await User.countDocuments({ authId: "uidNewcomer" })).toBe(0);
     spy.mockRestore();
   });

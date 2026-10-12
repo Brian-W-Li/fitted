@@ -38,7 +38,10 @@ describe("isImagePathReferenced", () => {
     const { calls, model } = existsStub({ _id: "snap1" });
     const ok = await isImagePathReferenced(model, "u1", "mongo:img1");
     expect(ok).toBe(true);
-    expect(calls).toEqual([{ user: "u1", [IMAGE_REF_PATH]: "mongo:img1" }]);
+    expect(calls).toEqual([{ user: "u1", $or: [
+      { [IMAGE_REF_PATH]: "mongo:img1" },
+      { "itemSnapshots.engineVisible.imageUrl": { $in: ["mongo:img1", "/api/images/img1"] } },
+    ] }]);
   });
 
   it("returns false when no snapshot references it (exists → null)", async () => {
@@ -62,7 +65,10 @@ describe("referencedImageIds", () => {
     const { calls, model } = distinctStub([`mongo:${A}`, `mongo:${B}`]);
     const ids = await referencedImageIds(model, "u1");
     expect(ids.sort()).toEqual([A, B].sort());
-    expect(calls).toEqual([{ field: IMAGE_REF_PATH, filter: { user: "u1" } }]);
+    expect(calls).toEqual([
+      { field: IMAGE_REF_PATH, filter: { user: "u1" } },
+      { field: "itemSnapshots.engineVisible.imageUrl", filter: { user: "u1" } },
+    ]);
   });
 
   it("ignores non-string / non-mongo / null refs (dangling old refs are harmless)", async () => {

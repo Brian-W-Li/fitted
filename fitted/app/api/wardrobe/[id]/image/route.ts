@@ -1,198 +1,204 @@
+import { randomUUID } from "node:crypto";
+import { MAX_USER_IMAGE_BYTES, UPLOAD_RATE_MAX, MAX_WARDROBE_IMAGE_REQUEST_BYTES } from "@/lib/wardrobeLimits";
 import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { initDatabase } from "@/lib/db";
 import { verifyFirebaseUser } from "@/lib/apiAuth";
-import { MAX_WARDROBE_IMAGE_BYTES, uploadWardrobeImage } from "@/lib/imageStorage";
+import { uploadWardrobeImage } from "@/lib/imageStorage";
 import { allowRequest } from "@/lib/rateLimit";
 import { OBJECT_ID_RE } from "@/lib/formats";
-import { isImagePathReferenced } from "@/lib/imageReferences";
+import { reclaimWardrobeImage } from "@/lib/imageRetention";
+import {
+  attachmentCAS, attachmentImageIds, attachmentState, mongoImageId,
+  primaryImageRef, MAX_SUPPLEMENTAL_IMAGES, type RawAttachments,
+} from "@/lib/imageAttachments";
 
-const MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024;
-export const MAX_WARDROBE_IMAGE_REQUEST_BYTES =
-  MAX_WARDROBE_IMAGE_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
-
-// Per-user image-storage budget (§I): sign-up is open Google auth and the shared Atlas M0 is
-// 512MB, so per-image caps alone don't bound an account (300 items × 5MB ≫ the cluster). 80MB
-// is ~6× a real closet fully photographed through the client downscale (~15–50 images × ≤1MB).
-// Summed over the stored `sizeBytes` column at upload time — cheap at friends scale.
-export const MAX_USER_IMAGE_BYTES = 80 * 1024 * 1024;
-// Courtesy pacing against a runaway upload loop (per-instance, best-effort — same posture as the
-// CV route's limiter; the byte budget above is the hard bound). MUST stay >= the item-create limit
-// (CREATE_RATE_MAX=60, app/api/wardrobe/route.ts): every photographed add is one create + one
-// upload, so a lower ceiling here 429s the PHOTO of an item the create route happily admitted —
-// silent yield loss on exactly the batch-add a friend does when onboarding a 15-30 item closet.
-export const UPLOAD_RATE_MAX = 60;
 const UPLOAD_RATE_WINDOW_MS = 10 * 60 * 1000;
+type Database = Awaited<ReturnType<typeof initDatabase>>;
+type Context = { models: Database; userId: string; imageId?: string; lease?: string; linkUncertain?: boolean };
 
-// Auth is the shared, failure-class-split helper (DEFECTS-H88): this file used to carry its own
-// inline copy that mapped a DATABASE fault to 401 "Invalid or expired token" — do not reintroduce
-// a local resolver here; lib/apiAuth.ts is the single home.
-const getUserIdFromRequest = verifyFirebaseUser;
-
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+/** Cleanup remains independent of the mutation's success, including ambiguous insert/update
+ * acknowledgments. Unknown CAS results retain their lease. Account erasure ignores all pins
+ * and is checked even if cleanup fails. Image insertion has its own transactional owner fence;
+ * erasure safety does not depend on this process reaching cleanup. */
+async function finishMutation(context: Context) {
+  const { models, userId, imageId, lease } = context;
+  if (imageId && lease && !context.linkUncertain) {
+    try {
+      await models.WardrobeImage.updateOne(
+        { _id: imageId, user: userId, attachmentLease: lease },
+        { $unset: { attachmentLease: "" } },
+      ).exec();
+      await reclaimWardrobeImage(models, userId, imageId);
+    } catch (error) {
+      console.error("Photo attachment cleanup incomplete:", error);
+    }
+  }
   try {
-    const userResult = await getUserIdFromRequest(request);
-    if ("error" in userResult) {
-      return NextResponse.json({ error: userResult.error }, { status: userResult.status });
-    }
-
-    const { id: wardrobeItemId } = await params;
-    const userId = userResult.userId;
-
-    // A non-ObjectId path segment matches no item — 404 before the Mongoose cast throws a generic 500.
-    if (!OBJECT_ID_RE.test(wardrobeItemId)) {
-      return NextResponse.json({ error: "Item not found" }, { status: 404 });
-    }
-
-    if (!allowRequest(`wardrobe-image:${userId}`, UPLOAD_RATE_MAX, UPLOAD_RATE_WINDOW_MS)) {
-      return NextResponse.json(
-        { error: "Too many photo uploads at once — wait a moment and try again" },
-        { status: 429 }
-      );
-    }
-
-    const contentLength = request.headers.get("content-length");
-    const parsedContentLength =
-      contentLength === null ? undefined : Number.parseInt(contentLength, 10);
-    if (
-      parsedContentLength !== undefined &&
-      Number.isFinite(parsedContentLength) &&
-      parsedContentLength > MAX_WARDROBE_IMAGE_REQUEST_BYTES
-    ) {
-      return NextResponse.json(
-        { error: "Image too large (max 5MB)" },
-        { status: 413 }
-      );
-    }
-
-    const form = await request.formData();
-    const file = form.get("file");
-
-    if (!(file instanceof File)) {
-      return NextResponse.json(
-        { error: "Missing file (expected form field named 'file')" },
-        { status: 400 }
-      );
-    }
-
-    const contentType = file.type || "application/octet-stream";
-    const bytes = Buffer.from(await file.arrayBuffer());
-
-    // attach pointer on WardrobeItem (user-scoped)
-    const { WardrobeItem, WardrobeImage, GenerationSnapshot, User } = await initDatabase();
-
-    // 1) Load current item so we can see its existing imagePath
-    const existingItem = await WardrobeItem.findOne({
-      _id: wardrobeItemId,
-      user: userId,
-    }).lean();
-
-    if (!existingItem) {
-      return NextResponse.json(
-        { error: "Wardrobe item not found (or not owned by user)" },
-        { status: 404 }
-      );
-    }
-
-    // 2) If it already has an image, note it: the budget below credits it ONLY when it will actually
-    // be freed (a same-item replace must not false-reject at the margin), and it is deleted only
-    // AFTER the budget admits the new image — delete-then-reject would destroy the old photo and
-    // leave a dangling imagePath. EXCEPTION (§D2/REPLACE-1, lib/imageReferences): if a
-    // GenerationSnapshot references the old image, it is KEPT (corpus provenance for the M6
-    // image-embedding re-measure), so it is NOT deleted AND its bytes are NOT credited — old + new
-    // both consume space in that case.
-    const oldPath = (existingItem as { imagePath?: unknown } | null)?.imagePath;
-    const oldPathStr = typeof oldPath === "string" ? oldPath : undefined;
-    let oldImageId: string | undefined;
-    let oldImageBytes = 0;
-    let oldImageReferenced = false;
-    if (oldPathStr?.startsWith("mongo:")) {
-      const sliced = oldPathStr.slice("mongo:".length);
-      // imagePath is PATCH-able as a plain string, so a garbage "mongo:notanid" is reachable —
-      // an unguarded ObjectId cast here would 500 and brick this item's uploads until re-PATCHed.
-      // Non-hex ⇒ treat as no old image; the successful upload below overwrites the bad pointer.
-      if (OBJECT_ID_RE.test(sliced)) {
-        oldImageId = sliced;
-        const oldDoc = (await WardrobeImage.findOne({ _id: oldImageId, user: userId })
-          .select("sizeBytes")
-          .lean()) as { sizeBytes?: number } | null;
-        oldImageBytes = oldDoc?.sizeBytes ?? 0;
-        oldImageReferenced = await isImagePathReferenced(GenerationSnapshot, userId, oldPathStr);
-      }
-    }
-
-    // 3) Per-user byte budget. Credit the old image's bytes only if it will be freed (unreferenced);
-    // a kept, snapshot-referenced old image stays, so both it and the new image count.
-    const totals = (await WardrobeImage.aggregate([
-      { $match: { user: new Types.ObjectId(userId) } },
-      { $group: { _id: null, total: { $sum: "$sizeBytes" } } },
-    ]).exec()) as { total?: number }[];
-    const storedBytes = totals[0]?.total ?? 0;
-    const creditBytes = oldImageReferenced ? 0 : oldImageBytes;
-    if (storedBytes - creditBytes + bytes.length > MAX_USER_IMAGE_BYTES) {
-      return NextResponse.json(
-        { error: "Image storage limit reached — delete some photos to add more" },
-        { status: 413 }
-      );
-    }
-
-    // 4) Store the new image FIRST. Ordering is load-bearing: `uploadWardrobeImage` can throw on a
-    // reachable input — a HEIC file renamed `.jpg` reports `type: "image/jpeg"`, passes the client
-    // allowlist, survives the client downscale (which can't decode it, so it forwards the ORIGINAL
-    // bytes), and then fails the server's magic-byte sniff with "Unsupported image type". Deleting
-    // the old image before this call destroyed a real, irreplaceable friend photo and left
-    // `imagePath` dangling at a deleted row. That matters more since the photo-failure notice
-    // (DEFECTS-H77(a)) makes "retry the photo from Edit" the advertised remedy, routing friends through
-    // this exact path. Store → repoint → delete: every failure now leaves the old photo intact.
-    const { imagePath } = await uploadWardrobeImage({
-      userId,
-      wardrobeItemId,
-      bytes,
-      contentType,
-    });
-
-    // 5) Repoint the item at the new image before removing the old one, so no window exists in
-    // which `imagePath` names a row that is already gone.
-    await WardrobeItem.updateOne(
-      { _id: wardrobeItemId, user: userId },
-      { $set: { imagePath } }
-    ).exec();
-
-    // 6) Only now drop the superseded image — UNLESS a snapshot references it (§D2/REPLACE-1 keeps
-    // it as corpus provenance). Both images coexist briefly, so a replace can transiently exceed
-    // MAX_USER_IMAGE_BYTES by the old image's size; that is a courtesy budget, and a few seconds of
-    // overshoot is a trade we take over destroying a photo on a failed store.
-    if (oldImageId && !oldImageReferenced) {
-      await WardrobeImage.deleteOne({ _id: oldImageId, user: userId }).exec();
-    }
-
-    // Erasure-race close (§23-H43): if the account was deleted while this authed upload was in flight,
-    // the new WardrobeImage row (real photo bytes) must not survive "delete me". Mirror the writer-side
-    // guards (mlRecommend.ts / interactions.ts).
-    if (!(await User.exists({ _id: userId }))) {
-      await WardrobeImage.deleteMany({ user: userId });
-      await WardrobeItem.deleteMany({ user: userId });
+    if (!(await models.User.exists({ _id: userId, erasureStarted: { $ne: true } }))) {
+      await models.WardrobeImage.deleteMany({ user: userId });
+      await models.WardrobeItem.deleteMany({ user: userId });
       return NextResponse.json({ error: "Account no longer exists" }, { status: 401 });
     }
-
-    return NextResponse.json({ imagePath });
-  } catch (err) {
-    console.error("wardrobe image upload error:", err);
-    // Known storage-layer rejections get their real status + copy; everything else is a generic
-    // 500 — the raw err.message (Mongoose/driver text) must never reach the browser.
-    const message = err instanceof Error ? err.message : "";
-    if (message.startsWith("Image too large")) {
-      return NextResponse.json({ error: message }, { status: 413 });
-    }
-    if (message === "Unsupported image type") {
-      return NextResponse.json(
-        { error: "That file isn't a usable JPEG, PNG, or WEBP — try exporting it as JPEG first" },
-        { status: 415 }
-      );
-    }
-    return NextResponse.json({ error: "Upload failed — try again" }, { status: 500 });
+  } catch (error) {
+    console.error("Photo attachment account reconciliation incomplete:", error);
   }
+}
+
+async function conflict(models: Database, userId: string, itemId: string, error: string) {
+  const current = await models.WardrobeItem.findOne({ _id: itemId, user: userId }).lean();
+  return NextResponse.json({ error, ...(current ? { attachments: attachmentState(current as RawAttachments) } : {}) }, { status: 409 });
+}
+function validView(view: unknown): view is "primary" | "supplemental" {
+  return view === "primary" || view === "supplemental";
+}
+function failedUpload(error: unknown) {
+  console.error("wardrobe image upload error:", error);
+  const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("Image too large")) return NextResponse.json({ error: message }, { status: 413 });
+  if (message === "Unsupported image type") return NextResponse.json({
+    error: "That file isn't a usable JPEG, PNG, or WEBP — try exporting it as JPEG first",
+  }, { status: 415 });
+  return NextResponse.json({ error: "Upload failed — reload this item before trying again" }, { status: 500 });
+}
+
+/** Multipart file; omitted view preserves legacy primary replacement. Supplemental without
+ * imageRef appends, with imageRef replaces that exact current view. No refs can be attached from
+ * the client. A 409 carries current attachments; unknown outcomes require reload before retry. */
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  let context: Context | undefined;
+  const response = await (async () => {
+    try {
+      const auth = await verifyFirebaseUser(request);
+      if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+      const { id: itemId } = await params;
+      const { userId } = auth;
+      if (!OBJECT_ID_RE.test(itemId)) return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      if (!allowRequest(`wardrobe-image:${userId}`, UPLOAD_RATE_MAX, UPLOAD_RATE_WINDOW_MS)) {
+        return NextResponse.json({ error: "Too many photo uploads at once — wait a moment and try again" }, { status: 429 });
+      }
+      const length = Number.parseInt(request.headers.get("content-length") ?? "", 10);
+      if (Number.isFinite(length) && length > MAX_WARDROBE_IMAGE_REQUEST_BYTES) {
+        return NextResponse.json({ error: "Image too large (max 5MB)" }, { status: 413 });
+      }
+      const form = await request.formData();
+      const file = form.get("file");
+      const view = form.get("view") ?? "primary";
+      const target = form.get("imageRef");
+      if (!validView(view) || (target !== null && (typeof target !== "string" || !target))) {
+        return NextResponse.json({ error: "Invalid photo view or imageRef" }, { status: 400 });
+      }
+      if (!(file instanceof File)) return NextResponse.json({ error: "Missing file (expected form field named 'file')" }, { status: 400 });
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const models = await initDatabase();
+      context = { models, userId };
+      const raw = await models.WardrobeItem.findOne({ _id: itemId, user: userId }).lean();
+      if (!raw) return NextResponse.json({ error: "Wardrobe item not found (or not owned by user)" }, { status: 404 });
+      const captured = raw as RawAttachments;
+      const state = attachmentState(captured);
+      const index = typeof target === "string" ? state.supplementalImages.indexOf(target) : -1;
+      if (target && ((view === "supplemental" && index < 0) || (view === "primary" && target !== primaryImageRef(captured)))) {
+        return conflict(models, userId, itemId, "This photo changed — reload and try again");
+      }
+      if (view === "supplemental" && !target && state.supplementalImages.length >= MAX_SUPPLEMENTAL_IMAGES) {
+        return conflict(models, userId, itemId, "This garment already has two additional views");
+      }
+      // Historic bytes and all leases count. Replacement requires temporary headroom; concurrent
+      // account admission remains the existing courtesy budget, not a new quota claim.
+      const totals = await models.WardrobeImage.aggregate([
+        { $match: { user: new Types.ObjectId(userId) } },
+        { $group: { _id: null, total: { $sum: "$sizeBytes" } } },
+      ]).exec() as { total?: number }[];
+      if ((totals[0]?.total ?? 0) + bytes.length > MAX_USER_IMAGE_BYTES) {
+        return NextResponse.json({ error: "Photo storage limit reached. Try a smaller photo; photos saved with outfits also count." }, { status: 413 });
+      }
+      // Store first, leased from birth. Preassigned ID lets finally reconcile even a lost insert
+      // acknowledgement. Every upload writes a fresh ID; clients cannot reattach settled old bytes.
+      context.imageId = new Types.ObjectId().toString();
+      context.lease = randomUUID();
+      const { imagePath } = await uploadWardrobeImage({
+        userId, wardrobeItemId: itemId, imageId: context.imageId, attachmentLease: context.lease,
+        bytes, contentType: file.type || "application/octet-stream",
+      });
+      const next = { ...state, supplementalImages: [...state.supplementalImages] };
+      const unset: Record<string, string> = {};
+      if (view === "primary") {
+        next.imagePath = imagePath;
+        if (Object.hasOwn(captured, "imageUrl")) { delete next.imageUrl; unset.imageUrl = ""; }
+      } else if (target) next.supplementalImages[index] = imagePath;
+      else next.supplementalImages.push(imagePath);
+      context.linkUncertain = true;
+      const linked = await models.WardrobeItem.collection.updateOne(
+        { _id: new Types.ObjectId(itemId), user: new Types.ObjectId(userId), ...attachmentCAS(captured) },
+        { $set: { ...(view === "primary" ? { imagePath } : {}), supplementalImages: next.supplementalImages, updatedAt: new Date() },
+          ...(Object.keys(unset).length ? { $unset: unset } : {}) },
+      );
+      context.linkUncertain = false;
+      if (!linked.matchedCount) return conflict(models, userId, itemId, "This item changed during upload — reload and try again");
+      const retained = new Set(attachmentImageIds(next));
+      for (const imageId of attachmentImageIds(captured)) {
+        if (!retained.has(imageId)) await reclaimWardrobeImage(models, userId, imageId);
+      }
+      return NextResponse.json({ ok: true, ...next });
+    } catch (error) {
+      return failedUpload(error);
+    }
+  })();
+  if (context) {
+    const erased = await finishMutation(context);
+    if (erased) return erased;
+  }
+  return response;
+}
+
+/** Remove only the exact currently attached ref; primary removal clears legacy fallback too. */
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  let context: Context | undefined;
+  const response = await (async () => {
+    try {
+      const auth = await verifyFirebaseUser(request);
+      if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+      const { id: itemId } = await params;
+      const { userId } = auth;
+      if (!OBJECT_ID_RE.test(itemId)) return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      let body: unknown;
+      try { body = await request.json(); }
+      catch { return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 }); }
+      if (typeof body !== "object" || body === null || Array.isArray(body)) return NextResponse.json({ error: "Invalid photo removal" }, { status: 400 });
+      const { view, imageRef } = body as { view?: unknown; imageRef?: unknown };
+      if (!validView(view) || typeof imageRef !== "string" || !imageRef || (view === "supplemental" && !mongoImageId(imageRef))) {
+        return NextResponse.json({ error: "A photo view and exact current imageRef are required" }, { status: 400 });
+      }
+      const models = await initDatabase();
+      context = { models, userId };
+      const raw = await models.WardrobeItem.findOne({ _id: itemId, user: userId }).lean();
+      if (!raw) return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      const captured = raw as RawAttachments;
+      const next = attachmentState(captured);
+      if ((view === "primary" && imageRef !== primaryImageRef(captured)) || (view === "supplemental" && !next.supplementalImages.includes(imageRef))) {
+        return conflict(models, userId, itemId, "This photo changed — reload and try again");
+      }
+      if (view === "primary") { delete next.imagePath; delete next.imageUrl; }
+      else next.supplementalImages = next.supplementalImages.filter(ref => ref !== imageRef);
+      const changed = await models.WardrobeItem.collection.updateOne(
+        { _id: new Types.ObjectId(itemId), user: new Types.ObjectId(userId), ...attachmentCAS(captured) },
+        { $set: { supplementalImages: next.supplementalImages, updatedAt: new Date() },
+          ...(view === "primary" ? { $unset: { imagePath: "", imageUrl: "" } } : {}) },
+      );
+      if (!changed.matchedCount) return conflict(models, userId, itemId, "This item changed — reload and try again");
+      const retained = new Set(attachmentImageIds(next));
+      for (const imageId of attachmentImageIds(captured)) {
+        if (!retained.has(imageId)) await reclaimWardrobeImage(models, userId, imageId);
+      }
+      return NextResponse.json({ ok: true, ...next });
+    } catch (error) {
+      console.error("wardrobe image removal error:", error);
+      return NextResponse.json({ error: "Photo removal failed — reload this item before trying again" }, { status: 500 });
+    }
+  })();
+  if (context) {
+    const erased = await finishMutation(context);
+    if (erased) return erased;
+  }
+  return response;
 }

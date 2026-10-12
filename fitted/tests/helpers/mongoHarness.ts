@@ -24,11 +24,11 @@
  * the timeout mechanically; keep this example and that guard in agreement.
  */
 import mongoose, { type Model } from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet, MongoMemoryServer } from "mongodb-memory-server";
 
 export interface MongoHarness {
   /** The running in-memory server (exposed for advanced cases; most tests only need clear/stop). */
-  server: MongoMemoryServer;
+  server: MongoMemoryServer | MongoMemoryReplSet;
   /** Drop every document in every collection — call in afterEach for per-test isolation. */
   clear: () => Promise<void>;
   /** Disconnect mongoose + stop the server — call in afterAll. */
@@ -43,8 +43,17 @@ export interface MongoHarness {
 export async function startMemoryMongo(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   models: Model<any>[] = [],
+  options: { replicaSet?: boolean; testCommands?: boolean; transactionLifetimeSeconds?: number } = {},
 ): Promise<MongoHarness> {
-  const server = await MongoMemoryServer.create();
+  const server = options.replicaSet
+    ? await MongoMemoryReplSet.create({
+      replSet: { count: 1, storageEngine: "wiredTiger" },
+      ...((options.testCommands || options.transactionLifetimeSeconds) ? { instanceOpts: [{ args: [
+        ...(options.testCommands ? ["--setParameter", "enableTestCommands=1"] : []),
+        ...(options.transactionLifetimeSeconds ? ["--setParameter", `transactionLifetimeLimitSeconds=${options.transactionLifetimeSeconds}`] : []),
+      ] }] } : {}),
+    })
+    : await MongoMemoryServer.create();
   await mongoose.connect(server.getUri());
   // Build declared indexes against the (empty) DB, same mechanism as lib/db.ts initDatabase().
   await Promise.all(models.map((m) => m.init()));

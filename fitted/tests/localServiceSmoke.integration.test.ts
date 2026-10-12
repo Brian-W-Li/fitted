@@ -17,6 +17,7 @@ import { randomUUID } from "crypto";
 import { NextRequest } from "next/server";
 import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
+import WardrobeImage from "@/models/WardrobeImage";
 import WardrobeItem from "@/models/WardrobeItem";
 import OutfitInteraction from "@/models/OutfitInteraction";
 import User from "@/models/User";
@@ -37,7 +38,7 @@ let ids: { top: string; b1: string; b2: string; shoes: string; outer: string };
 
 gate("LOCAL service smoke — real Next core ↔ real service ↔ real gpt-5.4-mini", () => {
   beforeAll(async () => {
-    harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, OutfitInteraction, User]);
+    harness = await startMemoryMongo([GenerationSnapshot, WardrobeItem, OutfitInteraction, User], { replicaSet: true });
   }, 120_000);
   afterAll(async () => {
     await harness.stop();
@@ -66,9 +67,9 @@ gate("LOCAL service smoke — real Next core ↔ real service ↔ real gpt-5.4-m
   function deps(): MlRecommendDeps {
     return {
       verifyUser: async () => ({ userId }),
-      models: { GenerationSnapshot, WardrobeItem, OutfitInteraction, User },
+      models: { GenerationSnapshot, WardrobeItem, WardrobeImage, OutfitInteraction, User },
       callService: (body) =>
-        callRenderService(body, { serviceUrl: SMOKE_URL, serviceKey: SMOKE_KEY, timeoutMs: 60_000 }),
+        callRenderService(body, { serviceUrl: SMOKE_URL, serviceKey: SMOKE_KEY}),
       today: () => "2026-07-08",
       newId: () => new mongoose.Types.ObjectId().toString(),
       resolveWeather: resolveWeatherProd,

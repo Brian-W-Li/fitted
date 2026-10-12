@@ -32,7 +32,7 @@ Sources: docs/Fitted_Spec_v2.md §6.5/§11/§12 (H20), docs/plans/spearhead.md �
 """
 
 import itertools
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Mapping, Optional, Protocol
 
@@ -235,6 +235,7 @@ def _filled_slot_ids(slot_map: SlotMap) -> tuple[str, ...]:
             slot_map.dress,
             slot_map.top,
             slot_map.bottom,
+            slot_map.mid,
             slot_map.outer,
             slot_map.shoes,
         )
@@ -489,6 +490,8 @@ def _ordered_items(slot_map: SlotMap) -> tuple[tuple[str, Role], ...]:
             ordered.append((slot_map.top, Role.base_top))
         if slot_map.bottom is not None:
             ordered.append((slot_map.bottom, Role.base_bottom))
+    if slot_map.mid is not None:
+        ordered.append((slot_map.mid, Role.mid_layer))
     if slot_map.outer is not None:
         ordered.append((slot_map.outer, Role.outer_layer))
     if slot_map.shoes is not None:
@@ -510,6 +513,16 @@ def _assemble_variant(
     assert style_move is not None, (
         "a surfaced variant must carry a StyleMove (decision 8 drops None before ranking)"
     )
+    from fitted_core.layer_policy import positive_conditions
+    if positive_conditions(request):
+        # Current metadata has no protection contract. Use composition-grounded prose
+        # rather than trusting arbitrary generator capability assertions or parsing NLP.
+        if outfit.slot_map.outer:
+            style_move = FrozenStyleMove("optional_layer", (outfit.slot_map.outer,), "Wear the outer piece as an optional removable layer over the base outfit; check its suitability for the conditions.")
+        elif outfit.slot_map.top:
+            style_move = FrozenStyleMove("front_tuck", (outfit.slot_map.top,), "Try a small front tuck of the top if its length allows, leaving the rest untucked.")
+        else:
+            style_move = FrozenStyleMove("one_piece_base", (outfit.slot_map.dress,), "Wear the dress as the base, keeping the other selected pieces as shown.")
     compat = compatibility(outfit.slot_map, items_by_id, request)
     vis = visibility(outfit.slot_map, items_by_id, request)
     return OutfitVariant(
@@ -531,6 +544,7 @@ def select_spread(
     ranked: RankerResult,
     variants_by_full_signature: Mapping[str, OutfitVariant],
     n: int,
+    reserve_layer: bool = False,
 ) -> tuple[list[OutfitVariant], bool]:
     """Pick ≤ `n` variants spanning distinct `(path, risk)` cells (spearhead.md §G; selection-only).
 
@@ -552,6 +566,11 @@ def select_spread(
 
     selected: list[OutfitVariant] = []
     opened_cells: set[tuple[OptionPath, Risk]] = set()
+    if reserve_layer and n > 0:
+        layered = next((v for v in ordered if any(role == Role.outer_layer for _, role in v.items)), None)
+        if layered is not None:
+            selected.append(layered)
+            opened_cells.add((layered.option_path, layered.risk))
     # First pass — greedily open distinct (path, risk) cells in the re-sorted order.
     for variant in ordered:
         if len(selected) >= n:
@@ -576,6 +595,17 @@ def select_spread(
     return selected, spread_collapsed
 
 
+def selection_pool(ranked: RankerResult, request: LensRequest) -> RankerResult:
+    """Exclude only exact unordered garment membership, retaining the ranked trace."""
+    excluded = frozenset(getattr(request, "excluded_outfit_item_ids", ()))
+    if not excluded:
+        return ranked
+    return replace(ranked, outfits=tuple(
+        outfit for outfit in ranked.outfits
+        if frozenset(_filled_slot_ids(outfit.slot_map)) != excluded
+    ))
+
+
 def build_variants(
     ranked: RankerResult,
     items_by_id: Mapping[str, WardrobeItem],
@@ -592,7 +622,8 @@ def build_variants(
         outfit.full_signature: _assemble_variant(outfit, items_by_id, request)
         for outfit in ranked.outfits
     }
-    selected, spread_collapsed = select_spread(ranked, variants_by_full_signature, n)
+    from fitted_core.layer_policy import needs_layer_choice
+    selected, spread_collapsed = select_spread(selection_pool(ranked, request), variants_by_full_signature, n, reserve_layer=needs_layer_choice(request))
     return tuple(selected), spread_collapsed
 
 
@@ -629,7 +660,8 @@ def build_variants_with_trace(
         outfit.full_signature: _assemble_variant(outfit, items_by_id, request)
         for outfit in ranked.outfits
     }
-    selected, spread_collapsed = select_spread(ranked, variants_by_full_signature, n)
+    from fitted_core.layer_policy import needs_layer_choice
+    selected, spread_collapsed = select_spread(selection_pool(ranked, request), variants_by_full_signature, n, reserve_layer=needs_layer_choice(request))
     return BuildVariantsTrace(
         selected=tuple(selected),
         spread_collapsed=spread_collapsed,

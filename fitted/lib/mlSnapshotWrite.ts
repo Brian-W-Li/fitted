@@ -1,3 +1,5 @@
+import { Types, type ClientSession } from "mongoose";
+import { ownerWriteFence, type OwnerWriteModel } from "@/lib/ownerWriteFence";
 /**
  * M5 snapshot write path (C5, seam #5) — the blocking, on-the-critical-path GenerationSnapshot
  * write with §C.4 idempotency.
@@ -29,9 +31,25 @@ export function isDuplicateKeyError(err: unknown): boolean {
  *  pass the real model without a hard import cycle). */
 export interface SnapshotWriteModel {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  create(doc: Record<string, unknown>): Promise<any>;
+  create(docs: Record<string, unknown>[], options: { session: ClientSession; timestamps: false }): Promise<any[]>;
+  collection: { listIndexes(options: { maxTimeMS: number }): { toArray(): Promise<SnapshotIndex[]> } };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   findOne(filter: Record<string, unknown>): { lean(): Promise<any> };
+}
+
+interface SnapshotIndex {
+  key: Record<string, unknown>; unique?: boolean; sparse?: boolean;
+  partialFilterExpression?: { requestId?: { $type?: unknown } };
+  collation?: { locale?: string };
+}
+export async function requireSnapshotWriteIndex(model: SnapshotWriteModel): Promise<void> {
+  const indexes = await model.collection.listIndexes({ maxTimeMS: 5_000 }).toArray();
+  if (!indexes.some(index => index.unique === true && !index.sparse &&
+    (!index.collation || index.collation.locale === "simple") &&
+    Object.keys(index.key).join(",") === "user,requestId" && index.key.user === 1 && index.key.requestId === 1 &&
+    JSON.stringify(index.partialFilterExpression) === JSON.stringify({ requestId: { $type: "string" } }))) {
+    throw new Error("Snapshot write uniqueness is not ready");
+  }
 }
 
 export interface WriteSnapshotResult<T> {
@@ -53,13 +71,24 @@ export async function writeSnapshotWithIdempotency<T>(
   doc: Record<string, unknown>,
   user: unknown,
   requestId: string,
+  User: OwnerWriteModel,
 ): Promise<WriteSnapshotResult<T>> {
+  const owner = String(user).toLowerCase();
+  const payloadOwner = String(doc.user).toLowerCase();
+  if (!/^[a-f0-9]{24}$/.test(owner) || !/^[a-f0-9]{24}$/.test(payloadOwner) ||
+      typeof requestId !== "string" || !requestId || typeof doc.requestId !== "string" ||
+      payloadOwner !== owner || doc.requestId !== requestId) {
+    throw new Error("Snapshot owner/requestId do not match write identity");
+  }
+  await requireSnapshotWriteIndex(model);
+  const timestamp = new Date();
+  const payload = { ...doc, _id: doc._id ?? new Types.ObjectId(), createdAt: doc.createdAt ?? timestamp, updatedAt: doc.updatedAt ?? timestamp };
   try {
-    const snapshot = (await model.create(doc)) as T;
-    return { snapshot, deduped: false };
+    const [snapshot] = await ownerWriteFence(User, user, session => model.create([payload], { session, timestamps: false }));
+    return { snapshot: snapshot as T, deduped: false };
   } catch (err) {
     if (!isDuplicateKeyError(err)) throw err;
-    // Lost the race: the winner already persisted under this {user, requestId}. Re-read + replay.
+    // The failed transaction has completed abort before this lookup. The winner persisted under this {user, requestId}. Re-read + replay.
     const winner = (await model.findOne({ user, requestId }).lean()) as T | null;
     if (!winner) {
       // The unique index fired but no winner is readable — a real anomaly, not a normal retry.

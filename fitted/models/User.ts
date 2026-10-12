@@ -1,4 +1,24 @@
+import { beginUserErasure, type ErasureOwner } from "@/lib/userErasure";
 import { Schema, Types, model, models, type InferSchemaType } from "mongoose";
+
+export interface OutfitPlanRecord {
+  planId: string;
+  lifecycle: "active" | "removed";
+  revision?: number;
+  snapshotId?: string;
+  candidateId?: string;
+  plannedFor?: string;
+  timezone?: string;
+  createKey?: string;
+  operationId?: string;
+  requestKey?: string;
+}
+const planSchema = new Schema<OutfitPlanRecord>({
+  planId: { type: String, required: true },
+  lifecycle: { type: String, enum: ["active", "removed"], required: true },
+  revision: Number, snapshotId: String, candidateId: String, plannedFor: String, timezone: String,
+  createKey: String, operationId: String, requestKey: String,
+}, { _id: false, strict: "throw" });
 
 const UserSchema = new Schema(
   {
@@ -10,6 +30,15 @@ const UserSchema = new Schema(
     // Monotonic per-user counter; bumps only when a wardrobe change becomes sampler-visible.
     // M4 stores the field (default 0); the bump trigger is named by the W-track (spec §23-H6).
     wardrobeVersion: { type: Number, default: 0 },
+    // Same-owner writes serialize owned-row admission against durable account erasure.
+    erasureStarted: { type: Boolean, default: false },
+    // Legacy name: shared conflict counter for image and non-image owned-row writes, not a photo count.
+    imageWriteVersion: { type: Number, default: undefined, select: false },
+    // Durable, bounded admission identities; erased IDs stay reserved against replay.
+    experienceAdmissions: { type: [String], default: undefined, select: false },
+    // Bounded intent references, separate from wear/reactions. Hidden from generic account reads.
+    outfitPlans: { type: [planSchema], default: undefined, select: false },
+    planningVersion: { type: Number, default: undefined, select: false },
     metadata: { type: Map, of: Schema.Types.Mixed, default: {} },
   },
   {
@@ -21,29 +50,16 @@ UserSchema.index({ authProvider: 1, authId: 1 }, { unique: true });
 UserSchema.index({ email: 1 }, { unique: true });
 
 // Minimal structural view of the connection the cascade needs (a real Mongoose Connection is
-// assignable to it; a stub is trivial to build in tests — there is no DB harness here).
+// assignable to it; focused tests can also supply a stub).
 type CascadeDb = {
-  collection: (name: string) => { deleteMany: (filter: Record<string, unknown>) => Promise<unknown> };
+  collection: (name: string) => { deleteMany: (filter: Record<string, unknown>, options?: { writeConcern: { w: "majority" } }) => Promise<unknown> };
 };
 
-/**
- * Cascade-delete every collection a user owns. Exported (and the hook delegates to it) so the
- * cascade is unit-testable without a live DB. On user delete we hard-delete wardrobe items,
- * outfit interactions, wardrobe images (H14's cascade arm, M4b C7), AND generation snapshots.
- *
- * The generationsnapshots arm is the SINGLE SANCTIONED ERASURE DOOR through the snapshot
- * immutability/delete guard (§23-H43, Track 2 policy): user-invoked account deletion means
- * "delete me" — the snapshots ARE the outfit history and retain the user's own text (item
- * names, occasion notes, raw generation text), so they are erased, not just redacted. This
- * runs on the NATIVE driver, deliberately below the Mongoose delete guard — exactly like the
- * other cascade arms. Redaction (`redacted:true`) remains the tool for non-erasure removal
- * (corpus hygiene) and as the account route's phase-1 fail-safe.
- *
- * H14's image-replacement ordering arm is **CLOSED, not W-track deferred** — `app/api/wardrobe/[id]/
- * image/route.ts` is store → repoint → delete, so no failure arm destroys the old photo. Do NOT
- * "tighten" the transient byte-budget overshoot by moving that `deleteOne` back above the store: the
- * overshoot is one image for the duration of one delete, and the reverted order destroys real friend
- * photos on the very path DEFECTS-H77(a) advertises as the remedy ("retry the photo from Edit").
+/** Majority-sweep the owner's cascade collections only after its erasure barrier.
+ * Native deletes are the sanctioned snapshot-erasure door below the immutability guard;
+ * redaction remains the non-erasure removal tool and account-deletion fail-safe.
+ * The final User hook repeats this sweep. Photo admission is fenced transactionally;
+ * other writers' uncertain late outcomes remain a separate lifecycle limit.
  */
 export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Promise<void> {
   // These deleteMany calls hit the NATIVE driver collections (`this.model.db`), which perform NO
@@ -55,10 +71,11 @@ export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Pro
     typeof userId === "string" && /^[0-9a-fA-F]{24}$/.test(userId)
       ? new Types.ObjectId(userId)
       : userId;
-  await db.collection("wardrobeitems").deleteMany({ user: id });
-  await db.collection("outfitinteractions").deleteMany({ user: id });
-  await db.collection("wardrobeimages").deleteMany({ user: id });
-  await db.collection("generationsnapshots").deleteMany({ user: id });
+  await db.collection("wardrobeitems").deleteMany({ user: id }, { writeConcern: { w: "majority" } });
+  await db.collection("outfitinteractions").deleteMany({ user: id }, { writeConcern: { w: "majority" } });
+  await db.collection("wardrobeimages").deleteMany({ user: id }, { writeConcern: { w: "majority" } });
+  await db.collection("generationsnapshots").deleteMany({ user: id }, { writeConcern: { w: "majority" } });
+  await db.collection("outfitexperiences").deleteMany({ user: id }, { writeConcern: { w: "majority" } });
 }
 
 /**
@@ -67,11 +84,38 @@ export async function cascadeDeleteUserData(db: CascadeDb, userId: unknown): Pro
  * paths run this. Named + exported so a test can invoke the exact registered hook.
  */
 export async function cascadeUserDataHook(
-  this: { getQuery: () => { _id?: unknown }; model: { db: CascadeDb } },
+  this: {
+    getQuery: () => Record<string, unknown>;
+    setQuery: (query: Record<string, unknown>) => void;
+    getOptions: () => Record<string, unknown>;
+    setOptions: (options: { writeConcern: { w: "majority" } }) => unknown;
+    model: ErasureOwner & {
+      db: CascadeDb;
+      findOne: (query: Record<string, unknown>) => {
+        select: (fields: string) => { lean: () => PromiseLike<{ _id: unknown } | null> };
+      };
+    };
+  },
   next: (err?: Error) => void,
 ): Promise<void> {
-  const userId = this.getQuery()._id;
-  if (userId) await cascadeDeleteUserData(this.model.db, userId);
+  // The barrier must commit independently BEFORE native cascade writes. A caller-owned
+  // transaction could roll it back after bytes have already been swept, so fail closed.
+  const options = this.getOptions();
+  if (options.session) throw new Error("Account erasure cannot run inside a transaction");
+  // The supported door resolves the normal model filter. Reject selection semantics we
+  // do not reproduce rather than erasing a different owner than the caller requested.
+  if (["sort", "collation", "hint", "skip", "let"].some(key => options[key] !== undefined)) {
+    throw new Error("Unsupported account erasure query options");
+  }
+  this.setOptions({ writeConcern: { w: "majority" } });
+  const query = this.getQuery();
+  const owner = await this.model.findOne(query).select("_id").lean();
+  // Bind this operation to exactly the resolved owner, even for authId/email filters.
+  // An initially absent owner cannot turn into an unfenced delete of a later matching row.
+  this.setQuery({ $and: [query, { _id: owner ? owner._id : { $in: [] } }] });
+  if (owner && await beginUserErasure(this.model, owner._id)) {
+    await cascadeDeleteUserData(this.model.db, owner._id);
+  }
   next();
 }
 

@@ -88,4 +88,8 @@ def full_signature(slotmap: SlotMap) -> str:
         _guard_id(slotmap.shoes)
     outer = slotmap.outer if slotmap.outer is not None else _NONE_SENTINEL
     shoes = slotmap.shoes if slotmap.shoes is not None else _NONE_SENTINEL
-    return f"{bk}|outer={outer}|shoes={shoes}"
+    signature = f"{bk}|outer={outer}|shoes={shoes}"
+    if slotmap.mid is not None:
+        _guard_id(slotmap.mid)
+        signature += f"|mid={slotmap.mid}"
+    return signature

@@ -1,37 +1,44 @@
-// Clear-wardrobe deletion logic, extracted from the route so it is unit-testable without a live
-// DB (repo idiom: testable units live in lib/, cf. lib/deriveWarmth.ts). §23-H14 clear-wardrobe arm.
+import { reclaimWardrobeImage, withImageConcurrency, unretainedImageFilter, type ImageRetentionModels } from "@/lib/imageRetention";
 
-import { referencedImageIds, type SnapshotRefModel } from "@/lib/imageReferences";
+export type ClearableModels = ImageRetentionModels;
 
-// Minimal structural view of the collections a clear touches — a real Mongoose Model is assignable
-// to it, and a stub is trivial in tests, mirroring User.ts's cascadeDeleteUserData
-// dependency-injection pattern.
-export type ClearableModels = {
-  WardrobeItem: {
-    deleteMany: (f: Record<string, unknown>) => { exec: () => Promise<{ deletedCount?: number }> };
-  };
-  WardrobeImage: {
-    deleteMany: (f: Record<string, unknown>) => { exec: () => Promise<unknown> };
-  };
-  GenerationSnapshot: SnapshotRefModel;
+export type ClearWardrobeReceipt = {
+  // Null means a failed delete may have committed, so Mongo did not return a count.
+  deletedCount: number | null;
+  itemsCleared: boolean | null;
+  cleanupComplete: boolean;
 };
 
-/**
- * Clear a user's wardrobe: hard-delete their wardrobe items AND the image documents. Images are
- * served by id, so leaving orphans behind keeps retrievable bytes — the clear-wardrobe arm of
- * §23-H14, parallel to cascadeDeleteUserData. Interactions are intentionally NOT cleared (clearing
- * a wardrobe keeps feedback history). Returns the wardrobe-item delete count for the response.
- *
- * EXCEPTION (§D2 / lib/imageReferences): images a GenerationSnapshot still references are KEPT, so
- * the M6 image-embedding re-measure can re-fetch the pixels an accepted outfit was built from —
- * clearing a wardrobe must not silently void the image side of already-labeled outfits. Account
- * deletion still purges everything unconditionally (erasure).
- */
-export async function clearUserWardrobe(models: ClearableModels, userId: unknown): Promise<number> {
-  const result = await models.WardrobeItem.deleteMany({ user: userId }).exec();
-  const keepIds = await referencedImageIds(models.GenerationSnapshot, userId);
-  await models.WardrobeImage.deleteMany(
-    keepIds.length > 0 ? { user: userId, _id: { $nin: keepIds } } : { user: userId },
-  ).exec();
-  return result.deletedCount ?? 0;
+export class WardrobeClearIncomplete extends Error {
+  constructor(readonly receipt: ClearWardrobeReceipt, cause: unknown) {
+    super("Wardrobe clear is incomplete", { cause });
+  }
+}
+
+/** Delete owner garments, then sweep only settled images without active garment or snapshot pins.
+ * Every retry repeats the image sweep even when no garments remain. A failed delete may still be
+ * in flight after its result is lost; an empty read cannot prove completion, so defer the sweep. */
+export async function clearUserWardrobe(models: ClearableModels, userId: unknown): Promise<ClearWardrobeReceipt> {
+  let deletedCount: number | null = null;
+  try {
+    const result = await models.WardrobeItem.deleteMany(
+      { user: userId }, { writeConcern: { w: "majority" } },
+    ).exec();
+    if (result?.acknowledged !== true || !Number.isSafeInteger(result.deletedCount) || result.deletedCount < 0) {
+      throw new Error("Wardrobe delete did not return an acknowledged count");
+    }
+    deletedCount = result.deletedCount;
+  } catch (error) {
+    throw new WardrobeClearIncomplete({ deletedCount: null, itemsCleared: null, cleanupComplete: false }, error);
+  }
+
+  try {
+    const imageIds = await models.WardrobeImage.distinct("_id", { user: userId, ...unretainedImageFilter }).exec();
+    await withImageConcurrency(imageIds, async imageId => {
+      await reclaimWardrobeImage(models, userId, String(imageId));
+    });
+  } catch (error) {
+    throw new WardrobeClearIncomplete({ deletedCount, itemsCleared: true, cleanupComplete: false }, error);
+  }
+  return { deletedCount, itemsCleared: true, cleanupComplete: true };
 }

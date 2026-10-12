@@ -28,7 +28,7 @@ type Any = any;
 let harness: MongoHarness;
 
 beforeAll(async () => {
-  harness = await startMemoryMongo([GenerationSnapshot, OutfitInteraction]);
+  harness = await startMemoryMongo([GenerationSnapshot, OutfitInteraction], { replicaSet: true });
 }, 120_000);
 afterAll(async () => {
   await harness.stop();
@@ -142,6 +142,17 @@ async function makeSnapshot(
 }
 
 describe("POST /api/interactions — bind + append (§I)", () => {
+  it("rejects a redacted proposal even if a client kept its old shown binding", async () => {
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    await GenerationSnapshot.collection.updateOne({ _id: new Types.ObjectId(snapshotId) },
+      { $set: { redacted: true, redactedAt: new Date(), redactionReason: "experience_changed" } });
+    const res = await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), deps(userId));
+    expect(res.status).toBe(404);
+    expect((await res.json()).code).toBe("snapshot_not_found");
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+  });
+
   it("accepted: derives items/baseKey/fullSignature/occasion from the snapshot, appends one row", async () => {
     const userId = oid();
     const { snapshotId, candidateId, topId, bottomId } = await makeSnapshot(userId);

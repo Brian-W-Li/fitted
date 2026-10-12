@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { initDatabase } from "@/lib/db";
 
 export type ImageUploadResult = {
@@ -7,6 +8,8 @@ export type ImageUploadResult = {
 export type UploadInput = {
   userId: string;          // Mongo user _id (string)
   wardrobeItemId: string;  // Mongo wardrobe item _id (string)
+  imageId?: string;
+  attachmentLease?: string;
   bytes: Buffer;
   contentType: string;     // "image/jpeg" | "image/png" | ...
 };
@@ -55,15 +58,31 @@ export async function uploadWardrobeImage(input: UploadInput): Promise<ImageUplo
 
   const base64 = input.bytes.toString("base64");
 
-  const { WardrobeImage } = await initDatabase();
-
-  const doc = await WardrobeImage.create({
-    user: input.userId,
-    wardrobeItem: input.wardrobeItemId,
-    base64,
-    contentType: sniffed,
-    sizeBytes: input.bytes.length,
-  });
-
-  return { imagePath: `mongo:${doc._id.toString()}` };
+  const { User, WardrobeImage } = await initDatabase();
+  const imageId = input.imageId ?? new Types.ObjectId().toString();
+  const session = await User.db.startSession();
+  try {
+    // Both writes commit atomically. The owner increment is a real write conflict with
+    // erasure's barrier; a read-only owner check cannot fence a delayed image insert.
+    // Standalone Mongo rejects the transaction before it stores any bytes. No fallback.
+    await session.withTransaction(async () => {
+      const admitted = await User.updateOne(
+        { _id: input.userId, erasureStarted: { $ne: true } },
+        { $inc: { imageWriteVersion: 1 } }, { session },
+      );
+      if (!admitted.matchedCount) throw new Error("Account no longer accepts photo uploads");
+      await WardrobeImage.create([{
+        _id: imageId,
+        ...(input.attachmentLease ? { attachmentLease: input.attachmentLease } : {}),
+        user: input.userId,
+        wardrobeItem: input.wardrobeItemId,
+        base64,
+        contentType: sniffed,
+        sizeBytes: input.bytes.length,
+      }], { session });
+    }, { readConcern: { level: "snapshot" }, writeConcern: { w: "majority" } });
+  } finally {
+    await session.endSession();
+  }
+  return { imagePath: `mongo:${imageId}` };
 }

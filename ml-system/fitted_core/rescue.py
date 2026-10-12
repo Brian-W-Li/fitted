@@ -40,6 +40,7 @@ from fitted_core.config import (
     N_SURFACED,
 )
 from fitted_core.generation import FinishStatus, GenerationPrompt, Generator
+from fitted_core.layer_policy import exclude_source_membership, needs_layer_choice, normalize_weather_signals
 from fitted_core.models import IssueCode, ItemType, Role, SlotMap, Template, WardrobeItem
 from fitted_core.ranker import (
     FallbackStage,
@@ -54,9 +55,11 @@ from fitted_core.response import (
     OutfitVariant,
     build_variants,
     build_variants_with_trace,
+    selection_pool,
 )
 from fitted_core.reducers import BehavioralSignals
 from fitted_core.sampler import (
+    CAP_BY_TYPE,
     ColdStartSignalScorer,
     RequestContext,
     SamplerResult,
@@ -104,8 +107,12 @@ class RescueRequest:
     # Empty on a first/non-regen render (`controls` is present-but-empty in the payload, never absent).
     locked_item_ids: tuple[str, ...] = ()
     disliked_item_ids: tuple[str, ...] = ()
+    excluded_outfit_item_ids: tuple[str, ...] = ()
+    weather_summary: Optional[str] = None
+    weather_signals: Optional[dict[str, bool]] = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "weather_signals", normalize_weather_signals(self.weather_signals))
         self._validate_intent()
         self._validate_generation_index()
         self._validate_k()
@@ -183,7 +190,7 @@ class RescueRequest:
         the SERVICE normalizes (dedup / order-sort) before building the request, so this preserves
         the given order rather than re-normalizing (a second normalization could diverge, F6).
         """
-        for name in ("locked_item_ids", "disliked_item_ids"):
+        for name in ("locked_item_ids", "disliked_item_ids", "excluded_outfit_item_ids"):
             value = getattr(self, name)
             if isinstance(value, (str, bytes, bytearray)):
                 raise TypeError(
@@ -392,8 +399,8 @@ def _scope_pool_to_pins(
 
     Generalizes the rescue forced-item pin to a **set** of pins (the forced item + R9 locks).
     For each ``ItemType``:
-      - a **pinned** type → exactly ``[the pin]`` (one base/optional slot holds only that item,
-        so its siblings can never co-occur; also re-includes a pin cap-sampling had dropped);
+      - a **pinned** type → exactly ``[the pin]``, except tops retain eligible base/mid
+        partners while staying within the top cap; re-includes pins cap-sampling dropped;
       - a type **not template-valid** given the pin set → ``[]`` (e.g. dresses for a forced/locked
         top);
       - any remaining usable type → kept **as sampled**.
@@ -401,15 +408,26 @@ def _scope_pool_to_pins(
     Empty pin set (a daily render with no locks) → ``{type: as-sampled}`` for every type: a
     no-op copy that leaves the flattened pool byte-identical (absent types stay empty). A single
     forced-item pin reproduces the historical ``_scope_pool_to_forced`` output exactly. The
-    ≤1-pin-per-slot invariant (preflight) makes ``pinned_by_type`` collision-free; the flattened
-    pool has no duplicate ids, and scoping only *removes* items so ``prompt_item_count ≤
+    service preflight admits two top pins only with one explicit mid; the flattened
+    pool has no duplicate ids, and scoping stays within per-type caps so ``prompt_item_count ≤
     MAX_PROMPT_ITEMS`` still holds.
     """
     pinned_by_type = {pin.type: pin for pin in pins}
+    top_pins = [pin for pin in pins if pin.type == ItemType.top]
     valid_types = _valid_types_for_pins([pin.type for pin in pins])
     scoped: dict[ItemType, list[WardrobeItem]] = {}
     for item_type in ItemType:  # fixed enum order — matches partition/flatten ordering (R4)
-        if item_type in pinned_by_type:
+        if item_type == ItemType.top and top_pins:
+            if len(top_pins) > 1:
+                scoped[item_type] = sorted(top_pins, key=lambda item: item.id)
+            else:
+                pin = top_pins[0]
+                # A base pin can pair with eligible mids; a mid pin can also be the
+                # sole base top or layer over a non-mid top. Never two mid-marked tops.
+                partners = [item for item in pool.get(item_type, [])
+                            if item.id != pin.id and (item.layer_role == "mid") != (pin.layer_role == "mid")]
+                scoped[item_type] = sorted([pin, *partners[:CAP_BY_TYPE[item_type] - 1]], key=lambda item: item.id)
+        elif item_type in pinned_by_type:
             scoped[item_type] = [pinned_by_type[item_type]]
         elif item_type in valid_types:
             scoped[item_type] = list(pool.get(item_type, []))
@@ -487,7 +505,7 @@ def _serialize_pool_item(item: WardrobeItem) -> dict[str, object]:
     """One pool item as the §D **read-only input attributes** (spearhead.md §D, §12).
 
     Exactly the GPT-visible fields — ``id, name, type, style_tags, color_tags,
-    occasion_tags, material, formality``. ``image_url`` and ``warmth`` are **stripped**
+    occasion_tags, material, formality, layer_role``. ``image_url`` and ``warmth`` are **stripped**
     (§12's GPT-payload rule: ``imageUrl`` is a token-cost deferral, H33; ``warmth`` is
     Python-only). ``name`` is **kept** — rich styling signal (§D). These attributes are
     for *selection only*; the prompt forbids copying them into the output items (an echoed
@@ -504,6 +522,7 @@ def _serialize_pool_item(item: WardrobeItem) -> dict[str, object]:
         "occasion_tags": list(item.occasion_tags),
         "material": item.material,
         "formality": item.formality,
+        "layer_role": item.layer_role,
     }
 
 
@@ -551,9 +570,11 @@ def _build_system_prompt(
         lines.append(locked_line)
     lines += [
         "- Each outfit is either two_piece (exactly 1 base_top + 1 base_bottom) XOR one_piece "
-        "(exactly 1 dress); plus optionally 0-1 outer_layer and 0-1 shoes. Never repeat an "
+        "(exactly 1 dress); plus optionally 0-1 outer_layer and 0-1 shoes. A two_piece may also "
+        "include 0-1 mid_layer over its base_top; never add mid_layer to a dress. Never repeat an "
         "item within an outfit.",
         f"- Each item's role is exactly one of: {_ROLE_VALUES}.",
+        "- mid_layer requires a top whose layer_role is mid. Those tops may also be worn alone as base_top; a layered outfit must pair one mid-marked top with a base top not marked mid. Other tops may only be base_top. Use a plausible mid layer over a base tee/shirt when the situation and wardrobe support it; at most 5 items total.",
         "- Every outfit MUST include a styleMove — the single concrete styling idea that makes "
         'it work — as {"moveType", "changedItemIds", "oneSentence"}. changedItemIds must be a '
         "NON-EMPTY subset of that outfit's own item ids.",
@@ -568,7 +589,15 @@ def _build_system_prompt(
         "- Return a RANGE of vibes across your outfits, from everyday/expected to adventurous, "
         "so the user sees genuinely different ways to wear the forced item. Do NOT label, "
         "score, or rank them.",
+        "- Keep that range within the user's requested style and level of dress. A put-together "
+        "request should not become a sporty request; an explicitly sporty request can use "
+        "athletic pieces. Honor stated garment preferences when the wardrobe supports them.",
+        "- Vary the base garment combinations when possible, rather than only changing shoes "
+        "or adding a layer. Describe styling actions using known garment details; do not invent "
+        "fit, fabric or construction.",
         "- Respect the given weather and occasion; treat weather as high-priority styling context.",
+        "- Do not claim waterproofing, wind resistance or walking comfort unless the provided item "
+        "attributes support it. Do not describe an unsupported practical property as a fact.",
         "",
         "Output format:",
         '- Return STRICTLY VALID JSON only, no prose, exactly: {"outfits":[{"items":'
@@ -594,13 +623,17 @@ def _build_user_message(
     """The §D user message — Lens (occasion + weather), the forced item called out, the
     scoped pool, and the ``candidate_requested`` upper-bound ask (spearhead.md §D).
 
-    Only weather + occasion are carried as context (decision 7: the richer ConstraintSet
-    defers to B-track/M5). Pure and deterministic.
+    Occasion, the weather bucket and an optional captured weather summary provide context.
+    Richer ConstraintSet enforcement remains deferred. Pure and deterministic.
     """
     return "\n".join(
         [
             f"Occasion: {request.occasion}",
             f"Weather: {request.weather}",
+            *(["Include at least one optional removable outer-layer outfit if the listed wardrobe and exact controls permit it. Outer category does not establish rain or wind protection; do not claim it."]
+              if needs_layer_choice(request) else []),
+            *([f"Weather details (context, not a guarantee): {json.dumps(request.weather_summary, ensure_ascii=False)}"]
+              if request.weather_summary else []),
             "",
             "Forced item — every outfit must include it:",
             f"  id={forced_item.id}, name={forced_item.name}, type={forced_item.type.value}",
@@ -653,15 +686,25 @@ def _build_daily_system_prompt(locked_item_ids: Sequence[str] = ()) -> str:
         lines.append(locked_line)
     lines += [
         "- Each outfit is either two_piece (exactly 1 base_top + 1 base_bottom) XOR one_piece "
-        "(exactly 1 dress); plus optionally 0-1 outer_layer and 0-1 shoes. Never repeat an "
+        "(exactly 1 dress); plus optionally 0-1 outer_layer and 0-1 shoes. A two_piece may also "
+        "include 0-1 mid_layer over its base_top; never add mid_layer to a dress. Never repeat an "
         "item within an outfit.",
         f"- Each item's role is exactly one of: {_ROLE_VALUES}.",
+        "- mid_layer requires a top whose layer_role is mid. Those tops may also be worn alone as base_top; a layered outfit must pair one mid-marked top with a base top not marked mid. Other tops may only be base_top. Use a plausible mid layer over a base tee/shirt when the situation and wardrobe support it; at most 5 items total.",
         "- Every outfit MUST include a styleMove -- the single concrete styling idea that makes "
         'it work -- as {"moveType", "changedItemIds", "oneSentence"}. changedItemIds must be a '
         "NON-EMPTY subset of that outfit's own item ids.",
         "- Return a RANGE of believable outfits, from everyday/expected to adventurous. Do NOT "
         "label, score, or rank them.",
+        "- Keep that range within the user's requested style and level of dress. A put-together "
+        "request should not become a sporty request; an explicitly sporty request can use "
+        "athletic pieces. Honor stated garment preferences when the wardrobe supports them.",
+        "- Vary the base garment combinations when possible, rather than only changing shoes "
+        "or adding a layer. Describe styling actions using known garment details; do not invent "
+        "fit, fabric or construction.",
         "- Respect the given weather and occasion; treat weather as high-priority styling context.",
+        "- Do not claim waterproofing, wind resistance or walking comfort unless the provided item "
+        "attributes support it. Do not describe an unsupported practical property as a fact.",
         "",
         "Output format:",
         '- Return STRICTLY VALID JSON only, no prose, exactly: {"outfits":[{"items":'
@@ -687,6 +730,10 @@ def _build_daily_user_message(
         [
             f"Occasion: {request.occasion}",
             f"Weather: {request.weather}",
+            *(["Include at least one optional removable outer-layer outfit if the listed wardrobe and exact controls permit it. Outer category does not establish rain or wind protection; do not claim it."]
+              if needs_layer_choice(request) else []),
+            *([f"Weather details (context, not a guarantee): {json.dumps(request.weather_summary, ensure_ascii=False)}"]
+              if request.weather_summary else []),
             "",
             "Build believable outfits for this occasion and weather from this wardrobe:",
             pool_json,
@@ -814,6 +861,7 @@ def _filled_slot_ids(slot_map: SlotMap) -> set[str]:
             slot_map.dress,
             slot_map.top,
             slot_map.bottom,
+            slot_map.mid,
             slot_map.outer,
             slot_map.shoes,
         )
@@ -906,6 +954,7 @@ def _generate_and_parse(generator: Generator, prompt: GenerationPrompt) -> Optio
 def _build_ranker_context(
     request: RescueRequest,
     behavioral_signals: Optional[BehavioralSignals] = None,
+    candidates: Sequence[ValidatedCandidate] = (),
 ) -> RankerContext:
     """``RescueRequest`` → the M3 ``RankerContext`` (spearhead.md §G step 9).
 
@@ -916,7 +965,9 @@ def _build_ranker_context(
     context is byte-identical there. (Locks are enforced via the pool pin + prompt + post-validate
     drop, NOT the ranker's lock filter — §C.3 keeps ``locked_item_ids`` out of ``RankerContext``.)
     """
+    from fitted_core.layer_policy import eligible_signatures
     kwargs = {
+        "reserved_full_signatures": eligible_signatures(request, candidates),
         "session_id": request.session_id,
         "wardrobe_version": request.wardrobe_version,
         "occasion": request.occasion,
@@ -1035,7 +1086,8 @@ def rescue(
     # Step 9 — rank (cold start: empty behavioral signals; dislikes → the Step-4 contextual hard
     # filter, §C.3). ``rank([])`` is valid (M2/M3 "empty is valid") and yields an empty,
     # insufficient RankerResult, so the parse-fail and all-dropped paths share this single exit.
-    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals))
+    survivors, _ = exclude_source_membership(request, survivors)
+    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals, survivors))
 
     # Step 10 — response layer: wrap the ranked survivors into §6.5 OutfitVariants (path/risk via
     # the §G cold-start scoring) and spread-select ≤ n_surfaced spanning distinct (path, risk)
@@ -1049,7 +1101,7 @@ def rescue(
 
     # Rescue derives its OWN post-generation health from the surfaced budget, NOT the ranker's
     # k-relative insufficient_wardrobe (spearhead.md §G "Reading fallback_stage").
-    insufficient = len(ranked.outfits) < request.n_surfaced
+    insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
     return RescueResult(
         ranked=ranked,
         variants=variants,
@@ -1336,7 +1388,9 @@ def rescue_with_trace(
         rescue_drops = forced_drops + lock_drops
 
     # Step 9 — rank, capturing the full scored funnel (scored-but-unshown breakdowns).
-    ranker_context = _build_ranker_context(request, behavioral_signals)
+    survivors, source_drops = exclude_source_membership(request, survivors)
+    rescue_drops += tuple(RescueDrop(candidate, "source_membership_excluded", "render") for candidate in source_drops)
+    ranker_context = _build_ranker_context(request, behavioral_signals, survivors)
     rank_audit = rank_with_audit(survivors, ranker_context)
     ranked = rank_audit.result
 
@@ -1344,7 +1398,7 @@ def rescue_with_trace(
     items_by_id = {item.id: item for item in request.wardrobe}
     build_trace = build_variants_with_trace(ranked, items_by_id, request, request.n_surfaced)
 
-    insufficient = len(ranked.outfits) < request.n_surfaced
+    insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
     result = RescueResult(
         ranked=ranked,
         variants=build_trace.selected,
@@ -1462,10 +1516,11 @@ def _render_daily(
             _drop_missing_style_move(validation.candidates), request.locked_item_ids
         )
 
-    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals))
+    survivors, _ = exclude_source_membership(request, survivors)
+    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals, survivors))
     items_by_id = {item.id: item for item in request.wardrobe}
     variants, spread_collapsed = build_variants(ranked, items_by_id, request, request.n_surfaced)
-    insufficient = len(ranked.outfits) < request.n_surfaced
+    insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
     return RenderResult(
         ranked=ranked,
         variants=variants,
@@ -1551,12 +1606,14 @@ def _render_daily_with_trace(
         )
         rescue_drops = style_drops + lock_drops
 
-    ranker_context = _build_ranker_context(request, behavioral_signals)
+    survivors, source_drops = exclude_source_membership(request, survivors)
+    rescue_drops += tuple(RescueDrop(candidate, "source_membership_excluded", "render") for candidate in source_drops)
+    ranker_context = _build_ranker_context(request, behavioral_signals, survivors)
     rank_audit = rank_with_audit(survivors, ranker_context)
     ranked = rank_audit.result
     items_by_id = {item.id: item for item in request.wardrobe}
     build_trace = build_variants_with_trace(ranked, items_by_id, request, request.n_surfaced)
-    insufficient = len(ranked.outfits) < request.n_surfaced
+    insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
     result = RenderResult(
         ranked=ranked,
         variants=build_trace.selected,

@@ -13,10 +13,9 @@
  *      (`User.deleteMany`, `User.collection.deleteOne`, `findByIdAndDelete` with a different op):
  *      "delete me" would delete the user row and leave every wardrobe item, photo, interaction and
  *      snapshot behind, while the whole account-delete suite stayed green.
- *   2. Dropping a `Model.init()` from `initDatabase`'s list: the partial-unique `{user, requestId}`
- *      index (§23-H50) would never be built in production, so every F10 resume writes a SECOND paid
- *      gpt-5.4-mini render and a duplicate corpus row. The other suites cannot see this — the test
- *      harness builds indexes itself, from its own hand-picked model list.
+ *   2. Dropping a model registration from `initDatabase`. Production disables automatic
+ *      index builds; existing indexes are managed out of band. The experience writer explicitly
+ *      awaits its own indexes, separately verified with autoIndex disabled.
  */
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
@@ -56,16 +55,10 @@ afterEach(async () => {
 });
 
 describe("lib/db initDatabase — the real connect + index registration", () => {
-  it("calls init() on EVERY model it returns — in prod that is the only index builder", async () => {
-    // Asserting the CALLS, not the resulting indexes, is deliberate and is the only honest way to
-    // pin this: `connectMongo` sets `autoIndex: NODE_ENV !== "production"`, so under jest mongoose
-    // auto-builds every index regardless of `.init()`. An index-existence assertion here therefore
-    // stays green with the whole init list deleted (verified by mutation) — it measures autoIndex,
-    // not this function. In PRODUCTION autoIndex is off and these calls are the sole mechanism, so a
-    // dropped `GenerationSnapshot.init()` means the partial-unique {user,requestId} index (§23-H50)
-    // never exists live and every F10 resume writes a SECOND paid render + duplicate corpus row.
-    // (The index PLAN itself is pinned separately, in generationSnapshotModel.test.ts, and its
-    // behavior in mlSnapshotWrite.test.ts.)
+  it("calls init() on every model it returns", async () => {
+    // Pin model registration, not production index existence. autoIndex is off in production;
+    // init() alone does not build those indexes. outfitExperienceIndexes.test.ts proves the
+    // new writer's explicit index readiness against a fresh database with autoIndex disabled.
     // Deliberately NO `jest.resetModules()` here: re-instantiating the module registry gives
     // `mongoose` a SECOND instance whose connection pool nothing tears down, and jest then never
     // exits (observed — the suite printed its summary and hung until killed).
@@ -85,12 +78,12 @@ describe("lib/db initDatabase — the real connect + index registration", () => 
     }
   });
 
-  it("returns all five models the routes destructure", async () => {
+  it("returns all registered models", async () => {
     const { initDatabase } = await import("@/lib/db");
     const models = await initDatabase();
     // A missing key here is an immediate `undefined.findOne` 500 on whichever route wanted it.
     expect(Object.keys(models).sort()).toEqual(
-      ["GenerationSnapshot", "OutfitInteraction", "User", "WardrobeImage", "WardrobeItem"].sort(),
+      ["GenerationSnapshot", "OutfitExperience", "OutfitInteraction", "User", "WardrobeImage", "WardrobeItem"].sort(),
     );
   });
 });
@@ -98,7 +91,7 @@ describe("lib/db initDatabase — the real connect + index registration", () => 
 describe("lib/db deleteUserWithData — the single sanctioned erasure door", () => {
   /** One row in every user-owned collection, so a cascade that misses one is visible. */
   async function seedFullUser() {
-    const { User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot } =
+    const { User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot, OutfitExperience } =
       await (await import("@/lib/db")).initDatabase();
     const user = await User.create({
       authProvider: "firebase",
@@ -131,12 +124,13 @@ describe("lib/db deleteUserWithData — the single sanctioned erasure door", () 
       user: new Types.ObjectId(userId),
       requestId: new Types.ObjectId().toString(),
     });
-    return { userId, User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot };
+    await OutfitExperience.collection.insertOne({ user: new Types.ObjectId(userId), experienceId: userId, lifecycle: "erased" });
+    return { userId, User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot, OutfitExperience };
   }
 
-  it("erases the user row AND every owned row in all four collections", async () => {
+  it("erases the user row AND every owned row in all five collections", async () => {
     const { deleteUserWithData } = await import("@/lib/db");
-    const { userId, User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot } =
+    const { userId, User, WardrobeItem, OutfitInteraction, WardrobeImage, GenerationSnapshot, OutfitExperience } =
       await seedFullUser();
 
     // Pre-condition, so a green result can never mean "there was nothing to delete".
@@ -144,6 +138,7 @@ describe("lib/db deleteUserWithData — the single sanctioned erasure door", () 
     expect(await WardrobeImage.countDocuments({ user: userId })).toBe(1);
     expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(1);
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+    expect(await OutfitExperience.countDocuments({ user: userId })).toBe(1);
 
     expect(await deleteUserWithData(userId)).toBe(true);
 
@@ -152,6 +147,7 @@ describe("lib/db deleteUserWithData — the single sanctioned erasure door", () 
     expect(await WardrobeImage.countDocuments({ user: userId })).toBe(0);
     expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+    expect(await OutfitExperience.countDocuments({ user: userId })).toBe(0);
   });
 
   it("leaves another user's rows untouched", async () => {
@@ -165,6 +161,7 @@ describe("lib/db deleteUserWithData — the single sanctioned erasure door", () 
     expect(await bystander.WardrobeImage.countDocuments({ user: bystander.userId })).toBe(1);
     expect(await bystander.OutfitInteraction.countDocuments({ user: bystander.userId })).toBe(1);
     expect(await bystander.GenerationSnapshot.countDocuments({ user: bystander.userId })).toBe(1);
+    expect(await bystander.OutfitExperience.countDocuments({ user: bystander.userId })).toBe(1);
     expect(await bystander.User.countDocuments({ _id: bystander.userId })).toBe(1);
   });
 

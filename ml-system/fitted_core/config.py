@@ -91,7 +91,10 @@ MIN_RESCUE_CANDIDATES = 6  # floor on the rescue candidate_requested — preserv
 
 # Color / style taxonomies (consumed by response.py at C5)
 NEUTRAL_COLORS = frozenset(
-    {"black", "white", "gray", "grey", "navy", "beige", "cream", "tan", "khaki", "denim"}
+    {"black", "white", "gray", "grey", "navy", "beige", "cream", "tan", "khaki", "denim",
+     # Explicit captured shade labels, after _norm_label; never infer neutrality
+     # from a substring (e.g. "neon gray" or "multicolor gray" stays unknown).
+     "off white", "blue gray", "blue grey", "light gray", "light grey", "charcoal"}
 )
 BOLD_STYLE_TAGS = frozenset(
     {"bold", "statement", "bright", "graphic", "print", "pattern", "neon", "sequin"}
@@ -163,7 +166,7 @@ WEATHER_MISMATCH_PENALTY = 0.5
 # rescue._build_daily_user_message). One shared prompt version covers every intent; `intent`
 # disambiguates rows. Hand-maintained and orthogonal to __version__; forgetting to bump it is
 # the silent failure the policy warns of.
-PROMPT_VERSION = "m5-c1.v1"
+PROMPT_VERSION = "style-context-mid.v3"
 
 
 def _canonical_for_digest(obj: object) -> object:

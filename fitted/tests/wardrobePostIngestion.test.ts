@@ -40,7 +40,7 @@ function setToken(uid: string) {
 }
 
 beforeAll(async () => {
-  harness = await startMemoryMongo([User, WardrobeItem, WardrobeImage]);
+  harness = await startMemoryMongo([User, WardrobeItem, WardrobeImage], { replicaSet: true });
 }, 120_000); // first run may download the mongod binary
 afterAll(async () => {
   await harness.stop();
@@ -245,7 +245,7 @@ describe("POST /api/wardrobe — storage bounds (§I, Track 2 Lane B)", () => {
   });
 
   it("rejects a create once the per-user item ceiling is reached — existing items untouched", async () => {
-    const { MAX_ITEMS_PER_USER } = await import("@/app/api/wardrobe/route");
+    const { MAX_ITEMS_PER_USER } = await import("@/lib/wardrobeLimits");
     await WardrobeItem.insertMany(
       Array.from({ length: MAX_ITEMS_PER_USER }, (_, i) => ({
         user: userId,
@@ -305,7 +305,7 @@ describe("GET /api/wardrobe — the read that returns a whole closet", () => {
     // storage cap ever exceeds the request-envelope cap, `projectWardrobe` throws an ENVELOPE-level
     // RequestContractError rather than dropping items — so that friend's EVERY render degrades to the
     // empty state permanently, with no per-item resilience to save it.
-    const { MAX_ITEMS_PER_USER } = await import("@/app/api/wardrobe/route");
+    const { MAX_ITEMS_PER_USER } = await import("@/lib/wardrobeLimits");
     const { MAX_WARDROBE_ITEMS } = await import("@/lib/mlRequestAdapter");
     expect(MAX_ITEMS_PER_USER).toBeLessThanOrEqual(MAX_WARDROBE_ITEMS);
   });

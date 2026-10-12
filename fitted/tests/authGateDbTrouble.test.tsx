@@ -19,8 +19,9 @@ jest.mock("firebase/auth", () => ({
   },
   signOut: (auth?: unknown) => signOutMock(auth),
 }));
-jest.mock("next/navigation", () => ({ useRouter: () => ({ push: jest.fn() }) }));
-jest.mock("@/lib/sessionCookie", () => ({ ensureSessionCookie: jest.fn(async () => {}) }));
+const mockRouter = { push: jest.fn() };
+jest.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
+jest.mock("@/lib/sessionCookie", () => ({ ensureSessionCookie: jest.fn(async () => {}), clearSessionCookie: jest.fn(async () => {}) }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const AuthGate = (require("@/app/(app)/AuthGate") as { default: React.ComponentType<{ children: React.ReactNode }> }).default;
@@ -88,4 +89,35 @@ describe("AuthGate — a database/server fault gates with an honest retry, never
     expect(screen.queryByText("app content")).not.toBeInTheDocument();
     expect(screen.queryByText(/trouble reaching your closet/i)).not.toBeInTheDocument();
   });
+});
+
+
+it("pending deletion after refresh exposes only a working deletion retry", async () => {
+  Object.defineProperty(window, "location", { configurable: true, value: { href: "" } });
+  let attempts = 0;
+  global.fetch = jest.fn(async (url, options) => {
+    if (url === "/api/auth/sync") return {
+      ok: false, status: 409, json: async () => ({ code: "account_deletion_pending" }),
+    } as Response;
+    expect(options?.method).toBe("DELETE");
+    expect(options?.headers).toEqual({ Authorization: "Bearer tok" });
+    attempts++;
+    return { ok: attempts > 1, status: attempts > 1 ? 200 : 502, json: async () => ({}) } as Response;
+  }) as typeof fetch;
+  render(<AuthGate><div>private app content</div></AuthGate>);
+  const retry = await screen.findByRole("button", { name: "Finish deletion" });
+  expect(screen.queryByText("private app content")).not.toBeInTheDocument();
+  await userEvent.click(retry);
+  expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't finish/i);
+  expect(signOutMock).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Finish deletion" }));
+  await waitFor(() => expect(signOutMock).toHaveBeenCalled());
+  expect(window.location.href).toBe("/");
+});
+
+it("an unrelated 409 does not expose the erasure action", async () => {
+  mockSync([{ ok: false, status: 409 }]);
+  render(<AuthGate><div>private app content</div></AuthGate>);
+  expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Finish deletion" })).not.toBeInTheDocument();
 });
