@@ -11,7 +11,7 @@ from fitted_core.models import ItemType, Role, SlotMap, Template, WardrobeItem
 
 def test_construct_with_only_required_fields():
     item = WardrobeItem("x1", "Tee", ItemType.top, warmth=5, image_url="x1.jpg")
-    # Optionals absent → empty tags, None material/formality.
+    # Optionals absent → empty tags, None garment attributes.
     assert item.style_tags == []
     assert item.color_tags == []
     assert item.occasion_tags == []

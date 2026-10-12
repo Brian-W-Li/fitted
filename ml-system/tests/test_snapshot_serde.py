@@ -86,6 +86,8 @@ def _sample_payload() -> dict:
                     "occasion_tags": ["daily"],
                     "material": None,
                     "formality": None,
+                    "pattern": None,
+                    "fit": None,
                     "image_url": "https://example/y.png",
                 },
             }
@@ -117,6 +119,7 @@ def test_engine_visible_partition_key_and_tag_renames():
     assert ev["occasionTags"] == ["daily"]
     assert ev["imageUrl"] == "https://example/y.png"
     assert ev["material"] is None and ev["formality"] is None
+    assert ev["pattern"] is None and ev["fit"] is None
 
 
 def test_outer_keys_use_mechanical_snake_to_camel():

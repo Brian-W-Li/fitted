@@ -505,7 +505,7 @@ def _serialize_pool_item(item: WardrobeItem) -> dict[str, object]:
     """One pool item as the §D **read-only input attributes** (spearhead.md §D, §12).
 
     Exactly the GPT-visible fields — ``id, name, type, style_tags, color_tags,
-    occasion_tags, material, formality, layer_role``. ``image_url`` and ``warmth`` are **stripped**
+    occasion_tags, material, formality, pattern, fit, layer_role``. ``image_url`` and ``warmth`` are **stripped**
     (§12's GPT-payload rule: ``imageUrl`` is a token-cost deferral, H33; ``warmth`` is
     Python-only). ``name`` is **kept** — rich styling signal (§D). These attributes are
     for *selection only*; the prompt forbids copying them into the output items (an echoed
@@ -522,6 +522,8 @@ def _serialize_pool_item(item: WardrobeItem) -> dict[str, object]:
         "occasion_tags": list(item.occasion_tags),
         "material": item.material,
         "formality": item.formality,
+        "pattern": item.pattern,
+        "fit": item.fit,
         "layer_role": item.layer_role,
     }
 
@@ -593,8 +595,8 @@ def _build_system_prompt(
         "request should not become a sporty request; an explicitly sporty request can use "
         "athletic pieces. Honor stated garment preferences when the wardrobe supports them.",
         "- Vary the base garment combinations when possible, rather than only changing shoes "
-        "or adding a layer. Describe styling actions using known garment details; do not invent "
-        "fit, fabric or construction.",
+        "or adding a layer. Describe styling actions using declared garment details. Treat missing "
+        "fit, pattern or material as unknown; never guess them or invent fabric, fit, or construction.",
         "- Respect the given weather and occasion; treat weather as high-priority styling context.",
         "- Do not claim waterproofing, wind resistance or walking comfort unless the provided item "
         "attributes support it. Do not describe an unsupported practical property as a fact.",
@@ -605,7 +607,7 @@ def _build_system_prompt(
         "...]}.",
         "- Each item object has EXACTLY two keys: itemId (the wardrobe item's id) and role. "
         "styleMove has EXACTLY three keys.",
-        "- The item attributes above (name, type, tags, material, formality) are for SELECTION "
+        "- The item attributes above (name, type, tags, material, formality, pattern, fit) are for SELECTION "
         "ONLY — do NOT copy them into the output items.",
         "- Do NOT emit any other field. Forbidden anywhere in the output: score, rank, "
         "optionPath, risk, vibe, label, imageUrl, warmth. Any extra field causes the whole "
@@ -700,8 +702,8 @@ def _build_daily_system_prompt(locked_item_ids: Sequence[str] = ()) -> str:
         "request should not become a sporty request; an explicitly sporty request can use "
         "athletic pieces. Honor stated garment preferences when the wardrobe supports them.",
         "- Vary the base garment combinations when possible, rather than only changing shoes "
-        "or adding a layer. Describe styling actions using known garment details; do not invent "
-        "fit, fabric or construction.",
+        "or adding a layer. Describe styling actions using declared garment details. Treat missing "
+        "fit, pattern or material as unknown; never guess them or invent fabric, fit, or construction.",
         "- Respect the given weather and occasion; treat weather as high-priority styling context.",
         "- Do not claim waterproofing, wind resistance or walking comfort unless the provided item "
         "attributes support it. Do not describe an unsupported practical property as a fact.",
@@ -712,7 +714,7 @@ def _build_daily_system_prompt(locked_item_ids: Sequence[str] = ()) -> str:
         "...]}.",
         "- Each item object has EXACTLY two keys: itemId (the wardrobe item's id) and role. "
         "styleMove has EXACTLY three keys.",
-        "- The item attributes above (name, type, tags, material, formality) are for SELECTION "
+        "- The item attributes above (name, type, tags, material, formality, pattern, fit) are for SELECTION "
         "ONLY -- do NOT copy them into the output items.",
         "- Do NOT emit any other field. Forbidden anywhere in the output: score, rank, "
         "optionPath, risk, vibe, label, imageUrl, warmth. Any extra field causes the whole "

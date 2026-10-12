@@ -234,3 +234,22 @@ describe("mid-layer snapshot composition", () => {
     expect(() => validateSnapshotPayload(p)).toThrow(PayloadContractError);
   });
 });
+
+// Captured details are facts of the shown generation, independent of future closet edits.
+it("persists pattern/fit without stripping them and leaves a legacy snapshot absent", async () => {
+  const legacy = { ...load(), user: new Types.ObjectId(), interactionCountAtRequest: 0 };
+  const old = await GenerationSnapshot.create(legacy);
+  const p = clone();
+  p.itemSnapshots[0].engineVisible.pattern = "graphic";
+  p.itemSnapshots[0].engineVisible.fit = "Relaxed";
+  validateSnapshotPayload(p);
+  const saved = await GenerationSnapshot.create({ ...p, user: new Types.ObjectId(), interactionCountAtRequest: 0 });
+  const reread = await GenerationSnapshot.findById(saved._id).lean() as Any;
+  expect(reread.itemSnapshots[0].engineVisible).toMatchObject({ pattern: "graphic", fit: "Relaxed" });
+  expect((await GenerationSnapshot.findById(old._id).lean() as Any).itemSnapshots[0].engineVisible.pattern).toBeUndefined();
+});
+it.each(["pattern", "fit"])("rejects malformed captured %s before a write", (field) => {
+  for (const value of [27, "x".repeat(61), "\ud800"]) {
+    expectReject(p => { p.itemSnapshots[0].engineVisible[field] = value; });
+  }
+});

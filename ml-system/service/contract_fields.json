@@ -7,6 +7,7 @@
       "FEEDBACK_REASON_RAW_TEXT_MAX_CHARS": 500,
       "MAX_CONTROL_IDS": 50,
       "MAX_IMAGE_URL_CHARS": 2048,
+      "MAX_ITEM_ATTR_CHARS": 60,
       "MAX_ITEM_NAME_CHARS": 200,
       "MAX_ITEM_TAGS": 25,
       "MAX_ITEM_TAG_CHARS": 60,
@@ -155,7 +156,6 @@
       "_comment": "Constants enforced ONLY by the service (ml-system/service/config.py) and intentionally NOT mirrored Next-side \u2014 the service is the sole enforcer, so there is no second copy to drift. Listed so the boundary reads as deliberate, not an omission.",
       "names": [
         "MAX_SESSION_ID_CHARS",
-        "MAX_ITEM_ATTR_CHARS",
         "MAX_WIRE_INT",
         "MAX_JSON_NESTING_DEPTH",
         "MAX_REQUEST_BODY_BYTES",
@@ -275,9 +275,11 @@
     },
     "wardrobeItem": {
       "optional": [
+        "fit",
         "formality",
         "layerRole",
-        "material"
+        "material",
+        "pattern"
       ],
       "required": [
         "clothingType",

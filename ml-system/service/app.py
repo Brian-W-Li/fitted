@@ -245,6 +245,12 @@ def _optional_string(value: Any, name: str, *, max_chars: int) -> Optional[str]:
     return value
 
 
+def _optional_detail_string(value: Any, name: str) -> Optional[str]:
+    """Parse a nullable garment detail; blank values carry no detail and normalize to unknown."""
+    parsed = _optional_string(value, name, max_chars=cfg.MAX_ITEM_ATTR_CHARS)
+    return None if parsed is not None and not parsed.strip() else parsed
+
+
 def _non_bool_int(value: Any, name: str, *, minimum: int = 0, maximum: Optional[int] = None) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ContractInvalid(f"{name} must be a non-bool integer")
@@ -330,6 +336,8 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
     }
     material = _optional_string(raw.get("material"), f"{where}.material", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
     formality = _optional_string(raw.get("formality"), f"{where}.formality", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
+    pattern = _optional_detail_string(raw.get("pattern"), f"{where}.pattern")
+    fit = _optional_detail_string(raw.get("fit"), f"{where}.fit")
     layer_role = raw.get("layerRole")
     if layer_role is not None and (not isinstance(layer_role, str) or layer_role not in ("base", "mid", "outer")):
         raise ContractInvalid(f"{where}.layerRole must be base, mid, outer or null")
@@ -351,6 +359,8 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
             occasion_tags=tags["occasionTags"],
             material=material,
             formality=formality,
+            pattern=pattern,
+            fit=fit,
             layer_role=layer_role,
         )
     except (TypeError, ValueError) as exc:  # the dataclass guards are inside the boundary (§D)

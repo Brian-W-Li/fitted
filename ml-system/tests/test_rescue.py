@@ -441,7 +441,7 @@ def _rich_top(item_id: str = "t1") -> WardrobeItem:
     return WardrobeItem(
         item_id, "Green graphic tee", ItemType.top, warmth=4, image_url="SECRET_t1.png",
         style_tags=["graphic"], color_tags=["green"], occasion_tags=["casual"],
-        material="cotton", formality="casual",
+        material="cotton", formality="casual", pattern="graphic print", fit="relaxed",
     )
 
 
@@ -483,7 +483,7 @@ def test_serialize_pool_item_has_exactly_the_gpt_visible_fields():
     item = _rich_top()
     out = _serialize_pool_item(item)
     assert set(out) == {
-        "id", "name", "type", "style_tags", "color_tags", "occasion_tags", "material", "formality", "layer_role",
+        "id", "name", "type", "style_tags", "color_tags", "occasion_tags", "material", "formality", "pattern", "fit", "layer_role",
     }
     # imageUrl + warmth are stripped from GPT-visible item data (§12 GPT-payload rule).
     assert "image_url" not in out and "imageUrl" not in out
@@ -491,6 +491,18 @@ def test_serialize_pool_item_has_exactly_the_gpt_visible_fields():
     assert out["id"] == "t1"
     assert out["type"] == "top"  # the wire value, not the enum repr
     assert out["name"] == "Green graphic tee"  # name kept — rich styling signal (§D)
+    assert out["pattern"] == "graphic print" and out["fit"] == "relaxed"
+
+
+def test_build_prompt_uses_declared_pattern_and_fit_and_treats_missing_values_as_unknown():
+    scoped, request, forced = _forced_top_scope()
+    prompt = _build_prompt(scoped, request, forced)
+    assert '"pattern": "graphic print"' in prompt.user
+    assert '"fit": "relaxed"' in prompt.user
+    assert '"pattern": null' in prompt.user  # other garments have no declared pattern
+    assert '"fit": null' in prompt.user
+    assert "Treat missing fit, pattern or material as unknown" in prompt.system
+    assert "never guess them or invent fabric, fit, or construction" in prompt.system
 
 
 # --- _build_prompt: shape + determinism ---

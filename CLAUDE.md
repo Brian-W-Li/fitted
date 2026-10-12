@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+Current product work is [S1 — useful garment details](docs/plans/styling-s1.md).
+Follow the user’s current working instructions and that bounded plan; older
+research/recruitment milestones below are historical context.
+
 Guidance for Claude Code sessions in this repo.
 
 ## Project

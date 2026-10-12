@@ -167,6 +167,8 @@ describe("item map (§15.2) + control caps", () => {
       clothingType: "top",
       warmth: 4,
       layerRole: null,
+      pattern: null,
+      fit: null,
       colorTags: ["white"],
       occasionTags: ["work"],
       styleTags: [],
@@ -175,6 +177,19 @@ describe("item map (§15.2) + control caps", () => {
       imageUrl: "https://img/x.jpg",
     });
   });
+
+  it("forwards declared pattern and fit without inventing missing detail", () => {
+    const projected = projectOne({ ...sampleItem, pattern: " graphic ", fit: " Relaxed " });
+    expect(projected.pattern).toBe("graphic");
+    expect(projected.fit).toBe("Relaxed");
+    expect(projectOne({ ...sampleItem, name: "Oversized graphic tee" })).toMatchObject({ pattern: null, fit: null });
+  });
+  it.each([undefined, null, "", "  ", "0", "UNKNOWN", 7, {}, "x".repeat(61), "\ud800", "bad\u0000detail"])(
+    "keeps a garment with unusable optional detail %p", (detail) => {
+      const projected = projectWardrobe([{ ...sampleItem, pattern: detail, fit: detail }]);
+      expect(projected.dropped).toEqual([]);
+      expect(projected.wire[0]).toMatchObject({ pattern: null, fit: null });
+    });
 
   it("passes explicit normalized layering eligibility without guessing from a name", () => {
     expect(projectOne({ ...sampleItem, layerRole: " MID " }).layerRole).toBe("mid");

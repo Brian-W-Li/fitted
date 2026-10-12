@@ -84,7 +84,7 @@ WARDROBE_ITEM_REQUIRED = frozenset({
     "occasionTags",
     "imageUrl",
 })
-WARDROBE_ITEM_OPTIONAL = frozenset({"material", "formality", "layerRole"})
+WARDROBE_ITEM_OPTIONAL = frozenset({"material", "formality", "pattern", "fit", "layerRole"})
 
 # --- behavioralRows (§H) — bounded Mongo projections; both arrays optional ------------
 BEHAVIORAL_ROWS_REQUIRED: frozenset[str] = frozenset()
@@ -180,6 +180,7 @@ CROSS_RUNTIME_CLAMPS: dict[str, int] = {
     "MAX_WARDROBE_ITEMS": cfg.MAX_WARDROBE_ITEMS,
     "MAX_CONTROL_IDS": cfg.MAX_CONTROL_IDS,
     "MAX_ITEM_NAME_CHARS": cfg.MAX_ITEM_NAME_CHARS,
+    "MAX_ITEM_ATTR_CHARS": cfg.MAX_ITEM_ATTR_CHARS,
     "MAX_ITEM_TAG_CHARS": cfg.MAX_ITEM_TAG_CHARS,
     "MAX_ITEM_TAGS": cfg.MAX_ITEM_TAGS,
     "MAX_IMAGE_URL_CHARS": cfg.MAX_IMAGE_URL_CHARS,
@@ -208,7 +209,6 @@ CROSS_RUNTIME_CLAMPS: dict[str, int] = {
 # the 64 cap is defensive-redundant and a drift in it cannot change accept behavior.
 CROSS_RUNTIME_SERVICE_ONLY_CLAMPS: tuple[str, ...] = (
     "MAX_SESSION_ID_CHARS",
-    "MAX_ITEM_ATTR_CHARS",
     "MAX_WIRE_INT",
     "MAX_JSON_NESTING_DEPTH",
     "MAX_REQUEST_BODY_BYTES",

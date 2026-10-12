@@ -1,5 +1,9 @@
 # Fitted Documentation Map
 
+**Current styling contract:** [S1 — useful garment details](plans/styling-s1.md).
+Source/tests establish behavior; the spec supplies ambition. Older Track-2/M6
+execution language below is historical context, not the current work queue.
+
 This directory mixes active v2 planning docs with CS148-era and deployed-app history. For future-looking work,
 read by authority level, not by filename age or folder location.
 

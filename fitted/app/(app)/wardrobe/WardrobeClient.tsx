@@ -632,10 +632,10 @@ export function AddItemModal({
           colors: colorsToSave,
           layerRole: isEdit ? layerRole : layerRole || undefined,
           fit: fit.trim(),
-          size: "",
+          size: isEdit ? initialItem?.size ?? "" : "",
           seasons,
           occasions: occasionsToSave,
-          notes: "",
+          notes: isEdit ? initialItem?.notes ?? "" : "",
           isAvailable,
         },
         fileToUpload,
@@ -1094,9 +1094,8 @@ export function AddItemModal({
             {/* Layer role stays primary — it is the one explicit user knob over the outfit slot
                 (layerRole="outer" files the item as outer_layer; lib/clothingType.ts), and the
                 Category dropdown has no "Outerwear" value, so it is the correct filing path for a
-                jacket/coat. Pattern + Fit are stored-but-unused by the recommender today, so they
-                collapse under an optional <details> that keeps them MOUNTED — they still submit in
-                the wire shape (D2 invariant), the friend just isn't asked to fill dead fields. */}
+                jacket/coat. Pattern and Fit are optional stylist inputs. Keep them mounted when the
+                detail section is collapsed so an edit still submits or explicitly clears them. */}
             <section className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Layer role</label>
@@ -1119,6 +1118,7 @@ export function AddItemModal({
                 <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-600">
                   More details (optional)
                 </summary>
+                <p className="px-3 pb-2 text-xs text-slate-500">Pattern and fit help the stylist choose combinations and explain them. Leave them blank if you&apos;re unsure. Fit is your description of the cut, not a measurement or a guarantee that layers will fit.</p>
                 <div className="grid grid-cols-2 gap-3 px-3 pb-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">Pattern</label>

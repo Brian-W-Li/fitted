@@ -402,6 +402,14 @@ Two keys, never conflated (carried from v1.2 §5; trap-guard R10 inline).
   TS** (drift hazard); M4 persists them verbatim. Pre-M5 legacy feedback may echo them, but M5
   snapshot-bound feedback echoes `{snapshotId,candidateId}` and the server re-reads keys from the snapshot.
 
+Current S1 source adds optional declared pattern/fit to the stylist and captured
+engine-visible inputs. This enables attribute-informed advice, without a new ranking
+weight, physical-fit guarantee or measured benefit claim. Historical snapshots remain
+unchanged; a corrected current garment affects subsequent generation only. R23 source
+also permits one explicitly eligible mid-layer over a non-mid base top, optional
+outer/shoes, with the old unlayered signature unchanged. The current sprint plan and
+executable tests own these additive contracts over older five-slot descriptions.
+
 ## 8. Outfit structure & SlotMap normalization
 
 **Templates** (carried from v1.2 §6): **two_piece** = 1 base_top + 1 base_bottom + 0–1 outer + 0–1 shoes;
@@ -915,6 +923,7 @@ optional in `models.py`). Raw deployed inputs are preserved verbatim in the snap
 | `name` | `name` | direct |
 | `type` (`ItemType`) | `clothingType` (M4 5-value, written natively) | 1:1 enum pass-through (member names = wire values, `models.py`) |
 | `warmth` (int 0–10, **required**) | `warmth` (M4 column; keyword-derived at ingestion) | direct |
+| `pattern` / `fit` (optional) | `pattern` / `fit` | bounded declared details; blank/unknown/malformed legacy values → `null`; S1 |
 | `color_tags` | `colors` | rename |
 | `occasion_tags` | `occasions` | rename |
 | `style_tags` | — (no column until W-track) | emit `[]` |

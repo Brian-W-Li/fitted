@@ -57,6 +57,8 @@ def _huge_int() -> int:
         lambda: render_body(wardrobeVersion=_huge_int()),
         lambda: render_body(interactionCountAtRequest=_huge_int()),
         lambda: render_body(wardrobe=[{**wire_item("t1", "top"), "clothingType": []}]),
+        lambda: render_body(wardrobe=[wire_item("t1", "top", pattern=[]) ]),
+        lambda: render_body(wardrobe=[wire_item("t1", "top", fit="bad\ud800") ]),
     ],
 )
 def test_malformed_field_type_is_400_contract_invalid_not_500(make_body):
@@ -595,6 +597,8 @@ def test_added_clamp_constants_have_boundaries_too():
                 colorTags=["c" * cfg.MAX_ITEM_TAG_CHARS],
                 material="m" * cfg.MAX_ITEM_ATTR_CHARS,
                 formality="casual",
+                pattern="p" * cfg.MAX_ITEM_ATTR_CHARS,
+                fit="relaxed",
                 imageUrl="https://" + "u" * (cfg.MAX_IMAGE_URL_CHARS - 8),
             ),
             wire_item("b1", "bottom"),
@@ -606,6 +610,8 @@ def test_added_clamp_constants_have_boundaries_too():
     _reject({"wardrobe": [wire_item("i" * (cfg.MAX_ID_CHARS + 1), "top")]})
     _reject({"wardrobe": [wire_item("t1", "top", colorTags=["c" * (cfg.MAX_ITEM_TAG_CHARS + 1)])]})
     _reject({"wardrobe": [wire_item("t1", "top", material="m" * (cfg.MAX_ITEM_ATTR_CHARS + 1))]})
+    _reject({"wardrobe": [wire_item("t1", "top", pattern="p" * (cfg.MAX_ITEM_ATTR_CHARS + 1))]})
+    _reject({"wardrobe": [wire_item("t1", "top", fit=12)]})
     _reject({"wardrobe": [wire_item("t1", "top", imageUrl="u" * (cfg.MAX_IMAGE_URL_CHARS + 1))]})
     _reject({"lens": {"forcedItemId": "f" * (cfg.MAX_ID_CHARS + 1)}})
 

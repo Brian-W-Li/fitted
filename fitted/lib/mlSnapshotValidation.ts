@@ -1,3 +1,4 @@
+import { MAX_ITEM_ATTR_CHARS } from "@/lib/garmentDetails";
 import { LAYER_CHOICE_NOTES } from "@/lib/weatherContext";
 /**
  * M5 central payload validation helper (C5, seam #5b) — the anti-corpus-lie boundary run BEFORE
@@ -232,6 +233,12 @@ export function validateSnapshotPayload(payload: unknown): void {
     // silently (it rejects only NaN). This helper is the sole guard: a non-finite / out-of-range
     // warmth would persist into the immutable corpus M6 trains on. Bound single-homed in
     // lib/warmth (cross-runtime-pinned).
+    for (const field of ["pattern", "fit"]) {
+      const value = snap.engineVisible?.[field];
+      if (value != null && (typeof value !== "string" || value.length > MAX_ITEM_ATTR_CHARS || !value.isWellFormed())) {
+        fail(`itemSnapshots ${iid}: engineVisible.${field} is not a bounded text attribute`);
+      }
+    }
     const warmth = snap.engineVisible?.warmth;
     if (warmth != null && (!isFiniteNum(warmth) || warmth < WARMTH_MIN || warmth > WARMTH_MAX)) {
       fail(

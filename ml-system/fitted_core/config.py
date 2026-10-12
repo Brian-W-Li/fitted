@@ -166,7 +166,7 @@ WEATHER_MISMATCH_PENALTY = 0.5
 # rescue._build_daily_user_message). One shared prompt version covers every intent; `intent`
 # disambiguates rows. Hand-maintained and orthogonal to __version__; forgetting to bump it is
 # the silent failure the policy warns of.
-PROMPT_VERSION = "style-context-mid.v3"
+PROMPT_VERSION = "style-context-details.v4"
 
 
 def _canonical_for_digest(obj: object) -> object:
