@@ -1112,7 +1112,7 @@ export function AddItemModal({
                   <option value="outer">Outer layer (e.g. jacket, coat)</option>
                 </select>
                 <p className="mt-1 text-xs text-slate-500">
-                  Jacket, coat, or blazer? Set this to <span className="font-medium">Outer layer</span> so it&apos;s matched as outerwear.
+                  Choose <span className="font-medium">Mid layer</span> for a sweater or sweatshirt that can go over a tee or shirt, or serve as the sole top. Choose <span className="font-medium">Outer layer</span> for a jacket or coat.
                 </p>
               </div>
               <details className="rounded-lg border border-slate-200 bg-slate-50/50">

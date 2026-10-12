@@ -85,7 +85,26 @@ async function ready(url, running, timeoutMs = 90000) {
   throw new Error(`${url} did not become ready:\n${running.output()}`);
 }
 
+// Respect both production limits: service token refill and web sliding window.
+// One queue covers browser commands and the runner's direct recommendation calls.
+let renderQueue = Promise.resolve();
+const renderTimes = [];
+function paceRender() {
+  const turn = renderQueue.then(async () => {
+    const now = Date.now();
+    while (renderTimes.length && renderTimes[0] <= now - 60_100) renderTimes.shift();
+    const afterRefill = (renderTimes.at(-1) ?? 0) + 5_100;
+    const afterWindow = renderTimes.length >= 6 ? renderTimes[0] + 60_100 : 0;
+    const readyAt = Math.max(afterRefill, afterWindow);
+    while (Date.now() < readyAt) await new Promise(resolve => setTimeout(resolve, Math.min(30_000, readyAt - Date.now())));
+    renderTimes.push(Date.now());
+  });
+  renderQueue = turn.catch(() => {});
+  return turn;
+}
+
 async function json(url, options = {}) {
+  if (url.endsWith("/api/recommend") && options.method === "POST") await paceRender();
   const response = await fetch(url, options);
   const body = await response.json().catch(() => null);
   assert.ok(response.ok, `${url}: ${response.status} ${JSON.stringify(body)}`);
@@ -145,7 +164,7 @@ async function run() {
   await ready(`${authOrigin}/`, firebase);
 
   // IDs are fixed before the service starts; the real Mongo records are inserted below.
-  const ids = Array.from({ length: 5 }, (_, i) => new ObjectId(`65000000000000000000000${i + 1}`));
+  const ids = Array.from({ length: 6 }, (_, i) => new ObjectId(`65000000000000000000000${i + 1}`));
   const pythonEnv = { PATH: process.env.PATH ?? "", PYTHONPATH: path.join(root, "ml-system"),
     FITTED_BASELINE_ITEM_IDS: ids.map(x => x.toString()).join(",") };
   const localPython = path.join(root, "ml-system/.venv/bin/python");
@@ -248,6 +267,7 @@ async function run() {
   await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("cold");
   await page.getByRole("combobox", { name: "Rain", exact: true }).selectOption("rain");
   await page.getByRole("combobox", { name: "Wind", exact: true }).selectOption("windy");
+  await paceRender();
   const [recommendResponse] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
     page.getByRole("button", { name: /Get Recommendations/i }).click(),
@@ -316,6 +336,7 @@ async function run() {
   await page.getByRole("button", { name: "Make another outfit" }).first().click();
   await page.getByLabel("Leave out this old piece", { exact: true }).selectOption(oldPiece);
   await page.getByRole("textbox", { name: "New situation" }).fill("Dinner with friends");
+  await paceRender();
   const [variationResponse] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
     page.getByRole("button", { name: "Find an outfit" }).click(),
@@ -344,6 +365,7 @@ async function run() {
   await page.getByRole("button", { name: "Make another outfit" }).first().click();
   await page.getByLabel("Leave out this old piece", { exact: true }).selectOption(oldPiece);
   await page.getByRole("textbox", { name: "New situation" }).fill("Dinner with friends");
+  await paceRender();
   const [emptyVariationResponse] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
     page.getByRole("button", { name: "Find an outfit" }).click(),
@@ -431,6 +453,7 @@ async function run() {
   await page.getByText(/actual pieces you reported wearing/).waitFor();
   await page.getByLabel("Leave out this old piece", { exact: true }).selectOption(oldPiece);
   await page.getByRole("textbox", { name: "New situation" }).fill("Dinner after class");
+  await paceRender();
   const [actualVariationResponse] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
     page.getByRole("button", { name: "Find an outfit" }).click(),
@@ -686,6 +709,7 @@ async function run() {
     }), `${label} stays inside its form panel`);
   }
   if (process.env.FITTED_BROWSER_SCREENSHOT) await page.screenshot({ path: process.env.FITTED_BROWSER_SCREENSHOT, fullPage: true });
+  await paceRender();
   const [unwornResponse] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
     page.getByRole("button", { name: "Find an outfit" }).click(),
@@ -739,14 +763,8 @@ async function run() {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "exploration fits narrow viewport");
   if (process.env.FITTED_BROWSER_SCREENSHOT) await page.screenshot({ path: process.env.FITTED_BROWSER_SCREENSHOT, fullPage: true });
-  // Compiled pages finish the earlier browser + direct-API renders inside one
-  // rate window. Wait out the real sliding window before this next generation;
-  // no test flag disables or raises the production six-per-minute ceiling.
-  console.log("Pacing synthetic exploration within the real render rate window");
-  const renderWindowEnds = Date.now() + 60_100;
-  while (Date.now() < renderWindowEnds) {
-    await new Promise(resolve => setTimeout(resolve, Math.min(30_000, renderWindowEnds - Date.now())));
-  }
+  // Recommendation admission is paced centrally without changing production limits.
+  await paceRender();
   const [exploreResponse] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
     page.getByRole("button", { name: "Find another combination" }).click(),
@@ -793,6 +811,55 @@ async function run() {
   assert.equal(snapshot.forcedItemId?.toString(), ids[0].toString());
   const reaction = await db.collection("outfitinteractions").findOne({ user: new ObjectId(owner.userId) });
   assert.ok(reaction, "reaction persisted");
+
+  // R23: add the explicit mid only after the legacy journeys, then exercise the
+  // same production pipeline and captured composition through saved plan and wear.
+  await db.collection("wardrobeitems").insertOne({ _id: ids[5], user: new ObjectId(owner.userId),
+    name: "Baseline quarter zip", clothingType: "top", category: "top", layerRole: "mid",
+    warmth: 5, colors: ["olive"], occasions: ["casual"], isAvailable: true,
+    createdAt: new Date(), updatedAt: new Date() });
+  const layeredResponse = await json(`${origin}/api/recommend`, {
+    method: "POST", headers: { ...memoryHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId: randomUUID(), occasion: "Layered class", weather: "mild", forcedItemId: String(ids[5]) }),
+  });
+  const layeredOption = layeredResponse.shown.find(candidate => candidate.displayItems.some(item => item.role === "mid_layer"));
+  assert.ok(layeredOption, "forced mid rescue surfaces a layered suggestion");
+  assert.ok(layeredOption.displayItems.some(item => item.itemId === String(ids[0]) && item.role === "base_top"));
+  const layeredUrl = `${origin}/memory/proposal?${new URLSearchParams({ snapshotId: layeredOption.snapshotId, candidateId: layeredOption.candidateId })}`;
+  await page.goto(layeredUrl);
+  await page.getByText("Baseline quarter zip", { exact: true }).first().waitFor();
+  await page.getByText("Mid layer", { exact: true }).first().waitFor();
+  await page.reload();
+  await page.getByText("Mid layer", { exact: true }).first().waitFor();
+  const savedLayered = await json(`${origin}/api/experiences/suggestion?${new URL(layeredUrl).searchParams}`, { headers: memoryHeaders });
+  assert.deepEqual(savedLayered.suggestion.items.map(item => item.itemId).sort(), layeredOption.displayItems.map(item => item.itemId).sort());
+  await page.getByRole("button", { name: "Plan this outfit", exact: true }).click();
+  await page.getByRole("button", { name: "Save plan", exact: true }).click();
+  await page.getByRole("link", { name: "View planned outfits" }).click();
+  await page.getByText("Baseline quarter zip", { exact: true }).first().waitFor();
+  await page.getByText("Mid layer", { exact: true }).first().waitFor();
+  await page.goto(layeredUrl);
+  await page.getByRole("button", { name: "Report what I wore", exact: true }).click();
+  await page.getByRole("textbox", { name: "Actual situation", exact: true }).fill("Layered class");
+  await page.getByRole("button", { name: "Save wear report", exact: true }).click();
+  await page.getByText("Wear report saved.", { exact: false }).first().waitFor();
+  const layeredWear = await db.collection("outfitexperiences").findOne({ user: new ObjectId(owner.userId),
+    snapshotId: new ObjectId(layeredOption.snapshotId), candidateId: layeredOption.candidateId });
+  assert.equal(layeredWear.revisions.at(-1).state.memberItems.find(item => item.itemId === String(ids[5])).role, "mid_layer");
+  const midRecall = await json(`${origin}/api/experiences?itemId=${ids[5]}`, { headers: memoryHeaders });
+  assert.ok(midRecall.experiences.some(row => row.experienceId === layeredWear.experienceId));
+  // Correction removes the actual layer while retaining the original shown suggestion.
+  await page.goto(`${origin}/memory?itemId=${ids[5]}`);
+  await page.getByRole("button", { name: "Correct wear report" }).first().click();
+  await page.getByRole("radio", { name: "I changed some pieces" }).first().check();
+  await page.getByRole("checkbox", { name: "Baseline quarter zip (Mid layer)", exact: true }).first().uncheck();
+  await page.getByRole("button", { name: "Save correction", exact: true }).first().click();
+  await page.getByText("Wear report saved.", { exact: false }).first().waitFor();
+  const correctedLayered = await db.collection("outfitexperiences").findOne({ experienceId: layeredWear.experienceId });
+  assert.ok(!correctedLayered.memberItemIds.map(String).includes(String(ids[5])));
+  assert.equal(correctedLayered.revisions[0].state.memberItems.find(item => item.itemId === String(ids[5])).role, "mid_layer");
+  const originalLayered = await json(`${origin}/api/experiences/suggestion?${new URL(layeredUrl).searchParams}`, { headers: memoryHeaders });
+  assert.ok(originalLayered.suggestion.items.some(item => item.role === "mid_layer"));
 
   const otherContext = await browser.newContext();
   const otherPage = await otherContext.newPage();
@@ -868,7 +935,7 @@ async function run() {
   assert.equal(await db.collection("users").countDocuments({ email: other.email }), 1);
   await otherContext.close();
   await context.close();
-  console.log(`PASS ${production ? "production-build synthetic" : "development synthetic"} local browser: same-situation exploration, optional adaptation on narrow screen, rescue, plan photos and inline date carryover, direct unworn planned variation, dated planning/reschedule/removal, changed and second wear recall, shown/actual variation, no-option, correction, retraction, clear, erasure, image, history and owner isolation`);
+  console.log(`PASS ${production ? "production-build synthetic" : "development synthetic"} local browser: mid-layer rescue/saved plan/wear/correction, same-situation exploration, optional adaptation on narrow screen, rescue, plan photos and inline date carryover, direct unworn planned variation, dated planning/reschedule/removal, changed and second wear recall, shown/actual variation, no-option, correction, retraction, clear, erasure, image, history and owner isolation`);
 }
 
 try {

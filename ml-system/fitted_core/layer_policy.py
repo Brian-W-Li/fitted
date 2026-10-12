@@ -38,7 +38,7 @@ def needs_layer_choice(request: "LensRequest") -> bool:
 
 
 def _item_ids(slots: SlotMap) -> frozenset[str]:
-    return frozenset(i for i in (slots.dress, slots.top, slots.bottom, slots.outer, slots.shoes) if i)
+    return frozenset(i for i in (slots.dress, slots.top, slots.bottom, slots.mid, slots.outer, slots.shoes) if i)
 
 
 def exclude_source_membership(

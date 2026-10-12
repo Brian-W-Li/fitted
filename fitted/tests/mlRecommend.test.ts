@@ -1413,6 +1413,26 @@ describe("degrade + reject arms (no write, snapshotId discarded)", () => {
     expect(called).toBe(false);
   });
 
+  it.each(["mid", "base"])("two top pins require explicit mid eligibility (%s)", async (layerRole) => {
+    const knit = await WardrobeItem.create({ user: userId, name: "Sweater", clothingType: "top", warmth: 5,
+      category: "top", layerRole, isAvailable: true });
+    const first = await mlRecommend(req({ requestId: uuid(), occasion: "brunch" }), makeDeps());
+    await first.json();
+    const parentId = ((await GenerationSnapshot.findOne({ user: userId }).lean()) as Any)._id.toString();
+    let called = false;
+    const deps = makeDeps({ callService: async (b) => { called = true; return fakeService()(b); } });
+    const response = await mlRecommend(req({ requestId: uuid(), parentSnapshotId: parentId,
+      controls: { lockedItemIds: [itemIds.top, String(knit._id)], dislikedItemIds: [] } }), deps);
+    if (layerRole === "mid") {
+      expect(called).toBe(true);
+      expect((await response.json()).error?.code).not.toBe("controls_structurally_infeasible");
+    } else {
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe("controls_structurally_infeasible");
+      expect(called).toBe(false);
+    }
+  });
+
   it("a structurally impossible lock set → 400 controls_structurally_infeasible, no service call", async () => {
     const secondShoe = await WardrobeItem.create({
       user: userId,

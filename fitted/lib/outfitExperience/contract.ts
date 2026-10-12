@@ -7,7 +7,7 @@ export const MAX_EXPERIENCE_REVISIONS = 32; // Retraction has a separate final s
 export const EXPERIENCE_PAGE_SIZE = 20;
 export const EXPERIENCE_SCAN_SIZE = 100;
 export type Outcome = "worked" | "change_next_time" | "unknown";
-export interface ActualItem { itemId: string; name: string; clothingType: string }
+export interface ActualItem { itemId: string; name: string; clothingType: string; role?: "base_top" | "mid_layer" }
 export type ContextInput = { kind: "user"; text: string } | { kind: "suggestion"; confirmed: boolean };
 export interface WearState extends WearDate {
   context: WearContext;

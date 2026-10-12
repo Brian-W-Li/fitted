@@ -235,6 +235,7 @@ def _filled_slot_ids(slot_map: SlotMap) -> tuple[str, ...]:
             slot_map.dress,
             slot_map.top,
             slot_map.bottom,
+            slot_map.mid,
             slot_map.outer,
             slot_map.shoes,
         )
@@ -489,6 +490,8 @@ def _ordered_items(slot_map: SlotMap) -> tuple[tuple[str, Role], ...]:
             ordered.append((slot_map.top, Role.base_top))
         if slot_map.bottom is not None:
             ordered.append((slot_map.bottom, Role.base_bottom))
+    if slot_map.mid is not None:
+        ordered.append((slot_map.mid, Role.mid_layer))
     if slot_map.outer is not None:
         ordered.append((slot_map.outer, Role.outer_layer))
     if slot_map.shoes is not None:

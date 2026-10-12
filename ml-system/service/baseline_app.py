@@ -14,15 +14,22 @@ from tests.helpers import StubGenerator
 
 def _fixture():
     ids = os.environ["FITTED_BASELINE_ITEM_IDS"].split(",")
-    if len(ids) != 5 or any(len(item_id) != 24 for item_id in ids):
-        raise RuntimeError("five synthetic Mongo item IDs required")
-    top, bottom_a, bottom_b, shoes, outer = ids
-    return envelope(
+    if len(ids) not in (5, 6) or any(len(item_id) != 24 for item_id in ids):
+        raise RuntimeError("five or six synthetic Mongo item IDs required")
+    top, bottom_a, bottom_b, shoes, outer = ids[:5]
+    drafts = [
         outfit([(top, Role.base_top), (bottom_a, Role.base_bottom)], [top]),
         outfit([(top, Role.base_top), (bottom_b, Role.base_bottom)], [top]),
         outfit([(top, Role.base_top), (bottom_a, Role.base_bottom), (shoes, Role.shoes)], [shoes]),
         outfit([(top, Role.base_top), (bottom_b, Role.base_bottom), (outer, Role.outer_layer)], [outer]),
-    )
+    ]
+    if len(ids) == 6:
+        mid = ids[5]
+        drafts.extend([
+            outfit([(top, Role.base_top), (bottom_a, Role.base_bottom), (mid, Role.mid_layer), (shoes, Role.shoes)], [mid]),
+            outfit([(top, Role.base_top), (bottom_b, Role.base_bottom), (mid, Role.mid_layer), (outer, Role.outer_layer), (shoes, Role.shoes)], [mid]),
+        ])
+    return envelope(*drafts)
 
 
 app = create_app(

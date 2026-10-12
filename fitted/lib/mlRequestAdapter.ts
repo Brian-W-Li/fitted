@@ -1,3 +1,4 @@
+import { normalizeLayerRole, type LayerRole } from "@/lib/layerRole";
 import { validWeatherSignals, type WeatherSignals } from "@/lib/weatherContext";
 /**
  * M5 request adapter (C5, seam #3) — the trust boundary that maps the deployed request into the
@@ -123,6 +124,7 @@ export interface WardrobeItemSource {
   _id: { toString(): string };
   name: string;
   clothingType: string; // M4 5-value, written natively
+  layerRole?: string;
   warmth: number; // M4 column, keyword-derived at ingestion (0..10)
   colors?: string[];
   occasions?: string[];
@@ -173,6 +175,7 @@ export interface WardrobeItemWire {
   name: string;
   clothingType: string;
   warmth: number;
+  layerRole: LayerRole | null;
   colorTags: string[];
   occasionTags: string[];
   styleTags: string[]; // no column until the W-track → []
@@ -259,6 +262,7 @@ function tryProjectWardrobeItem(
       name: name.length > MAX_ITEM_NAME_CHARS ? sliceSurrogateSafe(name, MAX_ITEM_NAME_CHARS) : name,
       clothingType: item.clothingType,
       warmth: item.warmth,
+      layerRole: normalizeLayerRole(item.layerRole),
       colorTags: sanitizeTags(item.colors),
       occasionTags: sanitizeTags(item.occasions),
       styleTags: [],

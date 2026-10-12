@@ -68,7 +68,7 @@ function inUnit(v: unknown): boolean {
 /** The slot→value pairs of a candidate's slotMap (skips absent slots). */
 function slotValues(slotMap: Any): string[] {
   if (!slotMap || typeof slotMap !== "object") return [];
-  return (["dress", "top", "bottom", "outer", "shoes"] as const)
+  return (["dress", "top", "bottom", "mid", "outer", "shoes"] as const)
     .map((s) => slotMap[s])
     .filter((v): v is string => typeof v === "string" && v.length > 0);
 }
@@ -81,6 +81,7 @@ export const ROLE_TO_SLOT: Record<string, string> = {
   base_top: "top",
   base_bottom: "bottom",
   one_piece: "dress",
+  mid_layer: "mid",
   outer_layer: "outer",
   shoes: "shoes",
 };
@@ -219,11 +220,13 @@ export function validateSnapshotPayload(payload: unknown): void {
 
   // itemSnapshots[].itemId uniqueness + the coverage set.
   const knownItemIds = new Set<string>();
+  const capturedItems = new Map<string, Any>();
   for (const snap of itemSnapshots) {
     const iid = snap.itemId;
     if (typeof iid !== "string" || !iid) fail("itemSnapshots row missing itemId");
     if (knownItemIds.has(iid)) fail(`duplicate itemSnapshots itemId ${iid}`);
     knownItemIds.add(iid);
+    capturedItems.set(iid, snap.engineVisible);
     // engineVisible.warmth is the one numeric ML feature the ranker conditions on, stored as a
     // bare Mongoose `Number` (no min/max/finite validator) — so Mongoose stores ±Infinity
     // silently (it rejects only NaN). This helper is the sole guard: a non-finite / out-of-range
@@ -258,6 +261,16 @@ export function validateSnapshotPayload(payload: unknown): void {
       if (!knownItemIds.has(sv)) fail(`candidate ${id}: slotMap item ${sv} absent from itemSnapshots`);
     }
 
+    // Accepted layering must be expressible by the captured garment eligibility.
+    // Rejected drafts retain their content as evidence, even when structurally invalid.
+    if (cand.accepted === true && cand.slotMap?.mid) {
+      const mid = capturedItems.get(cand.slotMap.mid);
+      const base = capturedItems.get(cand.slotMap.top);
+      if (cand.slotMap.dress || !cand.slotMap.top || !cand.slotMap.bottom ||
+          mid?.clothingType !== "top" || mid?.layerRole !== "mid" ||
+          base?.clothingType !== "top" || base?.layerRole === "mid" ||
+          itemIdSet.size !== items.length) fail(`candidate ${id}: invalid mid-layer composition`);
+    }
     validateContentPreservation(cand, id);
     validateItemsSlotMapConsistency(cand, id);
     validateScoreTrace(cand, id);

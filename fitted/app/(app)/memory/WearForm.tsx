@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
+import { displayRoleLabel } from "@/lib/outfitRoles";
+import { normalizeLayerRole } from "@/lib/layerRole";
 
 export interface MemoryItem {
   itemId: string; name: string; clothingType: string | null; availability: "available" | "unavailable" | "missing";
-  changed: boolean; imageUrl?: string | null;
+  changed: boolean; imageUrl?: string | null; role?: string;
 }
 export interface ExperienceView {
   experienceId: string; lifecycle: "active" | "retracted" | "erased"; currentRevision: number;
@@ -13,7 +15,7 @@ export interface ExperienceView {
   sourceAvailable: boolean; source: { snapshotId: string; candidateId: string } | null; items: MemoryItem[]; sourceItems?: MemoryItem[];
 }
 export interface SuggestionView { shownVariationAllowed?: boolean; snapshotId: string; candidateId: string; suggestionContext: string; weatherContext?: string | null; items: MemoryItem[]; styleMove?: { oneSentence?: string } | null }
-export interface ClosetChoice { id: string; name: string; clothingType?: string; isAvailable?: boolean }
+export interface ClosetChoice { id: string; name: string; clothingType?: string; layerRole?: string; isAvailable?: boolean }
 
 function localDate(timezone?: string) {
   const date = new Date();
@@ -123,19 +125,19 @@ export default function WearForm({ user, suggestion, experience, closet = [], on
         {!!source.items.length && <div><p>Suggested pieces — select only those you wore:</p>{source.items.map(item =>
           <label key={item.itemId} className="mr-3 inline-block"><input type="checkbox" checked={selectedIds.includes(item.itemId)}
             disabled={!!pending || (item.availability === "missing" && !selectedIds.includes(item.itemId))}
-            onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.itemId] : ids.filter(id => id !== item.itemId))} /> {item.name}{item.availability === "missing" ? " (removed from closet; cannot add to a changed report)" : ""}</label>)}</div>}
+            onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.itemId] : ids.filter(id => id !== item.itemId))} /> {item.name}{item.role === "mid_layer" ? ` (${displayRoleLabel(item.clothingType, item.role)})` : ""}{item.availability === "missing" ? " (removed from closet; cannot add to a changed report)" : ""}</label>)}</div>}
         <label className="block">Add a piece from your closet <select aria-label="Add a piece from your closet" value={addId} disabled={!!pending || membershipLocked}
           onChange={event => { const id = event.target.value; setAddId(""); if (id) setSelectedIds(ids => ids.includes(id) ? ids : [...ids, id]); }} className="ml-2 rounded border p-1">
           <option value="">Choose a piece</option>{closet.filter(item => !selectedIds.includes(item.id)).map(item =>
-            <option key={item.id} value={item.id}>{item.name}{item.isAvailable === false ? " (unavailable now)" : ""}</option>)}</select></label>
+            <option key={item.id} value={item.id}>{item.name}{item.clothingType === "top" && normalizeLayerRole(item.layerRole) === "mid" ? " (mid-layer eligible)" : ""}{item.isAvailable === false ? " (unavailable now)" : ""}</option>)}</select></label>
         <ul aria-label="Actual pieces" className="list-disc pl-5">{selectedIds.map(id => {
           const item = source.items.find(piece => piece.itemId === id) ?? experience?.items.find(piece => piece.itemId === id);
           const closetItem = closet.find(piece => piece.id === id);
-          return <li key={id}>{item?.name ?? closetItem?.name ?? "Removed closet piece"}
+          return <li key={id}>{item?.name ?? closetItem?.name ?? "Removed closet piece"}{item?.role === "mid_layer" ? ` (${displayRoleLabel(item.clothingType, item.role)})` : ""}
             {!source.items.some(piece => piece.itemId === id) && <button type="button" disabled={!!pending || membershipLocked} className="ml-2 text-red-700 underline" onClick={() => setSelectedIds(ids => ids.filter(value => value !== id))}>Remove</button>}</li>;
         })}</ul>
         {!source.items.length && <p className="text-amber-700">The original suggestion is unavailable. You can correct other details while keeping these reported pieces.</p>}
-        <p className="text-slate-600">Keep at least one suggested piece. Choose a dress or a top and bottom, with at most one piece per slot. Currently unavailable closet pieces can still describe a past wear.</p>
+        <p className="text-slate-600">Keep at least one suggested piece. Choose a dress or a top and bottom, with optional outer layer and shoes. For separates, you can add one top marked as a mid layer over a base top; two mid layers are not supported. Currently unavailable closet pieces can still describe a past wear.</p>
       </div>}
       <label className="block">Date worn <input aria-label="Date worn" type="date" value={date} max={localDate(timezone).occurredOn} disabled={!!pending} onChange={e => setDate(e.target.value)} className="ml-2 border rounded p-1" /></label>
       <label className="block">Actual situation <input aria-label="Actual situation" type="text" maxLength={200} value={context} disabled={!!pending} onChange={e => setContext(e.target.value)} placeholder="e.g. class" className="ml-2 border rounded p-1" /></label>

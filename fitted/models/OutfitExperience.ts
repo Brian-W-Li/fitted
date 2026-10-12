@@ -30,6 +30,7 @@ const contextSchema = new Schema({
 const actualItemSchema = new Schema({
   itemId: { type: String, required: true }, name: { type: String, required: true, maxlength: 200 },
   clothingType: { type: String, required: true },
+  role: { type: String, enum: ["base_top", "mid_layer"] },
 }, { _id: false, strict: "throw" });
 const stateSchema = new Schema({
   occurredOn: { type: String, required: true }, timezone: { type: String, required: true, maxlength: 100 },

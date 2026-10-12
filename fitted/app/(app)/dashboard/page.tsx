@@ -1,5 +1,7 @@
 "use client";
 
+import { outfitItemOrder, displayRoleLabel } from "@/lib/outfitRoles";
+
 import { auth } from "@/lib/firebaseClient";
 import { signOut, onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -165,17 +167,8 @@ function removeKey(key: string): void {
 // for defensiveness — to a browser <img src>. Shared, unit-tested (lib/imageUrl).
 const imageUrlFromPath = resolveImageSrc;
 
-const CLOTHING_TYPE_ORDER: Record<string, number> = {
-  dress: 0,
-  top: 1,
-  bottom: 2,
-  outer_layer: 3,
-  shoes: 4,
-};
 function sortDisplayItems(items: DisplayItem[]): DisplayItem[] {
-  return [...items].sort(
-    (a, b) => (CLOTHING_TYPE_ORDER[a.clothingType ?? ""] ?? 5) - (CLOTHING_TYPE_ORDER[b.clothingType ?? ""] ?? 5),
-  );
+  return [...items].sort((a, b) => outfitItemOrder(a) - outfitItemOrder(b));
 }
 
 /** UUIDv4 for the idempotency token. `crypto.randomUUID` needs a secure context + a ~2021 browser;
@@ -271,7 +264,7 @@ function FeedbackModal({
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-slate-900 text-sm truncate">{item.name ?? "Item"}</p>
-                      <p className="text-xs text-slate-500">{item.clothingType}</p>
+                      <p className="text-xs text-slate-500">{displayRoleLabel(item.clothingType, item.role)}</p>
                     </div>
                     <button
                       onClick={() => toggle(disliked, item.itemId, setDisliked)}
@@ -425,7 +418,7 @@ function RegenerateModal({
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-slate-900 text-sm truncate">{item.name ?? "Item"}</p>
-                  <p className="text-xs text-slate-500">{item.clothingType}</p>
+                  <p className="text-xs text-slate-500">{displayRoleLabel(item.clothingType, item.role)}</p>
                 </div>
                 <div className="flex gap-1.5">
                   <button
@@ -610,14 +603,14 @@ function OutfitCard({
               )}
               <div className="p-3">
                 <p className="font-medium text-slate-900 text-sm truncate">{item.name ?? "Item"}</p>
-                <p className="text-xs text-slate-500">{item.clothingType}</p>
+                <p className="text-xs text-slate-500">{displayRoleLabel(item.clothingType, item.role)}</p>
               </div>
             </div>
           );
         })}
       </div>
 
-      {bindable && user && <WearForm user={user} suggestion={{ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId, suggestionContext: "", items: outfit.displayItems.map(item => ({ itemId: item.itemId, name: item.name ?? "Item", clothingType: item.clothingType ?? null, availability: "available" as const, changed: false })) }} />}
+      {bindable && user && <WearForm user={user} suggestion={{ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId, suggestionContext: "", items: outfit.displayItems.map(item => ({ itemId: item.itemId, name: item.name ?? "Item", clothingType: item.clothingType ?? null, role: item.role, availability: "available" as const, changed: false })) }} />}
 
       {bindable && <a href={suggestionLink(outfit)} className="inline-block text-blue-700 underline">Open proposal / plan an outfit</a>}
 

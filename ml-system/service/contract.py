@@ -84,7 +84,7 @@ WARDROBE_ITEM_REQUIRED = frozenset({
     "occasionTags",
     "imageUrl",
 })
-WARDROBE_ITEM_OPTIONAL = frozenset({"material", "formality"})
+WARDROBE_ITEM_OPTIONAL = frozenset({"material", "formality", "layerRole"})
 
 # --- behavioralRows (§H) — bounded Mongo projections; both arrays optional ------------
 BEHAVIORAL_ROWS_REQUIRED: frozenset[str] = frozenset()
@@ -262,6 +262,7 @@ CROSS_RUNTIME_ENUMS: dict[str, list[str]] = {
     "weather": sorted(cfg.WEATHER_BUCKETS),
     "intent": sorted(cfg.SUPPORTED_INTENTS),
     "clothingType": sorted(t.value for t in ItemType),
+    "layerRole": ["base", "mid", "outer"],
     # The live feedback vocabulary — three hand copies exist (the Next route allowlist
     # lib/interactions.ts ALLOWED_ACTIONS, the OutfitInteraction Mongoose enum, and the reducers'
     # COUNTED_ACTIONS/REJECTED_ACTION). Derived here from the reducers (the consumer); the TS test

@@ -150,6 +150,7 @@ def _item_from_dict(d: Mapping[str, object]) -> WardrobeItem:
         occasion_tags=list(d.get("occasion_tags", [])),
         material=d.get("material"),
         formality=d.get("formality"),
+        layer_role=d.get("layer_role"),
     )
 
 

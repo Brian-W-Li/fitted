@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { displayRoleLabel, outfitItemOrder } from "@/lib/outfitRoles";
 import { resolveImageSrc } from "@/lib/imageUrl";
 import type { MemoryItem } from "../(app)/memory/WearForm";
 
@@ -52,12 +53,13 @@ function SavedPhoto({ image, name }: { image: string; name: string }) {
 
 /** Inspect snapshot photo references without replacing them with current closet images. */
 export default function SavedGarmentList({ items }: { items: MemoryItem[] }) {
-  return <ul className="space-y-3">{items.map(item => {
+  return <ul className="space-y-3">{[...items].sort((a, b) => outfitItemOrder(a) - outfitItemOrder(b)).map(item => {
     const image = resolveImageSrc(item.imageUrl);
     return <li key={item.itemId} className="flex flex-wrap items-center gap-3">
       {image ? <SavedPhoto key={image} image={image} name={item.name} /> : <span className="text-sm text-slate-500">No saved photo</span>}
       <div className="min-w-0 flex-1">
         <p className="break-words font-medium">{item.name}</p>
+        {item.role === "mid_layer" && <p className="text-xs text-slate-500">{displayRoleLabel(item.clothingType, item.role)}</p>}
         {item.availability !== "available" && <p className="text-sm text-amber-700">{item.availability === "missing" ? "removed from closet" : "currently unavailable"}</p>}
         {item.changed && <p className="text-sm text-slate-500">closet details changed</p>}
         {item.availability !== "missing" && <a href={`/wardrobe?itemId=${encodeURIComponent(item.itemId)}`}

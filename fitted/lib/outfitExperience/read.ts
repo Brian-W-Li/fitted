@@ -4,7 +4,7 @@ import { Types } from "mongoose";
 import { experienceCollection, type ExperienceRecord } from "@/models/OutfitExperience";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import WardrobeItem from "@/models/WardrobeItem";
-import { EXPERIENCE_PAGE_SIZE, EXPERIENCE_SCAN_SIZE, objectId, operationId } from "./contract";
+import { EXPERIENCE_PAGE_SIZE, EXPERIENCE_SCAN_SIZE, objectId, operationId, type ActualItem } from "./contract";
 import { userWearContext, suggestedWearContext } from "./context";
 import { ExperienceError, ExperienceValidationError } from "./errors";
 import { visibleSnapshot, shownCandidate, SOURCE_PROJECTION, type MemorySnapshot, type SourceCandidate } from "./source";
@@ -33,18 +33,20 @@ function pageLimit(value = EXPERIENCE_PAGE_SIZE): number {
 async function displayCandidate(user: Types.ObjectId, source: MemorySnapshot, candidate: SourceCandidate) {
   const ids = candidate.items.map(i => new Types.ObjectId(objectId(i.itemId)));
   const wardrobe = await WardrobeItem.collection.find({ user, _id: { $in: ids } }, { projection: { name: 1, clothingType: 1, isAvailable: 1 } }).toArray();
+  const layered = candidate.items.some(item => item.role === "mid_layer");
   return candidate.items.map(i => {
     const past = source.itemSnapshots.find(s => s.itemId === i.itemId)?.engineVisible;
     const current = wardrobe.find(w => String(w._id) === i.itemId);
     return {
       itemId: i.itemId, name: past?.name ?? "Unknown item", clothingType: past?.clothingType ?? null,
       imageUrl: past?.imageUrl ?? null,
+      ...(layered && (i.role === "base_top" || i.role === "mid_layer") ? { role: i.role } : {}),
       availability: !current ? "missing" : current.isAvailable === false ? "unavailable" : "available",
       changed: !!current && (current.name !== past?.name || current.clothingType !== past?.clothingType),
     };
   });
 }
-async function displayActual(user: Types.ObjectId, recorded: { itemId: string; name: string; clothingType: string }[], sourceItems: Awaited<ReturnType<typeof displayCandidate>>) {
+async function displayActual(user: Types.ObjectId, recorded: ActualItem[], sourceItems: Awaited<ReturnType<typeof displayCandidate>>) {
   const ids = recorded.map(item => new Types.ObjectId(objectId(item.itemId)));
   const wardrobe = await WardrobeItem.collection.find({ user, _id: { $in: ids } },
     { projection: { name: 1, clothingType: 1, isAvailable: 1 } }).toArray();
@@ -162,7 +164,7 @@ export async function getSuggestion(ownerId: string, snapshotId: string, candida
     ...(weatherSignalsFromSnapshot(snapshot.weatherSignals) ? { weatherSignals: weatherSignalsFromSnapshot(snapshot.weatherSignals) } : {}),
     ...(snapshot.layerChoice ? { layerChoice: snapshot.layerChoice.status === "offered" &&
       !candidate.items.some(item => item.role === "outer_layer") ? { ...snapshot.layerChoice,
-        note: "The original suggestions included an optional removable-layer option. This proposal does not include a layer. Rain and wind protection are unknown." } : snapshot.layerChoice } : {}),
+        note: "The original suggestions included an optional removable-layer option. This proposal does not include an outer layer. Rain and wind protection are unknown." } : snapshot.layerChoice } : {}),
     styleMove: candidate.styleMove ?? null,
     shownVariationAllowed: !snapshot.variationSourceExperienceId,
     items: await displayCandidate(user, snapshot, candidate) };

@@ -1,7 +1,7 @@
 """Core data contracts for the v2 substrate (§6.1, §8).
 
 Pure data holders — no validation of inter-slot rules lives here. `type` is the
-only enumerated field on a wardrobe item in the current substrate; tags are free strings.
+coarse type field; layer_role is an optional eligibility hint and tags are free strings.
 SlotMap *validity* (one_piece XOR two_piece, etc.) is
 M0-4's job in slotmap.py, deliberately kept off these structs.
 
@@ -46,6 +46,7 @@ class Role(Enum):
     one_piece = "one_piece"
     outer_layer = "outer_layer"
     shoes = "shoes"
+    mid_layer = "mid_layer"
 
 
 class IssueCode(Enum):
@@ -134,6 +135,7 @@ class WardrobeItem:
     occasion_tags: list[str] = field(default_factory=list)
     material: Optional[str] = None
     formality: Optional[str] = None
+    layer_role: Optional[str] = None
 
     def __post_init__(self) -> None:
         # Two narrow guards only — this dataclass is an *internal* contract, not the
@@ -143,6 +145,8 @@ class WardrobeItem:
         # (v2 §15 / Appendix A R12). Coerce the one enum field so a raw string `type` from
         # the adapter is rejected here; ItemType(...) raises ValueError on an unknown.
         self.type = ItemType(self.type)
+        if self.layer_role is not None and self.layer_role not in ("base", "mid", "outer"):
+            raise ValueError("layer_role must be base, mid, outer or None")
         if not WARMTH_MIN <= self.warmth <= WARMTH_MAX:
             raise ValueError(f"warmth must be in {WARMTH_MIN}..{WARMTH_MAX}, got {self.warmth}")
 
@@ -153,7 +157,7 @@ class SlotMap:
 
     Each slot holds an itemId or None. A valid SlotMap is exactly one base
     template — a dress (one_piece) XOR a top+bottom pair (two_piece) — with
-    optional outer/shoes. That invariant is *not* enforced here; M0-4's
+    optional mid (two_piece only), outer/shoes. That invariant is *not* enforced here; M0-4's
     is_valid_slotmap owns it, so this struct can also hold the in-progress and
     rejected shapes the normalizer needs to reason about.
     """
@@ -163,6 +167,7 @@ class SlotMap:
     bottom: Optional[str] = None
     outer: Optional[str] = None
     shoes: Optional[str] = None
+    mid: Optional[str] = None
 
 
 @dataclass(frozen=True)

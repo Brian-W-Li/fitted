@@ -307,6 +307,7 @@ _SLOT_ROLE = {
     "dress": Role.one_piece,
     "top": Role.base_top,
     "bottom": Role.base_bottom,
+    "mid": Role.mid_layer,
     "outer": Role.outer_layer,
     "shoes": Role.shoes,
 }
@@ -327,6 +328,7 @@ def _engine_visible(item: WardrobeItem) -> dict:
         "occasion_tags": list(item.occasion_tags),
         "material": item.material,
         "formality": item.formality,
+        "layer_role": item.layer_role,
         "image_url": item.image_url,
     }
 
@@ -344,7 +346,7 @@ def _slot_dict(slot_map: SlotMap) -> dict:
     """The filled-slot map (§8.3 candidate.slotMap)."""
     return {
         slot: getattr(slot_map, slot)
-        for slot in ("dress", "top", "bottom", "outer", "shoes")
+        for slot in ("dress", "top", "bottom", "mid", "outer", "shoes")
         if getattr(slot_map, slot) is not None
     }
 

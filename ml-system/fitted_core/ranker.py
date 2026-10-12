@@ -323,6 +323,7 @@ def _filled_slot_ids(slot_map: SlotMap) -> tuple[str, ...]:
             slot_map.dress,
             slot_map.top,
             slot_map.bottom,
+            slot_map.mid,
             slot_map.outer,
             slot_map.shoes,
         )
@@ -804,6 +805,7 @@ def _copy_slot_map(slot_map: SlotMap) -> SlotMap:
         bottom=slot_map.bottom,
         outer=slot_map.outer,
         shoes=slot_map.shoes,
+        mid=slot_map.mid,
     )
 
 

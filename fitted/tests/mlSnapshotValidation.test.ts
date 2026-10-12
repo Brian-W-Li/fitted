@@ -202,3 +202,35 @@ describe("engineFailure sanitize (G13)", () => {
     expect(() => validateSnapshotPayload(p)).not.toThrow();
   });
 });
+
+// Current mid-layer snapshots persist exact composition without modifying the legacy fixture.
+describe("mid-layer snapshot composition", () => {
+  function layered() {
+    const p = clone();
+    const candidate = p.candidates.find((c: Any) => c.shown);
+    const mid = "650000000000000000000099";
+    p.itemSnapshots.push({ itemId: mid, engineVisible: { name: "Sweater", clothingType: "top", warmth: 6, layerRole: "mid" }, evidence: {} });
+    candidate.items.push({ itemId: mid, role: "mid_layer" });
+    candidate.slotMap.mid = mid;
+    candidate.fullSignature += `|mid=${mid}`;
+    p.shownFullSignatures[candidate.shownPosition] = candidate.fullSignature;
+    return { p, candidate, mid };
+  }
+  it("retains the mid slot, role and eligibility through real Mongo persistence", async () => {
+    const { p, candidate, mid } = layered();
+    validateSnapshotPayload(p);
+    const saved = await GenerationSnapshot.create({ ...p, user: new Types.ObjectId(), interactionCountAtRequest: 0 });
+    const reread = await GenerationSnapshot.findById(saved._id).lean() as Any;
+    const captured = reread.candidates.find((c: Any) => c.candidateId === candidate.candidateId);
+    expect(captured.slotMap.mid).toBe(mid);
+    expect(captured.items).toContainEqual({ itemId: mid, role: "mid_layer" });
+    expect(reread.itemSnapshots.find((i: Any) => i.itemId === mid).engineVisible.layerRole).toBe("mid");
+  });
+  it.each(["ineligible", "dress", "duplicate"])("rejects accepted %s layering before persistence", (failure) => {
+    const { p, candidate, mid } = layered();
+    if (failure === "ineligible") p.itemSnapshots.find((i: Any) => i.itemId === mid).engineVisible.layerRole = "base";
+    if (failure === "dress") candidate.slotMap.dress = mid;
+    if (failure === "duplicate") candidate.items.find((i: Any) => i.role === "mid_layer").itemId = candidate.slotMap.top;
+    expect(() => validateSnapshotPayload(p)).toThrow(PayloadContractError);
+  });
+});

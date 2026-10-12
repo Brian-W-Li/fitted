@@ -184,6 +184,6 @@ it("saved unlayered proposal explains the original layer option without claiming
   await GenerationSnapshot.collection.updateOne({ _id: f.snapshotId }, { $set: { layerChoice: offered, weatherSignals: { rain: true, wind: false } } });
   const suggestion = await getSuggestion(f.owner, String(f.snapshotId), "c0");
   expect(suggestion.weatherSignals).toEqual({ rain: true, wind: false });
-  expect(suggestion.layerChoice?.note).toContain("This proposal does not include a layer");
+  expect(suggestion.layerChoice?.note).toContain("This proposal does not include an outer layer");
   expect((await GenerationSnapshot.collection.findOne({ _id: f.snapshotId }))?.layerChoice).toEqual(offered);
 });

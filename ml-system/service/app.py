@@ -330,6 +330,9 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
     }
     material = _optional_string(raw.get("material"), f"{where}.material", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
     formality = _optional_string(raw.get("formality"), f"{where}.formality", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
+    layer_role = raw.get("layerRole")
+    if layer_role is not None and (not isinstance(layer_role, str) or layer_role not in ("base", "mid", "outer")):
+        raise ContractInvalid(f"{where}.layerRole must be base, mid, outer or null")
     # Blank is a LEGITIMATE value here (spec §15.2: imageUrl → else imagePath → else "" — the
     # deployed model does not require an image), unlike id/name; the engine never prompts on it
     # (H33 strips image_url) and stores it verbatim in the engineVisible snapshot.
@@ -348,6 +351,7 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
             occasion_tags=tags["occasionTags"],
             material=material,
             formality=formality,
+            layer_role=layer_role,
         )
     except (TypeError, ValueError) as exc:  # the dataclass guards are inside the boundary (§D)
         raise ContractInvalid(f"{where} failed engine validation: {exc}") from exc
@@ -453,7 +457,13 @@ def _preflight_controls(
     pin_ids = set(locked)
     if intent == "rescue_item" and forced_item_id is not None:
         pin_ids.add(forced_item_id)  # the forced item is an implicit lock (every outfit includes it)
-    pin_types = [by_id[pid].type for pid in sorted(pin_ids) if pid in by_id]
+    pin_items = [by_id[pid] for pid in sorted(pin_ids) if pid in by_id]
+    top_pins = [item for item in pin_items if item.type == ItemType.top]
+    # Two tops occupy base+mid only with one explicit mid and one ordinary base.
+    layered_tops = len(top_pins) == 2 and sum(item.layer_role == "mid" for item in top_pins) == 1
+    pin_types = [item.type for item in pin_items]
+    if layered_tops:
+        pin_types.remove(ItemType.top)
     error = _lock_feasibility_error(pin_types)
     if error is not None:
         raise ContractInvalid(error)

@@ -363,8 +363,8 @@ def _validate_candidate(candidate: object, index: int) -> Optional[Issue]:
     if field_issue is not None:
         return field_issue
     items = candidate.get("items")
-    if not isinstance(items, list):  # missing key → None → not a list → invalidItems
-        return Issue(IssueCode.invalid_items, index, "items missing or not a list")
+    if not isinstance(items, list) or len(items) > 5:  # missing key → None → not a list → invalidItems
+        return Issue(IssueCode.invalid_items, index, "items must be a list of at most 5 entries")
     for item in items:
         item_issue = _validate_item(item, index)
         if item_issue is not None:
@@ -372,11 +372,11 @@ def _validate_candidate(candidate: object, index: int) -> Optional[Issue]:
     return None
 
 
-def _build_pool_index(sampled_pool: Sequence[WardrobeItem]) -> dict[str, ItemType]:
-    """Index the sampled pool as ``{item id → ItemType}`` (flow step 2, M2 plan §8).
+def _build_pool_index(sampled_pool: Sequence[WardrobeItem]) -> dict[str, WardrobeItem]:
+    """Index the sampled pool as ``{item id → WardrobeItem}`` (flow step 2, M2 plan §8).
 
     The pool is the bounded set GPT was shown; candidate ids are validated against its keys
-    (never the wider wardrobe), and the mapped ``ItemType`` is the authoritative type used to
+    (never the wider wardrobe), and the mapped item carries the authoritative type and layer eligibility used to
     cross-check GPT's untrusted role assignment (5.5b). A **duplicate id** is caller-contract
     misuse → ``ValueError`` (mirrors ``sampler.reject_duplicate_ids``): a duplicate collapses
     the membership lookup and breaks key equality (§7/R12). A clean M1 path can never produce
@@ -384,13 +384,13 @@ def _build_pool_index(sampled_pool: Sequence[WardrobeItem]) -> dict[str, ItemTyp
     up front — before the root envelope — so this caller-contract violation always raises, even
     for a payload that would itself be rejected.
     """
-    pool: dict[str, ItemType] = {}
+    pool: dict[str, WardrobeItem] = {}
     for item in sampled_pool:
         if item.id in pool:
             raise ValueError(
                 f"duplicate item id {item.id!r} in sampled_pool (R12): ids must be unique"
             )
-        pool[item.id] = item.type
+        pool[item.id] = item
     return pool
 
 
@@ -401,6 +401,7 @@ _SLOT_REQUIRED_TYPE: tuple[tuple[str, ItemType], ...] = (
     ("dress", ItemType.dress),
     ("top", ItemType.top),
     ("bottom", ItemType.bottom),
+    ("mid", ItemType.top),
     ("outer", ItemType.outer_layer),
     ("shoes", ItemType.shoes),
 )
@@ -419,7 +420,7 @@ class _Structure:
 
 
 def _validate_structure(
-    candidate: dict, index: int, pool: dict[str, ItemType]
+    candidate: dict, index: int, pool: dict[str, WardrobeItem]
 ) -> Union[Issue, _Structure]:
     """SlotMap + structural + pool validation of a schema-valid candidate (5.3–5.5).
 
@@ -457,13 +458,15 @@ def _validate_structure(
             return Issue(
                 IssueCode.item_outside_sampled_pool, index, f"itemId {item_id!r} not in sampled pool"
             )
-        if pool[item_id] != required_type:
+        if pool[item_id].type != required_type or (slot == "mid" and pool[item_id].layer_role != "mid"):
             return Issue(
                 IssueCode.role_type_mismatch,
                 index,
-                f"itemId {item_id!r} is a {pool[item_id].value} but its role puts it in the "
+                f"itemId {item_id!r} is a {pool[item_id].type.value} but its role puts it in the "
                 f"{required_type.value} slot",
             )
+    if slot_map.mid is not None and pool[slot_map.top].layer_role == "mid":
+        return Issue(IssueCode.role_type_mismatch, index, "a mid_layer requires a base top not marked mid")
     return _Structure(slot_map=slot_map)
 
 
@@ -539,7 +542,7 @@ def _validate_style_move(
 
     # H23 subset — every changed id must be one of the outfit's filled slot ids.
     outfit_ids = {
-        v for v in (slot_map.dress, slot_map.top, slot_map.bottom, slot_map.outer, slot_map.shoes)
+        v for v in (slot_map.dress, slot_map.top, slot_map.bottom, slot_map.mid, slot_map.outer, slot_map.shoes)
         if v is not None
     }
     outside = sorted(set(changed) - outfit_ids)

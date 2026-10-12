@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebaseClient";
 import { suggestionLink } from "@/lib/suggestionLink";
+import { outfitItemOrder } from "@/lib/outfitRoles";
 import { resolveImageSrc } from "@/lib/imageUrl";
 import WearForm, { type ClosetChoice, type ExperienceView, type MemoryItem, type SuggestionView } from "./WearForm";
 import VariationForm from "./VariationForm";
@@ -23,7 +24,7 @@ async function getJson(user: User, path: string, init?: RequestInit) {
   return data;
 }
 function ItemList({ items, onSelect }: { items: MemoryItem[]; onSelect: (id: string) => void }) {
-  return <ul className="flex flex-wrap gap-2">{items.map(item => <li key={item.itemId} className="flex items-center gap-1">{item.imageUrl && <img src={resolveImageSrc(item.imageUrl) ?? undefined} alt={item.name} className="h-10 w-10 rounded object-contain" />}<button className="rounded border border-slate-200 bg-white px-2 py-1 text-sm text-blue-700" onClick={() => onSelect(item.itemId)}>{item.name}</button>{item.availability !== "available" && <span className="ml-1 text-xs text-amber-700">{item.availability === "missing" ? "removed from closet" : "currently unavailable"}</span>}{item.changed && <span className="ml-1 text-xs text-slate-500">closet details changed</span>}</li>)}</ul>;
+  return <ul className="flex flex-wrap gap-2">{[...items].sort((a, b) => outfitItemOrder(a) - outfitItemOrder(b)).map(item => <li key={item.itemId} className="flex items-center gap-1">{item.imageUrl && <img src={resolveImageSrc(item.imageUrl) ?? undefined} alt={item.name} className="h-10 w-10 rounded object-contain" />}<button className="rounded border border-slate-200 bg-white px-2 py-1 text-sm text-blue-700" onClick={() => onSelect(item.itemId)}>{item.name}</button>{item.role === "mid_layer" && <span className="text-xs text-slate-500">Mid layer</span>}{item.availability !== "available" && <span className="ml-1 text-xs text-amber-700">{item.availability === "missing" ? "removed from closet" : "currently unavailable"}</span>}{item.changed && <span className="ml-1 text-xs text-slate-500">closet details changed</span>}</li>)}</ul>;
 }
 function MemoryInner({ user }: { user: User }) {
   const params = useSearchParams();

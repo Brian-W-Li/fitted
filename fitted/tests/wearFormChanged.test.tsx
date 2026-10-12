@@ -37,3 +37,28 @@ it("reports only the confirmed changed pieces while retaining the original sugge
     memberItemIds: [top, newBottom], context: { kind: "user", text: "Dinner" } });
   expect(request.memberItemIds).not.toContain(oldBottom);
 });
+
+
+it("adds an explicitly eligible mid layer and sends both tops as actual members", async () => {
+  const mid = "650000000000000000000005";
+  const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ acknowledgedRevision: 1 }) });
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: fetchMock });
+  render(<WearForm user={user} suggestion={suggestion} closet={[{ id: mid, name: "Quarter zip", clothingType: "top", layerRole: "mid" }]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Report what I wore" }));
+  fireEvent.click(screen.getByRole("radio", { name: "I changed some pieces" }));
+  expect(screen.getByRole("option", { name: "Quarter zip (mid-layer eligible)" })).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Add a piece from your closet" }), { target: { value: mid } });
+  fireEvent.click(screen.getByRole("button", { name: "Save wear report" }));
+  await screen.findByText(/Wear report saved/);
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ compositionStatus: "changed", memberItemIds: [top, oldBottom, mid] });
+});
+
+it("shows the saved mid role when reporting a layered suggestion", () => {
+  render(<WearForm user={user} suggestion={{ ...suggestion, items: [...suggestion.items,
+    { itemId: "650000000000000000000005", name: "Quarter zip", clothingType: "top", role: "mid_layer", availability: "available", changed: false },
+  ] }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Report what I wore" }));
+  fireEvent.click(screen.getByRole("radio", { name: "I changed some pieces" }));
+  expect(screen.getByRole("checkbox", { name: /Quarter zip.*Mid layer/ })).toBeChecked();
+  expect(screen.getByRole("list", { name: "Actual pieces" })).toHaveTextContent("Quarter zip (Mid layer)");
+});

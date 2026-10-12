@@ -463,6 +463,16 @@ def build_candidate_pool(
             scorer_available=scorer_available,
         )
 
+    # Keep both eligibility groups available when an explicit mid exists. No extra RNG
+    # consumption, no cap growth, and legacy closets without mid tags are unchanged.
+    tops = per_type[ItemType.top].items
+    all_tops = partitioned[ItemType.top]
+    if any(item.layer_role == "mid" for item in all_tops):
+        for is_mid in (True, False):
+            partners = [item for item in all_tops if (item.layer_role == "mid") == is_mid]
+            if partners and not any((item.layer_role == "mid") == is_mid for item in tops):
+                tops[-1] = partners[0]
+        tops.sort(key=lambda item: item.id)
     pool = {item_type: result.items for item_type, result in per_type.items()}
     prompt_item_count = sum(len(items) for items in pool.values())
     # Cross-type invariant (v2 §10/§22): caps sum to MAX_PROMPT_ITEMS by construction,

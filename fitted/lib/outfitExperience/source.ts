@@ -24,9 +24,9 @@ export interface MemorySnapshot {
   redacted?: boolean;
   shownCandidateIds: string[];
   candidates: SourceCandidate[];
-  itemSnapshots: { itemId: string; engineVisible?: { name?: string; clothingType?: string; imageUrl?: string } }[];
+  itemSnapshots: { itemId: string; engineVisible?: { name?: string; clothingType?: string; imageUrl?: string; layerRole?: string } }[];
 }
-export const SOURCE_PROJECTION = { user: 1, variationSourceExperienceId: 1, variationSourceRevision: 1, occasion: 1, weather: 1, weatherRaw: 1, weatherSource: 1, weatherSignals: 1, layerChoice: 1, redacted: 1, shownCandidateIds: 1, "candidates.candidateId": 1, "candidates.items": 1, "candidates.styleMove.oneSentence": 1, "itemSnapshots.itemId": 1, "itemSnapshots.engineVisible.name": 1, "itemSnapshots.engineVisible.clothingType": 1, "itemSnapshots.engineVisible.imageUrl": 1 };
+export const SOURCE_PROJECTION = { user: 1, variationSourceExperienceId: 1, variationSourceRevision: 1, occasion: 1, weather: 1, weatherRaw: 1, weatherSource: 1, weatherSignals: 1, layerChoice: 1, redacted: 1, shownCandidateIds: 1, "candidates.candidateId": 1, "candidates.items": 1, "candidates.styleMove.oneSentence": 1, "itemSnapshots.itemId": 1, "itemSnapshots.engineVisible.name": 1, "itemSnapshots.engineVisible.clothingType": 1, "itemSnapshots.engineVisible.layerRole": 1, "itemSnapshots.engineVisible.imageUrl": 1 };
 
 export async function visibleSnapshot(user: Types.ObjectId, snapshotId: Types.ObjectId): Promise<MemorySnapshot | null> {
   const row = await GenerationSnapshot.collection.findOne({ _id: snapshotId, user, redacted: { $ne: true } }, { projection: SOURCE_PROJECTION }) as MemorySnapshot | null;
@@ -40,5 +40,5 @@ export async function requireSource(user: Types.ObjectId, snapshotId: string, ca
   const snapshot = await visibleSnapshot(user, new Types.ObjectId(snapshotId));
   const candidate = snapshot && shownCandidate(snapshot, candidateId);
   if (!snapshot || !candidate || !candidate.items.length) throw new ExperienceError(404, "source_unavailable");
-  return { snapshot, memberItemIds: [...new Set(candidate.items.map(i => objectId(i.itemId)))].map(id => new Types.ObjectId(id)) };
+  return { snapshot, candidate, memberItemIds: [...new Set(candidate.items.map(i => objectId(i.itemId)))].map(id => new Types.ObjectId(id)) };
 }

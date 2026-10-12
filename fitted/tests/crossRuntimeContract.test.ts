@@ -1,3 +1,4 @@
+import { LAYER_ROLES } from "@/lib/layerRole";
 import { LAYER_CHOICE_NOTES } from "@/lib/weatherContext";
 /**
  * Cross-runtime contract guard (post-m5-reset §4.1 C1/C2/C4).
@@ -134,6 +135,7 @@ const TS_ENUMS: Record<string, readonly string[]> = {
   weather: WEATHER_BUCKETS,
   intent: SUPPORTED_INTENTS,
   clothingType: CLOTHING_TYPES,
+  layerRole: LAYER_ROLES,
   // The live feedback vocabulary the route allowlist gates on — the Python reducers derive the
   // mirror from COUNTED_ACTIONS ∪ REJECTED_ACTION, so a one-sided action change reddens a suite.
   interactionAction: [...ALLOWED_ACTIONS],

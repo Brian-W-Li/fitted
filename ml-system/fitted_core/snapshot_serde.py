@@ -63,6 +63,7 @@ ENGINE_VISIBLE_TO_WIRE: dict[str, str] = {
     "occasion_tags": "occasionTags",
     "material": "material",
     "formality": "formality",
+    "layer_role": "layerRole",
     "image_url": "imageUrl",
 }
 ENGINE_VISIBLE_FROM_WIRE: dict[str, str] = {v: k for k, v in ENGINE_VISIBLE_TO_WIRE.items()}

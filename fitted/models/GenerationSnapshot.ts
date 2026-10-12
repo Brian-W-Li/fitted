@@ -163,7 +163,7 @@ const CandidateSnapshotSchema = new Schema(
             itemId: { type: String, required: true }, // STRING, never a populatable ObjectId ref (H10)
             role: {
               type: String,
-              enum: ["base_top", "base_bottom", "one_piece", "outer_layer", "shoes"],
+              enum: ["base_top", "base_bottom", "one_piece", "mid_layer", "outer_layer", "shoes"],
             },
           },
           { _id: false },
@@ -177,6 +177,7 @@ const CandidateSnapshotSchema = new Schema(
           dress: { type: String },
           top: { type: String },
           bottom: { type: String },
+          mid: { type: String },
           outer: { type: String },
           shoes: { type: String },
         },
@@ -218,7 +219,8 @@ const ItemSnapshotSchema = new Schema(
       type: new Schema(
         {
           name: { type: String },
-          clothingType: { type: String, enum: [...CLOTHING_TYPES] }, // single-homed in lib/clothingType
+          clothingType: { type: String, enum: [...CLOTHING_TYPES] },
+          layerRole: { type: String, enum: ["base", "mid", "outer", null] }, // single-homed in lib/clothingType
           warmth: { type: Number, required: true }, // engine-required; keyword-derived at ingestion
           styleTags: { type: [String], default: [] },
           colorTags: { type: [String], default: [] },

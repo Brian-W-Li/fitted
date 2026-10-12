@@ -1,3 +1,4 @@
+import { normalizeLayerRole } from "@/lib/layerRole";
 import { finishImageLeases, mongoImageId, localImageId, withImageConcurrency, type ImageRetentionModels } from "@/lib/imageRetention";
 import { snapshotVisible } from "@/lib/snapshotVisibility";
 /**
@@ -302,15 +303,22 @@ function canonicalRequestId(raw: string): string {
 }
 
 function structuralLockError(lockedItemIds: string[], forcedItemId: string | null, wardrobeDocs: Any[]): string | null {
-  const byId = new Map<string, string>(wardrobeDocs.map((d) => [d._id.toString(), String(d.clothingType ?? "")]));
+  const byId = new Map<string, Any>(wardrobeDocs.map((d) => [d._id.toString(), d]));
   const pinIds = new Set(lockedItemIds);
   if (forcedItemId) pinIds.add(forcedItemId);
   const seenTypes = new Set<string>();
+  const tops: Any[] = [];
   for (const id of [...pinIds].sort()) {
-    const type = byId.get(id);
+    const item = byId.get(id);
+    const type = String(item?.clothingType ?? "");
     if (!type) continue;
-    if (seenTypes.has(type)) return `more than one lock occupies the ${type} slot`;
+    if (type === "top") tops.push(item);
+    else if (seenTypes.has(type)) return `more than one lock occupies the ${type} slot`;
     seenTypes.add(type);
+  }
+  if (tops.length > 2 || tops.length === 2 &&
+      tops.filter(item => normalizeLayerRole(item.layerRole) === "mid").length !== 1) {
+    return "locked tops need one base top and at most one mid layer";
   }
   if (seenTypes.has("dress") && (seenTypes.has("top") || seenTypes.has("bottom"))) {
     return "a locked dress cannot coexist with a locked top or bottom";
