@@ -9,12 +9,20 @@ wear, correction, ownership and deletion. The [implementation specification](pla
 owns the bounded design; [the canonical spec](Fitted_Spec_v2.md) and
 [appendix C.0/C.8](Fitted_Spec_v2_recovered_appendix.md) own the ambition.
 
-## Current review checkpoint
+## Current review checkpoint — paused at Brian's request
 
 Brian requires focused implementation followed by bug hunts, independent specification
 review against actual code and edge cases, meaningful tests and owning-document updates
 before further production features. This checkpoint records that cycle. It is not a
 release or a claim that the complete goal is finished.
+
+Brian requested a documented stopping point and standup. Further implementation and
+browser work are paused until he resumes them. The last verified application/tooling
+checkpoint is `426bfd77`; its documentation follow-up is `1f193fb0`. Both exact hosted
+checks passed, as linked below. The coordinator additionally holds a reviewed pure
+feedback-test policy and synthetic checks locally; that draft is not integrated or
+published here. The six-reaction runtime collector and flag do not exist yet, and no
+ordinary-history completion is claimed. No local services or CI jobs remain live.
 
 The coordinator remains in its existing checkout. This public checkout is an explicit
 app-only review/export candidate, not a second coordinator. Private experiment tools,
@@ -114,7 +122,7 @@ TypeScript, lint with existing warnings, and focused documentation guards. The
 coordinator retains private run locations and unrelated dirty-file inventory outside
 this public export. This documentation-only follow-up preserves that verified runtime.
 
-## Remaining work and next actions
+## Remaining work when resumed
 
 Explicit scoped item/composition instructions are not implemented. Ordinary complete
 history accumulation, private feedback/undo/profile/control/correction journeys,
