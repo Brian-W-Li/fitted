@@ -80,3 +80,37 @@ it("does not let an abandoned form discard a pending save or notify its parent",
   expect(saved).not.toHaveBeenCalled();
   expect(localStorage.length).toBe(1);
 });
+
+
+it("keeps an acknowledged-on-server correction retry intact when its JSON body arrives after remount", async () => {
+  const report: ExperienceView = { experienceId: "wear-body-race", currentRevision: 1, lifecycle: "active", sourceAvailable: true,
+    source: { snapshotId: suggestion.snapshotId, candidateId: suggestion.candidateId }, items: [], sourceItems: [],
+    state: { occurredOn: "2026-01-01", timezone: "UTC", context: { rawOccasion: "Class", source: "user", confirmed: true }, outcome: "unknown", compositionStatus: "as_shown" } };
+  let finishBody!: (value: unknown) => void;
+  const body = new Promise(resolve => { finishBody = resolve; });
+  const readBody = jest.fn(() => body);
+  const fetchMock = jest.fn().mockResolvedValueOnce({ ok: true, status: 200, json: readBody })
+    .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ acknowledgedRevision: 2 }) });
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: fetchMock });
+  const oldSaved = jest.fn(), currentSaved = jest.fn();
+  const first = render(<WearForm user={user} experience={report} onSaved={oldSaved} />);
+  fireEvent.click(screen.getByRole("button", { name: "Correct wear report" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save correction" }));
+  await waitFor(() => expect(readBody).toHaveBeenCalledTimes(1));
+  const original = fetchMock.mock.calls[0][1];
+  expect(original.method).toBe("PATCH");
+  expect(JSON.parse(original.body)).toMatchObject({ expectedPreviousRevision: 1, operationId: expect.any(String) });
+  first.unmount();
+  render(<WearForm user={user} experience={{ ...report, currentRevision: 2 }} onSaved={currentSaved} />);
+  await screen.findByRole("button", { name: "Retry saved report" });
+  const pending = localStorage.getItem(`fitted:wear:${user.uid}:${report.experienceId}`);
+  await act(async () => { finishBody({ acknowledgedRevision: 2 }); await body; });
+  expect(oldSaved).not.toHaveBeenCalled();
+  expect(currentSaved).not.toHaveBeenCalled();
+  expect(localStorage.getItem(`fitted:wear:${user.uid}:${report.experienceId}`)).toBe(pending);
+  fireEvent.click(screen.getByRole("button", { name: "Retry saved report" }));
+  await screen.findByText(/Wear report saved/);
+  expect(fetchMock.mock.calls[1][1].body).toBe(original.body);
+  expect(currentSaved).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem(`fitted:wear:${user.uid}:${report.experienceId}`)).toBeNull();
+});

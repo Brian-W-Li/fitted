@@ -915,7 +915,11 @@ async function run() {
     page.waitForResponse(response => response.url().endsWith(`/api/experiences/${changedReport.experienceId}`) && response.request().method() === "PATCH"),
     wearPhotoCard.getByRole("button", { name: "Save correction" }).click(),
   ]);
-  assert.equal(photoCorrectionResponse.status(), 200, "explicit photo refresh acknowledged");
+  assert.equal(photoCorrectionResponse.status(), 200, "explicit photo refresh reached the server");
+  // HTTP headers/database commit can precede the browser reading the receipt. A reload
+  // before the visible acknowledgement correctly restores the pending exact retry.
+  await page.getByText("Wear report saved.", { exact: true }).waitFor();
+  await wearPhotoCard.getByRole("button", { name: "Correct wear report", exact: true }).waitFor();
   changedReport = await db.collection("outfitexperiences").findOne({ experienceId: changedReport.experienceId });
   assert.equal(changedReport.revisions.at(-1).state.memberItems.find(item => item.itemId === oldPiece).photo.imageRef, `mongo:${refreshedImageId}`);
   assert.equal(changedReport.revisions[0].state.memberItems.find(item => item.itemId === oldPiece).photo.imageRef, `mongo:${substituteImageId}`);

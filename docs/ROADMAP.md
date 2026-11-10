@@ -81,7 +81,13 @@ disclosure. The complete compiled local browser journey subsequently passed, inc
 rescue, exploration/adaptation, plans, actual wear/correction/deletion, feedback,
 photo ownership and the collecting/activated styling loop. Hosted conformance for the
 first test-only follow-up passed. Final hosted browser verification remains pending;
-application runtime code and deployment guards are unchanged.
+application runtime code and deployment guards are unchanged. That hosted run then
+exposed a separate harness acknowledgement race at photo correction: it reloaded after
+HTTP 200/database commit but before the UI consumed the response and cleared its pending
+command. The intentionally safe retry state was correct. The harness now waits for
+visible acknowledgement and the refreshed correction control. A new deferred-body
+remount regression plus affected wear-form tests passed (11 tests); no production
+recovery behavior changed. The next full hosted browser outcome remains pending.
 The earlier broad private-checkout Python study guards correctly rejected changed
 production fingerprints; their frozen evidence was not rewritten or exported.
 Local results, hosted CI and product benefit remain separate evidence.
