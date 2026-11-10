@@ -62,7 +62,8 @@ reactions/dispositions through the real APIs. Its collecting path uses ordinary
 generated snapshots and the actual History UI. These checks demonstrate mechanisms;
 they do not prove that ordinary use accumulates equivalent complete training history,
 that human taste predictions improve, or that fresh provider generations are good.
-The full existing-wardrobe walkthrough and final whole-app regression remain required.
+The faithful existing-wardrobe walkthrough remains required; the complete synthetic
+whole-app regression now passes locally.
 
 The complete public app web regression passed 1,746 tests with ten skips; Python
 core/service passed 1,251 tests. A subsequent focused spec review reproduced an older
@@ -73,9 +74,14 @@ and focused browser journey passed before that narrow resolver fix; targeted lin
 focused navigation/frozen-pin guards pass. Hosted conformance for `ac0c9fbf` passed.
 Its first full browser run reached the saved proposal, then failed because the harness
 waited for intentionally collapsed weather text without opening the disclosure. The
-harness now opens it before and after reload, and 14 focused proposal tests pass,
-including hidden-then-visible provenance checks. Full browser verification of this
-test-only follow-up remains pending; application runtime code is unchanged.
+harness opens it before and after reload, and 14 focused proposal tests pass,
+including hidden-then-visible provenance checks. A second hosted run found the same
+old assertion in the unworn planned-proposal path; all three checks now open the
+disclosure. The complete compiled local browser journey subsequently passed, including
+rescue, exploration/adaptation, plans, actual wear/correction/deletion, feedback,
+photo ownership and the collecting/activated styling loop. Hosted conformance for the
+first test-only follow-up passed. Final hosted browser verification remains pending;
+application runtime code and deployment guards are unchanged.
 The earlier broad private-checkout Python study guards correctly rejected changed
 production fingerprints; their frozen evidence was not rewritten or exported.
 Local results, hosted CI and product benefit remain separate evidence.
@@ -83,8 +89,9 @@ Local results, hosted CI and product benefit remain separate evidence.
 ## Remaining work and next actions
 
 Explicit scoped item/composition instructions are not implemented. The faithful
-existing-wardrobe walkthrough, narrower-screen assessment and complete lifecycle
-browser regression remain open. Human usefulness is unestablished.
+existing-wardrobe walkthrough and its narrower-screen assessment remain open.
+The complete synthetic lifecycle browser regression passes locally, with final hosted
+verification pending. Human usefulness is unestablished.
 
 1. Finish the current app-only regression and bounded review checkpoint; save it on
    GitHub with its limitations stated and inspect hosted checks separately.

@@ -1077,6 +1077,7 @@ async function run() {
   const unwornSource = unworn.shown[0];
   const unwornHref = `/memory/proposal?snapshotId=${unwornSource.snapshotId}&candidateId=${unwornSource.candidateId}`;
   await page.goto(`${origin}${unwornHref}`);
+  await page.getByText("Saved weather and source", { exact: true }).click();
   await page.getByText("Saved weather context:", { exact: false }).waitFor();
   await page.getByRole("button", { name: "Plan this outfit", exact: true }).click();
   await page.getByLabel("Plan for", { exact: true }).fill("2099-10-14");
