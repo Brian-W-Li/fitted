@@ -738,9 +738,11 @@ async function run() {
   assert.equal(rescueSnapshot.layerChoice.status, "offered");
   const savedRescueUrl = `${origin}/memory/proposal?snapshotId=${rescueSnapshot._id}&candidateId=${recommendation.shown[0].candidateId}`;
   await page.goto(savedRescueUrl);
+  await page.getByText("Saved weather and source", { exact: true }).click();
   await page.getByText(/Your expected conditions/).waitFor();
   await page.getByText(/Cold; rain expected; windy/).waitFor();
   await page.reload();
+  await page.getByText("Saved weather and source", { exact: true }).click();
   await page.getByText(/Your expected conditions/).waitFor();
   await page.getByText(/Rain and wind protection are unknown/).waitFor();
   const replayResponse = await json(`${origin}/api/recommend`, {

@@ -70,8 +70,12 @@ Routine refinement using the newer semantic label. The resolver now retains the 
 meaning while preserving current cosmetic renames; the affected 163-test regression
 passed after the fix. TypeScript passes on the final candidate. The production build
 and focused browser journey passed before that narrow resolver fix; targeted lint and
-focused navigation/frozen-pin guards pass. Hosted verification of the final checkpoint
-remains separate and pending.
+focused navigation/frozen-pin guards pass. Hosted conformance for `ac0c9fbf` passed.
+Its first full browser run reached the saved proposal, then failed because the harness
+waited for intentionally collapsed weather text without opening the disclosure. The
+harness now opens it before and after reload, and 14 focused proposal tests pass,
+including hidden-then-visible provenance checks. Full browser verification of this
+test-only follow-up remains pending; application runtime code is unchanged.
 The earlier broad private-checkout Python study guards correctly rejected changed
 production fingerprints; their frozen evidence was not rewritten or exported.
 Local results, hosted CI and product benefit remain separate evidence.

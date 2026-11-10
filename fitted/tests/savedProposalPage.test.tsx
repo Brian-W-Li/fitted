@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { User } from "firebase/auth";
+import userEvent from "@testing-library/user-event";
 let mockAuthCallback: (user: User | null) => void;
 let mockParams = "snapshotId=650000000000000000000001&candidateId=c0";
 jest.mock("@/lib/firebaseClient", () => ({ auth: {} }));
@@ -81,7 +82,11 @@ it.each([
 ])("labels saved weather source %s without inventing provenance or a current forecast", async (weatherSource, label) => {
   global.fetch = jest.fn(async (path: string) => path.startsWith("/api/wardrobe") ? response({ items: [] }) : response({ suggestion: { ...suggestion, weatherSource } })) as typeof fetch;
   render(<ProposalPage />);
-  expect(await screen.findByText(new RegExp(`Weather source: ${label}`))).toHaveTextContent("not a current forecast or a guarantee of suitability");
+  const provenance = await screen.findByText(new RegExp(`Weather source: ${label}`));
+  expect(provenance).not.toBeVisible();
+  await userEvent.click(screen.getByText("Saved weather and source", { exact: true }));
+  expect(provenance).toBeVisible();
+  expect(provenance).toHaveTextContent("not a current forecast or a guarantee of suitability");
   expect((global.fetch as jest.Mock).mock.calls.every(([, init]) => !init.method)).toBe(true);
 });
 
