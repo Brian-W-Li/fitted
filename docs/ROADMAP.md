@@ -91,12 +91,21 @@ When code and prose disagreed, the review did not automatically prefer either:
 
 ## Current verification
 
-The repaired public candidate passes the full local web regression (1,760 passed,
+Code/test checkpoint `88f71e25` passes the full local web regression (1,760 passed,
 ten existing skips), Python core/service regression (1,272 passed), all 15 Node fixture
 contracts, TypeScript, lint (zero errors; existing warnings) and seven focused
-navigation/provenance/frozen-pin documentation guards. The compiled styling journey
-is still running. Exact hosted evidence will be inspected after saving this code
-checkpoint. Local checks, hosted CI and personal styling benefit remain distinct.
+navigation/provenance/frozen-pin documentation guards. The production build and
+compiled styling journey pass, including ordinary scoped reactions, History controls,
+actual displayed membership, the authored activation fixture and support removal.
+
+The exact saved checkpoint also passed hosted
+[conformance](https://github.com/Brian-W-Li/fitted/actions/runs/42766173613) and the
+[complete browser regression](https://github.com/Brian-W-Li/fitted/actions/runs/42766173540).
+All handles are terminal and local services are closed. This documentation-only
+follow-up preserves the verified code/test bytes. Local results, hosted CI and
+personal styling benefit remain distinct; targeted mutations are not an exhaustive
+proof of bug absence. The review checkpoint is complete with the explicitly open
+product/verification boundaries below.
 
 ## Remaining build work and release boundary
 
