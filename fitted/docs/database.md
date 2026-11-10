@@ -11,10 +11,11 @@ This is a navigation guide, not a second schema specification. Models and storag
 | Record | Source owner | Meaning |
 |---|---|---|
 | Identity, profile and plans | [User](../models/User.ts), [planning store](../lib/outfitPlanning/store.ts) | Plans are dated intent references, not reported wear. |
+| Saved style memory | [User](../models/User.ts), [style-memory store](../lib/styleMemory/store.ts), [erasure](../lib/styleMemory/erase.ts) | Embedded versioned Boards/Routines, receipts, tombstones and monotonic owner revision; archive retains source history, erase fences it. |
 | Current wardrobe | [WardrobeItem](../models/WardrobeItem.ts) | Owned garment facts, availability and image references. |
 | Owned images | [WardrobeImage](../models/WardrobeImage.ts) | Primary/supplemental images; captured source-photo retention is a separate lifecycle. |
-| Shown-generation evidence | [GenerationSnapshot](../models/GenerationSnapshot.ts) | Live immutable captured inputs/funnel/shown identity with sanctioned redaction; it is not dormant. |
-| Reactions | [OutfitInteraction](../models/OutfitInteraction.ts), [interaction handlers](../lib/interactions.ts) | Snapshot-bound accepted/rejected proxies; unused enum/scope fields do not imply implemented learning. |
+| Shown-generation evidence | [GenerationSnapshot](../models/GenerationSnapshot.ts) | Immutable inputs/funnel/shown identity, captured context and signed experimental decision provenance, with sanctioned redaction. |
+| Reactions | [OutfitInteraction](../models/OutfitInteraction.ts), [interaction handlers](../lib/interactions.ts) | Snapshot-bound accepted/rejected proxies, typed concern and [learning amendments](../lib/styleLearningAmendments.ts); [evidence resolution](../lib/stylePreferenceEvidence.ts) joins captured facts under explicit context. Unused enum/scope scaffold is not extra behavior. |
 | Actual wear | [OutfitExperience](../models/OutfitExperience.ts), [experience contract](../lib/outfitExperience/contract.ts), [store](../lib/outfitExperience/store.ts) | Separate confirmed composition, context, revisions and optional outcome; not a like or a plan. |
 
 ## Ownership and deletion

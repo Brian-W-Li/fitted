@@ -5,7 +5,7 @@
  * split into the right tabs; a flip POSTs the opposite action for the right binding and moves the card;
  * a remove DELETEs the binding (after confirm) and drops the card.
  */
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 jest.mock("@/lib/firebaseClient", () => ({ auth: {} }));
@@ -150,4 +150,51 @@ it("a refresh started during removal cannot resurrect the removed reaction or it
   expect(screen.queryByText("Old saved note")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Change to dislike" })).not.toBeInTheDocument();
   expect(screen.queryByText("Loading history…")).not.toBeInTheDocument();
+});
+
+
+it("identifies captured scopes for the same outfit and changes only the chosen reaction", async () => {
+  Object.defineProperty(crypto, "randomUUID", { configurable: true, value: () => "11111111-1111-4111-8111-111111111111" });
+  const firstId = "650000000000000000000011", secondId = "650000000000000000000012";
+  const cards = [
+    { ...seedCards()[0], id: firstId, learningAvailable: true, learningDisposition: "normal", dispositionRevision: 0,
+      capturedContext: { boardLabel: "Campus", profileVersion: 1, routineLabel: "Class", routineVersion: 1 } },
+    { ...seedCards()[0], id: secondId, snapshotId: "68a0000000000000000000a2", learningAvailable: true, learningDisposition: "normal", dispositionRevision: 0,
+      capturedContext: { boardLabel: "Evening", profileVersion: 2, routineLabel: "Dinner", routineVersion: 3 } },
+  ];
+  global.fetch = jest.fn(async (url, opts) => {
+    const method = opts?.method ?? "GET";
+    calls.push({ url: String(url), method, body: opts?.body as string | undefined });
+    if (method === "GET") return { ok: true, status: 200, json: async () => ({ interactions: cards }) } as Response;
+    const command = JSON.parse(String(opts?.body));
+    const card = cards.find(row => row.id === command.reactionId)!;
+    card.learningDisposition = command.learningDisposition; card.dispositionRevision++;
+    return { ok: true, status: 200, json: async () => ({ success: true, amendment: { id: "650000000000000000000013",
+      reactionId: card.id, learningDisposition: card.learningDisposition, dispositionRevision: card.dispositionRevision } }) } as Response;
+  });
+  render(<HistoryPage />);
+  const campus = await screen.findByRole("group", { name: "Captured context: Campus / Class" });
+  const evening = screen.getByRole("group", { name: "Captured context: Evening / Dinner" });
+  expect(screen.getAllByText("White Tee").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText("brunch")).toHaveLength(2);
+  await userEvent.click(within(evening).getByText("Captured versions"));
+  expect(within(evening).getByText("Direction version 2 · Situation version 3")).toBeVisible();
+  await userEvent.click(within(evening).getByRole("button", { name: "Exclude from taste learning" }));
+  await screen.findByRole("button", { name: "Also reflects my taste here" });
+  const commands = calls.filter(call => call.method === "POST").map(call => JSON.parse(call.body!));
+  expect(commands).toEqual([{ kind: "learning_disposition", reactionId: secondId,
+    operationId: "11111111-1111-4111-8111-111111111111", expectedDispositionRevision: 0, learningDisposition: "exception" }]);
+  expect(cards[0].learningDisposition).toBe("normal");
+  expect(within(screen.getByRole("group", { name: "Captured context: Campus / Class" })).getByRole("button", { name: "Exclude from taste learning" })).toBeEnabled();
+  expect(campus).toHaveTextContent("Direction: Campus");
+});
+
+it("shows a board-only captured direction without inventing a saved situation or learning control", async () => {
+  global.fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ interactions: [{ ...seedCards()[0],
+    capturedContext: { boardLabel: "Open direction", profileVersion: 1, routineLabel: null, routineVersion: null } }] }) }) as Response);
+  render(<HistoryPage />);
+  const context = await screen.findByRole("group", { name: "Captured context: Open direction / No saved situation" });
+  expect(context).toHaveTextContent("No saved situation");
+  expect(within(context).queryByRole("button")).not.toBeInTheDocument();
+  expect(screen.queryByText("Situation version")).not.toBeInTheDocument();
 });

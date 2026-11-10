@@ -1,7 +1,9 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import StyleDirectionPanel from "@/app/(app)/dashboard/StyleDirectionPanel";
-import type { StyleMemoryCommand, StyleMemoryState } from "@/lib/styleMemory/contract";
+import { emptyStyleMemory, type StyleMemoryCommand, type StyleMemoryState } from "@/lib/styleMemory/contract";
+import { applyStyleCommand, publicStyleMemory } from "@/lib/styleMemory/state";
+import { parseStyleMemoryCommand } from "@/lib/styleMemory/validation";
 
 const boardId = "a".repeat(24), profileId = "b".repeat(24), routineId = "c".repeat(24);
 const board = { id: boardId, profileId, label: "Campus", status: "active" as const, currentVersion: 1,
@@ -18,7 +20,8 @@ const receipt = (state: StyleMemoryState, command: StyleMemoryCommand) => respon
 let fetchMock: jest.Mock;
 beforeEach(() => {
   fetchMock = jest.fn(); global.fetch = fetchMock;
-  Object.defineProperty(global.crypto, "randomUUID", { configurable: true, value: jest.fn(() => "12345678-1234-4123-8123-123456789abc") });
+  let sequence = 0;
+  Object.defineProperty(global.crypto, "randomUUID", { configurable: true, value: jest.fn(() => `${(++sequence).toString(16).padStart(8, "0")}-1234-4123-8123-123456789abc`) });
 });
 const commandAt = (index: number): StyleMemoryCommand => JSON.parse(fetchMock.mock.calls[index][1].body);
 
@@ -38,9 +41,11 @@ it("restores only acknowledged choices and describes opt-in without claiming an 
 
 it("reviews explicit phrase chips and optional fields before creating a direction without selecting or enabling it", async () => {
   fetchMock.mockResolvedValueOnce(response(empty())).mockImplementationOnce(async (_url, options) => {
-    const command = JSON.parse(options.body) as Extract<StyleMemoryCommand, { kind: "create_board" }>;
-    return receipt({ ...empty(), revision: 1, boards: [{ ...board, id: command.id, profileId: command.profileId, label: command.label,
-      versions: [{ ...board.versions[0], rawSource: command.rawSource, compiled: command.compiled }] }] }, command);
+    const command = parseStyleMemoryCommand(JSON.parse(options.body));
+    const data = emptyStyleMemory();
+    // Accept the command only if the real server transition accepts its identities and fields.
+    applyStyleCommand(data, command, 1, "2026-11-09T00:00:00.000Z");
+    return receipt(publicStyleMemory(data, 1), command);
   });
   render(<StyleDirectionPanel user={user} onChange={jest.fn()} />);
   await userEvent.click(await screen.findByRole("button", { name: "New direction" }));
@@ -57,6 +62,8 @@ it("reviews explicit phrase chips and optional fields before creating a directio
   expect(commandAt(1)).toMatchObject({ kind: "create_board", label: "Easy campus", expectedRevision: 0, rawSource: "Relaxed shape",
     compiled: { aestheticKeywords: ["Relaxed shape"], palette: ["olive", "cream"], patterns: [], fits: [] } });
   expect(commandAt(1)).toMatchObject({ id: expect.stringMatching(/^[a-f0-9]{24}$/), profileId: expect.stringMatching(/^[a-f0-9]{24}$/) });
+  const creation = commandAt(1) as Extract<StyleMemoryCommand, { kind: "create_board" }>;
+  expect(creation.id).not.toBe(creation.profileId);
   expect(screen.getByRole("combobox", { name: "Style direction" })).toHaveValue("");
 });
 
@@ -145,4 +152,31 @@ it("does not enable learning without a saved situation and allows a read failure
   await screen.findByRole("button", { name: "Retry saved directions" });
   expect(change).toHaveBeenLastCalledWith(null);
   expect(pending).toHaveBeenLastCalledWith(false);
+});
+
+it("creates successive directions with distinct server-valid Board, profile and operation identities", async () => {
+  const data = emptyStyleMemory(); let revision = 0;
+  fetchMock.mockImplementation(async (_url, options) => {
+    if (options.method === "GET") return response(publicStyleMemory(data, revision));
+    const command = parseStyleMemoryCommand(JSON.parse(options.body));
+    expect(command.expectedRevision).toBe(revision);
+    applyStyleCommand(data, command, ++revision, "2026-11-09T00:00:00.000Z");
+    return receipt(publicStyleMemory(data, revision), command);
+  });
+  render(<StyleDirectionPanel user={user} onChange={jest.fn()} />);
+  for (const label of ["Easy campus", "Quiet weekend"]) {
+    await userEvent.click(await screen.findByRole("button", { name: "New direction" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Saved choice name" }), label);
+    await userEvent.type(screen.getByRole("textbox", { name: "Style word or phrase" }), "relaxed");
+    await userEvent.click(screen.getByRole("button", { name: "Add style phrase" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review direction" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save direction" }));
+    await screen.findByText("Saved. Choose it above when you're ready.");
+  }
+  expect(data.boards.map(row => row.label)).toEqual(["Easy campus", "Quiet weekend"]);
+  expect(new Set(data.boards.flatMap(row => [row.id, row.profileId])).size).toBe(4);
+  const posts = fetchMock.mock.calls.filter(([, options]) => options.method === "POST").map(([, options]) => JSON.parse(options.body));
+  expect(posts).toHaveLength(2);
+  expect(new Set(posts.map(command => command.operationId)).size).toBe(2);
+  expect(screen.getByRole("combobox", { name: "Style direction" })).toHaveValue("");
 });

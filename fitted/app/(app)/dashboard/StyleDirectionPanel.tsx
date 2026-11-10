@@ -7,6 +7,7 @@ import { styleMemoryRequest, StyleMemoryRequestError, type StyleMemoryUser } fro
 interface Props {
   user: StyleMemoryUser | null;
   disabled?: boolean;
+  refreshGeneration?: number;
   onChange(context: StyleContextSelection | null): void;
   onPendingChange?(pending: boolean): void;
   onStateChange?(state: StyleMemoryState): void;
@@ -27,12 +28,15 @@ export default function StyleDirectionPanel(props: Props) {
   return props.user ? <OwnerPanel key={props.user.uid} {...props} user={props.user} /> : null;
 }
 
-function OwnerPanel({ user, disabled = false, onChange, onPendingChange, onStateChange }: Omit<Props, "user"> & { user: StyleMemoryUser }) {
+function OwnerPanel({ user, disabled = false, refreshGeneration = 0, onChange, onPendingChange, onStateChange }: Omit<Props, "user"> & { user: StyleMemoryUser }) {
   const [memory, setMemory] = useState<StyleMemoryState | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<StyleMemoryCommand | null>(null);
+  const [refreshRequired, setRefreshRequired] = useState(false);
+  const [settledRead, setSettledRead] = useState(0);
+  const consumedRefresh = useRef(refreshGeneration);
   const [manage, setManage] = useState(false);
   const [editor, setEditor] = useState<EditForm | null>(null);
   const [erase, setErase] = useState<{ kind: "board" | "routine"; id: string; label: string } | null>(null);
@@ -51,19 +55,23 @@ function OwnerPanel({ user, disabled = false, onChange, onPendingChange, onState
   const onStateRef = useRef(onStateChange);
   useEffect(() => { userRef.current = user; onChangeRef.current = onChange; onPendingRef.current = onPendingChange; onStateRef.current = onStateChange; }, [user, onChange, onPendingChange, onStateChange]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (retainAcknowledgedState = false) => {
     const life = lifecycle.current;
     const requestGeneration = ++life.generation;
     const controller = new AbortController(); life.controllers.add(controller);
+    if (retainAcknowledgedState) setRefreshRequired(true);
     setBusy(true); setError("");
     try {
       const state = await styleMemoryRequest(userRef.current, undefined, controller.signal);
-      if (life.active && life.generation === requestGeneration) setMemory(state);
+      if (life.active && life.generation === requestGeneration) { setMemory(state); setRefreshRequired(false); }
     } catch (failure) {
-      if (life.active && life.generation === requestGeneration) { setMemory(null); setError(failure instanceof Error ? failure.message : "Couldn't load saved directions."); }
+      if (life.active && life.generation === requestGeneration) {
+        if (!retainAcknowledgedState) setMemory(null);
+        setError(failure instanceof Error ? failure.message : "Couldn't load saved directions.");
+      }
     } finally {
       life.controllers.delete(controller);
-      if (life.active && life.generation === requestGeneration) setBusy(false);
+      if (life.active && life.generation === requestGeneration) { setBusy(false); setSettledRead(requestGeneration); }
     }
   }, []);
 
@@ -79,15 +87,24 @@ function OwnerPanel({ user, disabled = false, onChange, onPendingChange, onState
     };
   }, [refresh]);
   useEffect(() => {
+    // Consume an explicit refresh once, after any uncertain command is resolved.
+    // Remounting here would lose its stable operation ID and retry state.
+    if (refreshGeneration === consumedRefresh.current || busy || pending) return;
+    consumedRefresh.current = refreshGeneration;
+    void refresh(true);
+  }, [refreshGeneration, busy, pending, refresh]);
+  useEffect(() => {
     onChangeRef.current(memory ? selectedStyleContext(memory) : null);
     if (memory) onStateRef.current?.(memory);
   }, [memory]);
-  useEffect(() => { onPendingRef.current?.(busy || !!pending); }, [busy, pending]);
+  // A fast refresh can batch busy=true/false together; its acknowledgement must
+  // still release the parent's explicit refresh barrier after selection updates.
+  useEffect(() => { onPendingRef.current?.(busy || !!pending || refreshRequired); }, [busy, pending, refreshRequired, settledRead]);
 
   const board = memory?.boards.find(row => row.id === memory.selectedBoardId && row.status === "active");
   const routine = memory?.routines.find(row => row.id === memory.selectedRoutineId && row.status === "active");
   const context = memory ? selectedStyleContext(memory) : null;
-  const locked = disabled || busy || !!pending;
+  const locked = disabled || busy || !!pending || refreshRequired;
   const otherLocked = locked || !!editor || !!erase;
   const compiled: CompiledStyleProfile = { aestheticKeywords: phrases, palette: list(palette), patterns: list(patterns), fits: list(fits) };
 
@@ -248,7 +265,7 @@ function OwnerPanel({ user, disabled = false, onChange, onPendingChange, onState
     {notice && <p role="status" className="text-sm text-slate-600">{notice}</p>}
     {error && <div role="alert" className="space-y-2 text-sm text-red-700"><p>{error}</p>
       {pending ? <><p>The change is still unconfirmed. Outfit requests wait until it is resolved.</p><button type="button" className={buttonClass} disabled={disabled || busy} onClick={() => void send(pending)}>Retry same change</button></> :
-        !memory && <button type="button" className={buttonClass} disabled={disabled || busy} onClick={() => void refresh()}>Retry saved directions</button>}
+        (refreshRequired || !memory) && <>{refreshRequired && <p>Outfit requests wait until saved directions are refreshed.</p>}<button type="button" className={buttonClass} disabled={disabled || busy} onClick={() => void refresh(refreshRequired)}>Retry saved directions</button></>}
     </div>}
   </section>;
 }

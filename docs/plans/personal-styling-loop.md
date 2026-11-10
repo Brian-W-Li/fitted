@@ -26,11 +26,12 @@ boards, automatic style detection, calendar integration, a new standalone site, 
 participant study, activation of the frozen catalog head, or a guarantee of improved
 human preference accuracy. Those are outside this deliverable.
 
-## 2. Verified starting point and source index
+## 2. Source index and original inspection boundary
 
-The live walkthrough inspected existing wardrobe, feedback history, garment recall,
-saved proposals, exploration controls, plan forms and wear forms. It made no generation
-calls or content writes. Fresh model quality and hosted write behavior were not tested.
+Before implementation, a read-only live walkthrough inspected wardrobe, feedback,
+garment recall, proposals, exploration, planning and wear forms. That historical
+inspection made no generation calls or content writes and does not verify current
+hosted write behavior or fresh model quality. The maintained source index follows.
 
 | Existing owner | What it establishes / extension seam |
 |---|---|
@@ -38,17 +39,20 @@ calls or content writes. Fresh model quality and hosted write behavior were not 
 | `fitted/app/(app)/memory/VariationForm.tsx` | Saved-situation exploration and new-situation adaptation already exist. Extend context inheritance without rebuilding them. |
 | `fitted/lib/mlRecommend.ts` | Owner/lineage admission, replay, wardrobe/history load, service call, snapshot admission and browser projection. |
 | `fitted/lib/mlRequestAdapter.ts` | Typed cross-runtime lens/garment mapping. Nonempty constraints are currently rejected; new style fields must be explicit. |
-| `fitted/models/GenerationSnapshot.ts` | Immutable inputs/candidates/shown identities and reserved profile fields. Reserved fields do not constitute implemented profiles. |
-| `fitted/lib/interactions.ts`, `feedbackAmendments.ts`, `feedbackEvidence.cjs`, `latestFeedbackState.ts` | Snapshot-bound reactions, latest state, correctable reasons and removal. Notes are currently stored but do not steer recommendations. |
-| `fitted/lib/mlBehavioralRows.ts` | Bounded owner history projection. Current signals use item IDs, exact signatures and exposure, not attribute learning. |
+| `fitted/models/GenerationSnapshot.ts` | Immutable inputs/candidates/shown identities, captured style context and experimental decision provenance. |
+| `fitted/lib/interactions.ts`, `feedbackAmendments.ts`, `feedbackEvidence.cjs`, `latestFeedbackState.ts` | Snapshot-bound reactions, latest state, correctable reasons and removal. Free prose is provenance; typed concerns and learning dispositions affect eligibility. |
+| `fitted/lib/mlBehavioralRows.ts` | Bounded owner history projection. Projects existing item/signature/exposure signals; named-context learning evidence has a separate owner below. |
 | `ml-system/service/app.py`, `service/contract_fields.json` | Validated HTTP boundary, behavioral reducers and traced engine dispatch. |
 | `ml-system/fitted_core/rescue.py`, `sampler.py`, `generation.py`, `validator.py` | Bounded generation and structural authority; the model call is isolated in generation. |
 | `ml-system/fitted_core/ranker.py`, `response.py` | Filtering, score/diversity/truncation and final surfaced selection. The existing experimental selection-score override has no production caller. |
 | `fitted/lib/outfitExperience/`, `outfitPlanning/`, `snapshotVisibility.ts` | Suggestions, plans, actual wear, corrected report derivatives and visibility stay distinct. |
 | `fitted/lib/ownerWriteFence.ts`, `fitted/models/User.ts`, `userErasure.ts` | Admission fence and owned-data deletion; new storage must participate. |
+| `fitted/lib/styleMemory/`, `stylePreferenceEvidence.ts`, `styleLearningAmendments.ts` | Versioned intentions, owner-fenced captured partitions and correctable resolved evidence. |
+| `ml-system/fitted_core/preferences.py`, `preference_features.py`, `style_context.py` | Stateless bounded relationship fit, declared feature contracts and generation context. |
 
-Garment subtype is stored in Mongo but is **not currently sent to Python**. The
-stylist currently consumes declared text attributes, not photo pixels. Optional fit
+Named protocol-v2 requests forward declared garment subtype to Python; legacy
+requests retain their prior projection. The stylist consumes declared text attributes,
+not photo pixels. Optional fit
 describes cut; it does not establish personal comfort, construction or layering fit.
 The production adapter currently supplies no meaningful formality attribute. The old
 experimental feature banks and human answers are not production feature sources.

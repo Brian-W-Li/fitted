@@ -4,6 +4,7 @@ import { resolveFeedbackEvidence, voteEvidenceFilter, FEEDBACK_ACCOUNT_ROW_LIMIT
 import { amendLearningDisposition, bumpStyleMemoryRevision, capturedLearningEnabled, initialLearningDisposition, LearningMutationError } from "@/lib/styleLearningAmendments";
 import { ownerWriteFence, OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
 import { snapshotVisible, visibleSnapshots } from "@/lib/snapshotVisibility";
+import { validCapturedStyleContext } from "@/lib/styleContext";
 /**
  * M5 feedback boundary (C6, §I) — append-only interactions bound to `{snapshotId, candidateId}`.
  *
@@ -336,6 +337,7 @@ export interface HistoryCard {
   learningDisposition?: "normal" | "exception" | "do_not_learn";
   dispositionRevision?: number;
   learningAvailable?: boolean;
+  capturedContext?: { boardLabel: string; profileVersion: number; routineLabel: string | null; routineVersion: number | null };
 }
 
 /** Join one interaction row to its bound snapshot candidate → the card content the history renders. */
@@ -355,6 +357,14 @@ function projectHistoryCard(interaction: Any, snapshot: Any | undefined): Histor
     (c: Any) => c.candidateId === interaction.candidateId,
   );
   if (!candidate) return base;
+  // The join above has already enforced owner/source visibility. Labels come only
+  // from this immutable capture, never current settings or denormalized vote fields.
+  const captured = snapshot.styleContext;
+  if (validCapturedStyleContext(captured) && (captured.routineId === null
+    ? captured.routineLabel === null : typeof captured.routineLabel === "string" && captured.routineLabel.trim())) {
+    base.capturedContext = { boardLabel: captured.boardLabel, profileVersion: captured.profileVersion,
+      routineLabel: captured.routineLabel, routineVersion: captured.routineVersion };
+  }
   base.learningAvailable = capturedLearningEnabled(interaction);
   if (base.learningAvailable) {
     base.learningDisposition = interaction.learningDisposition ?? "normal";

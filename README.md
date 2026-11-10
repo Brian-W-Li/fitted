@@ -3,7 +3,8 @@
 Fitted aims to make personal styling convenient: usable outfits from owned clothes,
 meaningful personal-taste learning, and quick visual choices for real daily life.
 The current app supplies wardrobe-grounded suggestions, planning and correctable
-wear memory; it has not yet demonstrated personal-taste learning.
+wear memory. Source includes an experimental contextual learner; improved personal
+styling remains unestablished.
 
 Read [the spec's ambition](docs/Fitted_Spec_v2.md#1-vision--the-green-shirt-promise)
 and [the complete user stories](docs/Fitted_Spec_v2_recovered_appendix.md#c1-detailed-user-stories-decisions-and-spec-implications)
@@ -25,7 +26,8 @@ partial photo cleanup or an uncertain result and reloads the current closet.
 The [hosted app](https://fitted-three.vercel.app) release evidence is recorded in
 [PR #2](https://github.com/Brian-W-Li/fitted/pull/2). Local candidates and their
 limits live in the roadmap. Source/tests establish behavior; future design is not
-a shipped claim. A trained head has no production ranking vote. The public source
+a shipped claim. The frozen catalog head has no serving vote; the selected experimental app learner
+has a separate opt-in contract and evidence boundary (§16.6). The public source
 excludes participant ledgers, private wardrobe cases and private branch ancestry.
 
 For interrupted account deletion, [the manual recovery contract](docs/Fitted_Spec_v2.md#151-generationsnapshot--the-contract-next) and its linked script govern operator retry.

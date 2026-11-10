@@ -128,6 +128,31 @@ def test_schema_normalization_sets_and_known_absence():
     assert "mid.present" not in values
 
 
+@pytest.mark.parametrize("top_colors,bottom_colors,expected", [
+    (["red"], ["orange"], {"same_chromatic_family"}),
+    (["red"], ["blue"], {"different_chromatic_family"}),
+    (["blue"], ["light blue"], {"same_chromatic_family"}),
+    (["white"], ["off-white"], {"both_neutral"}),
+    (["white", "red"], ["white", "blue"], {"shared_exact", "different_chromatic_family"}),
+    (["red", "blue"], ["orange"], {"same_chromatic_family"}),
+    (["white"], ["red", "blue"], {"neutral_chromatic"}),
+])
+def test_named_color_relationships_keep_declared_meanings_for_complete_color_sets(top_colors, bottom_colors, expected):
+    # These are captured color facts, not preference labels or aesthetic rules.
+    # Warm red/orange share a family; red/blue differ; a shared white tag does
+    # not make two otherwise chromatic multicolor garments both neutral.
+    candidate = outfit("color-facts")
+    candidate["items"][0]["colors"] = top_colors
+    candidate["items"][1]["colors"] = bottom_colors
+    facts = capture_items(candidate["items"])
+    groups, _ = common_groups([facts])
+    values = encode(facts, groups)
+    names = ("shared_exact", "both_neutral", "neutral_chromatic", "same_chromatic_family", "different_chromatic_family")
+    actual = {name for name in names if values.get(f"top_bottom.color:{name}", 0.0) == 1.0}
+    assert actual == expected
+    assert all(values.get(f"top_bottom.color:{name}", 0.0) in (0.0, 1.0) for name in names)
+
+
 def test_optional_unknown_is_removed_request_wide_from_training_and_candidates():
     rows, candidates = relationship_data()
     candidates[0]["items"][0]["fit"] = None
@@ -237,6 +262,21 @@ def test_under_support_single_class_and_single_garment_cannot_unlock():
         row["items"][1]["id"] = "the-only-bottom"
     # Shoes retain distinct compositions, but cannot establish top/bottom trait support.
     assert evaluate(rows, candidates).reason == "unsupported_candidate_contrast"
+
+
+@pytest.mark.parametrize("minority", ["accepted", "rejected"])
+def test_seven_distinct_compositions_with_only_one_minority_judgment_still_abstain(minority):
+    rows, candidates = relationship_data()
+    # Use a subset of the existing authored outcomes unchanged: six judgments
+    # of one sign and one of the other. Total support exceeds six, but each
+    # class independently needs two examples before experimental influence.
+    selected = [row for row in rows if row["action"] != minority]
+    selected.append(next(row for row in rows if row["action"] == minority))
+    result = evaluate(selected, candidates)
+    assert result.support == 7
+    assert (result.likes, result.dislikes) == ((1, 6) if minority == "accepted" else (6, 1))
+    assert result.status == "abstained" and result.reason == "insufficient_evidence"
+    assert set(result.deltas.values()) == {0.0}
 
 
 def test_partition_complete_ledger_then_cap_and_amendment_age():

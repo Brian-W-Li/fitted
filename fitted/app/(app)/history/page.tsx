@@ -49,6 +49,7 @@ interface HistoryCard {
   templateType?: string;
   feedbackReason?: FeedbackReasonValue;
   perItemFeedback?: PerItemFeedbackValue[];
+  capturedContext?: { boardLabel: string; profileVersion: number; routineLabel: string | null; routineVersion: number | null };
   learningAvailable?: boolean;
   learningDisposition?: "normal" | "exception" | "do_not_learn";
   dispositionRevision?: number;
@@ -419,11 +420,22 @@ export default function HistoryPage() {
 
                   <FeedbackNote reason={card.feedbackReason} items={card.displayItems} />
 
-                  {card.learningAvailable && <div className="mt-3 space-y-1 border-t border-slate-100 pt-2 text-xs text-slate-600">
-                    <p>{card.learningDisposition === "normal" ? "Included in experimental taste learning for its saved direction and situation." : "Excluded from taste learning. Your like or dislike stays unchanged."}</p>
-                    <button disabled={busy} className="underline disabled:opacity-40" onClick={() => void changeLearning(card)}>
-                      {card.learningDisposition === "normal" ? "Exclude from taste learning" : "Also reflects my taste here"}
-                    </button>
+                  {(card.capturedContext || card.learningAvailable) && <div className="mt-3 space-y-1 border-t border-slate-100 pt-2 text-xs text-slate-600"
+                    role={card.capturedContext ? "group" : undefined}
+                    aria-label={card.capturedContext ? `Captured context: ${card.capturedContext.boardLabel} / ${card.capturedContext.routineLabel ?? "No saved situation"}` : undefined}>
+                    {card.capturedContext && <>
+                      <p className="break-words">Direction: {card.capturedContext.boardLabel}</p>
+                      <p className="break-words">{card.capturedContext.routineLabel === null ? "No saved situation" : `Situation: ${card.capturedContext.routineLabel}`}</p>
+                      <details><summary className="cursor-pointer">Captured versions</summary>
+                        <p>Direction version {card.capturedContext.profileVersion}{card.capturedContext.routineVersion !== null ? ` · Situation version ${card.capturedContext.routineVersion}` : ""}</p>
+                      </details>
+                    </>}
+                    {card.learningAvailable && <>
+                      <p>{card.learningDisposition === "normal" ? "Included in experimental taste learning for its saved direction and situation." : "Excluded from taste learning. Your like or dislike stays unchanged."}</p>
+                      <button disabled={busy} className="underline disabled:opacity-40" onClick={() => void changeLearning(card)}>
+                        {card.learningDisposition === "normal" ? "Exclude from taste learning" : "Also reflects my taste here"}
+                      </button>
+                    </>}
                   </div>}
 
                   {curatable && (detailStatus === "saving" ? <p className="text-xs text-slate-500">Saving details…</p>

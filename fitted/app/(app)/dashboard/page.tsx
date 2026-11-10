@@ -530,12 +530,17 @@ function DashboardInner() {
   const [occasion, setOccasion] = useState("");
   const [selectedStyleContext, setSelectedStyleContext] = useState<StyleContextSelection | null>(null);
   const [styleContextPending, setStyleContextPending] = useState(false);
+  const [styleMemoryRefreshGeneration, setStyleMemoryRefreshGeneration] = useState(0);
   const [expectedWeather, setExpectedWeather] = useState<ExpectedWeather>(EMPTY_EXPECTED_WEATHER);
   const [eventTimeBucket, setEventTimeBucket] = useState<EventTimeBucket>("now");
   const [customEventDateTime, setCustomEventDateTime] = useState("");
   const [result, setResult] = useState<RenderResult | null>(null);
   const reactionGenerationsRef = useRef(new Map<string, number>());
   const restoreEpochRef = useRef(0);
+  const pendingStyleRestoreRef = useRef<{
+    uid: string; ownerEpoch: number; restoreEpoch: number;
+    context: CapturedStyleContext; controller: AbortController;
+  } | null>(null);
   const resultRef = useRef(result);
   resultRef.current = result;
   const [inFlight, setInFlight] = useState(false);
@@ -708,6 +713,9 @@ function DashboardInner() {
     };
     if (restored?.styleContext && firebaseUser) {
       const user = firebaseUser;
+      // The card stays hidden during validation, but acknowledged erasure must
+      // still invalidate its copied content and any already-started source read.
+      pendingStyleRestoreRef.current = { uid, ownerEpoch, restoreEpoch, context: restored.styleContext, controller };
       void (async () => {
         let state: "visible" | "unavailable" | "unverified" = "unverified";
         try {
@@ -716,6 +724,9 @@ function DashboardInner() {
           state = await validateStyledRestore({ styleContext: restored.styleContext!, shown: restored.shown }, token, controller.signal);
         } catch { /* Keep unverified content hidden; a later return may revalidate it. */ }
         if (!current()) return;
+        // A transient failure keeps the hidden cache for retry. Keep its owner-
+        // scoped identity too, so a later erase acknowledgement can remove it.
+        if (state !== "unverified") pendingStyleRestoreRef.current = null;
         if (state === "visible") publish();
         else {
           if (state === "unavailable") removeKey(DASHBOARD_KEY(uid));
@@ -724,7 +735,10 @@ function DashboardInner() {
         }
       })();
     } else publish();
-    return () => { cancelled = true; controller.abort(); };
+    return () => {
+      cancelled = true; controller.abort();
+      if (pendingStyleRestoreRef.current?.restoreEpoch === restoreEpoch) pendingStyleRestoreRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
 
@@ -808,6 +822,8 @@ function DashboardInner() {
       // re-roll path uses this to keep the outfits on screen when a re-roll degrades).
       onResult: (r: RenderResult) => void | boolean,
     ) => {
+      pendingStyleRestoreRef.current?.controller.abort();
+      pendingStyleRestoreRef.current = null;
       ++restoreEpochRef.current; // A delayed cache read cannot replace a newer command.
       const userUid = user.uid;
       const ownerEpoch = activeUserEpochRef.current;
@@ -868,6 +884,8 @@ function DashboardInner() {
         const rendered = data as RenderResult;
         if (rendered.commandStatus === "superseded") {
           removeKey(PENDING_KEY(userUid));
+          setStyleContextPending(true);
+          setStyleMemoryRefreshGeneration(generation => generation + 1);
           setError("Your styling memory changed while these outfits were being prepared. Your previous outfits are still here. Start a new request when you're ready.");
           return;
         }
@@ -1125,14 +1143,20 @@ function DashboardInner() {
   const bindable = Boolean(result?.bindable);
   const onStyleMemoryState = useCallback((memory: StyleMemoryState) => {
     const cached = resultRef.current;
-    if (!uid || activeUserUidRef.current !== uid || !cached?.styleContext) return;
-    const context = cached.styleContext;
+    if (!uid || activeUserUidRef.current !== uid) return;
+    const pending = pendingStyleRestoreRef.current;
+    const currentPending = pending?.uid === uid && pending.ownerEpoch === activeUserEpochRef.current &&
+      pending.restoreEpoch === restoreEpochRef.current ? pending : null;
+    const context = cached?.styleContext ?? currentPending?.context;
+    if (!context) return;
     const retainedBoard = memory.boards.some(board => board.id === context.boardId && board.profileId === context.profileId &&
       board.versions.some(version => version.version === context.profileVersion));
     const retainedRoutine = context.routineId === null || memory.routines.some(routine => routine.id === context.routineId &&
       routine.versions.some(version => version.version === context.routineVersion));
     if (retainedBoard && retainedRoutine) return; // Selection, renaming and archive preserve history.
     ++restoreEpochRef.current;
+    currentPending?.controller.abort();
+    pendingStyleRestoreRef.current = null;
     setResult(null); setFeedbackModal(null); setRegenModal(null);
     activeLensRef.current = null; activeLocksRef.current = [];
     removeKey(DASHBOARD_KEY(uid));
@@ -1185,7 +1209,7 @@ function DashboardInner() {
         )}
 
         <div className="mt-4"><StyleDirectionPanel user={firebaseUser} disabled={inFlight || signingOut}
-          onChange={setSelectedStyleContext} onPendingChange={setStyleContextPending} onStateChange={onStyleMemoryState} /></div>
+          refreshGeneration={styleMemoryRefreshGeneration} onChange={setSelectedStyleContext} onPendingChange={setStyleContextPending} onStateChange={onStyleMemoryState} /></div>
 
         {/* The rescue teaser presupposes they HAVE a piece they can't style — false premise at 0
             items, and it would compete with the signpost above. */}

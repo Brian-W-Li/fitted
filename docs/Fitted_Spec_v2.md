@@ -189,7 +189,7 @@ scoring or rule logic; the backend always owns final authority. GPT drift cannot
 
 **Existing seams and future choices.** The item-level `SignalScorer` affects sampled pools when the signal branch is eligible; the outfit-level `OutfitScorer` supplies content diagnostics and response labels. A captured compatibility value does not establish a trained rank term. Existing response selection uses cold-start compatibility to break equal-score ties and diversify labels; that selection effect is distinct from ranker scoring. Current rank terms and final selection are owned by the ranker/response implementation (§§9/14/15).
 
-**Current mechanism versus ambition.** A bounded stylist proposes owned combinations; structural validation, exact controls, deterministic feedback terms and diversity govern returned options. Like/dislike history can favor already-liked item IDs in new combinations and exact liked signatures, but it does not currently learn attribute relationships or style-specific taste. Wear outcomes remain separate. Personal learning must eventually generalize usefully under context (§1/§16); a graph, model family and integration point are implementation choices. The historical M6/catalog architecture is a candidate reference, not the prescribed destination or a permission to activate its frozen head. A future mechanism must influence actual final choices when justified, rather than merely add a trace or operate only on oversized closets.
+**Current mechanism versus ambition.** A bounded stylist proposes owned combinations; structural validation, exact controls, deterministic feedback terms and diversity govern returned options. Legacy unscoped feedback favors item IDs and exact outfit signatures. The selected experimental path (§16.6) additionally partitions named-context evidence and fits bounded attribute-relationship preferences at request time, before candidate caps and final selection. Synthetic selection checks establish that mechanism; they do not establish better human taste predictions. Wear outcomes remain separate. Personal learning must eventually generalize usefully under context (§1/§16); a graph, model family and integration point are implementation choices. The historical M6/catalog architecture is a candidate reference, not the prescribed destination or a permission to activate its frozen head. A future mechanism must influence actual final choices when justified, rather than merely add a trace or operate only on oversized closets.
 
 ## 6. Data model
 
@@ -274,9 +274,11 @@ collection in the historical M4 migration; that executed wipe is not an instruct
   currentVersion}`.
 - **StyleProfileVersion** (immutable; board edit mints a new one): a **small typed compiled schema** —
   `{palette, aestheticKeywords, silhouetteHints, fitHints, formalityRange, seasonality, negativeCues,
-  embedding[STAGED], compilerVersion}`. **Only the compiled schema** enters prompt/cache/ranking/training;
-  raw board input is stored separately. *(Resolves the "StyleProfile = vague blob" risk: a version is not
-  done until two compilers produce the same schema and the engine consumes only that schema.)*
+  embedding[STAGED], compilerVersion}`. The selected text implementation (§16.6) uses the explicit subset `aestheticKeywords`, `palette`,
+  `patterns` and `fits`; the richer fields above remain design targets. **Only the compiled schema** enters prompt/cache/ranking/training;
+  raw board input is stored separately. *(Resolves the "StyleProfile = vague blob" risk: the engine consumes the reviewed
+  typed contract. Future text/visual compilers must target that same versioned schema;
+  the selected deterministic text compiler does not require a second compiler.)*
 - **StyleProfileSnapshot**: the immutable copy taken at request time and stored in the GenerationSnapshot.
 - *Active-profile semantics:* one global active profile in v1; routine-attached profiles are `[NORTH-STAR]`.
   The single active profile is only the **v1 default selection** — every request/feedback snapshot may still
@@ -343,12 +345,12 @@ collection in the historical M4 migration; that executed wipe is not an instruct
 - **StyleMove**: `{moveType, changedItemIds, oneSentence, matchedTraits[], missingTraits[]}`. Every
   StyleMove must reference an actually changed/added item — a semantic guarantee where a baseline outfit
   exists (rescue/upgrade/ranker, §12/§14); the M2 validation boundary checks only the schema and
-  `changedItemIds ⊆ outfit items` (H23, §13). `matchedTraits/missingTraits` are populated only
-  once a StyleProfile exists (`[NEXT]`); at `[NOW]` a StyleMove is `{moveType, changedItemIds, oneSentence}`. *(StyleMove reverses the v1.2 §21 non-goal
+  `changedItemIds ⊆ outfit items` (H23, §13). `matchedTraits/missingTraits` remain deferred even when a text StyleProfile exists;
+  the current StyleMove is `{moveType, changedItemIds, oneSentence}`. *(StyleMove reverses the v1.2 §21 non-goal
   "recommendation explanations" — a deliberate, recorded reversal; it is core to v2.)*
 
 ### 6.6 Feedback & memory
-- **OutfitInteraction:** the live reaction channel writes `accepted`/`rejected`; [the model](../fitted/models/OutfitInteraction.ts) owns the exact enum and reserved fields. Unused `planned`/`packed` scaffold does not implement planning events. Actual wear uses `OutfitExperience`, and dated intent uses the planning store (§16); do not reintroduce removed legacy verbs to collapse these records. Snapshot-bound reactions carry `{snapshotId,candidateId}` and server-read garment keys. The server verifies shown membership/ownership and never trusts echoed composition. Scope/disposition fields are design seams, not consumed context-aware learning. Structured reasons stay distinct from bounded raw rationale, which is provenance rather than a training label unless deliberately reviewed (§23-H34).
+- **OutfitInteraction:** the live reaction channel writes `accepted`/`rejected`; [the model](../fitted/models/OutfitInteraction.ts) owns the exact enum and reserved fields. Unused `planned`/`packed` scaffold does not implement planning events. Actual wear uses `OutfitExperience`, and dated intent uses the planning store (§16); do not reintroduce removed legacy verbs to collapse these records. Snapshot-bound reactions carry `{snapshotId,candidateId}` and server-read garment keys. The server verifies shown membership/ownership and never trusts echoed composition. The selected named-context path captures immutable `styleContext` and consumes typed `learningDisposition` amendments (§16.6); legacy unscoped feedback is not silently enrolled. The older `scopeTarget` scaffold alone does not implement arbitrary global/Board/Routine rule propagation. Structured reasons stay distinct from bounded raw rationale, which is provenance rather than a training label unless deliberately reviewed (§23-H34).
 - **StyleEdge memory** (§11): `compatibility` (content, derived) + `behavioralStrength` (sparse;
   non-negative in the `[NOW]`/`[NEXT]` layer, signed at `[STAGED]` — H18).
   *The deployed/ v1.2 additive memory (`ItemAffinity`, comboBoost/itemBoost) is **demoted** to the humble
@@ -376,9 +378,11 @@ Two keys, never conflated (carried from v1.2 §5; trap-guard R10 inline).
   outer and shoes. Used for: dislike cooldown, BaseKey variant cap.
 - **FullSignature**: `BaseKey + "|outer=" + (outerId|"none") + "|shoes=" + (shoesId|"none")`. Used for:
   dedup within a generation pass, comboBoost/edge matching. Same base + different outer = different outfit.
-- **No lens component — the known gap (§23-H101).** Both keys identify garment composition. The current unscoped reaction projection makes a 👍/👎 apply across occasions; scope could be modeled separately from these garment keys. Adding a lens to FullSignature would be an
-  H30-style append; adding it to BaseKey (what the cooldown uses) is a **redefinition**, not an
-  append — which is why H101 is a design call and not a patch.
+- **Garment keys remain scope-free (§23-H101).** Both keys identify composition. Named-context
+  requests partition eligible reactions separately by captured profile/Routine versions and weather
+  (§16.6); legacy requests retain their unscoped behavior. This does not require rewriting garment
+  keys. Adding a lens to FullSignature would be an H30-style append; changing BaseKey would redefine
+  persisted identity. Neither is part of the selected contextual-learning contract.
 - **Forward-compat slot rule (§23-H30):** a future optional garment role (accessory/bag/hat —
   §6.1/§8) appends to the FullSignature **only when present**, in fixed canonical order, so existing keys stay
   valid (no migration). BaseKey stays **base-only** for `[NOW]` cooldown/variant-cap; making outer/shoe-defined
@@ -501,9 +505,11 @@ This section describes relationship evidence and current feedback mechanisms; th
 
 **Target StyleEdge representation:** if relationships are represented this way, a connection between two items under a lens has two conceptually separate fields. This is not a requirement that every personal-learning mechanism use a graph:
 
-> **"Under a lens" is the target and is NOT yet true of either field (§23-H101).** §7's canonical
-> garment keys — which drive the current unscoped cooldown and comboBoost —
-> do not carry scope, and current reaction projections also omit it. H101 owns the contextual preference gap; H28 records the separate content-scoring seam. Future design must preserve the distinction rather than weaken the ambition to match unscoped code.
+> **Content compatibility and scoped taste remain distinct.** §7's garment keys carry no lens.
+> Legacy cooldown/boost projections remain unscoped; named requests use the captured partition in
+> §16.6 for existing preference terms and the experimental relationship learner. This does not
+> establish a learned contextual content-compatibility graph or useful personal predictions.
+> H101 owns remaining application acceptance; H28 owns the separate content-scoring seam.
 - **`compatibility`** — content-based; "do these work together stylistically?" Computed by pure Python
   scoring functions from canonical item attributes, compiled StyleProfile traits, and later embeddings /
   learned model output. **In M2, GPT may provide `StyleMove` prose only; future schemas may add closed-set
@@ -615,7 +621,7 @@ functions (H20)**. `imageUrl` is excluded from the GPT payload (token cost — a
 **Prompt-vs-board precedence** — **the target, NOT current behaviour (§23-H105)**: hard constraints
 (dress code / weather / comfort) > prompt occasion & formality > active StyleProfile shapes choices
 *within* the valid context > revealed negative signal suppresses bad repeats. A casual board never
-overrides a "formal interview" occasion. **Implemented limits:** occasion text guides the stylist; general dress-code/formality/comfort validation and active StyleProfiles are not implemented. Reaction-derived boosts/cooldowns are lens-blind (§23-H101). Weather reaches generation and tie-breaking, and the bounded removable-layer policy can reserve an eligible outer-layer option for mild/cold conditions with reported rain/wind signals. Exact controls and exclusions still take precedence. This does not establish waterproofness, wind protection, a general weather suitability scorer or context-aware personal taste. [Layer policy](../ml-system/fitted_core/layer_policy.py) owns that narrow selection mechanism.
+overrides a "formal interview" occasion. **Implemented limits:** occasion text and declared text StyleProfile traits guide the stylist under §16.6. Named-context preference projections are scoped; legacy requests remain unscoped. General dress-code/formality/comfort validation is not implemented (§23-H101/H105). Weather reaches generation and tie-breaking, and the bounded removable-layer policy can reserve an eligible outer-layer option for mild/cold conditions with reported rain/wind signals. Exact controls and exclusions still take precedence. This does not establish waterproofness, wind protection, a general weather suitability scorer or context-aware personal taste. [Layer policy](../ml-system/fitted_core/layer_policy.py) owns that narrow selection mechanism.
 
 ## 13. Normalize + validate `[NOW]`
 
@@ -634,7 +640,10 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
 
 - **Cooldown buffer** (Step 4): last-10 disliked **BaseKeys**, FIFO; filters out a disliked silhouette
   across all its outer/shoe variants. Derivable from `OutfitInteraction` (no new state).
-- **Scoring** (Step 5): `score = baseScore(+1.0) + behavioralSignal − dislikePenalty`. Humble v1
+- **Scoring** (Step 5): `score = baseScore(+1.0) + behavioralSignal − dislikePenalty + preference`.
+  `preference` is zero for legacy, disabled or abstaining requests. The bounded signed experimental
+  term and its identical-pool zero-learner comparator are governed by §16.6 and enter before
+  variant caps/top-K; final spread uses the complete score. Humble v1
   `behavioralSignal = comboBoost + itemBoost` (§11). `dislikePenalty` is a **positive magnitude**: +0.5 per
   disliked item over the last M=20 interactions (flat, not accumulated), subtracted by the formula.
   **Affinity is non-negative** — a dislike never decrements
@@ -681,8 +690,9 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
 - **No runtime candidate cache** (R1 retired at M5 — plan D2, 2026-07-06): every render, including a
   re-roll, is one constrained fresh generation with its own `generator` + `generationAttempts[]` and an
   immutable `GenerationSnapshot`. The durable `candidateCacheKey` field remains, but its M5 meaning is a
-  **Lens-chain grouping key**, not a cache lookup key: it is the sha256 frame over
-  `(sessionId, wardrobeVersion, occasion, weatherBucket, intent, forcedItemId, seedDate)`; it excludes
+  **Lens-chain grouping key**, not a cache lookup key: legacy requests use the sha256 frame over
+  `(sessionId, wardrobeVersion, occasion, weatherBucket, intent, forcedItemId, seedDate)`; named requests
+  additionally bind captured context under §16.6's versioned key/seed contract. The family excludes
   `generationIndex`, `controls`, and behavioral rows so re-roll siblings share the same Lens-chain while
   still writing distinct child snapshots. The old two-stage cache / TTL / cache-hit re-rank semantics are
   intentionally absent; a future scale optimization must be newly specified and must not weaken the
@@ -1151,11 +1161,11 @@ have no serving vote and are not prerequisites for this implementation.
 
 - **Text boards first** `[NEXT]` (B-track): a board from style words / phrases compiles to the typed StyleProfile (§6.2).
   Visual boards (image → VLM/embedding) reuse the same compiler at `[STAGED]`.
-- **Board edits change recommendations, gracefully**: an edit mints a new
-  `styleProfileVersion` (reproducibility) but preserves *semantic identity* for memory continuity. A graded
-  promise: major change (palette/silhouette/formality) refreshes strongly; minor change (a keyword tweak)
-  preserves more of the candidate pool. *(The major/minor threshold is OPEN — §23-H5 — default: any
-  palette/silhouette/formality change = major.)*
+- **Semantic edits and future continuity:** an edit mints a new `styleProfileVersion` while
+  retaining the Board/profile identity. In the selected implementation (§16.6), learning does not
+  carry across semantic versions; the new version starts opted out. Cosmetic renaming preserves
+  the version. Graded minor/major continuity remains a later design requiring explicit evidence
+  and a migration contract (§23-H5); it is not implemented by retaining an identity alone.
 - **Dormancy & seasonal revival** `[STAGED]`: inactive boards **sleep, not decay** — compatibility/trust
   preserved, freshness cooled, exposure reset; reactivation summarizes old anchors + new bridge
   opportunities. Routines adapt faster than boards (behavior vs identity memory).
@@ -1357,7 +1367,8 @@ affiliate (no-buy is the default trust posture; gap diagnosis is diagnosis-only 
 color *quizzes* + objective "fashionability" scoring (non-prescriptive by design — this does **not** bar an
 *optional, declared, coarse* body-proportion archetype as a refinable styling prior, nor learned color
 *compatibility*; §23-H27); real-time online *training* (continuous gradient updates — a serving-time
-**exploration** policy + periodic **batch** retraining is in-scope, §23-H31); full event
+**exploration** policy + periodic **batch** retraining is in-scope, §23-H31;
+§16.6 also permits a bounded stateless request-time fit, distinct from persistent continuous updates); full event
 sourcing; distributed-systems infrastructure (copy the contracts — candidate/ranking split, durable
 snapshots, cache-as-derived — not the machinery). *Reversed from v1.2 non-goals and now in scope:* StyleMove
 explanations, attribute-level StyleProfile traits, routine/occasion context — all deliberate, all here.
@@ -1422,14 +1433,14 @@ files — a new row takes the next unused ID across BOTH, and rows there are cit
 | H34 | Freeform feedback excluded as a trainable channel (§16/§6.6) | **RESOLVED** | *(RESOLVED in §16/§6.6.)* Posture rule 1/3: structured reasons stay the labels; raw/corrected rationale is persisted with provenance, excluded from training until reviewed |
 | H35 | Dormant boards (§17) have no data home in `active`/`archived` (§6.2) | **RESOLVED** | *(RESOLVED-seam in §6.2 → DEFERRED-B-track (impl).)* Posture rule 1: board status gains `dormant` (or a `DormantBoardState`) |
 | H36 | `ConstraintSet` is a fixed closed set (§6.3) | **RESOLVED** | *(RESOLVED in §6.3.)* Posture rule 1: additive + raw-preserving (optional user-declared constraint text/provenance) |
-| H37 | §16 anomaly scoping promises soft exceptions, but the scope vocab is only `outfit/board/routine/global` | **RESOLVED** | *(RESOLVED-DESIGN (S6); FIELDS LANDED (M4a C1).)* **Split** chosen (S6, §16/§6.6/plan §11.4): two additive nullable fields on `OutfitInteraction` — **`scopeTarget`** ∈ `outfit/board/routine/global/lens` (the `lens` value also carries H24's implicit/default-lens default) + **`learningDisposition`** ∈ `normal/exception/do_not_learn`. The split is load-bearing: a weather-forced dislike is `scopeTarget=outfit` **and** `learningDisposition=exception` — a merged enum can't represent both. **Fields added at M4a C1 (`OutfitInteraction.ts`, additive nullable, posture rule 1); anomaly-scoping behavior stays `[STAGED]`.** |
+| H37 | §16 anomaly scoping promises soft exceptions, but the scope vocab is only `outfit/board/routine/global` | **RESOLVED** | *(RESOLVED-DESIGN (S6); FIELDS LANDED (M4a C1).)* **Split** chosen (S6, §16/§6.6/plan §11.4): two additive nullable fields on `OutfitInteraction` — **`scopeTarget`** ∈ `outfit/board/routine/global/lens` (the `lens` value also carries H24's implicit/default-lens default) + **`learningDisposition`** ∈ `normal/exception/do_not_learn`. The split is load-bearing: a weather-forced dislike is `scopeTarget=outfit` **and** `learningDisposition=exception` — a merged enum can't represent both. **Historical scaffold added at M4a C1.** The selected §16.6 path now consumes typed normal/exception/exclusion amendments under captured named context; automatic anomaly interpretation and arbitrary `scopeTarget` propagation remain deferred. |
 | H38 | "one global active profile in v1" (§6.2) could collapse the lens out of stored memory | **RESOLVED** | *(RESOLVED-HERE.)* The global active profile is the **v1 default selection only**; every request/feedback snapshot may still carry `boardId`/`styleProfileId`/immutable version/confidence when present, so "which version of me" isn't lost (§6.2/§6.3/§15) |
 | H39 | The "remembers it as a personal style rule" loop (appendix C.8) has no rule object | **BLOCKED: the [STAGED] PersonalStyleRule work is scheduled** | *(OPEN → DEFERRED-`[STAGED]`.)* Add a deferred **`PersonalStyleRule`/`MemoryLesson`** artifact compiled from repeated scoped feedback (source events + scope), so Progress/Debugger surfaces don't scrape raw interactions (§16/§6.6) |
 | H40 | The `[NOW]` product *assumes* GPT styles believably from **text attributes only** (images stripped, §12) — unvalidated | **RESOLVED** | *(VALIDATED-mechanical (Spearhead C6) / believability descriptive.)* The `[NOW]` viability bet, measured at Spearhead C6 on the golden corpus (gpt-4o, `--runs 5`, 55 generations): 100% JSON-parse, 100% forced-item inclusion, 100% StyleMove presence, 0 hallucinated ids, 0 schema failures (full results + cost/latency baseline in `docs/plans/spearhead.md` §E). Text-only generation held mechanically, so vision-input-to-generator (H33) was **not** promoted. Human believability stays **descriptive** (the §E rubric, never a gate); a larger believability read remains worthwhile pre-M5 if the rescue surface ships (§12/§21) |
 | H41 | §2 "graph never the interface" + "hook first" could harden into bans | **RESOLVED** | *(RESOLVED-HERE.)* Cards are the **default dressing interface**; a **secondary** graph/progress/`[NORTH-STAR]`-editing surface may exist behind progressive disclosure. Hook-first is the **default**, not a ban on optional lens-first board/routine selection (§2) |
 | H42 | The forced/rescue item is in 100% of rescue candidates, so the ranker's overuse mechanic (§14) flags it in every rescue outfit | **RESOLVED** | *(RESOLVED-HERE (accepted) → DEFERRED (exemption).)* Uniform across all rescue candidates → relative ranking unaffected, so accepted as harmless. A forced-item *exemption* signal on the ranker is a future refinement, deferred (would reopen the closed M3 contract); see `docs/plans/spearhead.md` §G |
 | H43 | GenerationSnapshot retention / purge / **redaction** on account delete was undefined, in tension with snapshots being immutable training truth (§15) | **RESOLVED** | *(RESOLVED (Track 2, 2026-07-16) — erasure = cascade hard-delete + redact-first fail-safe + writer post-persist orphan check + route phase-3 sweep.)* Account deletion **erases** the user's snapshots: the `User` cascade (`cascadeDeleteUserData`) hard-deletes `generationsnapshots` alongside items/interactions/images (the single sanctioned native-driver door through the snapshot delete guard), the account route redacts first as a fail-safe, and the in-flight-render race is closed from BOTH sides — the M5 writer self-erases a row persisted for a since-deleted user, and (because the cascade is a *pre*-hook, so a write can land between its sweep and the user row's death while `User.exists` still passes) the route re-runs the cascade as a phase-3 sweep after the user row is gone. Decided Fable-reviewed against the friend promise ("delete me" must be literally true — the UI copy says "permanently deletes … outfit history"): mark-only redaction retained the friend's own text (names, occasions, raw generation text) while buying nothing — redacted rows are training-excluded and their interaction labels were already cascade-deleted. The original zero-users deferral premise expired when Track 2 went live. *Trap-guard:* redaction stays the **non-erasure** removal tool; the `[STAGED]` PII-null scrub is for a future consent-based-retention option, never the delete path (§15.1 redaction seam). *Scope note:* erasure covers every store this project controls (Atlas + Firebase Auth); transient third-party operational retention (Vercel/Fly logs, OpenAI's standard short-window API retention under `store:false`) is outside the erasure boundary and disclosed as such in the friend-facing copy (runbook §8). |
-| H44 | §3 anti-capture promises the proactive nudge *"your recent likes are narrowing things — keep exploring?"* — but only the exploration **action** is homed (H31 serving-time policy), not the **detector** that triggers it | **BLOCKED: post-M5 behavioral history accrues (the [NEXT] anti-capture detector)** | *(OPEN → DEFERRED-`[NEXT]` (anti-capture).)* The missing piece is a **diversity/entropy-collapse signal** over the user's recent *accepted* outfits (FullSignatures / attribute spread) that decides *when* to surface the nudge. Lives alongside §16 feedback semantics + the H31 exploration policy; `[NEXT]` because it needs accrued behavioral history (post-M5 feedback). Until built, the proactive nudge half of §3 anti-capture has no mechanism — the reactive support-gated promotion (S6 rule + the M4a C1 `scopeTarget`/`learningDisposition` seam fields; behavior still `[STAGED]`, §16) is the only homed half. |
+| H44 | §3 anti-capture promises the proactive nudge *"your recent likes are narrowing things — keep exploring?"* — but only the exploration **action** is homed (H31 serving-time policy), not the **detector** that triggers it | **BLOCKED: post-M5 behavioral history accrues (the [NEXT] anti-capture detector)** | *(OPEN → DEFERRED-`[NEXT]` (anti-capture).)* The missing piece is a **diversity/entropy-collapse signal** over the user's recent *accepted* outfits (FullSignatures / attribute spread) that decides *when* to surface the nudge. Lives alongside §16 feedback semantics + the H31 exploration policy; `[NEXT]` because it needs accrued behavioral history (post-M5 feedback). The proactive nudge detector remains unimplemented. The selected §16.6 path supports explicit scoped eligibility correction; automatic anomaly promotion and the detector are separate future work, not implied by those controls. |
 | H45 | §3 rung-1's `[NOW]` felt moment ("three believable ways to wear my green shirt") has a finished **engine** (Spearhead) but needs a laddered **delivery surface** | **RESOLVED** | *(IMPLEMENTED (M5 C6); shareable card DEFERRED-someday-launch.)* M5 C6 is the delivery surface: dashboard cards render the §6.5 response, expose StyleMove, provide an item-select/launch rescue UI, support rescue re-roll lineage, and bind feedback by `{snapshotId,candidateId}` (`dashboard/page.tsx` rescue/StyleMove/optionPath rendering + `wardrobe/page.tsx` "Build an outfit around this" launch). This is ambition-load-bearing: rescue must be user-reachable and first-class, not API-only and not hidden behind daily. The distinct **shareable before/after rescue card** — the someday-launch growth-loop artifact (recovered appendix C.4) — remains post-M5 and is decided when the someday-launch path activates. Registered so the flagship `[NOW]` moment isn't read as "engine done = shipped." |
 | H46 | The recovered-appendix C.8 six dressing modes map to the ladder (Today→daily, Boards→B-track, Rescue→Spearhead, Lanes→R-track), but neither §20 nor §23 gives the **Debugger** (diagnose why an outfit/board fails) or **Progress** (style-growth view) **surfaces** a dedicated entry (they surface only incidentally — H39's data artifact, H41's progressive-disclosure note) | **BLOCKED: the Debugger/Progress surfaces enter the §20 ladder** | *(`[NORTH-STAR]` → DEFERRED, seam-preserved.)* §0 requires `[NORTH-STAR]` features to be *documented + seam-preserved*, not silently dropped. Progress's **data artifact** is already homed (H39 `PersonalStyleRule`/`MemoryLesson`, compiled from scoped feedback); the Debugger surface reuses the same scoped-feedback + `scoreTrace` lineage the GenerationSnapshot already preserves (§15.1). No new schema — registered here so the two modes survive as deferred surfaces, not a quiet narrowing. |
 | H47 | `warmth` (§6.1) is **stored, not read-time-derived** (§15.2) and feeds `engineVisible.warmth` (training truth) — but the M4a PATCH/GET/UI neither **expose** it (no user correction) nor **re-derive** it when a warmth-driving field changes (silent staleness); §6.1 had called it "user-correctable" with no mechanism (Codex read 2026-06-27) | **RESOLVED** | *(RE-DERIVATION GUARD IMPLEMENTED (2026-06-27) → correction UI DEFERRED-W-track.)* PATCH now re-derives warmth from the merged item when a warmth-driving field (`name`/`category`/`subCategory`/`seasons`) changes, and accepts an explicit valid `warmth` override; POST/GET/PATCH expose it (`wardrobeEditIngestion.test.ts` pins re-derivation, explicit-override precedence, out-of-range rejection, and no-op when no driver changes). So stale warmth can no longer reach `engineVisible.warmth` (§15.1) or mis-bin the ranker (`response.py` `_warmth_band`) via an edit — the **M5-blocking data-integrity arm is closed**. The dedicated user-facing **correction review form** is still the W-track's (§18). |

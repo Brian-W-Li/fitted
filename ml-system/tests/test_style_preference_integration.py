@@ -90,9 +90,18 @@ def test_signed_term_enters_before_base_variant_cap_and_top_k_and_survives_diver
     generated = {"outfits": [outfit([("t", Role.base_top), ("b", Role.base_bottom), (f"s{n}", Role.shoes)], ["t"]) for n in range(3)]}
     candidates = validate_gpt_payload(generated, wardrobe, 3).candidates
     context = RankerContext(session_id="owner", wardrobe_version=1, occasion="Class", weather="mild", generation_index=0, k=1)
-    baseline = rank(candidates, context)
-    target = next(candidate for candidate in candidates if candidate.full_signature != baseline.outfits[0].full_signature)
+    # k=2 exposes both surviving variants of the single base without relaxing
+    # its cap. Select the actual cap loser, rather than another already-kept
+    # variant: learning added only after this gate cannot rescue this target.
+    baseline = rank(candidates, replace(context, k=2))
+    assert len({candidate.base_key for candidate in candidates}) == 1
+    assert len(baseline.outfits) == 2 and baseline.fallback_stage.value == "none"
+    kept = {outfit.full_signature for outfit in baseline.outfits}
+    cap_losers = [candidate for candidate in candidates if candidate.full_signature not in kept]
+    assert len(cap_losers) == 1
+    target = cap_losers[0]
     learned = rank(candidates, replace(context, preference_deltas={target.full_signature: .4}))
+    assert learned.fallback_stage.value == "none"
     assert learned.outfits[0].full_signature == target.full_signature
     assert learned.outfits[0].breakdown.preference == .4
     with pytest.raises(ValueError):
