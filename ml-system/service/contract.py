@@ -63,7 +63,7 @@ RENDER_BODY_REQUIRED = frozenset({
     "behavioralRows",
     "generator",
 })
-RENDER_BODY_OPTIONAL: frozenset[str] = frozenset()
+RENDER_BODY_OPTIONAL: frozenset[str] = frozenset({"protocolVersion", "styleContext", "preferenceRows"})
 
 # --- controls (§C.3) — regenerate-lineage only; present-but-empty on a root render ----
 CONTROLS_REQUIRED = frozenset({"lockedItemIds", "dislikedItemIds"})
@@ -84,7 +84,7 @@ WARDROBE_ITEM_REQUIRED = frozenset({
     "occasionTags",
     "imageUrl",
 })
-WARDROBE_ITEM_OPTIONAL = frozenset({"material", "formality", "pattern", "fit", "layerRole"})
+WARDROBE_ITEM_OPTIONAL = frozenset({"material", "formality", "pattern", "fit", "layerRole", "subtype"})
 
 # --- behavioralRows (§H) — bounded Mongo projections; both arrays optional ------------
 BEHAVIORAL_ROWS_REQUIRED: frozenset[str] = frozenset()

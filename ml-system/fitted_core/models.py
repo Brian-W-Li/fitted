@@ -138,6 +138,8 @@ class WardrobeItem:
     pattern: Optional[str] = None
     fit: Optional[str] = None
     layer_role: Optional[str] = None
+    # Declared, adapter-authored category detail; never inferred from the name.
+    subtype: Optional[str] = None
 
     def __post_init__(self) -> None:
         # Two narrow guards only — this dataclass is an *internal* contract, not the

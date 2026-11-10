@@ -49,7 +49,11 @@ interface HistoryCard {
   templateType?: string;
   feedbackReason?: FeedbackReasonValue;
   perItemFeedback?: PerItemFeedbackValue[];
+  learningAvailable?: boolean;
+  learningDisposition?: "normal" | "exception" | "do_not_learn";
+  dispositionRevision?: number;
 }
+interface LearningCommand { kind: "learning_disposition"; reactionId: string; operationId: string; expectedDispositionRevision: number; learningDisposition: "normal" | "exception" | "do_not_learn" }
 
 type TabType = "liked" | "disliked";
 
@@ -94,6 +98,7 @@ export default function HistoryPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
+  const [pendingLearning, setPendingLearning] = useState<{ card: HistoryCard; command: LearningCommand } | null>(null);
 
   const [editCard, setEditCard] = useState<HistoryCard | null>(null);
   const ownerRef = useRef<string | null>(null);
@@ -123,7 +128,7 @@ export default function HistoryPage() {
     const unsub = onAuthStateChanged(auth, user => {
       if (ownerRef.current !== (user?.uid ?? null)) ownerEpoch.current++;
       ownerRef.current = user?.uid ?? null;
-      setCards([]); setEditCard(null); setBusyId(null); setConfirmRemoveId(null); setActionError("");
+      setCards([]); setEditCard(null); setBusyId(null); setConfirmRemoveId(null); setActionError(""); setPendingLearning(null);
       setFirebaseUser(user);
       if (!user) setLoading(false);
     });
@@ -164,9 +169,31 @@ export default function HistoryPage() {
     await saveDislikeReasons(target, data);
   };
 
+  async function changeLearning(card: HistoryCard, retry?: LearningCommand) {
+    const user = firebaseUser, epoch = ownerEpoch.current;
+    const current = () => !!user && ownerRef.current === user.uid && ownerEpoch.current === epoch;
+    if (!user || !current() || busyId || (!retry && pendingLearning)) return;
+    const command: LearningCommand = retry ?? { kind: "learning_disposition", reactionId: card.id, operationId: crypto.randomUUID(),
+      expectedDispositionRevision: card.dispositionRevision ?? 0, learningDisposition: card.learningDisposition === "normal" ? "exception" : "normal" };
+    historyRead.current++; setLoading(false); setBusyId(card.id); setActionError(""); setPendingLearning({ card, command });
+    try {
+      const token = await user.getIdToken(); if (!current()) return;
+      const res = await fetch("/api/interactions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(command) });
+      const body = await res.json().catch(() => null); if (!current()) return;
+      if (res.ok && body?.success === true && OBJECT_ID_RE.test(body.amendment?.id ?? "") && body.amendment.reactionId === card.id &&
+        Number.isSafeInteger(body.amendment.dispositionRevision) && body.amendment.dispositionRevision === command.expectedDispositionRevision + 1 && body.amendment.learningDisposition === command.learningDisposition) {
+        setPendingLearning(null); await fetchHistory(user);
+      } else if (res.status >= 400 && res.status < 500) {
+        setPendingLearning(null); await fetchHistory(user);
+        if (current()) setActionError(body?.error ?? "Learning details changed. Review the current reaction before trying again.");
+      } else setActionError("Couldn't confirm that learning change. Retry the same change safely.");
+    } catch { if (current()) setActionError("Couldn't confirm that learning change. Retry the same change safely."); }
+    finally { if (current()) setBusyId(null); }
+  }
+
   // FLIP — append the opposite action (POST); H61 latest-state makes it win, so the card moves tabs.
   async function flipReaction(card: HistoryCard) {
-    if (!firebaseUser || busyId || !card.snapshotId || !card.candidateId) return;
+    if (!firebaseUser || busyId || pendingLearning || !card.snapshotId || !card.candidateId) return;
     const opposite = card.action === "accepted" ? "rejected" : "accepted";
     const epoch = ownerEpoch.current;
     const current = () => ownerRef.current === firebaseUser.uid && ownerEpoch.current === epoch;
@@ -195,7 +222,8 @@ export default function HistoryPage() {
       // Update the action in place — the card leaves THIS tab (shownCards filters by activeTab) and
       // its count moves to the other. We deliberately do NOT auto-switch tabs: a friend curating a
       // list shouldn't be yanked away mid-review; the other tab's badge shows where it went.
-      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, action: opposite, ...(typeof receipt?.interaction?.id === "string" ? { id: receipt.interaction.id } : {}), feedbackReason: undefined, perItemFeedback: undefined } : c)));
+      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, action: opposite, ...(typeof receipt?.interaction?.id === "string" ? { id: receipt.interaction.id } : {}),
+        feedbackReason: undefined, perItemFeedback: undefined, learningDisposition: c.learningAvailable ? "normal" : undefined, dispositionRevision: 0 } : c)));
     } catch {
       if (current()) setActionError("Couldn't update that reaction. Please try again.");
     } finally {
@@ -206,7 +234,7 @@ export default function HistoryPage() {
   // REMOVE — hard-delete every row for the binding (DELETE). A 404 means it's already gone → treat as
   // success (idempotent): the card leaves the list either way.
   async function removeReaction(card: HistoryCard) {
-    if (!firebaseUser || busyId || !card.snapshotId || !card.candidateId) return;
+    if (!firebaseUser || busyId || pendingLearning || !card.snapshotId || !card.candidateId) return;
     const epoch = ownerEpoch.current;
     const current = () => ownerRef.current === firebaseUser.uid && ownerEpoch.current === epoch;
     if (!current()) return;
@@ -297,7 +325,9 @@ export default function HistoryPage() {
       </div>
 
       {actionError && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{actionError}</div>
+        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{actionError}
+          {pendingLearning && <button disabled={!!busyId} onClick={() => void changeLearning(pendingLearning.card, pendingLearning.command)} className="ml-2 underline disabled:opacity-40">Retry learning change</button>}
+        </div>
       )}
 
       {loading ? (
@@ -334,7 +364,7 @@ export default function HistoryPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {shownCards.map((card) => {
             const isLiked = card.action === "accepted";
-            const busy = busyId === card.id;
+            const busy = busyId === card.id || !!pendingLearning;
             const confirming = confirmRemoveId === card.id;
             const curatable = Boolean(card.snapshotId && card.candidateId);
             const target = { snapshotId: card.snapshotId ?? "", candidateId: card.candidateId ?? "", reactionId: card.id };
@@ -388,6 +418,13 @@ export default function HistoryPage() {
                   </p>
 
                   <FeedbackNote reason={card.feedbackReason} items={card.displayItems} />
+
+                  {card.learningAvailable && <div className="mt-3 space-y-1 border-t border-slate-100 pt-2 text-xs text-slate-600">
+                    <p>{card.learningDisposition === "normal" ? "Included in experimental taste learning for its saved direction and situation." : "Excluded from taste learning. Your like or dislike stays unchanged."}</p>
+                    <button disabled={busy} className="underline disabled:opacity-40" onClick={() => void changeLearning(card)}>
+                      {card.learningDisposition === "normal" ? "Exclude from taste learning" : "Also reflects my taste here"}
+                    </button>
+                  </div>}
 
                   {curatable && (detailStatus === "saving" ? <p className="text-xs text-slate-500">Saving details…</p>
                     : detailStatus === "failed" ? <button onClick={() => retryEnrich(target)} className="text-xs text-amber-700 underline">Couldn&apos;t save the details — retry</button>

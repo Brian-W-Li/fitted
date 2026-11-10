@@ -242,6 +242,7 @@ function fakeService(opts: FakeOptions = {}) {
       JSON.stringify({
         payload,
         shown,
+        ...(body.styleContext ? { protocolVersion: 2, styleContext: body.styleContext } : {}),
         flags: {
           notEnoughItems: Boolean(rescueFlags.notEnoughItems ?? payload.diagnostics?.notEnoughItems),
           insufficientAfterGeneration: Boolean(rescueFlags.insufficientAfterGeneration),
@@ -2132,4 +2133,113 @@ it("reason amendments preserve sampler vote count and captured provenance, inclu
   expect(afterLegacy.status).toBe(200);
   expect(observed!.interactionCountAtRequest).toBe(2);
   expect((await GenerationSnapshot.findById(afterLegacy.body.shown[0].snapshotId).lean<Any>()).interactionCountAtRequest).toBe(2);
+});
+
+describe("saved style direction generation", () => {
+  async function savedDirection() {
+    const { StyleMemoryStore } = await import("@/lib/styleMemory/store");
+    const store = new StyleMemoryStore();
+    const boardId = new mongoose.Types.ObjectId().toString(), profileId = new mongoose.Types.ObjectId().toString();
+    const state = await store.mutate(userId, { kind: "create_board", operationId: uuid(), expectedRevision: 0,
+      id: boardId, profileId, label: "Campus", rawSource: "relaxed", compiled: { aestheticKeywords: ["relaxed"], palette: [], patterns: [], fits: [] } });
+    return { store, state, selection: { boardId, profileId, profileVersion: 1, routineId: null, routineVersion: null, learningEnabled: false } };
+  }
+  it("resolves owned style facts, sends the typed context, captures it and replays without a second dispatch", async () => {
+    const { store, selection } = await savedDirection();
+    const service = jest.fn(fakeService());
+    const deps = makeDeps({ callService: service });
+    const command = { requestId: uuid(), occasion: "class", styleContext: selection };
+    const first = await json(await mlRecommend(req(command), deps));
+    expect(first.status).toBe(200); expect(first.body.bindable).toBe(true);
+    expect(service.mock.calls[0][0]).toMatchObject({ protocolVersion: 2, styleContext: { ...selection, boardLabel: "Campus", compiled: { aestheticKeywords: ["relaxed"] }, weather: "unspecified" }, preferenceRows: [] });
+    expect(first.body.styleContext.boardLabel).toBe("Campus");
+    const saved = await GenerationSnapshot.findOne({ user: userId, requestId: command.requestId }).lean() as Any;
+    expect(saved.schemaVersion).toBe(2); expect(saved.styleContext.profileId).toBe(selection.profileId);
+    await store.mutate(userId, { kind: "archive_board", boardId: selection.boardId, operationId: uuid(), expectedRevision: 1 });
+    const replay = await json(await mlRecommend(req(command), deps));
+    expect(replay.body.styleContext.boardLabel).toBe("Campus"); expect(service).toHaveBeenCalledTimes(1);
+    expect((await json(await mlRecommend(req({ ...command, requestId: uuid() }), deps))).status).toBe(409);
+    expect(service).toHaveBeenCalledTimes(1);
+  });
+  it("rejects changed, foreign and forged contexts before dispatch", async () => {
+    const { selection } = await savedDirection(); const service = jest.fn(fakeService()); const deps = makeDeps({ callService: service });
+    expect((await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", styleContext: { ...selection, profileVersion: 2 } }), deps))).status).toBe(404);
+    expect((await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", styleContext: { ...selection, boardId: new mongoose.Types.ObjectId().toString() } }), deps))).status).toBe(404);
+    expect((await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", styleContext: { ...selection, compiled: { aestheticKeywords: ["forged"] } } }), deps))).status).toBe(400);
+    expect(service).not.toHaveBeenCalled();
+  });
+  it("retains a terminal receipt when memory changes during dispatch and exact retry never calls the model again", async () => {
+    const { store, selection } = await savedDirection();
+    const original = fakeService();
+    const service = jest.fn(async (body: RenderBody) => {
+      const reply = await original(body);
+      await store.mutate(userId, { kind: "rename_board", boardId: selection.boardId, label: "New campus", operationId: uuid(), expectedRevision: 1 });
+      return reply;
+    });
+    const deps = makeDeps({ callService: service });
+    const command = { requestId: uuid(), occasion: "class", styleContext: selection };
+    const first = await json(await mlRecommend(req(command), deps));
+    expect(first.status).toBe(200); expect(first.body.commandStatus).toBe("superseded");
+    expect(first.body.shown).toEqual([]); expect(first.body.bindable).toBe(false);
+    const saved = await GenerationSnapshot.findOne({ user: userId, requestId: command.requestId }).lean() as Any;
+    expect(saved.nSurfaced).toBe(0); expect(saved.generationAttempts).toHaveLength(1);
+    expect(saved.candidates.every((row: Any) => !row.shown)).toBe(true);
+    const replay = await json(await mlRecommend(req(command), deps));
+    expect(replay.body.commandStatus).toBe("superseded"); expect(service).toHaveBeenCalledTimes(1);
+  });
+  it("rejects a different command that loses a concurrent superseded-receipt race", async () => {
+    const { store, selection } = await savedDirection();
+    const original = fakeService();
+    let entered = 0;
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { release = resolve; });
+    const service = jest.fn(async (body: RenderBody) => {
+      const reply = await original(body);
+      entered++;
+      if (entered === 2) {
+        await store.mutate(userId, { kind: "rename_board", boardId: selection.boardId, label: "Changed", operationId: uuid(), expectedRevision: 1 });
+        release();
+      }
+      await ready;
+      return reply;
+    });
+    const requestId = uuid(), deps = makeDeps({ callService: service });
+    const results = await Promise.all(["class", "coffee"].map(occasion => mlRecommend(req({ requestId, occasion, styleContext: selection }), deps).then(json)));
+    expect(results.map(result => result.status).sort()).toEqual([200, 409]);
+    expect(results.find(result => result.status === 200)?.body.commandStatus).toBe("superseded");
+    expect(results.find(result => result.status === 409)?.body.error.code).toBe("request_id_conflict");
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId })).toBe(1);
+    expect(service).toHaveBeenCalledTimes(2);
+  });
+  it("does not acknowledge copied style context erased after snapshot admission", async () => {
+    const { store, selection } = await savedDirection();
+    const service = jest.fn(fakeService());
+    const requestId = uuid();
+    const originalExists = User.exists.bind(User);
+    let admittedBeforeErase = false;
+    // Park at the existing post-admission acknowledgement seam. Both the snapshot
+    // insertion and the Board erasure/cleanup below use the real Mongo transactions.
+    const acknowledgement = jest.spyOn(User, "exists").mockImplementation((filter: Any) => (async () => {
+      admittedBeforeErase = await GenerationSnapshot.countDocuments({ user: userId, requestId }) === 1;
+      await store.mutate(userId, { kind: "erase_board", boardId: selection.boardId,
+        operationId: uuid(), expectedRevision: 1 });
+      return originalExists(filter);
+    })() as Any);
+    try {
+      const result = await json(await mlRecommend(req({ requestId, occasion: "class", styleContext: selection }), makeDeps({ callService: service })));
+      expect(admittedBeforeErase).toBe(true);
+      expect(await GenerationSnapshot.countDocuments({ user: userId, requestId })).toBe(0);
+      expect(service).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe(404);
+      expect(result.body.error.code).toBe("proposal_unavailable");
+      expect(result.body.styleContext).toBeUndefined();
+    } finally { acknowledgement.mockRestore(); }
+  });
+  it("requires the paired protocol echo before admitting a styled response", async () => {
+    const { selection } = await savedDirection(); const original = fakeService();
+    const deps = makeDeps({ callService: async body => { const result = await original(body); if (result.ok) delete result.response.protocolVersion; return result; } });
+    const result = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", styleContext: selection }), deps));
+    expect(result.body.flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
 });

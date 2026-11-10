@@ -87,6 +87,7 @@ const ScoreTraceSchema = new Schema(
           base: { type: Number },
           combo: { type: Number },
           item: { type: Number },
+          preference: { type: Number },
           dislike: { type: Number },
           overuse: { type: Number },
           repetition: { type: Number },
@@ -221,6 +222,7 @@ const ItemSnapshotSchema = new Schema(
           name: { type: String },
           clothingType: { type: String, enum: [...CLOTHING_TYPES] }, // single-homed in lib/clothingType
           layerRole: { type: String, enum: ["base", "mid", "outer", null] },
+          subtype: { type: String },
           pattern: { type: String },
           fit: { type: String },
           warmth: { type: Number, required: true }, // engine-required; keyword-derived at ingestion
@@ -300,7 +302,11 @@ const LensSchema = new Schema(
 const GenerationSnapshotSchema = new Schema(
   {
     // --- A: identity ---
-    schemaVersion: { type: Number, required: true, default: 1 }, // the additive-evolution lever
+    schemaVersion: { type: Number, required: true, default: 1 },
+    styleContext: { type: Schema.Types.Mixed },
+    preference: { type: Schema.Types.Mixed },
+    commandStatus: { type: String, enum: ["superseded"] },
+    supersededSelection: { type: [String], default: undefined }, // the additive-evolution lever
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     sessionId: { type: String, required: true }, // = user id (R8)
     candidateCacheKey: { type: String, required: true }, // groups re-roll siblings

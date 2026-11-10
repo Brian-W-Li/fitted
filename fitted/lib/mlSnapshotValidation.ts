@@ -140,10 +140,13 @@ function validateScoreTrace(cand: Any, id: string): void {
   for (const term of SCORE_TERMS) {
     if (!isFiniteNum(bd[term])) fail(`candidate ${id}: scoreBreakdown.${term} is missing/non-finite`);
   }
+  if (bd.preference !== undefined && (!isFiniteNum(bd.preference) || Math.abs(bd.preference) > 0.5)) {
+    fail(`candidate ${id}: scoreBreakdown.preference is non-finite or outside [-0.5,0.5]`);
+  }
   if (!inUnit(trace.compatibility)) fail(`candidate ${id}: compatibility out of [0,1]`);
   if (!inUnit(trace.visibility)) fail(`candidate ${id}: visibility out of [0,1]`);
   if (!isFiniteNum(trace.rankerScore)) fail(`candidate ${id}: rankerScore non-finite`);
-  const sum = SCORE_TERMS.reduce((acc, t) => acc + (bd[t] as number), 0);
+  const sum = SCORE_TERMS.reduce((acc, t) => acc + (bd[t] as number), 0) + (bd.preference ?? 0);
   if (Math.abs(sum - (trace.rankerScore as number)) > SUM_EPSILON) {
     fail(`candidate ${id}: rankerScore ${trace.rankerScore} != term sum ${sum} (N4 invariant)`);
   }
@@ -233,7 +236,7 @@ export function validateSnapshotPayload(payload: unknown): void {
     // silently (it rejects only NaN). This helper is the sole guard: a non-finite / out-of-range
     // warmth would persist into the immutable corpus M6 trains on. Bound single-homed in
     // lib/warmth (cross-runtime-pinned).
-    for (const field of ["pattern", "fit"]) {
+    for (const field of ["pattern", "fit", "subtype"]) {
       const value = snap.engineVisible?.[field];
       if (value != null && (typeof value !== "string" || value.length > MAX_ITEM_ATTR_CHARS || !value.isWellFormed())) {
         fail(`itemSnapshots ${iid}: engineVisible.${field} is not a bounded text attribute`);

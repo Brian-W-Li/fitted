@@ -6,6 +6,7 @@ import { snapshotVisible } from "@/lib/snapshotVisibility";
 import { normalizeFeedbackReason, normalizePerItemFeedback } from "@/lib/feedbackReasons";
 import { voteEvidenceFilter, FEEDBACK_ACCOUNT_ROW_LIMIT } from "@/lib/feedbackEvidence.cjs";
 import type { InteractionDeps } from "@/lib/interactions";
+import { appendReasonDisposition, bumpStyleMemoryRevision, capturedLearningEnabled } from "@/lib/styleLearningAmendments";
 
 export class FeedbackMutationError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -63,6 +64,8 @@ export async function amendFeedback(user: Types.ObjectId, raw: Record<string, un
     if (String(current._id) !== String(reactionId) || current.action !== target.action) {
       fail(409, "reaction_changed", "This reaction changed. Refresh before adding reasons.");
     }
+    const source = await GenerationSnapshot.findOne({ _id: current.snapshotId, user, redacted: { $ne: true } }).session(session).lean();
+    if (!source || !await snapshotVisible(user, source, { session })) fail(404, "snapshot_not_found", "This suggestion is no longer available");
     const previous = await OutfitInteraction.collection.findOne({ _id: id }, { session });
     if (previous) {
       if (String(previous.user) !== String(user) || previous.eventKind !== "reason_amendment" || previous.requestKey !== requestKey) {
@@ -71,7 +74,8 @@ export async function amendFeedback(user: Types.ObjectId, raw: Record<string, un
       return; // Confirmed retry; never admit another row or renew the vote.
     }
     const count = await OutfitInteraction.countDocuments({ user }).session(session);
-    if (count >= FEEDBACK_ACCOUNT_ROW_LIMIT) fail(400, "storage_limit", "Feedback storage limit reached");
+    const requiredRows = capturedLearningEnabled(current) ? 2 : 1;
+    if (count + requiredRows > FEEDBACK_ACCOUNT_ROW_LIMIT) fail(400, "storage_limit", "Feedback storage limit reached");
     await OutfitInteraction.create([{
       _id: id, user, eventKind: "reason_amendment", reactionId, operationId, requestKey,
       // Every binding/membership field is server-derived from the original vote.
@@ -80,6 +84,8 @@ export async function amendFeedback(user: Types.ObjectId, raw: Record<string, un
       context: current.context, createdAt: timestamp, updatedAt: timestamp,
       ...(feedbackReason ? { feedbackReason } : {}), ...(perItemFeedback ? { perItemFeedback } : {}),
     }], { session, timestamps: false });
+    await appendReasonDisposition(user, current, id, operationId, feedbackReason, perItemFeedback, deps, session, timestamp);
+    await bumpStyleMemoryRevision(User, user, session);
   });
   await deps.afterNativeWrite?.("amendment");
   // Same post-check contract as votes; transaction admission is the safety mechanism.

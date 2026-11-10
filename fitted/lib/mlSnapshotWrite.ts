@@ -72,6 +72,7 @@ export async function writeSnapshotWithIdempotency<T>(
   user: unknown,
   requestId: string,
   User: OwnerWriteModel,
+  expectedStyleMemoryRevision?: number,
 ): Promise<WriteSnapshotResult<T>> {
   const owner = String(user).toLowerCase();
   const payloadOwner = String(doc.user).toLowerCase();
@@ -84,7 +85,7 @@ export async function writeSnapshotWithIdempotency<T>(
   const timestamp = new Date();
   const payload = { ...doc, _id: doc._id ?? new Types.ObjectId(), createdAt: doc.createdAt ?? timestamp, updatedAt: doc.updatedAt ?? timestamp };
   try {
-    const [snapshot] = await ownerWriteFence(User, user, session => model.create([payload], { session, timestamps: false }));
+    const [snapshot] = await ownerWriteFence(User, user, session => model.create([payload], { session, timestamps: false }), expectedStyleMemoryRevision);
     return { snapshot: snapshot as T, deduped: false };
   } catch (err) {
     if (!isDuplicateKeyError(err)) throw err;

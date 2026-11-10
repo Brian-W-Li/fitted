@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebaseClient";
+import type { CapturedStyleContext } from "@/lib/styleContext";
 import SavedGarmentList from "@/app/ui/SavedGarmentList";
 import VariationForm from "../VariationForm";
 import PlanForm from "./PlanForm";
@@ -11,7 +12,7 @@ import { planDayHint, type PlanDay } from "@/lib/outfitPlanning/client";
 import WearForm, { type ClosetChoice, type SuggestionView } from "../WearForm";
 
 const WEATHER_SOURCE_LABELS = { manual: "Your expected conditions", current: "Fetched current conditions", forecast: "Fetched forecast", occasion: "Inferred from the event description", default: "Fallback assumption", unknown: "Source not recorded" };
-type SavedSuggestionView = SuggestionView & { layerChoice?: { status: "off" | "offered" | "gap"; note: string | null }; weatherSource?: keyof typeof WEATHER_SOURCE_LABELS };
+type SavedSuggestionView = SuggestionView & { styleContext?: CapturedStyleContext; layerChoice?: { status: "off" | "offered" | "gap"; note: string | null }; weatherSource?: keyof typeof WEATHER_SOURCE_LABELS };
 
 function SavedProposal({ user, snapshotId, candidateId, initialPlanDay }: { user: User; snapshotId: string; candidateId: string; initialPlanDay?: PlanDay }) {
   const [suggestion, setSuggestion] = useState<SavedSuggestionView | null>(null);
@@ -65,11 +66,14 @@ function SavedProposal({ user, snapshotId, candidateId, initialPlanDay }: { user
     {error && <p role="alert">{error}</p>}
     {closetError && <p role="alert">{closetError}</p>}
     {suggestion && <article className="space-y-3 rounded-xl border bg-white p-4">
+      {suggestion.styleContext && <p className="text-sm text-slate-600">Direction: {suggestion.styleContext.boardLabel}{suggestion.styleContext.routineLabel ? ` · ${suggestion.styleContext.routineLabel}` : ""}</p>}
       <p>Suggested situation: {suggestion.suggestionContext || "Unknown"}</p>
-      <p>Saved weather context: {suggestion.weatherContext || "Not recorded"}.</p>
-      <p>Weather source: {WEATHER_SOURCE_LABELS[suggestion.weatherSource ?? "unknown"] ?? WEATHER_SOURCE_LABELS.unknown}. This is historical context saved with the suggestion, not a current forecast or a guarantee of suitability.</p>
-      {suggestion.layerChoice?.note && <p>{suggestion.layerChoice.note}</p>}
       <SavedGarmentList items={suggestion.items} />
+      <details className="text-sm text-slate-600"><summary className="cursor-pointer">Saved weather and source</summary>
+        <p>Saved weather context: {suggestion.weatherContext || "Not recorded"}.</p>
+        <p>Weather source: {WEATHER_SOURCE_LABELS[suggestion.weatherSource ?? "unknown"] ?? WEATHER_SOURCE_LABELS.unknown}. This is historical context saved with the suggestion, not a current forecast or a guarantee of suitability.</p>
+        {suggestion.layerChoice?.note && <p>{suggestion.layerChoice.note}</p>}
+      </details>
       {suggestion.styleMove?.oneSentence && <p>{suggestion.styleMove.oneSentence}</p>}
       <PlanForm key={`${suggestion.snapshotId}:${suggestion.candidateId}`} user={user} suggestion={suggestion} initialDay={initialPlanDay} />
       <VariationForm key={`variation:${suggestion.snapshotId}:${suggestion.candidateId}`} user={user} suggestion={suggestion} initialPlanDay={initialPlanDay} />

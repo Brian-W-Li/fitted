@@ -99,7 +99,7 @@ export default function FeedbackDetails({ outfit, occasion, onClose, onSave }: {
           className="mt-1 block w-full rounded-lg border border-slate-300 p-2 font-normal" />
       </label>
       {(codes.length > 0 || perItemFeedback.length > 0) && <p className="text-xs text-slate-600">Your earlier details are kept. Clear details removes those too.</p>}
-      <p className="text-xs text-slate-500">Your like or dislike stays unchanged. These details are saved, but don&apos;t change suggestions yet.</p>
+      <p className="text-xs text-slate-500">Your like or dislike stays unchanged. A concern excludes this reaction from experimental taste learning. You can include it again in History. A note never bans a piece.</p>
       <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-3">
         {hasFeedbackDetails(outfit) && <button type="button" onClick={() => onSave({ codes: [], perItemFeedback: [] })} className="mr-auto rounded-lg px-3 py-2 text-sm text-red-700 hover:bg-red-50">Clear details</button>}
         <button type="button" onClick={onClose} className="rounded-lg bg-slate-100 px-3 py-2 text-sm">Cancel</button>

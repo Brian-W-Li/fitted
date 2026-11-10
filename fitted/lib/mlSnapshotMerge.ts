@@ -21,6 +21,8 @@
  * Reference: docs/plans/m5-cutover.md §A/§C/§G/§G.1; docs/sessions/2026-07-08-m5-c5-seam6-route.md.
  */
 import { createHash } from "crypto";
+import { projectPreferenceDecision } from "@/lib/stylePreferenceDecision";
+import { styleSelectionKey, validCapturedStyleContext, type CapturedStyleContext } from "@/lib/styleContext";
 import { weatherSourceFromSnapshot, weatherSignalsFromSnapshot, validWeatherSignals, sameWeatherSignals, type WeatherSignals, type LayerChoice, type WeatherSource } from "@/lib/weatherContext";
 import type { ClothingType } from "@/lib/clothingType";
 import { RequestContractError, MAX_CONTROL_IDS, type GENERATOR_EXPECTATION } from "@/lib/mlRequestAdapter";
@@ -109,6 +111,7 @@ export function normalizeControls(controls: unknown): NormalizedControls {
 //     Authorship still requires each service attempt to echo its resolved context.
 // ---------------------------------------------------------------------------
 export interface RenderIdentity {
+  styleContextKey: string | null;
   user: string;
   intent: string;
   occasion: string;
@@ -130,6 +133,7 @@ export interface RenderIdentity {
  *  winner doc — one normalizer, so the two are compared on equal footing). `constraints` is not a
  *  field here: it is always `{}` at M5, so it can never distinguish two renders. */
 export function makeRenderIdentity(f: {
+  styleContext?: unknown;
   user: unknown;
   intent: unknown;
   occasion: unknown;
@@ -146,6 +150,7 @@ export function makeRenderIdentity(f: {
 }): RenderIdentity {
   const controls = normalizeControls(f.controls);
   return {
+    styleContextKey: styleSelectionKey(f.styleContext),
     user: s(f.user) ?? "",
     intent: String(f.intent ?? ""),
     occasion: String(f.occasion ?? ""),
@@ -170,6 +175,7 @@ function arraysEqual(a: readonly unknown[], b: readonly unknown[]): boolean {
 
 export function identityMatches(a: RenderIdentity, b: RenderIdentity): boolean {
   return (
+    a.styleContextKey === b.styleContextKey &&
     a.user === b.user &&
     a.intent === b.intent &&
     a.occasion === b.occasion &&
@@ -482,6 +488,9 @@ export interface BrowserShownEntry {
 }
 
 export interface BrowserResponse {
+  styleContext?: CapturedStyleContext;
+  preference?: import("@/lib/stylePreferenceDecision").PreferenceDecision;
+  commandStatus?: "superseded";
   weatherSource: WeatherSource;
   weatherSignals?: WeatherSignals;
   layerChoice?: LayerChoice;
@@ -497,7 +506,7 @@ export interface BrowserResponse {
  *  fall back to null except for engine-failure rows where the stable machine hint is derivable. */
 function flagsFromDoc(doc: Any): BrowserFlags {
   const rescue = doc.diagnostics?.rescue ?? {};
-  const storedReasonHint = rescue.reasonHint;
+  const storedReasonHint = doc.commandStatus === "superseded" ? "memory_changed" : rescue.reasonHint;
   return {
     notEnoughItems: Boolean(rescue.notEnoughItems ?? doc.diagnostics?.notEnoughItems),
     insufficientAfterGeneration: Boolean(rescue.insufficientAfterGeneration),
@@ -547,6 +556,9 @@ export function projectBrowserResponse(
   });
 
   const response: BrowserResponse = {
+    ...(validCapturedStyleContext(doc.styleContext) ? { styleContext: doc.styleContext } : {}),
+    ...(doc.commandStatus === "superseded" ? { commandStatus: "superseded" as const } : {}),
+    ...(projectPreferenceDecision(doc.preference) ? { preference: projectPreferenceDecision(doc.preference) } : {}),
     weatherSource: weatherSourceFromSnapshot(doc.weatherSource),
     ...(weatherSignalsFromSnapshot(doc.weatherSignals) ? { weatherSignals: weatherSignalsFromSnapshot(doc.weatherSignals) } : {}),
     ...(doc.layerChoice ? { layerChoice: doc.layerChoice } : {}),

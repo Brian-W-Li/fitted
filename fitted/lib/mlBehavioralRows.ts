@@ -163,7 +163,7 @@ export async function buildBehavioralRows(
   // Preserve the bounded scan; missing snapshots retain their historical treatment.
   const bound = await models.GenerationSnapshot.find({ user: userId,
     _id: { $in: interactions.map((row) => row.snapshotId) } })
-    .select({ _id: 1, redacted: 1, variationSourceExperienceId: 1, variationSourceRevision: 1 }).lean();
+    .select({ _id: 1, redacted: 1, variationSourceExperienceId: 1, variationSourceRevision: 1, styleContext: 1 }).lean();
   const visible = new Set(await visibleSnapshots(userId, bound));
   const redactedIds = new Set(bound.filter(row => !visible.has(row)).map(row => hex(row._id)));
   return {

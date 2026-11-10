@@ -1,7 +1,8 @@
 # Personal styling loop — implementation specification
 
-Status: selected development goal; critical specification review complete;
-feature implementation has not started.
+Status: critical specification review complete; local implementation and
+combined application verification in progress. The roadmap records checked behavior
+and remaining work; this specification is not a completion claim.
 This document owns this bounded implementation contract. The [canonical spec](../Fitted_Spec_v2.md)
 owns product ambition and existing contracts; the [roadmap](../ROADMAP.md) owns progress,
 the verified code baseline, checks, blockers and release status. Nothing here claims
@@ -106,6 +107,9 @@ mean daily/rescue. No new graph database, calendar or visual-board compiler is r
 - Cosmetic renaming preserves semantic version. Editing description/compiled traits
   creates a new semantic version; old feedback does not transfer automatically.
   The first implementation offers no cross-version carryover.
+  Refining an older Routine version uses that version's frozen situation meaning,
+  even if today's version has a different label. Cosmetic renaming can update the
+  current version's display name without relabeling the meaning of historical feedback.
 - Learning partition: owner + profile ID/version + Routine ID/version + canonical
   weather bucket, including an explicit `unspecified` bucket when weather is unknown.
   `unspecified` only shares evidence with itself; it is never guessed to mean mild.
@@ -191,6 +195,15 @@ both orderings of erasure versus generation/feedback admission.
   preserves earlier valid cards, refreshes memory, and offers an explicit new request
   with a new ID. No automatic paid retry. This is not an indefinitely retryable command.
   Edits after admission affect later decisions, not immutable historical suggestions.
+- A styled Home cache is not visibility authority. Before restoring its cards or copied
+  direction content, authenticate and revalidate its shown sources through the existing
+  suggestion read. Archive still permits retained historical sources; erase clears the
+  unavailable cache. An unverifiable network response keeps it hidden without pretending
+  it was erased. A delayed check cannot replace a newer command or another owner's view.
+  Fresh render acknowledgement also checks source visibility after snapshot admission.
+  An acknowledged erase through Home immediately clears displayed cards, open actions
+  and cached context for the removed versions. Renaming, switching selections, semantic
+  edits retaining older versions and archive do not erase historical suggestions.
 
 ## 6. Explicit corrections and constraints
 
@@ -338,6 +351,11 @@ must be explicitly revised before claiming useful activation; do not tune on ans
 NumPy is needed for the bounded Hessian solve; do not import the isolated study runtime
 or add a general ML framework. Missing numerical runtime must disable only learning.
 Failure, unsupported context/schema or timeout means the complete scoped baseline.
+The service's 1 MiB request cap also bounds optional evidence. If complete resolved
+preference evidence cannot fit, omit the entire optional sample and record
+`evidence_size_limit`; do not select a smaller sample to make it fit. If the baseline
+request itself exceeds that cap, reject before dispatch through the existing contract
+failure path.
 Sigmoid outputs are model scores, never calibrated confidence or predicted satisfaction.
 
 Learned adjustment is bounded at +/-0.5 baseline units, using

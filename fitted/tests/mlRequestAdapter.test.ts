@@ -13,6 +13,8 @@ import path from "path";
 import {
   buildLens,
   buildRenderBody,
+  boundStylePreferencePayload,
+  MAX_RENDER_BODY_BYTES,
   projectWardrobe,
   RequestContractError,
   GENERATOR_EXPECTATION,
@@ -327,5 +329,32 @@ describe("item map (§15.2) + control caps", () => {
     expect(() =>
       buildRenderBody({ ...parts, controls: { lockedItemIds: [" "], dislikedItemIds: [] } }),
     ).toThrow(RequestContractError);
+  });
+});
+
+
+describe("style evidence transport bound", () => {
+  const styled = () => ({ ...fullBody(), protocolVersion: 2 as const, styleContext: {
+    boardId: "a".repeat(24), profileId: "b".repeat(24), profileVersion: 1,
+    routineId: "c".repeat(24), routineVersion: 1, learningEnabled: true,
+    boardLabel: "Campus", routineLabel: "Class", memoryRevision: 1, weather: "unspecified" as const,
+    compiled: { aestheticKeywords: [], palette: [], patterns: [], fits: [] },
+  } });
+  it("keeps complete evidence when it fits and drops the whole sample on UTF-8 byte overflow", () => {
+    const body = { ...styled(), preferenceRows: [{ fact: "衣".repeat(MAX_RENDER_BODY_BYTES / 2) }] };
+    expect(JSON.stringify(body).length).toBeLessThan(MAX_RENDER_BODY_BYTES);
+    const bounded = boundStylePreferencePayload(body);
+    expect(bounded.omitted).toBe(true);
+    expect(bounded.body.preferenceRows).toEqual([]);
+    expect(bounded.body.wardrobe).toEqual(body.wardrobe);
+    expect(bounded.body.styleContext).toEqual(body.styleContext);
+    expect(body.preferenceRows).toHaveLength(1);
+    expect(boundStylePreferencePayload(styled()).omitted).toBe(false);
+  });
+  it("rejects an oversized styled baseline before dispatch without changing legacy requests", () => {
+    const body = { ...styled(), behavioralRows: { interactionRows: ["x".repeat(MAX_RENDER_BODY_BYTES)] } };
+    expect(() => boundStylePreferencePayload(body)).toThrow(RequestContractError);
+    const legacy = fullBody();
+    expect(boundStylePreferencePayload(legacy)).toEqual({ body: legacy, omitted: false });
   });
 });

@@ -39,6 +39,9 @@ const UserSchema = new Schema(
     // Bounded intent references, separate from wear/reactions. Hidden from generic account reads.
     outfitPlans: { type: [planSchema], default: undefined, select: false },
     planningVersion: { type: Number, default: undefined, select: false },
+    // Bounded owner-bound style state; only style-memory helpers validate and mutate it.
+    styleMemory: { type: Schema.Types.Mixed, default: undefined, select: false },
+    styleMemoryRevision: { type: Number, default: undefined, select: false },
     metadata: { type: Map, of: Schema.Types.Mixed, default: {} },
   },
   {

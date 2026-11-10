@@ -3,6 +3,8 @@ import User, { type OutfitPlanRecord } from "@/models/User";
 import { exactKeys, object, objectId, operationId } from "@/lib/outfitExperience/contract";
 import { validateCalendarDay } from "@/lib/outfitExperience/date";
 import { ExperienceError, ExperienceValidationError } from "@/lib/outfitExperience/errors";
+import { ownerWriteFence, OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
+import { requireSource } from "@/lib/outfitExperience/source";
 import { getSuggestion } from "@/lib/outfitExperience/read";
 
 export const MAX_ACTIVE_PLANS = 20;
@@ -33,15 +35,26 @@ export class OutfitPlanningStore {
   private async available(ownerId: string, plan: OutfitPlanRecord) {
     const suggestion = await getSuggestion(ownerId, plan.snapshotId!, plan.candidateId!);
     if (suggestion.items.some(item => item.availability !== "available")) throw new ExperienceError(409, "plan_items_unavailable");
+    return !!suggestion.styleContext;
   }
-  private async write(user: Types.ObjectId, owner: PlanningOwner, plans: OutfitPlanRecord[]) {
+  private async write(user: Types.ObjectId, owner: PlanningOwner, plans: OutfitPlanRecord[], styledSource?: OutfitPlanRecord) {
     await this.options.beforeWrite?.();
     const version = owner.planningVersion ?? 0;
     // Same-document CAS orders the plan write against the durable erasure barrier.
     // Never upsert a User; a pending or removed owner cannot receive new intent.
-    const result = await User.collection.updateOne({ _id: user, erasureStarted: { $ne: true }, ...(owner.planningVersion === undefined
-      ? { planningVersion: { $exists: false } } : { planningVersion: version }) },
-      { $set: { outfitPlans: plans, planningVersion: version + 1 } }, { writeConcern: { w: "majority" } });
+    const filter = { _id: user, erasureStarted: { $ne: true }, ...(owner.planningVersion === undefined
+      ? { planningVersion: { $exists: false } } : { planningVersion: version }) };
+    const update = { $set: { outfitPlans: plans, planningVersion: version + 1 } };
+    let result;
+    try {
+      result = styledSource ? await ownerWriteFence(User, user, async session => {
+        await requireSource(user, styledSource.snapshotId!, styledSource.candidateId!, { session });
+        return User.collection.updateOne(filter, update, { session });
+      }) : await User.collection.updateOne(filter, update, { writeConcern: { w: "majority" } });
+    } catch (error) {
+      if (error instanceof OwnerWriteUnavailable) throw new ExperienceError(410, "account_unavailable");
+      throw error;
+    }
     if (!result.matchedCount) return false;
     await this.options.afterWrite?.();
     await this.owner(user); // Never acknowledge a write to an account deleted during the request.
@@ -73,8 +86,8 @@ export class OutfitPlanningStore {
       if (plans.filter(plan => plan.lifecycle === "active").length >= MAX_ACTIVE_PLANS) throw new ExperienceError(429, "active_plan_limit");
       if (plans.length >= MAX_PLAN_IDENTITIES) throw new ExperienceError(429, "planning_storage_limit");
       dateInput(input, this.options.now?.() ?? new Date());
-      await this.available(ownerId, proposed);
-      if (await this.write(user, owner, [...plans, { ...proposed, createKey: key }])) return acknowledgement(proposed);
+      const styled = await this.available(ownerId, proposed);
+      if (await this.write(user, owner, [...plans, { ...proposed, createKey: key }], styled ? proposed : undefined)) return acknowledgement(proposed);
     }
     throw new ExperienceError(409, "planning_busy");
   }
@@ -101,10 +114,10 @@ export class OutfitPlanningStore {
       dateInput(input, this.options.now?.() ?? new Date());
       if (plans.some(plan => plan.planId !== id && plan.lifecycle === "active" && plan.snapshotId === previous.snapshotId && plan.candidateId === previous.candidateId && plan.plannedFor === day.date))
         throw new ExperienceError(409, "already_planned");
-      await this.available(ownerId, previous);
+      const styled = await this.available(ownerId, previous);
       const next = { ...previous, plannedFor: day.date, timezone: day.timezone, revision: expected + 1,
         operationId: commandId, requestKey: key };
-      if (await this.write(user, owner, plans.map(plan => plan.planId === id ? next : plan))) return acknowledgement(next);
+      if (await this.write(user, owner, plans.map(plan => plan.planId === id ? next : plan), styled ? previous : undefined)) return acknowledgement(next);
     }
     throw new ExperienceError(409, "planning_busy");
   }

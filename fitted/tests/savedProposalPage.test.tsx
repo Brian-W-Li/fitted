@@ -91,3 +91,13 @@ it("renders the saved proposal's composition-specific layer note without generat
   render(<ProposalPage />); expect(await screen.findByText(note)).toBeInTheDocument();
   expect((global.fetch as jest.Mock).mock.calls.every(([, init]) => !init.method)).toBe(true);
 });
+
+it("shows the original captured direction and situation beside the garments without fetching current labels", async () => {
+  const styleContext = { boardLabel: "Original campus", routineLabel: "Class days", compiled: { aestheticKeywords: ["relaxed"] } };
+  global.fetch = jest.fn(async (path: string) => path.startsWith("/api/wardrobe") ? response({ items: [] }) : response({ suggestion: { ...suggestion, styleContext } })) as typeof fetch;
+  render(<ProposalPage />);
+  expect(await screen.findByText("Direction: Original campus · Class days")).toBeInTheDocument();
+  expect((global.fetch as jest.Mock).mock.calls.every(([path]) => !String(path).includes("style-memory"))).toBe(true);
+  expect(screen.queryByText("relaxed")).not.toBeInTheDocument();
+  expect(screen.getByText("Saved weather and source").tagName).toBe("SUMMARY");
+});

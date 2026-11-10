@@ -5,11 +5,11 @@ the paid generator is injected, with a deterministic envelope over synthetic ite
 """
 
 import os
+import json
 
 from fitted_core.models import Role
 from service.app import create_app
 from service.tests.helpers import envelope, outfit
-from tests.helpers import StubGenerator
 
 
 def _fixture():
@@ -32,10 +32,41 @@ def _fixture():
     return envelope(*drafts)
 
 
+# Exact synthetic IDs shared with scripts/baseline-browser.mjs. They are never real wardrobe data.
+STYLE_QUERY_GROUPS = tuple(tuple(f"660000000000000000000{n:03x}" for n in range(start, start+3))
+                           for start in (1, 4, 7, 10))
+
+
+def _prompt_wardrobe_ids(prompt):
+    for marker in ("Build believable outfits for this occasion and weather from this wardrobe:\n",
+                   "Wardrobe items available for these outfits (attributes are for selection only):\n"):
+        if marker in prompt.user:
+            value, _ = json.JSONDecoder().raw_decode(prompt.user.split(marker, 1)[1])
+            if isinstance(value, list):
+                return {row["id"] for row in value if isinstance(row, dict) and isinstance(row.get("id"), str)}
+    return set()
+
+
+class BaselineGenerator:
+    """A local-only canned generator; special outputs require actual query IDs in the pool."""
+    def generate(self, prompt):
+        present = _prompt_wardrobe_ids(prompt)
+        query_ids = {ident for group in STYLE_QUERY_GROUPS for ident in group}
+        if present & query_ids:
+            drafts = []
+            for top, bottom, shoes in STYLE_QUERY_GROUPS:
+                if {top, bottom, shoes} <= present:
+                    draft = outfit([(top, Role.base_top), (bottom, Role.base_bottom), (shoes, Role.shoes)], [top])
+                    draft["styleMove"]["oneSentence"] = "Authored synthetic fit contrast; this checks selection mechanics."
+                    drafts.append(draft)
+            return envelope(*drafts)
+        return _fixture()
+
+
 app = create_app(
     {
         "OPENAI_API_KEY": "sk-baseline-no-network",
         "SERVICE_KEY_CURRENT": "local-baseline-key",
     },
-    generator_factory=lambda _: StubGenerator(_fixture()),
+    generator_factory=lambda _: BaselineGenerator(),
 )

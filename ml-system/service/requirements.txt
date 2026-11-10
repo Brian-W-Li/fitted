@@ -26,3 +26,6 @@ tqdm==4.68.2
 typing_extensions==4.15.0
 # uvicorn's transitive set (beyond h11, shared above):
 click==8.4.1
+
+# Bounded request-time preference Hessian solves; loaded only on the opted-in path.
+numpy==2.4.6

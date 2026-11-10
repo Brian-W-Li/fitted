@@ -27,6 +27,7 @@ import { weatherSourceFromSnapshot, weatherSignalsFromSnapshot, validWeatherSign
 import {
   buildLens,
   buildRenderBody,
+  boundStylePreferencePayload,
   projectWardrobe,
   GENERATOR_EXPECTATION,
   RequestContractError,
@@ -52,7 +53,11 @@ import {
 import { buildBehavioralRows } from "@/lib/mlBehavioralRows";
 import { CLOTHING_TYPES, type ClothingType } from "@/lib/clothingType";
 import { validateSnapshotPayload, PayloadContractError } from "@/lib/mlSnapshotValidation";
-import { OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
+import { OwnerWriteUnavailable, StyleMemoryRevisionChanged } from "@/lib/ownerWriteFence";
+import { parseStyleSelection, styleSelectionFromSnapshot, sameCapturedStyleContext, type CapturedStyleContext, type StyleSelection } from "@/lib/styleContext";
+import { StyleMemoryError } from "@/lib/styleMemory/validation";
+import { buildStylePreferenceEvidence } from "@/lib/stylePreferenceEvidence";
+import { writeSupersededStyleRender } from "@/lib/styleRenderAdmission";
 import { writeSnapshotWithIdempotency } from "@/lib/mlSnapshotWrite";
 import {
   normalizeControls,
@@ -420,6 +425,11 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     // ownership, visibility and command checks below. Historical rows have no digest.
     const existing = await GenerationSnapshot.findOne({ user: userObjectId, requestId }).lean();
     let weatherCommandHash: string | undefined;
+    const suppliedStyle = body.styleContext == null ? null : parseStyleSelection(body.styleContext);
+    if (body.styleContext != null && !suppliedStyle) return respondError(400, "style_context_invalid", "Choose a saved style direction and situation.");
+    let commandStyle: StyleSelection | null = suppliedStyle;
+    let inheritedStyle = false;
+    let capturedStyle: CapturedStyleContext | undefined;
 
     // 3. §C.1 lineage gate FIRST, then intent — a re-roll carries only {requestId, parentSnapshotId,
     //    controls}; intent + Lens are derived FROM THE PARENT, never the client (else a rescue re-roll,
@@ -478,6 +488,14 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       }
       const parent = await GenerationSnapshot.findOne({ _id: rawParent, user: userObjectId }).lean();
       if (!parent) return respondError(404, "parent_not_found", "parent snapshot not found");
+      if (suppliedStyle) return respondError(400, "style_context_invalid", "A refinement keeps its saved style direction.");
+      commandStyle = styleSelectionFromSnapshot(parent.styleContext);
+      if (parent.styleContext && !commandStyle) return respondError(404, "context_unavailable", "That styling context is unavailable.");
+      inheritedStyle = !!commandStyle;
+      // A changed situation deliberately has no inferred routine membership.
+      if (commandStyle && (actualVariation || (body.variation && body.variation.mode !== "explore"))) {
+        commandStyle = { ...commandStyle, routineId: null, routineVersion: null, learningEnabled: false };
+      }
       if (!actualVariation && !await snapshotVisible(userObjectId, parent)) return respondError(404, "parent_not_found", "parent snapshot is unavailable");
       // Plain reroll would drop report-revision provenance or explored-source exclusion.
       // Explicit source-bound variations retain the applicable contract.
@@ -647,6 +665,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     // The G5 render identity for the idempotency comparison (EXCLUDES seedDate — §C.4 trap-guard).
     const incomingIdentity = makeRenderIdentity({
       user: userId,
+      styleContext: commandStyle,
       intent,
       occasion: lens.occasion,
       weather: lens.weather,
@@ -678,6 +697,15 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         return NextResponse.json(projectBrowserResponse(existing, existing._id.toString()));
       }
       return respondError(409, "request_id_conflict", "requestId reused for a different render");
+    }
+
+    let styledEvidence: Awaited<ReturnType<typeof buildStylePreferenceEvidence>> | undefined;
+    if (commandStyle) {
+      const weatherScope = weatherSource === "unknown" || !["cold", "mild", "hot"].includes(lens.weather)
+        ? "unspecified" : lens.weather as "cold" | "mild" | "hot";
+      styledEvidence = await buildStylePreferenceEvidence(userObjectId.toString(), commandStyle, weatherScope,
+        { allowHistoricalVersions: inheritedStyle });
+      capturedStyle = styledEvidence.styleContext;
     }
 
     // 5.5 Per-user render ceiling — AFTER the §C.4 replay (an idempotent replay is one Mongo read
@@ -715,10 +743,10 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     }
 
     // Reason amendments carry content about existing votes, not additional sampler support.
-    const interactionCountAtRequest = await OutfitInteraction.countDocuments({ user: userObjectId, ...voteEvidenceFilter });
-    const behavioralRows = await buildBehavioralRows(userObjectId, {
-      OutfitInteraction,
-      GenerationSnapshot,
+    const interactionCountAtRequest = styledEvidence?.interactionCountAtRequest ??
+      await OutfitInteraction.countDocuments({ user: userObjectId, ...voteEvidenceFilter });
+    const behavioralRows = styledEvidence?.behavioralRows ?? await buildBehavioralRows(userObjectId, {
+      OutfitInteraction, GenerationSnapshot,
     });
 
     // Capture the exact owned rows before the long service call. If deletion already won,
@@ -779,7 +807,15 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
           droppedWardrobe.map((d) => `${d.id}(${d.reason})`).join(", "),
       );
     }
+    if (capturedStyle) {
+      const source = new Map(wardrobeDocs.map(item => [String(item._id), item]));
+      wardrobe = wardrobe.map(item => {
+        const raw = source.get(item.id)?.subCategory;
+        return { ...item, subtype: typeof raw === "string" && raw.trim() && raw.length <= 60 && raw.isWellFormed() ? raw.trim() : null };
+      });
+    }
     let renderBody: RenderBody;
+    let preferenceEvidenceOmitted = false;
     try {
       renderBody = buildRenderBody({
         snapshotId,
@@ -794,7 +830,11 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         wardrobeVersion: 0,
         interactionCountAtRequest,
         behavioralRows,
+        ...(capturedStyle ? { styleContext: capturedStyle, preferenceRows: styledEvidence!.preferenceRows } : {}),
       });
+      const bounded = boundStylePreferencePayload(renderBody);
+      renderBody = bounded.body;
+      preferenceEvidenceOmitted = bounded.omitted;
     } catch (err) {
       if (err instanceof RequestContractError) return respondDegraded("contract_invalid");
       throw err;
@@ -806,6 +846,10 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     if (!result.ok) return respondDegraded(result.reasonHint);
 
     const { payload, shown, flags } = result.response;
+    if (capturedStyle && (result.response.protocolVersion !== 2 ||
+        !sameCapturedStyleContext(result.response.styleContext, capturedStyle))) {
+      return respondDegraded("contract_invalid");
+    }
     const wireShown = (shown ?? []) as WireShownEntry[];
 
     // 9. §G payload validation + §A/G4 cross-checks. Any violation → contract_invalid degraded, no write.
@@ -859,6 +903,13 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         weatherSignals: lens.weatherSignals,
         weatherCommandHash,
       });
+      if (capturedStyle) {
+        doc.schemaVersion = 2;
+        doc.styleContext = capturedStyle;
+        if (result.response.preference) doc.preference = preferenceEvidenceOmitted
+          ? { ...result.response.preference, status: "abstained", reason: "evidence_size_limit" }
+          : result.response.preference;
+      }
       if (payload.layerChoice) {
         const choice = payload.layerChoice as { status: string };
         const active = ["mild", "cold"].includes(lens.weather) && Boolean(lens.weatherSignals?.rain || lens.weatherSignals?.wind);
@@ -905,8 +956,19 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     // 11. §C.4 idempotent write. Non-E11000 failure → degrade (no binding token for an unpersisted row).
     let writeResult;
     try {
-      writeResult = await writeSnapshotWithIdempotency<Any>(GenerationSnapshot, doc, userObjectId, requestId, User);
+      try {
+        writeResult = await writeSnapshotWithIdempotency<Any>(GenerationSnapshot, doc, userObjectId, requestId, User, capturedStyle?.memoryRevision);
+      } catch (error) {
+        if (!(error instanceof StyleMemoryRevisionChanged) || !capturedStyle) throw error;
+        writeResult = await writeSupersededStyleRender({ User, GenerationSnapshot }, doc, userObjectId, requestId);
+        const storedReceipt = writeResult.snapshot as Any;
+        const receipt = typeof storedReceipt.toObject === "function" ? storedReceipt.toObject() : storedReceipt;
+        if (!await snapshotVisible(userObjectId, receipt)) return respondError(404, "proposal_unavailable", "That proposal is no longer available");
+        if (!matchesWinner(receipt)) return respondError(409, "request_id_conflict", "requestId reused for a different render");
+        return NextResponse.json(projectBrowserResponse(receipt, String(receipt._id)));
+      }
     } catch (err) {
+      if (err instanceof StyleMemoryError) return respondError(err.status, err.code, err.message);
       // A transport failure can return before the server commits. An immediate negative read
       // does not fence a later insert; keep non-expiring pins until erasure/operator reconciliation.
       uncertainSnapshotWrite = !(err instanceof mongoose.Error.ValidationError || err instanceof OwnerWriteUnavailable);
@@ -948,6 +1010,12 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       return NextResponse.json(projectBrowserResponse(winner, winner._id.toString()));
     }
 
+    // Erasure may commit after admission but before acknowledgement. Copied context is
+    // never authority to return a now-tombstoned proposal, even if cleanup deleted its row.
+    if (capturedStyle && !await snapshotVisible(userObjectId, doc)) {
+      return respondError(404, "proposal_unavailable", "That proposal is no longer available");
+    }
+
     // 12. §A/G15 browser projection from the in-memory merged doc (no post-Python DB refetch, H10).
     // D1 slot census (clothingtype-slot-correctness §4-D): counted from the PROJECTED wire wardrobe —
     // never raw wardrobeDocs (a malformed row the projection dropped must not be counted in a census
@@ -972,6 +1040,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     };
     return NextResponse.json(projectBrowserResponse(doc, snapshotId, wireFlags));
   } catch (error) {
+    if (error instanceof StyleMemoryError) return respondError(error.status, error.code, error.message);
     // An input-contract violation from any pre-service/validation helper (e.g. malformed `controls`
     // → normalizeControls, or a service-mangled controls in crossCheckAuthorship) is the §A
     // contract_invalid degraded state — the adapter's documented channel — never a 500. No snapshot
@@ -991,6 +1060,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
 function identityFromDoc(doc: Any): ReturnType<typeof makeRenderIdentity> {
   return makeRenderIdentity({
     user: doc.user,
+    styleContext: doc.styleContext,
     intent: doc.intent,
     occasion: doc.occasion,
     weather: doc.weather,

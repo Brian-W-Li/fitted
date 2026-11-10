@@ -332,6 +332,7 @@ def _engine_visible(item: WardrobeItem) -> dict:
         "fit": item.fit,
         "layer_role": item.layer_role,
         "image_url": item.image_url,
+        **({"subtype": item.subtype} if item.subtype is not None else {}),
     }
 
 
@@ -362,6 +363,7 @@ def _breakdown_dict(breakdown) -> dict:
         "overuse": breakdown.overuse,
         "repetition": breakdown.repetition,
         "cooldown": breakdown.cooldown,
+        **({"preference": breakdown.preference} if breakdown.preference != 0.0 else {}),
     }
 
 

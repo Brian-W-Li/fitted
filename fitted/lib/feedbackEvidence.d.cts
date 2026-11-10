@@ -12,8 +12,12 @@ export interface FeedbackEvidenceRow {
   createdAt?: { toISOString(): string } | string | number | null;
   feedbackReason?: unknown;
   perItemFeedback?: unknown;
+  learningDisposition?: string | null;
+  dispositionRevision?: number | null;
 }
 export const FEEDBACK_ACCOUNT_ROW_LIMIT: 2000;
 export const REASON_AMENDMENT: "reason_amendment";
-export const voteEvidenceFilter: { eventKind: { $ne: "reason_amendment" } };
+export const LEARNING_DISPOSITION: "learning_disposition";
+export const voteEvidenceFilter: { eventKind: { $nin: ["reason_amendment", "learning_disposition"] } };
 export function resolveFeedbackEvidence<T extends FeedbackEvidenceRow>(votes: T[], amendments: FeedbackEvidenceRow[]): T[];
+export function resolveLearningDispositions<T extends FeedbackEvidenceRow>(votes: T[], amendments: FeedbackEvidenceRow[]): T[];

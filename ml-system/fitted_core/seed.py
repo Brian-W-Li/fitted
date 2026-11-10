@@ -48,6 +48,7 @@ def _canonical_seed(
     weather: str,
     date: Optional[str],
     generation_index: Optional[int],
+    style_context_key: Optional[str] = None,
 ) -> int:
     """Private primitive — frame all six fields in canonical order, hash, truncate.
 
@@ -56,6 +57,8 @@ def _canonical_seed(
     security requirement") — the seed only needs to be stable and well-distributed.
     """
     fields = (session_id, wardrobe_version, occasion, weather, date, generation_index)
+    if style_context_key is not None:
+        fields += ("style-context.v2", style_context_key)
     canonical = "".join(_frame(f) for f in fields)
     digest = hashlib.sha256(canonical.encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "big")
@@ -68,6 +71,7 @@ def session_seed(
     occasion: str,
     weather: str,
     date: Optional[str] = None,
+    style_context_key: Optional[str] = None,
 ) -> int:
     """Session seed — no generationIndex. Used by sampling (M1).
 
@@ -88,6 +92,7 @@ def session_seed(
         weather=weather,
         date=date,
         generation_index=None,
+        style_context_key=style_context_key,
     )
 
 
@@ -99,6 +104,7 @@ def tiebreak_seed(
     weather: str,
     date: Optional[str] = None,
     generation_index: int,
+    style_context_key: Optional[str] = None,
 ) -> int:
     """Tie-break seed — session inputs + generationIndex (used by the M3 tie-break).
 
@@ -111,6 +117,7 @@ def tiebreak_seed(
         weather=weather,
         date=date,
         generation_index=generation_index,
+        style_context_key=style_context_key,
     )
 
 
@@ -123,6 +130,7 @@ def candidate_cache_key(
     intent: str,
     forced_item_id: Optional[str],
     seed_date: Optional[str],
+    style_context_key: Optional[str] = None,
 ) -> str:
     """The M5 ``candidateCacheKey`` — a *Lens-chain* key, NOT an "identical-input" key
     (m5-cutover.md §C.1).
@@ -153,6 +161,8 @@ def candidate_cache_key(
         forced_item_id,
         seed_date,
     )
+    if style_context_key is not None:
+        fields += ("style-context.v2", style_context_key)
     canonical = "".join(_frame(f) for f in fields)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 

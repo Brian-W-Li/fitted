@@ -103,6 +103,7 @@ class RequestContext:
     session_id: str
     wardrobe_version: int
     date: Optional[str] = None  # N2/C1 daily re-seed; None until M5 activates it
+    style_context_key: Optional[str] = None
     interaction_count: int = 0  # this user's interaction count; 0 until M5 wires the read-time
     # feedback reducer (M4 landed the OutfitInteraction binding fields, not the affinity projection)
 
@@ -448,6 +449,7 @@ def build_candidate_pool(
         occasion=context.occasion,
         weather=context.weather,
         date=context.date,
+        style_context_key=context.style_context_key,
     )
     rng = seeded_rng(seed)  # one shared RNG across all types (R4)
 

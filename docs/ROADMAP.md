@@ -3,71 +3,89 @@
 ## Selected goal
 
 Build one personal styling loop in the actual application: editable saved style
-directions and supported contextual taste learning that can affect the next displayed
-owned outfits. Preserve rescue, exploration, adaptation, planning, explicit wear,
-correction, ownership and deletion. The [implementation specification](plans/personal-styling-loop.md)
-owns the bounded design and code index; [the canonical spec](Fitted_Spec_v2.md) and
+directions and supported contextual taste learning that can affect subsequently
+displayed owned outfits. Preserve rescue, exploration, adaptation, planning, explicit
+wear, correction, ownership and deletion. The [implementation specification](plans/personal-styling-loop.md)
+owns the bounded design; [the canonical spec](Fitted_Spec_v2.md) and
 [appendix C.0/C.8](Fitted_Spec_v2_recovered_appendix.md) own the ambition.
 
-## Coordinator handoff — November 9, 2026
+## Current review checkpoint
 
-Coordinator: the personal styling loop chat. Brian selected the larger goal and
-authorized code indexing, a written spec, multiple critical reviews and a stable
-GitHub-saved baseline before feature implementation. No provider spending, deployment
-or new participant study is authorized. This is one deliverable, not a queue of studies.
+Brian requires focused implementation followed by bug hunts, independent specification
+review against actual code and edge cases, meaningful tests and owning-document updates
+before further production features. This checkpoint records that cycle. It is not a
+release or a claim that the complete goal is finished.
 
-The baseline branch is `codex/style-memory-baseline`, rooted directly in verified
-public main `70eef88a972bfb215ef367dd1e2d950617a71d7a`. Its code contains selected
-application reliability/lifecycle fixes and scoped-feedback foundations. Private
-experiment packages, participant records and private branch ancestry are excluded.
-Both Vercel configurations disable automatic deployment for this branch.
+The coordinator remains in its existing checkout. This public checkout is an explicit
+app-only review/export candidate, not a second coordinator. Private experiment tools,
+participant/wardrobe records, credentials and private branch ancestry are excluded.
+The branch `codex/style-memory-baseline` descends from public main
+`70eef88a972bfb215ef367dd1e2d950617a71d7a`. Both Vercel configurations suppress its
+deployment. No provider spending, deployment or participant collection is authorized.
 
-The original coordinator checkout and unrelated work are preserved. This temporary
-public checkout is a publication/verification candidate, not an unannounced migration
-of the development coordinator. Exact local paths and private preservation inventory
-stay in the local coordinator record, not public documentation.
+The previously saved baseline remains in Git. Code checkpoint `91a25045` passed
+[baseline hosted conformance](https://github.com/Brian-W-Li/fitted/actions/runs/42750741014)
+and the [baseline hosted browser journey](https://github.com/Brian-W-Li/fitted/actions/runs/42750740975).
+Those runs predate these feature changes and do not verify this checkpoint.
 
-## Verification and limits
+## Implemented locally and reviewed
 
-Current local baseline evidence: 206 focused tests passed, followed by the integrated
-web regression (1,678 passed, ten skipped) and Python core/service regression (1,212
-passed). TypeScript passed; lint has zero errors and 34 existing warnings. The compiled
-production-build synthetic browser journey passed, covering daily/rescue, feedback,
-captured garment details/photos, layers, exploration/adaptation, plans, changed wear,
-correction/retraction, clear/erasure and owner isolation. Ten focused documentation
-checks passed, including maintained links and frozen evidence pins. These checks ran
-against the public candidate, not only the private coordinator checkout.
+- Versioned text style directions and user-declared situations, selection/defaults,
+  scoped opt-in, archive/restore/erase and Home controls.
+- Owner-bound captured request context, exact replay, revision-fenced admission,
+  superseded receipts and retained-source visibility across proposal/plan/wear.
+- Complete bounded feedback resolution, typed learning inclusion/exclusion and
+  separate item-memory/exposure semantics.
+- A bounded experimental relationship learner in the actual selection pipeline,
+  with signed score persistence, safe baseline fallback and a same-pool comparator.
 
-The application/spec baseline is saved on GitHub. Verified code checkpoint `91a25045`
-passed both [hosted conformance](https://github.com/Brian-W-Li/fitted/actions/runs/42750741014)
-(web tests/type/lint, Python and documentation) and the
-[hosted compiled browser baseline](https://github.com/Brian-W-Li/fitted/actions/runs/42750740975).
-The initial browser setup failure was repaired by pinning its runner to Ubuntu 24.04:
-`ubuntu-latest` had migrated to Ubuntu 26.04, unsupported by locked Playwright 1.56.1.
-Application code/dependencies did not change for that repair. This documentation-only
-follow-up records review/CI results; no app rerun is needed solely for this prose.
-No deployment, fresh provider inference or human-benefit result is claimed.
+Independent reviews reproduced evidence-window ordering, optional-payload overflow,
+superseded provenance and deletion defects. Regression checks cover the fixes. In
+particular, erased content cannot restore from the styled Home cache; erasure after
+snapshot admission blocks fresh acknowledgement; and acknowledged Home erasure clears
+displayed cards/actions/cache. Archive, renaming and retained old semantic versions
+preserve the original captured labels. Uncertain restores stay hidden and cannot
+replace a newer result.
 
-The live walkthrough used existing account data and inspected wardrobe, saved
-proposals, recall, feedback history, exploration controls, plan and wear forms. It did
-not dispatch a generation or write content. Fresh generation quality, deployed source
-parity and hosted mutation behavior remain unverified. Scoped notes are stored locally
-but have no recommendation influence. The application has no demonstrated personal
-taste learner; old experimental evidence does not establish one.
+## Current verification and limits
 
-Three independent reviewers challenged product/ambition and publication safety;
-request, replay, cross-runtime and lifecycle architecture; and ML labels, feature
-missingness, evidence bounds, numerical budget and final selection. Their critical
-findings are resolved in the spec after bounded follow-up review. The last ML finding
-required composition latest-state collapse before eligibility, including newer
-exceptions across different snapshots; the spec now states that exact order.
-Runtime feasibility and product usefulness remain implementation acceptance work.
-No new styling feature implementation is claimed from this preparation.
+The compiled focused application journey passed: visible direction/situation creation,
+reload and opt-in, actual Next-to-Python generation, displayed garment membership,
+ordinary feedback, History exclusion/inclusion and saved-proposal labels. An authored
+relationship fixture with disjoint query garments changed displayed membership against
+its captured zero-learner comparator; removing its support recomputed the current
+baseline. Its first eligible cold numerical import timed out honestly, then a separate
+explicit new request activated learning. No production automatic retry was introduced.
 
-## Next actions
+The activation fixture pre-seeds abbreviated synthetic historical captures and submits
+reactions/dispositions through the real APIs. Its collecting path uses ordinary
+generated snapshots and the actual History UI. These checks demonstrate mechanisms;
+they do not prove that ordinary use accumulates equivalent complete training history,
+that human taste predictions improve, or that fresh provider generations are good.
+The full existing-wardrobe walkthrough and final whole-app regression remain required.
 
-1. Implement the reviewed loop in bounded slices, starting with owner-bound profile,
-   situation and evidence contracts; retain the existing app throughout.
-2. Rehearse candidate supply, feature support and numerical runtime before enabling
-   experimental learned influence, then demonstrate the complete local app journey.
-3. Keep local, CI and hosted product evidence separate; a later release is explicit.
+The complete public app web regression passed 1,746 tests with ten skips; Python
+core/service passed 1,251 tests. A subsequent focused spec review reproduced an older
+Routine refinement using the newer semantic label. The resolver now retains the old
+meaning while preserving current cosmetic renames; the affected 163-test regression
+passed after the fix. TypeScript passes on the final candidate. The production build
+and focused browser journey passed before that narrow resolver fix; targeted lint and
+focused navigation/frozen-pin guards pass. Hosted verification of the final checkpoint
+remains separate and pending.
+The earlier broad private-checkout Python study guards correctly rejected changed
+production fingerprints; their frozen evidence was not rewritten or exported.
+Local results, hosted CI and product benefit remain separate evidence.
+
+## Remaining work and next actions
+
+Explicit scoped item/composition instructions are not implemented. The faithful
+existing-wardrobe walkthrough, narrower-screen assessment and complete lifecycle
+browser regression remain open. Human usefulness is unestablished.
+
+1. Finish the current app-only regression and bounded review checkpoint; save it on
+   GitHub with its limitations stated and inspect hosted checks separately.
+2. Preserve the observed synthetic mechanism evidence while closing the remaining
+   ordinary-history, faithful-wardrobe and existing-journey verification gaps.
+3. Select the next focused implementation slice from the owning specification, with
+   a review/test/documentation cycle before broadening again. Release requires separate
+   authorization; no paid calls or deployment are part of this checkpoint.

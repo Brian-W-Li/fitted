@@ -69,7 +69,13 @@ interface RenderFlags {
   slotCensus?: Partial<Record<ClothingType, number>>;
 }
 
+import { preferenceDecisionMessage, type PreferenceDecision } from "@/lib/stylePreferenceDecision";
+import { validateStyledRestore } from "@/lib/styleRestore";
+
 interface RenderResult {
+  styleContext?: CapturedStyleContext;
+  preference?: PreferenceDecision;
+  commandStatus?: "superseded";
   shown: ShownOutfit[];
   flags: RenderFlags;
   bindable: boolean;
@@ -95,7 +101,12 @@ function expectedWeatherFromLens(lens?: LensSummary): ExpectedWeather {
     rain: lens.weatherSignals?.rain ? "rain" : "", wind: lens.weatherSignals?.wind ? "windy" : "" };
 }
 
+import StyleDirectionPanel from "./StyleDirectionPanel";
+import type { StyleContextSelection, StyleMemoryState } from "@/lib/styleMemory/contract";
+import type { CapturedStyleContext } from "@/lib/styleContext";
+
 interface LensSummary {
+  styleContext?: StyleContextSelection | null;
   occasion: string;
   forcedItemId?: string | null;
   location?: string | null;
@@ -517,11 +528,14 @@ function DashboardInner() {
   const activeLensRef = useRef<LensSummary | null>(null);
 
   const [occasion, setOccasion] = useState("");
+  const [selectedStyleContext, setSelectedStyleContext] = useState<StyleContextSelection | null>(null);
+  const [styleContextPending, setStyleContextPending] = useState(false);
   const [expectedWeather, setExpectedWeather] = useState<ExpectedWeather>(EMPTY_EXPECTED_WEATHER);
   const [eventTimeBucket, setEventTimeBucket] = useState<EventTimeBucket>("now");
   const [customEventDateTime, setCustomEventDateTime] = useState("");
   const [result, setResult] = useState<RenderResult | null>(null);
   const reactionGenerationsRef = useRef(new Map<string, number>());
+  const restoreEpochRef = useRef(0);
   const resultRef = useRef(result);
   resultRef.current = result;
   const [inFlight, setInFlight] = useState(false);
@@ -658,36 +672,59 @@ function DashboardInner() {
     setRescueItemName(r ? searchParams.get("name") ?? "" : "");
   }, [searchParams, uid]);
 
-  // Restore persisted render on return + resume any un-cleared pending envelope (F10).
+  // Restore only retained styled sources; an old session cache cannot defeat erasure.
   useEffect(() => {
+    const restoreEpoch = ++restoreEpochRef.current;
+    const controller = new AbortController();
+    let cancelled = false;
     reactionGenerationsRef.current.clear();
     setResult(null); setOccasion(""); setExpectedWeather(EMPTY_EXPECTED_WEATHER);
     setError(""); setInFlight(false); setFeedbackModal(null); setRegenModal(null);
     activeLensRef.current = null; activeLocksRef.current = [];
     setRescueItemId(null); setRescueItemName("");
-    if (!uid) return;
+    if (!uid) return () => { cancelled = true; controller.abort(); };
+    const ownerEpoch = activeUserEpochRef.current;
+    const current = () => !cancelled && restoreEpochRef.current === restoreEpoch &&
+      activeUserUidRef.current === uid && activeUserEpochRef.current === ownerEpoch;
     const rescue = searchParams.get("rescue");
     setRescueItemId(rescue); setRescueItemName(rescue ? searchParams.get("name") ?? "" : "");
     const saved = readJSON<PersistedDashboard>(DASHBOARD_KEY(uid));
     const restored = saved?.result ? { ...saved.result, shown: saved.result.shown.map(outfit => ({ ...outfit, reactionId: undefined, feedbackReason: undefined, perItemFeedback: undefined })) } : null;
-    if (restored && saved) {
-      setResult(restored);
-      setOccasion(saved.occasion ?? "");
-      activeLensRef.current = saved.lensSummary ?? { occasion: saved.occasion ?? "" };
-      setExpectedWeather(expectedWeatherFromLens(saved.lensSummary));
-      activeLocksRef.current = saved.activeLockedItemIds ?? [];
-    }
     const pending = readJSON<PendingEnvelope>(PENDING_KEY(uid));
-    if (pending) {
-      setOccasion(pending.lensSummary.occasion);
-      setExpectedWeather(expectedWeatherFromLens(pending.lensSummary));
-      resumePending(uid, pending);
-    } else if (saved?.result && firebaseUser) {
-      // No render is resuming (which would replace the result), so reconcile the restored chips.
-      // Pass the SAVED occasion so a re-persist round-trips it exactly (the callback's closure
-      // `occasion` is still "" here — setOccasion above hasn't flushed for this async continuation).
-      void reconcileFeedbackFromServer(firebaseUser, restored!, saved.occasion ?? "");
-    }
+    const publish = () => {
+      if (!current()) return;
+      if (restored && saved) {
+        setResult(restored);
+        setOccasion(saved.occasion ?? "");
+        activeLensRef.current = saved.lensSummary ?? { occasion: saved.occasion ?? "" };
+        setExpectedWeather(expectedWeatherFromLens(saved.lensSummary));
+        activeLocksRef.current = saved.activeLockedItemIds ?? [];
+      }
+      if (pending) {
+        setOccasion(pending.lensSummary.occasion);
+        setExpectedWeather(expectedWeatherFromLens(pending.lensSummary));
+        resumePending(uid, pending);
+      } else if (restored && firebaseUser) void reconcileFeedbackFromServer(firebaseUser, restored, saved?.occasion ?? "");
+    };
+    if (restored?.styleContext && firebaseUser) {
+      const user = firebaseUser;
+      void (async () => {
+        let state: "visible" | "unavailable" | "unverified" = "unverified";
+        try {
+          const token = await user.getIdToken();
+          if (!current()) return;
+          state = await validateStyledRestore({ styleContext: restored.styleContext!, shown: restored.shown }, token, controller.signal);
+        } catch { /* Keep unverified content hidden; a later return may revalidate it. */ }
+        if (!current()) return;
+        if (state === "visible") publish();
+        else {
+          if (state === "unavailable") removeKey(DASHBOARD_KEY(uid));
+          setError(state === "unavailable" ? "Those saved outfits are no longer available. You can request a new set." : "Couldn't verify your saved outfits. Reload to try again.");
+          if (pending) resumePending(uid, pending);
+        }
+      })();
+    } else publish();
+    return () => { cancelled = true; controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
 
@@ -771,6 +808,7 @@ function DashboardInner() {
       // re-roll path uses this to keep the outfits on screen when a re-roll degrades).
       onResult: (r: RenderResult) => void | boolean,
     ) => {
+      ++restoreEpochRef.current; // A delayed cache read cannot replace a newer command.
       const userUid = user.uid;
       const ownerEpoch = activeUserEpochRef.current;
       const isCurrentOwner = () => activeUserUidRef.current === userUid && activeUserEpochRef.current === ownerEpoch;
@@ -828,6 +866,16 @@ function DashboardInner() {
         }
 
         const rendered = data as RenderResult;
+        if (rendered.commandStatus === "superseded") {
+          removeKey(PENDING_KEY(userUid));
+          setError("Your styling memory changed while these outfits were being prepared. Your previous outfits are still here. Start a new request when you're ready.");
+          return;
+        }
+        if (envelope.lensSummary.styleContext && isEmptyDegradedRender(rendered)) {
+          removeKey(PENDING_KEY(userUid));
+          setError(emptyStateMessage(rendered.flags));
+          return;
+        }
         const accepted = onResult(rendered);
         if (accepted !== false) persistResult(rendered, envelope.lensSummary.occasion);
         // Hydrated success (bindable render) or a completed degraded render — either way the render
@@ -900,11 +948,12 @@ function DashboardInner() {
       setError("Describe the event or context to get recommendations.");
       return;
     }
-    if (inFlight || signingOut) return; // Generate is disabled while a render is in flight
+    if (inFlight || signingOut || styleContextPending) return; // Freeze only acknowledged settings.
 
     const requestId = newRequestId();
     const lensSummary: LensSummary = {
       occasion,
+      ...(selectedStyleContext ? { styleContext: selectedStyleContext } : {}),
       forcedItemId: rescueItemId ?? null,
       ...manualWeatherLens(expectedWeather),
       ...(geoCoords ? { lat: geoCoords.lat, lon: geoCoords.lon } : {}),
@@ -920,7 +969,7 @@ function DashboardInner() {
 
     setInFlight(true);
     setError("");
-    setResult(null);
+    if (!selectedStyleContext) setResult(null);
     setFeedbackModal(null);
     setRegenModal(null);
     // H100 — a root render starts a fresh lineage (the §C.3 invariant: a root carries no controls),
@@ -929,7 +978,7 @@ function DashboardInner() {
     // Persist the envelope BEFORE the fetch (survives a reload/lost response).
     writeJSON(PENDING_KEY(uid), envelope);
     await runRender(firebaseUser, envelope, buildRootBody(envelope), (r) => { activeLensRef.current = lensSummary; setResult(r); });
-  }, [firebaseUser, uid, occasion, inFlight, rescueItemId, geoCoords, eventTimeBucket, customEventDateTime, expectedWeather, signingOut, runRender]);
+  }, [firebaseUser, uid, occasion, inFlight, rescueItemId, geoCoords, eventTimeBucket, customEventDateTime, expectedWeather, signingOut, selectedStyleContext, styleContextPending, runRender]);
 
   const submitRegenerate = useCallback(
     async (controls: NormalizedControls) => {
@@ -1074,6 +1123,22 @@ function DashboardInner() {
   };
 
   const bindable = Boolean(result?.bindable);
+  const onStyleMemoryState = useCallback((memory: StyleMemoryState) => {
+    const cached = resultRef.current;
+    if (!uid || activeUserUidRef.current !== uid || !cached?.styleContext) return;
+    const context = cached.styleContext;
+    const retainedBoard = memory.boards.some(board => board.id === context.boardId && board.profileId === context.profileId &&
+      board.versions.some(version => version.version === context.profileVersion));
+    const retainedRoutine = context.routineId === null || memory.routines.some(routine => routine.id === context.routineId &&
+      routine.versions.some(version => version.version === context.routineVersion));
+    if (retainedBoard && retainedRoutine) return; // Selection, renaming and archive preserve history.
+    ++restoreEpochRef.current;
+    setResult(null); setFeedbackModal(null); setRegenModal(null);
+    activeLensRef.current = null; activeLocksRef.current = [];
+    removeKey(DASHBOARD_KEY(uid));
+    setError("Those saved outfits are no longer available. You can request a new set.");
+  }, [uid]);
+
   const shown = result?.shown ?? [];
 
   return (
@@ -1118,6 +1183,9 @@ function DashboardInner() {
             </a>
           </div>
         )}
+
+        <div className="mt-4"><StyleDirectionPanel user={firebaseUser} disabled={inFlight || signingOut}
+          onChange={setSelectedStyleContext} onPendingChange={setStyleContextPending} onStateChange={onStyleMemoryState} /></div>
 
         {/* The rescue teaser presupposes they HAVE a piece they can't style — false premise at 0
             items, and it would compete with the signpost above. */}
@@ -1233,7 +1301,7 @@ function DashboardInner() {
 
           <button
             onClick={startGenerate}
-            disabled={inFlight || signingOut}
+            disabled={inFlight || signingOut || styleContextPending}
             className="self-start px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed"
           >
             {inFlight ? "Generating…" : "Get Recommendations"}
@@ -1258,6 +1326,10 @@ function DashboardInner() {
         {/* Results — §6.5 cards, or the degraded/empty state (no feedback controls when !bindable). */}
         {result && shown.length > 0 && (
           <div className="mt-6 space-y-4">
+            {result.styleContext && <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+              <p className="font-medium text-slate-800">{result.styleContext.boardLabel}{result.styleContext.routineLabel ? ` · ${result.styleContext.routineLabel}` : ""}</p>
+              <p className="mt-1 text-xs text-slate-600">{preferenceDecisionMessage(result.preference, result.styleContext.learningEnabled)}</p>
+            </div>}
             {result.layerChoice?.note && <p className="text-sm text-slate-700">{result.layerChoice.note}</p>}
             {result.generationIndex != null && result.generationIndex > 0 && (
               <p className="text-xs text-slate-500">Regenerated outfit (variation {result.generationIndex})</p>
@@ -1298,6 +1370,10 @@ function DashboardInner() {
 
         {result && shown.length === 0 && !inFlight && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center border border-slate-200">
+            {result.styleContext && <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+              <p className="font-medium text-slate-800">{result.styleContext.boardLabel}{result.styleContext.routineLabel ? ` · ${result.styleContext.routineLabel}` : ""}</p>
+              <p className="mt-1 text-xs text-slate-600">{preferenceDecisionMessage(result.preference, result.styleContext.learningEnabled)}</p>
+            </div>}
             {result.layerChoice?.note && <p className="text-sm text-slate-700">{result.layerChoice.note}</p>}
             <p className="text-slate-600">{emptyStateMessage(result.flags)}</p>
             {/* F10 — a healthy-empty dead-end must offer the way out (the wardrobe), not just
@@ -1357,6 +1433,7 @@ function buildRootBody(envelope: PendingEnvelope): Record<string, unknown> {
   const l = envelope.lensSummary;
   return {
     requestId: envelope.requestId,
+    ...(l.styleContext ? { styleContext: l.styleContext } : {}),
     occasion: l.occasion,
     ...(l.weatherSource === "manual" ? { weather: l.weather, weatherRaw: l.weatherRaw ?? null, weatherSource: "manual", ...(l.weatherSignals ? { weatherSignals: l.weatherSignals } : {}) } : {}),
     ...(l.forcedItemId ? { forcedItemId: l.forcedItemId } : {}),

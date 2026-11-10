@@ -41,6 +41,7 @@ from fitted_core.config import (
 )
 from fitted_core.generation import FinishStatus, GenerationPrompt, Generator
 from fitted_core.layer_policy import exclude_source_membership, needs_layer_choice, normalize_weather_signals
+from fitted_core.style_context import normalize_style_context, style_context_key, style_prompt_lines
 from fitted_core.models import IssueCode, ItemType, Role, SlotMap, Template, WardrobeItem
 from fitted_core.ranker import (
     FallbackStage,
@@ -108,11 +109,19 @@ class RescueRequest:
     locked_item_ids: tuple[str, ...] = ()
     disliked_item_ids: tuple[str, ...] = ()
     excluded_outfit_item_ids: tuple[str, ...] = ()
+    style_context: Optional[dict] = None
+    preference_rows: tuple[dict, ...] = ()
     weather_summary: Optional[str] = None
     weather_signals: Optional[dict[str, bool]] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "weather_signals", normalize_weather_signals(self.weather_signals))
+        object.__setattr__(self, "style_context", normalize_style_context(self.style_context))
+        if not isinstance(self.preference_rows, (list, tuple)) or len(self.preference_rows) > 2000 or not all(isinstance(row, dict) for row in self.preference_rows):
+            raise ValueError("preference_rows must contain at most 2000 captured observations")
+        object.__setattr__(self, "preference_rows", tuple(json.loads(json.dumps(list(self.preference_rows), allow_nan=False))))
+        if self.preference_rows and self.style_context is None:
+            raise ValueError("preference_rows require an explicit style context")
         self._validate_intent()
         self._validate_generation_index()
         self._validate_k()
@@ -336,6 +345,7 @@ def _build_request_context(request: RescueRequest) -> RequestContext:
         wardrobe_version=request.wardrobe_version,
         date=request.date,
         interaction_count=request.interaction_count,
+        style_context_key=style_context_key(request.style_context),
     )
 
 
@@ -525,6 +535,7 @@ def _serialize_pool_item(item: WardrobeItem) -> dict[str, object]:
         "pattern": item.pattern,
         "fit": item.fit,
         "layer_role": item.layer_role,
+        **({"subtype": item.subtype} if item.subtype is not None else {}),
     }
 
 
@@ -632,6 +643,7 @@ def _build_user_message(
         [
             f"Occasion: {request.occasion}",
             f"Weather: {request.weather}",
+            *style_prompt_lines(request.style_context),
             *(["Include at least one optional removable outer-layer outfit if the listed wardrobe and exact controls permit it. Outer category does not establish rain or wind protection; do not claim it."]
               if needs_layer_choice(request) else []),
             *([f"Weather details (context, not a guarantee): {json.dumps(request.weather_summary, ensure_ascii=False)}"]
@@ -732,6 +744,7 @@ def _build_daily_user_message(
         [
             f"Occasion: {request.occasion}",
             f"Weather: {request.weather}",
+            *style_prompt_lines(request.style_context),
             *(["Include at least one optional removable outer-layer outfit if the listed wardrobe and exact controls permit it. Outer category does not establish rain or wind protection; do not claim it."]
               if needs_layer_choice(request) else []),
             *([f"Weather details (context, not a guarantee): {json.dumps(request.weather_summary, ensure_ascii=False)}"]
@@ -973,6 +986,7 @@ def _build_ranker_context(
         "weather": request.weather,
         "date": request.date,
         "generation_index": request.generation_index,
+        "style_context_key": style_context_key(request.style_context),
         "k": request.k,
     }
     if behavioral_signals is not None:
@@ -986,6 +1000,62 @@ def _build_ranker_context(
     if request.disliked_item_ids:
         kwargs["contextual_disliked_item_ids"] = frozenset(request.disliked_item_ids)
     return RankerContext(**kwargs)
+
+
+def _preference_ranker_context(request, behavioral_signals, candidates):
+    """Fit after generation/structure/exact controls, before score caps/truncation.
+
+    Only metadata and bounded signed deltas leave the isolated learner. A model
+    failure never drops an otherwise valid candidate or changes baseline controls.
+    """
+    baseline = _build_ranker_context(request, behavioral_signals, candidates)
+    if request.style_context is None:
+        return baseline, None
+    from fitted_core.preferences import evaluate_preferences
+    items = {item.id: item for item in request.wardrobe}
+    pool = []
+    excluded = set(request.disliked_item_ids)
+    for candidate in candidates:
+        ids = [getattr(candidate.slot_map, role) for role in ("top", "bottom", "dress", "mid", "outer", "shoes")]
+        if excluded.intersection(ident for ident in ids if ident is not None):
+            continue
+        facts = []
+        for role in ("top", "bottom", "dress", "mid", "outer", "shoes"):
+            ident = getattr(candidate.slot_map, role)
+            if ident is not None:
+                item = items[ident]
+                facts.append({"id": ident, "role": role, "clothingType": item.type.value,
+                              "subtype": item.subtype, "colors": list(item.color_tags),
+                              "pattern": item.pattern, "fit": item.fit})
+        pool.append({"id": candidate.full_signature, "items": facts})
+    style = request.style_context
+    context = {"ownerId": request.session_id, "profileId": style["profileId"],
+               "profileVersion": style["profileVersion"], "routineId": style["routineId"],
+               "routineVersion": style["routineVersion"], "weather": style["weather"]}
+    decision = evaluate_preferences(list(request.preference_rows), pool, context,
+                                    enabled=style["learningEnabled"])
+    metadata = {
+        "status": decision.status, "reason": decision.reason, "support": decision.support,
+        "likes": decision.likes, "dislikes": decision.dislikes,
+        "featureVersion": decision.feature_version, "modelVersion": decision.model_version,
+        "policyVersion": decision.policy_version, "schemaDigest": decision.schema_digest,
+        "evidenceDigest": decision.evidence_digest, "evidenceCutoff": decision.evidence_cutoff,
+        "activeChannelCount": len(decision.active_channels), "removedGroups": list(decision.removed_groups),
+    }
+    return replace(baseline, preference_deltas=decision.deltas), metadata
+
+
+def _preference_comparison(request, candidates, context, metadata, selected):
+    """One zero-learner comparison on the same already generated candidate pool."""
+    if metadata is None:
+        return None
+    if any(context.preference_deltas.values()):
+        baseline = rank(candidates, replace(context, preference_deltas={}))
+        chosen, _ = build_variants(baseline, {item.id: item for item in request.wardrobe}, request, request.n_surfaced)
+    else:
+        chosen = selected
+    return {**metadata, "baselineShownFullSignatures": [variant.full_signature for variant in chosen],
+            "shownFullSignatures": [variant.full_signature for variant in selected]}
 
 
 def rescue(
@@ -1086,7 +1156,8 @@ def rescue(
     # filter, §C.3). ``rank([])`` is valid (M2/M3 "empty is valid") and yields an empty,
     # insufficient RankerResult, so the parse-fail and all-dropped paths share this single exit.
     survivors, _ = exclude_source_membership(request, survivors)
-    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals, survivors))
+    ranker_context, _ = _preference_ranker_context(request, behavioral_signals, survivors)
+    ranked = rank(survivors, ranker_context)
 
     # Step 10 — response layer: wrap the ranked survivors into §6.5 OutfitVariants (path/risk via
     # the §G cold-start scoring) and spread-select ≤ n_surfaced spanning distinct (path, risk)
@@ -1172,6 +1243,7 @@ class RescueTrace:
     # signal collections + reducer provenance the snapshot producer persists (M5 cutover §E/§H).
     # None on the pre-GPT not_enough_items exit (no rank reached).
     ranker_context: Optional[RankerContext] = None
+    preference_metadata: Optional[dict] = None
 
 
 def _generate_and_parse_with_trace(
@@ -1397,7 +1469,7 @@ def rescue_with_trace(
     # Step 9 — rank, capturing the full scored funnel (scored-but-unshown breakdowns).
     survivors, source_drops = exclude_source_membership(request, survivors)
     rescue_drops += tuple(RescueDrop(candidate, "source_membership_excluded", "render") for candidate in source_drops)
-    ranker_context = _build_ranker_context(request, behavioral_signals, survivors)
+    ranker_context, preference_metadata = _preference_ranker_context(request, behavioral_signals, survivors)
     rank_audit = rank_with_audit(survivors, ranker_context)
     ranked = rank_audit.result
 
@@ -1427,6 +1499,7 @@ def rescue_with_trace(
         rank_audit=rank_audit,
         build_trace=build_trace,
         ranker_context=ranker_context,
+        preference_metadata=_preference_comparison(request, survivors, ranker_context, preference_metadata, build_trace.selected),
     )
 
 
@@ -1524,7 +1597,8 @@ def _render_daily(
         )
 
     survivors, _ = exclude_source_membership(request, survivors)
-    ranked = rank(survivors, _build_ranker_context(request, behavioral_signals, survivors))
+    ranker_context, _ = _preference_ranker_context(request, behavioral_signals, survivors)
+    ranked = rank(survivors, ranker_context)
     items_by_id = {item.id: item for item in request.wardrobe}
     variants, spread_collapsed = build_variants(ranked, items_by_id, request, request.n_surfaced)
     insufficient = len(selection_pool(ranked, request).outfits) < request.n_surfaced
@@ -1615,7 +1689,7 @@ def _render_daily_with_trace(
 
     survivors, source_drops = exclude_source_membership(request, survivors)
     rescue_drops += tuple(RescueDrop(candidate, "source_membership_excluded", "render") for candidate in source_drops)
-    ranker_context = _build_ranker_context(request, behavioral_signals, survivors)
+    ranker_context, preference_metadata = _preference_ranker_context(request, behavioral_signals, survivors)
     rank_audit = rank_with_audit(survivors, ranker_context)
     ranked = rank_audit.result
     items_by_id = {item.id: item for item in request.wardrobe}
@@ -1642,6 +1716,7 @@ def _render_daily_with_trace(
         rank_audit=rank_audit,
         build_trace=build_trace,
         ranker_context=ranker_context,
+        preference_metadata=_preference_comparison(request, survivors, ranker_context, preference_metadata, build_trace.selected),
     )
 
 

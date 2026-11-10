@@ -16,7 +16,9 @@ const root = path.resolve(fitted, "..");
 const project = "demo-fitted-baseline";
 const production = process.argv.includes("--production");
 const feedbackOnly = process.argv.includes("--feedback-only");
-assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only"].includes(arg)), "unknown baseline argument");
+const styleOnly = process.argv.includes("--style-only");
+assert.ok(!(feedbackOnly && styleOnly), "choose one focused browser journey");
+assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only", "--style-only"].includes(arg)), "unknown baseline argument");
 const origin = "http://127.0.0.1:3107";
 const authOrigin = "http://127.0.0.1:9099";
 const serviceOrigin = "http://127.0.0.1:8097";
@@ -63,6 +65,15 @@ function child(command, args, cwd, env) {
   proc.baselineOutput = () => output;
   children.push(proc);
   return { proc, output: () => output };
+}
+
+async function boundedBrowserStep(promise, label) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Browser step timed out: ${label}`)), 30_000);
+    })]);
+  } finally { clearTimeout(timer); }
 }
 
 async function completed(running, timeoutMs = 180000, requireSuccess = true) {
@@ -272,6 +283,267 @@ async function checkFeedbackJourney(db, page, owner, memoryHeaders) {
 
 }
 
+/** One real app journey over authored synthetic wardrobe/feedback. No human-benefit claim. */
+async function checkStyleDirectionJourney(db, page, owner) {
+  const boardLabel = "Synthetic campus direction";
+  const routineLabel = "Synthetic class days";
+  const occasion = "Synthetic style-memory class request";
+  await page.goto(`${origin}/dashboard`);
+  const panel = page.getByRole("region", { name: "Saved style direction", exact: true });
+  async function mutate(kind, action) {
+    const [response] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith("/api/style-memory") && response.request().method() === "POST"),
+      action(),
+    ]);
+    const body = await response.json();
+    assert.equal(response.request().postDataJSON().kind, kind, "visible action sends its typed styling command");
+    assert.equal(response.status(), 200, JSON.stringify(body));
+    assert.ok(body.state && body.operation?.id, "saved styling returns an acknowledged state");
+    return body.state;
+  }
+  await panel.getByRole("button", { name: "New direction", exact: true }).click();
+  await panel.getByLabel("Saved choice name", { exact: true }).fill(boardLabel);
+  await panel.getByLabel("Style word or phrase", { exact: true }).fill("relaxed");
+  await panel.getByRole("button", { name: "Add style phrase", exact: true }).click();
+  await panel.getByRole("button", { name: "Review direction", exact: true }).click();
+  await panel.getByLabel("Direction review", { exact: true }).waitFor();
+  const savedBoard = await mutate("create_board", () => panel.getByRole("button", { name: "Save direction", exact: true }).click());
+  const board = savedBoard.boards.find(row => row.label === boardLabel);
+  assert.ok(board?.profileId && board.versions[0].compiled.aestheticKeywords.includes("relaxed"));
+  await panel.getByRole("button", { name: "New situation", exact: true }).click();
+  await panel.getByLabel("Saved choice name", { exact: true }).fill(routineLabel);
+  const savedRoutine = await mutate("create_routine", () => panel.getByRole("button", { name: "Save situation", exact: true }).click());
+  const routine = savedRoutine.routines.find(row => row.label === routineLabel);
+  assert.ok(routine?.id);
+  await mutate("select_context", () => panel.getByRole("combobox", { name: "Style direction", exact: true }).selectOption(board.id));
+  await mutate("select_context", () => panel.getByRole("combobox", { name: "Saved situation", exact: true }).selectOption(routine.id));
+  const optIn = panel.getByRole("checkbox", { name: `Use experimental taste learning for ${boardLabel} / ${routineLabel}`, exact: true });
+  assert.equal(await optIn.isChecked(), false, "learning is not silently enabled by selecting context");
+  await mutate("set_learning", () => optIn.click());
+  await panel.locator('input[type="checkbox"]:checked').waitFor();
+  await page.reload();
+  await panel.getByRole("combobox", { name: "Style direction", exact: true }).waitFor();
+  assert.equal(await panel.getByRole("combobox", { name: "Style direction", exact: true }).inputValue(), board.id);
+  assert.equal(await panel.getByRole("combobox", { name: "Saved situation", exact: true }).inputValue(), routine.id);
+  assert.equal(await optIn.isChecked(), true, "acknowledged context/opt-in survive reload");
+  await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
+  await page.locator("textarea").fill(occasion);
+  const capturedLabel = `${boardLabel} · ${routineLabel}`;
+  async function generate(expectedSupport) {
+    await paceRender();
+    const [response] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
+      page.getByRole("button", { name: "Get Recommendations", exact: true }).click(),
+    ]);
+    const body = await response.json();
+    assert.equal(response.status(), 200, JSON.stringify(body));
+    assert.ok(body.bindable && body.shown?.length, `styled request must show owned outfits: ${JSON.stringify(body)}`);
+    const request = response.request().postDataJSON();
+    assert.deepEqual(request.styleContext, { boardId: board.id, profileId: board.profileId, profileVersion: 1,
+      routineId: routine.id, routineVersion: 1, learningEnabled: true });
+    assert.equal(body.styleContext?.boardLabel, boardLabel);
+    assert.equal(body.styleContext?.routineLabel, routineLabel);
+    assert.equal(body.styleContext?.learningEnabled, true);
+    assert.equal(body.preference?.support, expectedSupport, "next decision uses current resolved scoped evidence");
+    assert.equal(body.preference?.status, "abstained", "tiny authored fixture is not claimed to establish learned taste");
+    await page.getByText(capturedLabel, { exact: true }).waitFor();
+    // The response can precede React's commit, especially when card counts stay equal.
+    await page.waitForFunction(snapshotId => Array.from(document.querySelectorAll("a")).some(link =>
+      link.getAttribute("href")?.includes(`snapshotId=${snapshotId}`)), body.shown[0].snapshotId);
+    const cards = page.locator(".p-5.border.rounded-xl").filter({ has: page.getByRole("button", { name: "Regenerate", exact: true }) });
+    await page.waitForFunction(count => document.querySelectorAll(".p-5.border.rounded-xl").length === count, body.shown.length);
+    assert.equal(await cards.count(), body.shown.length);
+    const ownedIds = new Set((await db.collection("wardrobeitems").find({ user: new ObjectId(owner.userId), isAvailable: { $ne: false } }).toArray()).map(row => String(row._id)));
+    for (let i = 0; i < body.shown.length; i++) {
+      const shown = body.shown[i];
+      assert.ok(shown.displayItems.every(item => ownedIds.has(item.itemId)), "every final shown member is owned and available");
+      const visibleNames = (await cards.nth(i).locator(".grid p.font-medium").allTextContents()).map(name => name.trim()).sort();
+      assert.deepEqual(visibleNames, shown.displayItems.map(item => item.name).sort(), "actual cards match final surfaced garment membership and outfit order");
+    }
+    const row = await db.collection("generationsnapshots").findOne({ user: new ObjectId(owner.userId), requestId: request.requestId });
+    assert.ok(row?.generationAttempts?.length, "compiled Next-to-Python fixture generator produced captured attempts");
+    assert.deepEqual(row.shownCandidateIds, body.shown.map(item => item.candidateId), "persisted shown order matches browser response");
+    assert.equal(row.styleContext.boardLabel, boardLabel);
+    assert.equal(row.styleContext.routineId, routine.id);
+    return body;
+  }
+  const initial = await generate(0);
+  const [reactionResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Like", exact: true }).first().click(),
+  ]);
+  const receipt = await reactionResponse.json(); assert.equal(reactionResponse.status(), 200, JSON.stringify(receipt));
+  const reaction = await db.collection("outfitinteractions").findOne({ _id: new ObjectId(receipt.interaction.id) });
+  assert.equal(reaction.styleContext.profileId, board.profileId);
+  assert.equal(reaction.learningDisposition, "normal");
+  assert.equal(reaction.snapshotId.toString(), initial.shown[0].snapshotId);
+  await generate(1);
+  await page.reload(); await page.getByText(capturedLabel, { exact: true }).waitFor();
+  // Saved proposal displays captured labels without rebuilding them from today's selections.
+  await page.getByRole("link", { name: "Open proposal / plan an outfit", exact: true }).first().click();
+  await page.getByText(`Direction: ${capturedLabel}`, { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Plan this outfit", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Report what I wore", exact: true }).waitFor();
+  await page.goto(`${origin}/history`);
+  const exclude = page.getByRole("button", { name: "Exclude from taste learning", exact: true });
+  const [excluded] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"), exclude.click(),
+  ]);
+  const exclusion = await excluded.json();
+  assert.equal(excluded.status(), 200, JSON.stringify(exclusion));
+  assert.equal(excluded.request().postDataJSON().kind, "learning_disposition");
+  assert.equal(exclusion.amendment.reactionId, receipt.interaction.id);
+  assert.equal(exclusion.amendment.learningDisposition, "exception");
+  await page.getByRole("button", { name: "Also reflects my taste here", exact: true }).waitFor();
+  assert.equal((await db.collection("outfitinteractions").findOne({ _id: reaction._id })).action, "accepted", "excluding learning preserves the like");
+  await page.goto(`${origin}/dashboard`);
+  await generate(0);
+  if (process.env.FITTED_BROWSER_SCREENSHOT) await page.screenshot({ path: process.env.FITTED_BROWSER_SCREENSHOT + ".style-loop.png", fullPage: true });
+  await page.goto(`${origin}/history`);
+  const [included] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Also reflects my taste here", exact: true }).click(),
+  ]);
+  assert.equal(included.status(), 200);
+  assert.equal((await included.json()).amendment.learningDisposition, "normal", "explicit inclusion reverses the scoped correction");
+  await page.reload(); await page.getByRole("button", { name: "Exclude from taste learning", exact: true }).waitFor();
+  console.log("PASS synthetic style loop: Board/Routine creation, selection/opt-in reload, real compiled request path, final card membership, scoped vote, next decision support, History exclusion/inclusion, captured proposal and honest abstention");
+}
+
+/** Authored XOR mechanism fixture. Captures/labels are synthetic and never participant evidence. */
+async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
+  await page.goto(`${origin}/dashboard`);
+  const panel = page.getByRole("region", { name: "Saved style direction", exact: true });
+  const prior = await json(`${origin}/api/style-memory`, { headers: memoryHeaders });
+  const originalBoard = prior.boards.find(row => row.id === prior.selectedBoardId);
+  const routine = prior.routines.find(row => row.id === prior.selectedRoutineId);
+  assert.ok(originalBoard && routine, "the visible collecting journey supplied this owned Board/Routine");
+  // A new semantic version isolates this authored fixture from the earlier incomplete garment facts.
+  await panel.getByRole("button", { name: "Manage saved choices", exact: true }).click();
+  await panel.getByRole("button", { name: `Edit meaning: ${originalBoard.label}`, exact: true }).click();
+  const editor = panel.getByRole("group", { name: "Edit direction", exact: true });
+  await editor.getByLabel("Style word or phrase", { exact: true }).fill("authored synthetic fit contrasts");
+  await editor.getByRole("button", { name: "Add style phrase", exact: true }).click();
+  await editor.getByRole("button", { name: "Review direction", exact: true }).click();
+  const [edited] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/style-memory") && response.request().method() === "POST"),
+    editor.getByRole("button", { name: "Save changes", exact: true }).click(),
+  ]);
+  assert.equal(edited.status(), 200); await editor.waitFor({ state: "hidden" });
+  const optIn = panel.getByRole("checkbox", { name: `Use experimental taste learning for ${originalBoard.label} / ${routine.label}`, exact: true });
+  assert.equal(await optIn.isChecked(), false, "semantic version does not carry old opt-in");
+  const [enabled] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/style-memory") && response.request().method() === "POST"), optIn.click(),
+  ]);
+  const state = (await enabled.json()).state; assert.equal(enabled.status(), 200);
+  const board = state.boards.find(row => row.id === originalBoard.id);
+  const profile = board.versions.find(row => row.version === board.currentVersion);
+  assert.equal(board.currentVersion, originalBoard.currentVersion + 1);
+  await panel.getByRole("button", { name: "Close management", exact: true }).click();
+  const styleContext = { boardId: board.id, profileId: board.profileId, profileVersion: board.currentVersion,
+    boardLabel: board.label, routineId: routine.id, routineVersion: routine.currentVersion, routineLabel: routine.label,
+    learningEnabled: true, memoryRevision: state.revision, compiled: profile.compiled, weather: "mild" };
+  const user = new ObjectId(owner.userId), trainingIds = new Set(), receipts = [];
+  const fits = [["slim", "slim"], ["relaxed", "relaxed"], ["slim", "relaxed"], ["relaxed", "slim"]];
+  const signature = members => `${members[0]}:${members[1]}|outer=none|shoes=${members[2]}`;
+  // These histories emulate previously shown synthetic outfits. Labels enter ONLY through
+  // the actual authenticated reaction endpoint, with no imported human answers or fit scores.
+  let sequence = 0;
+  for (let repeat = 0; repeat < 3; repeat++) for (const [topFit, bottomFit] of fits) {
+    const members = Array.from({ length: 3 }, () => `670000000000000000000${(++sequence).toString(16).padStart(3, "0")}`);
+    for (const id of members) trainingIds.add(id);
+    const snapshotId = new ObjectId(), candidateId = `authored-training-${repeat}-${topFit}-${bottomFit}`;
+    const captured = [
+      { subtype: "shirt", colorTags: ["white"], pattern: "solid", fit: topFit, clothingType: "top" },
+      { subtype: "pants", colorTags: ["blue"], pattern: "solid", fit: bottomFit, clothingType: "bottom" },
+      { subtype: "sneakers", colorTags: ["gray"], clothingType: "shoes" },
+    ];
+    await db.collection("generationsnapshots").insertOne({ _id: snapshotId, user, schemaVersion: 2,
+      requestId: randomUUID(), sessionId: owner.userId, intent: "daily", occasion: "Authored synthetic relationship history",
+      weather: "mild", styleContext, redacted: false, createdAt: new Date(), updatedAt: new Date(),
+      fixtureProvenance: "authored-synthetic-history; not a generated or participant record",
+      nSurfaced: 1, shownCandidateIds: [candidateId], shownFullSignatures: [signature(members)],
+      candidates: [{ candidateId, template: "two_piece", baseKey: `${members[0]}:${members[1]}`, fullSignature: signature(members),
+        items: members.map((itemId, index) => ({ itemId, role: ["base_top", "base_bottom", "shoes"][index] })),
+        styleMove: { oneSentence: "Authored synthetic fit contrast for mechanism verification." } }],
+      itemSnapshots: members.map((itemId, index) => ({ itemId, engineVisible: { ...captured[index], name: `Authored historical ${index + 1}` } })),
+    });
+    const receipt = await json(`${origin}/api/interactions`, { method: "POST", headers: { ...memoryHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ snapshotId: String(snapshotId), candidateId, action: topFit !== bottomFit ? "accepted" : "rejected" }) });
+    receipts.push(receipt.interaction.id);
+  }
+  // Same relationship_data construction as pure/HTTP tests: unary fit marginals and
+  // labels are balanced, and every query garment identity is absent from support.
+  const queryGroups = [1, 4, 7, 10].map(start => Array.from({ length: 3 }, (_, index) => `660000000000000000000${(start + index).toString(16).padStart(3, "0")}`));
+  assert.ok(queryGroups.flat().every(id => !trainingIds.has(id)), "query garments are disjoint from all training identities");
+  const sharp = (await import("sharp")).default;
+  const queryItems = [];
+  for (let group = 0; group < queryGroups.length; group++) for (let role = 0; role < 3; role++) {
+    const itemId = new ObjectId(queryGroups[group][role]), photoId = new ObjectId();
+    const fit = role < 2 ? fits[group][role] : null;
+    const subtype = ["shirt", "pants", "sneakers"][role], color = ["white", "blue", "gray"][role];
+    const name = `Synthetic ${["SS", "RR", "SR", "RS"][group]} ${fit ? fit + " " : ""}${subtype}`;
+    // Honest code-drawn test icons: different role/cut silhouettes, explicitly synthetic.
+    const shape = role === 0
+      ? `<path d="M58 48 L35 65 L48 94 L${fit === "slim" ? 64 : 57} 87 L${fit === "slim" ? 66 : 54} 146 L${fit === "slim" ? 126 : 138} 146 L${fit === "slim" ? 128 : 135} 87 L144 94 L157 65 L134 48 L113 42 Q96 62 79 42 Z" fill="#f8fafc"/>`
+      : role === 1 ? `<path d="M57 42 H135 L${fit === "slim" ? 130 : 139} 148 H${fit === "slim" ? 106 : 100} L96 78 L${fit === "slim" ? 86 : 92} 148 H${fit === "slim" ? 62 : 53} Z" fill="#38628d"/>`
+        : '<path d="M39 99 L66 70 L88 84 L108 91 L126 112 L153 122 L153 140 H39 Z" fill="#a5a9b0"/><path d="M39 131 H153"/>';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192"><rect width="192" height="192" fill="#edf1f5"/><g stroke="#28394b" stroke-width="3">${shape}</g><text x="96" y="175" text-anchor="middle" font-size="12" fill="#364152">SYNTHETIC ${fit ?? "SHOES"}</text></svg>`;
+    const pixels = await sharp(Buffer.from(svg)).png().toBuffer();
+    await db.collection("wardrobeimages").insertOne({ _id: photoId, user, wardrobeItem: itemId, base64: pixels.toString("base64"), contentType: "image/png", sizeBytes: pixels.length, createdAt: new Date(), updatedAt: new Date() });
+    queryItems.push({ _id: itemId, user, name, clothingType: ["top", "bottom", "shoes"][role], category: ["top", "bottom", "footwear"][role],
+      subCategory: subtype, colors: [color], ...(role < 2 ? { pattern: "solid", fit } : {}), warmth: 5, occasions: ["casual"],
+      imagePath: `mongo:${photoId}`, isAvailable: true, createdAt: new Date(), updatedAt: new Date() });
+  }
+  await db.collection("wardrobeitems").updateMany({ user }, { $set: { isAvailable: false } });
+  await db.collection("wardrobeitems").insertMany(queryItems);
+  await page.locator("textarea").fill("Authored synthetic fit-contrast class");
+  await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
+  async function request() {
+    await paceRender();
+    const [response] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
+      page.getByRole("button", { name: "Get Recommendations", exact: true }).click(),
+    ]);
+    const body = await response.json(); assert.equal(response.status(), 200, JSON.stringify(body));
+    assert.ok(body.bindable && body.shown?.length === 3, JSON.stringify(body));
+    const row = await db.collection("generationsnapshots").findOne({ user, requestId: response.request().postDataJSON().requestId });
+    await page.waitForFunction(snapshotId => Array.from(document.querySelectorAll("a")).some(link => link.getAttribute("href")?.includes(`snapshotId=${snapshotId}`)), body.shown[0].snapshotId);
+    const cards = page.locator(".p-5.border.rounded-xl").filter({ has: page.getByRole("button", { name: "Regenerate", exact: true }) });
+    assert.equal(await cards.count(), 3);
+    for (let index = 0; index < 3; index++) assert.deepEqual((await cards.nth(index).locator(".grid p.font-medium").allTextContents()).map(text => text.trim()).sort(),
+      body.shown[index].displayItems.map(item => item.name).sort(), "activated browser cards match actual final membership/order");
+    assert.deepEqual(row.shownCandidateIds, body.shown.map(candidate => candidate.candidateId));
+    assert.deepEqual(row.preference.shownFullSignatures, row.shownFullSignatures);
+    return { body, row };
+  }
+  let activated = await request();
+  if (activated.row.preference.status === "abstained" && activated.row.preference.reason === "learner_timeout") {
+    console.log("NOTE authored activation first request honestly abstained on cold numerical-runtime timeout; clicking a separate new request, with no production automatic retry.");
+    const firstId = String(activated.row._id); activated = await request();
+    assert.notEqual(String(activated.row._id), firstId, "warm check uses a new explicit command");
+  }
+  assert.equal(activated.row.preference.status, "fitted_experimental", JSON.stringify(activated.row.preference));
+  assert.equal(activated.row.preference.support, 12);
+  assert.equal(activated.row.preference.likes, 6); assert.equal(activated.row.preference.dislikes, 6);
+  assert.equal(activated.row.candidates.filter(candidate => candidate.scoreTrace?.scoreBreakdown).length, 4, "four structurally eligible complete query outfits compete for three cards");
+  assert.notDeepEqual([...activated.row.preference.baselineShownFullSignatures].sort(), [...activated.row.shownFullSignatures].sort(),
+    "learned relationship changes actual surfaced membership against the same-pool zero-learner comparator");
+  assert.ok(activated.row.candidates.some(candidate => Math.abs(candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) > 0), "snapshot records a nonzero bounded relationship contribution");
+  await page.waitForFunction(() => { const images = Array.from(document.querySelectorAll(".p-5.border.rounded-xl img")); return images.length === 9 && images.every(image => image.complete && image.naturalWidth > 0); });
+  await page.screenshot({ path: "/private/tmp/fitted-style-activated.png", fullPage: true });
+  // Explicitly retract the authored support through actual authenticated commands;
+  // whole-outfit reactions stay intact, and the next request must recompute its baseline.
+  for (const reactionId of receipts) await json(`${origin}/api/interactions`, { method: "POST", headers: { ...memoryHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "learning_disposition", operationId: randomUUID(), reactionId, expectedDispositionRevision: 0, learningDisposition: "exception" }) });
+  const removed = await request();
+  assert.equal(removed.row.preference.status, "abstained"); assert.equal(removed.row.preference.support, 0);
+  assert.deepEqual(removed.row.preference.baselineShownFullSignatures, removed.row.shownFullSignatures, "removed support serves the current complete zero-learner baseline");
+  assert.ok(removed.row.candidates.every(candidate => (candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) === 0));
+  await page.screenshot({ path: "/private/tmp/fitted-style-after-support-removal.png", fullPage: true });
+  console.log("PASS authored synthetic activated loop: 12 balanced XOR labels through real reaction API, disjoint query garments, four candidates/three cards, changed final membership versus captured comparator, explicit support removal and recomputed abstaining baseline. Screenshots: /private/tmp/fitted-style-activated.png and /private/tmp/fitted-style-after-support-removal.png. No human-benefit evidence.");
+}
+
 async function run() {
   for (const url of [origin, authOrigin, serviceOrigin]) localTarget(url, ["http:"]);
   // Preflight every fixed endpoint before starting any service. Otherwise ready() could
@@ -390,9 +662,13 @@ async function run() {
   assert.equal(badQuery.status, 400, "memory reads reject unknown filters");
   assert.equal(badQuery.headers.get("cache-control"), "no-store", "memory responses are private from caches");
 
-  browser = await chromium.launch({ headless: true, channel: process.env.FITTED_BASELINE_CHROME_CHANNEL || "chrome" });
-  const context = await browser.newContext();
+  console.log("Launching isolated browser context");
+  browser = await chromium.launch({ headless: true, channel: process.env.FITTED_BASELINE_CHROME_CHANNEL || "chrome", timeout: 30_000 });
+  const context = await boundedBrowserStep(browser.newContext(), "create isolated browser context");
+  context.setDefaultTimeout(30_000);
+  context.setDefaultNavigationTimeout(30_000);
   const page = await context.newPage();
+  page.on("pageerror", error => console.error("Local browser page error:", error.message));
   debugPage = page;
   let generationCalls = 0;
   page.on("request", request => {
@@ -400,9 +676,18 @@ async function run() {
       generationCalls++;
     }
   });
+  console.log("Checking compiled sign-in and emulator session");
   await page.goto(`${origin}/signin`);
-  await page.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function");
-  await page.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), owner);
+  await page.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function", undefined, { timeout: 30_000 });
+  await boundedBrowserStep(page.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), owner), "owner emulator sign-in");
+  console.log("Compiled browser signed in; checking owned wardrobe and rescue");
+  if (styleOnly) {
+    await checkStyleDirectionJourney(db, page, owner, memoryHeaders);
+    await checkActivatedStyleJourney(db, page, owner, memoryHeaders, ids);
+    await context.close();
+    console.log("PASS focused compiled styling journey: collecting, captured context, correction/undo, activated relationship and support removal; authored synthetic evidence only");
+    return;
+  }
   if (feedbackOnly) {
     await checkFeedbackJourney(db, page, owner, memoryHeaders);
     const isolatedHistory = await json(`${origin}/api/interactions`, { headers: { Authorization: `Bearer ${other.token}` } });
@@ -1065,12 +1350,14 @@ async function run() {
   assert.ok(originalLayered.suggestion.items.some(item => item.role === "mid_layer"));
 
   await checkFeedbackJourney(db, page, owner, memoryHeaders);
+  await checkStyleDirectionJourney(db, page, owner);
+  await checkActivatedStyleJourney(db, page, owner, memoryHeaders);
 
   const otherContext = await browser.newContext();
   const otherPage = await otherContext.newPage();
   await otherPage.goto(`${origin}/signin`);
-  await otherPage.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function");
-  await otherPage.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), other);
+  await otherPage.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function", undefined, { timeout: 30_000 });
+  await boundedBrowserStep(otherPage.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), other), "other owner emulator sign-in");
   const otherMemory = await json(`${origin}/api/experiences`, { headers: { Authorization: `Bearer ${other.token}` } });
   assert.equal(otherMemory.experiences.length, 0, "wear memory API isolates owner");
   await otherPage.goto(`${origin}/history`);
@@ -1078,6 +1365,9 @@ async function run() {
   assert.equal(await otherPage.getByText("Baseline blue shirt").count(), 0, "history isolates owner");
   const otherInteractions = await json(`${origin}/api/interactions`, { headers: { Authorization: `Bearer ${other.token}` } });
   assert.equal(otherInteractions.interactions.length, 0, "history API isolates owner");
+  const otherStyles = await json(`${origin}/api/style-memory`, { headers: { Authorization: `Bearer ${other.token}` } });
+  assert.equal(otherStyles.boards.length, 0, "saved directions isolate owners");
+  assert.equal(otherStyles.routines.length, 0, "saved situations isolate owners");
   assert.equal(await otherPage.evaluate(async url => (await fetch(url, { credentials: "same-origin" })).status,
     `${origin}/api/images/${imageId}`), 404, "other browser account cannot read image");
   // R20: exercise actual garment insertion and missing-memory marker upsert before erasure.
@@ -1140,7 +1430,7 @@ async function run() {
   assert.equal(await db.collection("users").countDocuments({ email: other.email }), 1);
   await otherContext.close();
   await context.close();
-  console.log(`PASS ${production ? "production-build synthetic" : "development synthetic"} local browser: feedback amendment/retry/correction/removal, detail correction/captured preservation, mid-layer rescue/saved plan/wear/correction, same-situation exploration, optional adaptation on narrow screen, rescue, plan photos and inline date carryover, direct unworn planned variation, dated planning/reschedule/removal, changed and second wear recall, shown/actual variation, no-option, correction, retraction, clear, erasure, image, history and owner isolation`);
+  console.log(`PASS ${production ? "production-build synthetic" : "development synthetic"} local browser: saved style-direction loop/scoped learning disposition, feedback amendment/retry/correction/removal, detail correction/captured preservation, mid-layer rescue/saved plan/wear/correction, same-situation exploration, optional adaptation on narrow screen, rescue, plan photos and inline date carryover, direct unworn planned variation, dated planning/reschedule/removal, changed and second wear recall, shown/actual variation, no-option, correction, retraction, clear, erasure, image, history and owner isolation`);
 }
 
 try {

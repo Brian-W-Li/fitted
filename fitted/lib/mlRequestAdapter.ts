@@ -127,6 +127,7 @@ export interface WardrobeItemSource {
   clothingType: string; // M4 5-value, written natively
   layerRole?: string;
   pattern?: unknown;
+  subCategory?: unknown;
   fit?: unknown;
   warmth: number; // M4 column, keyword-derived at ingestion (0..10)
   colors?: string[];
@@ -174,6 +175,7 @@ function sanitizeTags(tags: string[] | undefined): string[] {
 
 /** The wire item shape (camelCase; membership owned by contract_fields.json wardrobeItem). */
 export interface WardrobeItemWire {
+  subtype?: string | null;
   id: string;
   name: string;
   clothingType: string;
@@ -401,7 +403,11 @@ export interface BehavioralRowsWire {
   interactionRows?: unknown[];
 }
 
+import type { CapturedStyleContext } from "@/lib/styleContext";
+
 export interface RenderBodyParts {
+  styleContext?: CapturedStyleContext;
+  preferenceRows?: unknown[];
   snapshotId: string;
   requestId: string;
   sessionId: string;
@@ -419,6 +425,7 @@ export interface RenderBodyParts {
 export interface RenderBody extends Omit<RenderBodyParts, "behavioralRows"> {
   behavioralRows: BehavioralRowsWire;
   generator: typeof GENERATOR_EXPECTATION;
+  protocolVersion?: 2;
 }
 
 /** Validate the control id arrays + assemble the full wire body. */
@@ -439,6 +446,7 @@ export function buildRenderBody(parts: RenderBodyParts): RenderBody {
   }
   return {
     snapshotId: parts.snapshotId,
+    ...(parts.styleContext ? { protocolVersion: 2 as const, styleContext: parts.styleContext, preferenceRows: parts.preferenceRows ?? [] } : {}),
     requestId: parts.requestId,
     sessionId: parts.sessionId,
     intent: parts.intent,
@@ -452,4 +460,15 @@ export function buildRenderBody(parts: RenderBodyParts): RenderBody {
     behavioralRows: parts.behavioralRows ?? { recentSnapshots: [], interactionRows: [] },
     generator: GENERATOR_EXPECTATION,
   };
+}
+
+/** Match the service ASGI cap. Evidence overflow disables learning, never truncates its sample. */
+export const MAX_RENDER_BODY_BYTES = 1_048_576;
+export function boundStylePreferencePayload(body: RenderBody): { body: RenderBody; omitted: boolean } {
+  if (!body.styleContext || Buffer.byteLength(JSON.stringify(body), "utf8") <= MAX_RENDER_BODY_BYTES) return { body, omitted: false };
+  const baseline = { ...body, preferenceRows: [] };
+  if (Buffer.byteLength(JSON.stringify(baseline), "utf8") > MAX_RENDER_BODY_BYTES) {
+    throw new RequestContractError("The request exceeds the service body limit even without learning evidence");
+  }
+  return { body: baseline, omitted: true };
 }

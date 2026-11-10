@@ -110,3 +110,68 @@ it("removes a racing reaction when erasure commits after reaction persistence bu
   expect(await OutfitInteraction.countDocuments({ user: f.owner })).toBe(0);
   expect((await GenerationSnapshot.collection.findOne({ _id: childId }))!.redacted).toBe(false);
 });
+
+// Style erasure visibility is a live tombstone decision, independent of cleanup progress.
+async function styleFixture() {
+  const { StyleMemoryStore, resolveStyleContext } = await import("@/lib/styleMemory/store");
+  const f = await experienceFixture();
+  const b = { kind: "create_board", operationId: randomUUID(), expectedRevision: 0, id: String(new Types.ObjectId()), profileId: String(new Types.ObjectId()), label: "Captured campus", rawSource: "Private style source", compiled: { aestheticKeywords: ["relaxed"], palette: [], patterns: [], fits: [] } };
+  const styles = new StyleMemoryStore(); await styles.mutate(f.owner, b);
+  const context = { ...(await resolveStyleContext(f.owner, { boardId: b.id, profileId: b.profileId, profileVersion: 1, routineId: null, routineVersion: null, learningEnabled: false })), weather: "unspecified" };
+  await GenerationSnapshot.collection.updateOne({ _id: f.snapshotId }, { $set: { styleContext: context } });
+  return { ...f, board: b, context };
+}
+it("uses captured labels and owner-bound tombstones while legacy sources require no extra style lookup", async () => {
+  const { StyleMemoryStore } = await import("@/lib/styleMemory/store");
+  const f = await styleFixture(), other = await experienceFixture();
+  await new StyleMemoryStore().mutate(f.owner, { kind: "rename_board", operationId: randomUUID(), expectedRevision: 1, boardId: f.board.id, label: "Current renamed direction" });
+  expect((await getSuggestion(f.owner, String(f.snapshotId), "c1")).styleContext?.boardLabel).toBe("Captured campus");
+  expect(await visibleSnapshots(other.owner, [{ styleContext: f.context }])).toEqual([]);
+  const lookup = jest.spyOn(User.collection, "findOne"); lookup.mockClear();
+  expect(await visibleSnapshots(f.owner, [{ redacted: false }])).toEqual([{ redacted: false }]);
+  expect(lookup).not.toHaveBeenCalled(); lookup.mockRestore();
+  const interrupted = new StyleMemoryStore({ beforeCleanup: async () => { throw new Error("cleanup stopped"); } });
+  await expect(interrupted.mutate(f.owner, { kind: "erase_board", operationId: randomUUID(), expectedRevision: 2, boardId: f.board.id })).rejects.toThrow("cleanup stopped");
+  expect(await GenerationSnapshot.collection.findOne({ _id: f.snapshotId })).not.toBeNull();
+  await expect(getSuggestion(f.owner, String(f.snapshotId), "c1")).rejects.toMatchObject({ code: "source_unavailable" });
+  expect((await recentSuggestions(f.owner, f.itemId)).suggestions).toEqual([]);
+  expect((await getSuggestion(other.owner, String(other.snapshotId), "c1")).items).toHaveLength(1);
+});
+it.each(["wear", "plan"] as const)("rejects a prepared styled %s when erase wins before its source admission", async kind => {
+  const { StyleMemoryStore } = await import("@/lib/styleMemory/store");
+  const { gate } = await import("./helpers/experienceFixture");
+  const f = await styleFixture(), barrier = gate();
+  const operation = kind === "wear"
+    ? new ExperienceStore({ now, beforeWrite: barrier.block }).create(f.owner, { ...f.input, candidateId: "c1" })
+    : new OutfitPlanningStore({ now, beforeWrite: barrier.block }).create(f.owner, { planId: randomUUID(), snapshotId: String(f.snapshotId), candidateId: "c1", plannedFor: "2026-10-11", timezone: "UTC" });
+  const failed = expect(operation).rejects.toMatchObject({ code: "source_unavailable" });
+  await barrier.entered;
+  await expect(new StyleMemoryStore({ beforeCleanup: async () => { throw new Error("cleanup stopped"); } }).mutate(f.owner,
+    { kind: "erase_board", operationId: randomUUID(), expectedRevision: 1, boardId: f.board.id })).rejects.toThrow("cleanup stopped");
+  barrier.release(); await failed;
+  expect(await experienceCollection().countDocuments({ user: new Types.ObjectId(f.owner) })).toBe(0);
+  expect((await User.collection.findOne({ _id: new Types.ObjectId(f.owner) }))!.outfitPlans ?? []).toEqual([]);
+});
+it("retains independently admitted actual wear after style erasure and makes its saved plan unavailable", async () => {
+  const { StyleMemoryStore } = await import("@/lib/styleMemory/store");
+  const f = await styleFixture();
+  const wears = new ExperienceStore({ now }); await wears.create(f.owner, { ...f.input, candidateId: "c1" });
+  const plans = new OutfitPlanningStore({ now }); await plans.create(f.owner, { planId: randomUUID(), snapshotId: String(f.snapshotId), candidateId: "c1", plannedFor: "2026-10-11", timezone: "UTC" });
+  await new StyleMemoryStore().mutate(f.owner, { kind: "erase_board", operationId: randomUUID(), expectedRevision: 1, boardId: f.board.id });
+  expect(await getExperience(f.owner, f.input.experienceId)).toMatchObject({ sourceAvailable: false, source: null, items: [{ name: "Green shirt" }] });
+  const saved = await experienceCollection().findOne({ experienceId: f.input.experienceId });
+  expect(JSON.stringify(saved)).not.toContain("Private style source");
+  expect(JSON.stringify(saved)).not.toContain("Captured campus");
+  expect((await plans.list(f.owner)).plans[0].suggestion).toBeNull();
+  await wears.revise(f.owner, f.input.experienceId, { ...f.state, operationId: randomUUID(), expectedPreviousRevision: 1, outcome: "worked" });
+  expect((await getExperience(f.owner, f.input.experienceId)).state?.outcome).toBe("worked");
+});
+
+it("advances style revision for source-report invalidation once, without renewing an erased report on retry", async () => {
+  const f = await styleFixture(), wears = new ExperienceStore({ now });
+  await wears.create(f.owner, { ...f.input, candidateId: "c1" });
+  await wears.erase(f.owner, f.input.experienceId);
+  const readRevision = async () => (await User.collection.findOne({ _id: new Types.ObjectId(f.owner) }))!.styleMemoryRevision;
+  const revision = await readRevision(); expect(revision).toBe(2);
+  await wears.erase(f.owner, f.input.experienceId); expect(await readRevision()).toBe(revision);
+});

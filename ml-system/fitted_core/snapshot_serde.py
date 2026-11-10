@@ -67,6 +67,7 @@ ENGINE_VISIBLE_TO_WIRE: dict[str, str] = {
     "fit": "fit",
     "layer_role": "layerRole",
     "image_url": "imageUrl",
+    "subtype": "subtype",
 }
 ENGINE_VISIBLE_FROM_WIRE: dict[str, str] = {v: k for k, v in ENGINE_VISIBLE_TO_WIRE.items()}
 
@@ -377,6 +378,7 @@ def variant_to_wire(variant: "OutfitVariant") -> dict[str, Any]:  # noqa: F821 â
             "overuse": variant.score_breakdown.overuse,
             "repetition": variant.score_breakdown.repetition,
             "cooldown": variant.score_breakdown.cooldown,
+            **({"preference": variant.score_breakdown.preference} if variant.score_breakdown.preference != 0.0 else {}),
         },
         "base_key": variant.base_key,
         "full_signature": variant.full_signature,

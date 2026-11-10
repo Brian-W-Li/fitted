@@ -135,6 +135,7 @@ export class ExperienceStore {
     await this.options.beforeWrite?.("create");
     await this.ownedWrite(user, "create", async () => {
       try { await ownerWriteFence(User, user, async session => {
+        if (composition.snapshot?.styleContext) await requireSource(user, input.snapshotId, input.candidateId, { session });
         const memberItems = await pinWearPhotos(user, input.experienceId, photos, session);
         await experienceCollection().insertOne({ ...record, revisions: [{ ...record.revisions![0], state: { ...state, memberItems } }] }, { session });
       }); }
@@ -195,6 +196,7 @@ export class ExperienceStore {
     await this.options.beforeWrite?.(type);
     try {
       await this.ownedWrite(user, type, () => ownerWriteFence(User, user, async session => {
+        if (composition.snapshot?.styleContext) await requireSource(user, previous.snapshotId!.toHexString(), previous.candidateId!, { session });
         const memberItems = photos ? await pinWearPhotos(user, id, photos, session) : state.memberItems;
         const committedRevision = { ...revision, state: { ...state, ...(memberItems ? { memberItems } : {}) } };
         const result = await experienceCollection().updateOne({
@@ -203,6 +205,8 @@ export class ExperienceStore {
         }, { $set: { lifecycle, memberItemIds: composition.memberItemIds,
           currentRevision: revision.revision }, $push: { revisions: committedRevision } }, { session });
         if (!result.matchedCount) throw new ExperienceError(409, "revision_conflict");
+        // Report corrections can invalidate learning evidence on derived proposals.
+        await User.collection.updateOne({ _id: user }, { $inc: { styleMemoryRevision: 1 } }, { session });
       }));
     } catch (error) {
       if (error instanceof ExperienceError && error.code === "revision_conflict") {
@@ -239,8 +243,10 @@ export class ExperienceStore {
     await this.options.beforeWrite?.("erase");
     await this.ownedWrite(user, "erase", async () => {
       const erase = () => ownerWriteFence(User, user, async session => {
+        const current = await experienceCollection().findOne({ user, experienceId: id }, { session, projection: { lifecycle: 1 } });
         await experienceCollection().replaceOne({ user, experienceId: id }, marker, { upsert: true, session });
         await releaseWearPhotos(user, id, session);
+        if (current?.lifecycle !== "erased") await User.collection.updateOne({ _id: user }, { $inc: { styleMemoryRevision: 1 } }, { session });
       });
       try { await erase(); }
       catch (error) {

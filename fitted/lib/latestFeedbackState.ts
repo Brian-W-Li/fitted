@@ -65,7 +65,7 @@ export function isNewer(a: LatestStateRow, b: LatestStateRow): boolean {
 export function pickLatestPerCandidate<T extends LatestStateRow>(rows: Iterable<T>): T[] {
   const latest = new Map<string, T>();
   for (const row of rows) {
-    if (row.eventKind === "reason_amendment" || row.action == null || !PARTICIPATING_ACTIONS.has(row.action)) continue; // only accepted/rejected win
+    if (row.eventKind === "reason_amendment" || row.eventKind === "learning_disposition" || row.action == null || !PARTICIPATING_ACTIONS.has(row.action)) continue; // only accepted/rejected win
     const key = bindingKey(row);
     if (key == null) continue;
     const prev = latest.get(key);

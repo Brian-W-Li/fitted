@@ -81,6 +81,7 @@ export const MACHINE_REASON_COPY: Record<string, string> = {
   // would send them on a futile loop.
   auth_failed: "The stylist is temporarily unavailable. Please try again later.",
   engine_failure: "Something went wrong generating outfits. Please try again.",
+  memory_changed: "Your styling memory changed. Start a new request when you're ready.",
 };
 
 /** The message for a render that surfaced no outfits (F15). Engine prose advice wins when present.

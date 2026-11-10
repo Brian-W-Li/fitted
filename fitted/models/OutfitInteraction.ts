@@ -58,14 +58,14 @@ const OutfitInteractionSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     // Absent kind remains a legacy vote. Reasons are separately appended evidence.
-    eventKind: { type: String, enum: ["reaction", "reason_amendment"], default: undefined },
+    eventKind: { type: String, enum: ["reaction", "reason_amendment", "learning_disposition"], default: undefined },
     reactionId: { type: Schema.Types.ObjectId },
     operationId: { type: String, maxlength: 64 },
     requestKey: { type: String },
     items: [{ type: Schema.Types.ObjectId, ref: "WardrobeItem", required: true }],
     action: {
       type: String,
-      required: function () { return this.eventKind !== "reason_amendment"; },
+      required: function () { return this.eventKind !== "reason_amendment" && this.eventKind !== "learning_disposition"; },
       // M5 (C8) trimmed the dead CS148 legacy verbs (generated/saved/worn/rated) and `corrected`.
       // The live write path (POST /api/interactions, G8 allowlist) emits only accepted|rejected;
       // `corrected` was superseded by H61 (a correction is a NEW accepted|rejected event keyed
@@ -108,6 +108,8 @@ const OutfitInteractionSchema = new Schema(
       type: String,
       enum: ["normal", "exception", "do_not_learn"],
     },
+    dispositionRevision: { type: Number, min: 0, validate: Number.isSafeInteger, default: undefined },
+    styleContext: { type: Schema.Types.Mixed, default: undefined },
 
     metadata: { type: Map, of: Schema.Types.Mixed, default: {} },
   },
@@ -126,12 +128,17 @@ const OutfitInteractionSchema = new Schema(
  * Empty strings count as absent (an empty join key is not a real binding).
  */
 OutfitInteractionSchema.pre("validate", function (next) {
-  if (this.eventKind === "reason_amendment" &&
+  const amendment = this.eventKind === "reason_amendment" || this.eventKind === "learning_disposition";
+  if (amendment &&
       (!this.reactionId || !this.operationId || !this.requestKey || this.action != null)) {
     return next(new Error("Reason amendments require a target and operation, and cannot carry a vote"));
   }
-  if (this.eventKind !== "reason_amendment" && (this.reactionId || this.operationId || this.requestKey)) {
+  if (!amendment && (this.reactionId || this.operationId || this.requestKey)) {
     return next(new Error("Reaction rows cannot carry amendment fields"));
+  }
+  if (this.eventKind === "learning_disposition" &&
+    (!this.learningDisposition || !Number.isSafeInteger(this.dispositionRevision) || this.dispositionRevision! < 1 || this.feedbackReason != null || this.perItemFeedback != null)) {
+    return next(new Error("Learning amendments require a disposition revision and cannot carry reasons or a vote"));
   }
   const reason = this.feedbackReason;
   if (reason?.scope) {
@@ -149,7 +156,7 @@ OutfitInteractionSchema.pre("validate", function (next) {
     this.fullSignature,
   ].filter((v) => v !== undefined && v !== null && v !== "").length;
 
-  if ((this.eventKind === "reason_amendment" && presentCount !== 4) || (presentCount !== 0 && presentCount !== 4)) {
+  if ((amendment && presentCount !== 4) || (presentCount !== 0 && presentCount !== 4)) {
     return next(
       new Error(
         "OutfitInteraction binding fields must be all present or all absent " +

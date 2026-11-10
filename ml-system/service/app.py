@@ -67,6 +67,7 @@ from fitted_core.snapshot import (
     build_snapshot_payload,
 )
 from fitted_core.snapshot_serde import to_wire, variant_to_wire
+from fitted_core.style_context import normalize_style_context, style_context_key
 from service import config as cfg
 from service import contract
 from service.config import ServiceConfig, load_service_config
@@ -349,6 +350,7 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
     formality = _optional_string(raw.get("formality"), f"{where}.formality", max_chars=cfg.MAX_ITEM_ATTR_CHARS)
     pattern = _optional_detail_string(raw.get("pattern"), f"{where}.pattern")
     fit = _optional_detail_string(raw.get("fit"), f"{where}.fit")
+    subtype = _optional_string(raw.get("subtype"), f"{where}.subtype", max_chars=60)
     layer_role = raw.get("layerRole")
     if layer_role is not None and (not isinstance(layer_role, str) or layer_role not in ("base", "mid", "outer")):
         raise ContractInvalid(f"{where}.layerRole must be base, mid, outer or null")
@@ -373,6 +375,7 @@ def _validate_wardrobe_item(raw: Any, index: int) -> WardrobeItem:
             pattern=pattern,
             fit=fit,
             layer_role=layer_role,
+            subtype=subtype,
         )
     except (TypeError, ValueError) as exc:  # the dataclass guards are inside the boundary (§D)
         raise ContractInvalid(f"{where} failed engine validation: {exc}") from exc
@@ -575,6 +578,77 @@ def _validate_behavioral_rows(raw: Any) -> tuple[list, list]:
     return interaction_rows, snapshot_rows
 
 
+def _validate_preference_rows(raw, owner_id):
+    """Bounded captured evidence only; no raw rationale or client feature vectors."""
+    from fitted_core.preferences import _context_key, _time_key
+    if not isinstance(raw, list) or len(raw) > 2000:
+        raise ContractInvalid("preferenceRows must contain at most 2000 records")
+    for index, row in enumerate(raw):
+        where = f"preferenceRows[{index}]"
+        if not isinstance(row, dict):
+            raise ContractInvalid(f"{where} must be an object")
+        _string(row.get("id"), f"{where}.id", max_chars=256)
+        kind = row.get("eventKind", "reaction")
+        if kind == "learning_disposition":
+            _require_keys(row, frozenset({"id", "eventKind", "reactionId", "dispositionRevision", "learningDisposition"}), frozenset({"createdAt"}), where)
+            _string(row["reactionId"], f"{where}.reactionId", max_chars=256)
+            _non_bool_int(row["dispositionRevision"], f"{where}.dispositionRevision", minimum=1, maximum=cfg.MAX_WIRE_INT)
+            if row["learningDisposition"] not in ("normal", "exception", "do_not_learn"):
+                raise ContractInvalid(f"{where}.learningDisposition is invalid")
+            continue
+        required = {"id", "snapshotId", "candidateId", "createdAt", "action", "context", "learningEnabled", "items"}
+        optional = {"eventKind", "learningDisposition", "visible"}
+        _require_keys(row, frozenset(required), frozenset(optional), where)
+        if kind != "reaction" or row["action"] not in ("accepted", "rejected"):
+            raise ContractInvalid(f"{where} must be an explicit whole-outfit reaction")
+        for key in ("snapshotId", "candidateId"):
+            _string(row[key], f"{where}.{key}", max_chars=256)
+        try:
+            _time_key(row)
+        except ValueError as exc:
+            raise ContractInvalid(f"{where}.createdAt must be a timezone-aware ISO date") from exc
+        if type(row["learningEnabled"]) is not bool or ("visible" in row and type(row["visible"]) is not bool):
+            raise ContractInvalid(f"{where} settings must be booleans")
+        if row.get("learningDisposition", "normal") not in ("normal", "exception", "do_not_learn"):
+            raise ContractInvalid(f"{where}.learningDisposition is invalid")
+        context = row["context"]
+        if context is None and row["learningEnabled"] is False:
+            pass  # unscoped legacy evidence is never enrolled
+        elif (not isinstance(context, dict) or set(context) != {"ownerId", "profileId", "profileVersion", "routineId", "routineVersion", "weather"}
+              or _context_key(context) is None or context["ownerId"] != owner_id):
+            raise ContractInvalid(f"{where}.context is invalid or belongs to another owner")
+        items = row["items"]
+        if not isinstance(items, list) or not 1 <= len(items) <= 6:
+            raise ContractInvalid(f"{where}.items must contain one to six captured garments")
+        for item_index, item in enumerate(items):
+            item_where = f"{where}.items[{item_index}]"
+            if not isinstance(item, dict):
+                raise ContractInvalid(f"{item_where} must be an object")
+            _require_keys(item, frozenset({"id", "role", "colors"}), frozenset({"subtype", "pattern", "fit", "clothingType"}), item_where)
+            _string(item["id"], f"{item_where}.id", max_chars=256)
+            if item["role"] not in ("top", "bottom", "dress", "mid", "outer", "shoes"):
+                raise ContractInvalid(f"{item_where}.role is invalid")
+            _string_list(item["colors"], f"{item_where}.colors", max_items=32, max_chars=60)
+            for attribute in ("subtype", "pattern", "fit"):
+                _optional_string(item.get(attribute), f"{item_where}.{attribute}", max_chars=60)
+            if item.get("clothingType") is not None and item["clothingType"] not in _ITEM_TYPE_VALUES:
+                raise ContractInvalid(f"{item_where}.clothingType is invalid")
+    return raw
+
+
+def _style_response(request, preference=None):
+    if request.style_context is None:
+        return {}
+    if preference is None:
+        from fitted_core.preferences import FEATURE_VERSION, MODEL_VERSION, POLICY_VERSION
+        preference = {"status": "abstained", "reason": "selection_not_reached", "support": 0,
+                      "likes": 0, "dislikes": 0, "featureVersion": FEATURE_VERSION,
+                      "modelVersion": MODEL_VERSION, "policyVersion": POLICY_VERSION,
+                      "evidenceDigest": None, "evidenceCutoff": None,
+                      "baselineShownFullSignatures": [], "shownFullSignatures": []}
+    return {"protocolVersion": 2, "styleContext": request.style_context, "preference": preference}
+
+
 def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     _require_keys(
         body,
@@ -582,6 +656,20 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
         optional=contract.RENDER_BODY_OPTIONAL,
         where="request",
     )
+
+    has_style = "styleContext" in body
+    if "preferenceRows" in body and not has_style:
+        raise ContractInvalid("preferenceRows requires styleContext and service protocolVersion 2")
+    if has_style != (type(body.get("protocolVersion")) is int and body.get("protocolVersion") == 2):
+        raise ContractInvalid("styleContext requires service protocolVersion 2")
+    if not has_style and "protocolVersion" in body:
+        raise ContractInvalid("protocolVersion is reserved for a typed styling request")
+    try:
+        style_context = normalize_style_context(body.get("styleContext"))
+        if has_style and style_context is None:
+            raise ValueError("styleContext cannot be null")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise ContractInvalid(str(exc)) from exc
 
     snapshot_id = _string(body["snapshotId"], "snapshotId", max_chars=cfg.MAX_ID_CHARS)
     if not _OBJECT_ID_RE.fullmatch(snapshot_id):
@@ -592,6 +680,8 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
         raise ContractInvalid("requestId must be a UUIDv4 or ULID (§C.4)")
 
     session_id = _string(body["sessionId"], "sessionId", max_chars=cfg.MAX_SESSION_ID_CHARS)
+
+    preference_rows = _validate_preference_rows(body.get("preferenceRows", []), session_id)
 
     intent = body["intent"]
     if not isinstance(intent, str) or intent not in cfg.SUPPORTED_INTENTS:
@@ -697,6 +787,8 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
             occasion=occasion,
             weather=weather,
             weather_summary=weather_raw,
+            style_context=style_context,
+            preference_rows=preference_rows,
             weather_signals=weather_signals,
             session_id=session_id,
             wardrobe_version=wardrobe_version,
@@ -847,6 +939,7 @@ class FittedService:
             intent=request.intent,
             forced_item_id=request.forced_item_id,
             seed_date=request.date,
+            style_context_key=style_context_key(request.style_context),
         )
         provenance = dict(
             candidate_cache_key=cache_key,
@@ -898,6 +991,7 @@ class FittedService:
             return 200, {
                 "payload": _snapshot_wire(payload),
                 "shown": [],
+                **_style_response(request),
                 "flags": _flags(reason_hint=_ENGINE_FAILURE_HINT),
                 "degenerate": True,
             }
@@ -940,6 +1034,7 @@ class FittedService:
             return 200, {
                 "payload": wire_payload,
                 "shown": [],
+                **_style_response(request),
                 "flags": _flags(reason_hint=_ENGINE_FAILURE_HINT),
                 "degenerate": True,
             }
@@ -951,6 +1046,7 @@ class FittedService:
         return 200, {
             "payload": wire_payload,
             "shown": shown,
+            **_style_response(request, trace.preference_metadata),
             "flags": _flags(
                 not_enough_items=result.not_enough_items,
                 insufficient_after_generation=result.insufficient_after_generation,

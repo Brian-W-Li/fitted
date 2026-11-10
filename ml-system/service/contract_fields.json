@@ -260,7 +260,11 @@
       ]
     },
     "request": {
-      "optional": [],
+      "optional": [
+        "preferenceRows",
+        "protocolVersion",
+        "styleContext"
+      ],
       "required": [
         "behavioralRows",
         "controls",
@@ -283,7 +287,8 @@
         "formality",
         "layerRole",
         "material",
-        "pattern"
+        "pattern",
+        "subtype"
       ],
       "required": [
         "clothingType",

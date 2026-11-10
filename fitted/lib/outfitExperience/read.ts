@@ -159,7 +159,7 @@ export async function recentSuggestions(ownerId: string, item: string, options: 
       const candidate = shownCandidate(row, row.shownCandidateIds[position]);
       if (!candidate?.items.some(i => i.itemId === itemId)) continue;
       suggestions.push({ snapshotId: row._id.toHexString(), candidateId: candidate.candidateId,
-        suggestionContext: row.occasion ?? "", items: await displayCandidate(user, row, candidate) });
+        suggestionContext: row.occasion ?? "", ...(row.styleContext ? { styleContext: row.styleContext } : {}), items: await displayCandidate(user, row, candidate) });
       if (suggestions.length === limit) {
         // Navigation may lead to an empty final page, but it never loses a candidate.
         return { suggestions, nextCursor: cursor("sources", ownerId, itemId, row._id, position) };
@@ -180,6 +180,7 @@ export async function getSuggestion(ownerId: string, snapshotId: string, candida
   const candidate = snapshot && shownCandidate(snapshot, candidateId);
   if (!snapshot || !candidate || !candidate.items.length) throw new ExperienceError(404, "source_unavailable");
   return { snapshotId: id.toHexString(), candidateId, suggestionContext: snapshot.occasion ?? "",
+    ...(snapshot.styleContext ? { styleContext: snapshot.styleContext } : {}),
     weatherContext: snapshot.weatherRaw || snapshot.weather || null,
     weatherSource: weatherSourceFromSnapshot(snapshot.weatherSource),
     ...(weatherSignalsFromSnapshot(snapshot.weatherSignals) ? { weatherSignals: weatherSignalsFromSnapshot(snapshot.weatherSignals) } : {}),

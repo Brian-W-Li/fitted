@@ -112,6 +112,7 @@ class ScoreBreakdown:
     overuse: float
     repetition: float
     cooldown: float
+    preference: float = 0.0  # bounded app-traits contribution; legacy is exactly zero
 
 
 @dataclass(frozen=True)
@@ -183,6 +184,7 @@ class RankerContext:
     occasion: str
     weather: str
     date: Optional[str] = None
+    style_context_key: Optional[str] = None
     generation_index: int  # REQUIRED, no default (N7/H7) — a real int; guarded below
     k: int = DEFAULT_K  # N16; M5 may override
     # pre-reduced signals (Q4/H19 — never raw OutfitInteraction; already windowed, N14)
@@ -194,6 +196,7 @@ class RankerContext:
     contextual_disliked_item_ids: frozenset[str] = frozenset()  # regen hard filter
     locked_item_ids: frozenset[str] = frozenset()  # regen lock filter
     reserved_full_signatures: frozenset[str] = frozenset()  # bounded practical choice
+    preference_deltas: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._validate_generation_index()
@@ -280,6 +283,12 @@ class RankerContext:
         object.__setattr__(self, "locked_item_ids", frozenset(self.locked_item_ids))
         object.__setattr__(self, "reserved_full_signatures", frozenset(self.reserved_full_signatures))
         object.__setattr__(self, "item_affinity", MappingProxyType(dict(self.item_affinity)))
+        deltas = dict(self.preference_deltas)
+        if len(deltas) > 256 or any(not isinstance(key, str) or not key or isinstance(value, bool)
+               or not isinstance(value, (int, float)) or not math.isfinite(value)
+               or abs(value) > .5 for key, value in deltas.items()):
+            raise ValueError("preference_deltas must be finite signature-keyed values in [-0.5,0.5]")
+        object.__setattr__(self, "preference_deltas", MappingProxyType(deltas))
         for name in self._SIGNAL_COLLECTION_FIELDS:
             for element in getattr(self, name):
                 if not isinstance(element, str):
@@ -445,6 +454,7 @@ def _breakdown_total(breakdown: ScoreBreakdown) -> float:
         + breakdown.overuse
         + breakdown.repetition
         + breakdown.cooldown
+        + breakdown.preference
     )
 
 
@@ -505,6 +515,7 @@ def _score_candidate(
         overuse=overuse,
         repetition=repetition,
         cooldown=cooldown,
+        preference=context.preference_deltas.get(candidate.full_signature, 0.0),
     )
     return _ScoredCandidate(
         candidate=candidate,
@@ -630,6 +641,7 @@ def _rescore_with_diversity(
         overuse=overuse,
         repetition=repetition,
         cooldown=old.cooldown,
+        preference=old.preference,
     )
     return _ScoredCandidate(
         candidate=scored.candidate,
@@ -675,6 +687,7 @@ def _drop_overuse_penalty(scored: _ScoredCandidate) -> _ScoredCandidate:
         overuse=0.0,
         repetition=old.repetition,
         cooldown=old.cooldown,
+        preference=old.preference,
     )
     return _ScoredCandidate(
         candidate=scored.candidate,
@@ -755,6 +768,7 @@ def _tiebreak_seeded_rng(context: RankerContext):
             weather=context.weather,
             date=context.date,
             generation_index=context.generation_index,
+            style_context_key=context.style_context_key,
         )
     )
 

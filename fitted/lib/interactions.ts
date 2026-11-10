@@ -1,6 +1,7 @@
 import { amendFeedback, FeedbackMutationError } from "@/lib/feedbackAmendments";
 import { normalizeFeedbackReason, FeedbackReasonError } from "@/lib/feedbackReasons";
-import { resolveFeedbackEvidence, voteEvidenceFilter, FEEDBACK_ACCOUNT_ROW_LIMIT } from "@/lib/feedbackEvidence.cjs";
+import { resolveFeedbackEvidence, voteEvidenceFilter, FEEDBACK_ACCOUNT_ROW_LIMIT, LEARNING_DISPOSITION } from "@/lib/feedbackEvidence.cjs";
+import { amendLearningDisposition, bumpStyleMemoryRevision, capturedLearningEnabled, initialLearningDisposition, LearningMutationError } from "@/lib/styleLearningAmendments";
 import { ownerWriteFence, OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
 import { snapshotVisible, visibleSnapshots } from "@/lib/snapshotVisibility";
 /**
@@ -147,6 +148,10 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
       const amendment = await amendFeedback(userObjectId, body, deps);
       return NextResponse.json({ success: true, amendment });
     }
+    if (body.kind === LEARNING_DISPOSITION) {
+      const amendment = await amendLearningDisposition(userObjectId, body, deps);
+      return NextResponse.json({ success: true, amendment });
+    }
     if (body.kind !== undefined && body.kind !== "reaction") return respondError(400, "contract_invalid", "Invalid feedback command kind");
     const { action, snapshotId, candidateId } = body;
 
@@ -256,6 +261,8 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
       candidateId,
       baseKey,
       fullSignature,
+      ...(snapshot.styleContext ? { styleContext: snapshot.styleContext,
+        learningDisposition: initialLearningDisposition(snapshot.styleContext, feedbackReason, perItemFeedback), dispositionRevision: 0 } : {}),
       ...(perItemFeedback ? { perItemFeedback } : {}),
       ...(feedbackReason ? { feedbackReason } : {}),
     };
@@ -263,7 +270,11 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
     const [interaction] = await ownerWriteFence<Any[]>(deps.models.User, userObjectId, async session => {
       const count = await OutfitInteraction.countDocuments({ user: userObjectId }).session(session);
       if (count >= MAX_INTERACTIONS_PER_USER) throw new FeedbackMutationError(400, "storage_limit", "Feedback storage limit reached");
-      return OutfitInteraction.create([payload], { session, timestamps: false });
+      const source = await GenerationSnapshot.findOne({ _id: snapshotId, user: userObjectId, redacted: { $ne: true } }).session(session).lean();
+      if (!source || !await snapshotVisible(userObjectId, source, { session })) throw new FeedbackMutationError(404, "snapshot_not_found", "This suggestion is no longer available");
+      const written = await OutfitInteraction.create([payload], { session, timestamps: false });
+      await bumpStyleMemoryRevision(deps.models.User, userObjectId, session);
+      return written;
     });
     await deps.afterNativeWrite?.("reaction");
 
@@ -279,7 +290,7 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
     const currentSnapshot = await GenerationSnapshot.findOne({ _id: snapshotId, user: userObjectId, redacted: { $ne: true } }).lean();
     if (!currentSnapshot || !await snapshotVisible(userObjectId, currentSnapshot)) {
       await ownerWriteFence(deps.models.User, userObjectId, session => OutfitInteraction.collection.deleteMany({
-        user: userObjectId, $or: [{ _id: interaction._id }, { eventKind: "reason_amendment", reactionId: interaction._id }],
+        user: userObjectId, $or: [{ _id: interaction._id }, { reactionId: interaction._id }],
       }, { session }));
       return respondError(404, "snapshot_not_found", "snapshot is no longer available");
     }
@@ -289,7 +300,7 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
       interaction: { id: interaction._id.toString(), action: interaction.action },
     });
   } catch (error) {
-    if (error instanceof FeedbackMutationError) return respondError(error.status, error.code, error.message);
+    if (error instanceof FeedbackMutationError || error instanceof LearningMutationError) return respondError(error.status, error.code, error.message);
     if (error instanceof FeedbackReasonError) return respondError(400, "invalid_feedback_reason", error.message);
     if (error instanceof OwnerWriteUnavailable) return respondError(401, "auth", "User not found");
     console.error("Error saving interaction:", error);
@@ -322,6 +333,9 @@ export interface HistoryCard {
   templateType?: string;
   feedbackReason?: import("@/lib/feedbackTypes").FeedbackReasonValue;
   perItemFeedback?: import("@/lib/feedbackTypes").PerItemFeedbackValue[];
+  learningDisposition?: "normal" | "exception" | "do_not_learn";
+  dispositionRevision?: number;
+  learningAvailable?: boolean;
 }
 
 /** Join one interaction row to its bound snapshot candidate → the card content the history renders. */
@@ -341,6 +355,11 @@ function projectHistoryCard(interaction: Any, snapshot: Any | undefined): Histor
     (c: Any) => c.candidateId === interaction.candidateId,
   );
   if (!candidate) return base;
+  base.learningAvailable = capturedLearningEnabled(interaction);
+  if (base.learningAvailable) {
+    base.learningDisposition = interaction.learningDisposition ?? "normal";
+    base.dispositionRevision = interaction.dispositionRevision ?? 0;
+  }
   if (interaction.feedbackReason) {
     const reason = interaction.feedbackReason;
     base.feedbackReason = { ...(reason.codes?.length ? { codes: reason.codes } : {}),
@@ -392,7 +411,7 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
     // Fetch bounded vote identity and reasons for editable History details. Candidate
     // content remains server-joined; amendments never crowd votes out of the scan.
     const rawRows = (await OutfitInteraction.find({ user: userObjectId, ...voteEvidenceFilter })
-      .select("user items action context.occasion createdAt snapshotId candidateId baseKey fullSignature feedbackReason perItemFeedback")
+      .select("user items action context.occasion createdAt snapshotId candidateId baseKey fullSignature feedbackReason perItemFeedback styleContext learningDisposition dispositionRevision")
       .sort({ createdAt: -1, _id: -1 })
       .limit(HISTORY_SCAN_LIMIT)
       .lean()
@@ -408,7 +427,7 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
     );
 
     const amendments = latestVotes.length ? await OutfitInteraction.find({
-      user: userObjectId, eventKind: "reason_amendment", reactionId: { $in: latestVotes.map(row => row._id) },
+      user: userObjectId, eventKind: { $in: ["reason_amendment", LEARNING_DISPOSITION] }, reactionId: { $in: latestVotes.map(row => row._id) },
     }).sort({ createdAt: -1, _id: -1 }).limit(FEEDBACK_ACCOUNT_ROW_LIMIT).lean().exec() : [];
     const interactions = resolveFeedbackEvidence(latestVotes, amendments);
 
@@ -425,7 +444,7 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
       // of real use.
       const snapshots = (await GenerationSnapshot.find({ _id: { $in: snapshotIds }, user: userObjectId })
         .select(
-          "variationSourceExperienceId variationSourceRevision redacted candidates.candidateId candidates.items candidates.styleMove candidates.optionPath " +
+          "styleContext variationSourceExperienceId variationSourceRevision redacted candidates.candidateId candidates.items candidates.styleMove candidates.optionPath " +
             "candidates.risk candidates.template itemSnapshots.itemId itemSnapshots.engineVisible",
         )
         .lean()
@@ -433,7 +452,7 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
       const visible = new Set(await visibleSnapshots(userObjectId, snapshots));
       for (const s of snapshots) {
         if (visible.has(s)) snapshotById.set(s._id.toString(), s);
-        else if (s.variationSourceExperienceId != null || s.variationSourceRevision != null) hiddenDerivedIds.add(s._id.toString());
+        else if (s.styleContext != null || s.variationSourceExperienceId != null || s.variationSourceRevision != null) hiddenDerivedIds.add(s._id.toString());
       }
     }
 
@@ -482,10 +501,13 @@ export async function deleteInteraction(request: NextRequest, deps: InteractionD
     // erasure-race + User.ts cascade), so a hex-string user/snapshot would match zero ObjectId fields.
     const { OutfitInteraction } = deps.models;
     await deps.beforeWrite?.("delete");
-    const result = await ownerWriteFence<{ deletedCount?: number }>(deps.models.User, userObjectId, session =>
-      OutfitInteraction.db.collection("outfitinteractions").deleteMany({
+    const result = await ownerWriteFence<{ deletedCount?: number }>(deps.models.User, userObjectId, async session => {
+      const removed = await OutfitInteraction.db.collection("outfitinteractions").deleteMany({
         user: userObjectId, snapshotId: new mongoose.Types.ObjectId(snapshotId), candidateId,
-      }, { session }));
+      }, { session });
+      if (removed.deletedCount > 0) await bumpStyleMemoryRevision(deps.models.User, userObjectId, session);
+      return removed;
+    });
     await deps.afterNativeWrite?.("delete");
     const deleted = typeof result?.deletedCount === "number" ? result.deletedCount : 0;
     if (deleted === 0) {
