@@ -87,7 +87,11 @@ HTTP 200/database commit but before the UI consumed the response and cleared its
 command. The intentionally safe retry state was correct. The harness now waits for
 visible acknowledgement and the refreshed correction control. A new deferred-body
 remount regression plus affected wear-form tests passed (11 tests); no production
-recovery behavior changed. The next full hosted browser outcome remains pending.
+recovery behavior changed. That hosted run then passed collecting and activated
+membership checks before failing at a Mac-specific screenshot output path on Linux.
+The generic harness now uses the platform temporary directory for these synthetic
+artifacts; no app or data behavior changes. The replacement hosted outcome remains
+pending.
 The earlier broad private-checkout Python study guards correctly rejected changed
 production fingerprints; their frozen evidence was not rewritten or exported.
 Local results, hosted CI and product benefit remain separate evidence.

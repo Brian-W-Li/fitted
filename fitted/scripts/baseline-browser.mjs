@@ -531,7 +531,8 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
     "learned relationship changes actual surfaced membership against the same-pool zero-learner comparator");
   assert.ok(activated.row.candidates.some(candidate => Math.abs(candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) > 0), "snapshot records a nonzero bounded relationship contribution");
   await page.waitForFunction(() => { const images = Array.from(document.querySelectorAll(".p-5.border.rounded-xl img")); return images.length === 9 && images.every(image => image.complete && image.naturalWidth > 0); });
-  await page.screenshot({ path: "/private/tmp/fitted-style-activated.png", fullPage: true });
+  const activatedScreenshot = path.join(tmpdir(), "fitted-style-activated.png");
+  await page.screenshot({ path: activatedScreenshot, fullPage: true });
   // Explicitly retract the authored support through actual authenticated commands;
   // whole-outfit reactions stay intact, and the next request must recompute its baseline.
   for (const reactionId of receipts) await json(`${origin}/api/interactions`, { method: "POST", headers: { ...memoryHeaders, "Content-Type": "application/json" },
@@ -540,8 +541,9 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
   assert.equal(removed.row.preference.status, "abstained"); assert.equal(removed.row.preference.support, 0);
   assert.deepEqual(removed.row.preference.baselineShownFullSignatures, removed.row.shownFullSignatures, "removed support serves the current complete zero-learner baseline");
   assert.ok(removed.row.candidates.every(candidate => (candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) === 0));
-  await page.screenshot({ path: "/private/tmp/fitted-style-after-support-removal.png", fullPage: true });
-  console.log("PASS authored synthetic activated loop: 12 balanced XOR labels through real reaction API, disjoint query garments, four candidates/three cards, changed final membership versus captured comparator, explicit support removal and recomputed abstaining baseline. Screenshots: /private/tmp/fitted-style-activated.png and /private/tmp/fitted-style-after-support-removal.png. No human-benefit evidence.");
+  const removedScreenshot = path.join(tmpdir(), "fitted-style-after-support-removal.png");
+  await page.screenshot({ path: removedScreenshot, fullPage: true });
+  console.log(`PASS authored synthetic activated loop: 12 balanced XOR labels through real reaction API, disjoint query garments, four candidates/three cards, changed final membership versus captured comparator, explicit support removal and recomputed abstaining baseline. Screenshots: ${activatedScreenshot} and ${removedScreenshot}. No human-benefit evidence.`);
 }
 
 async function run() {
