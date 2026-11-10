@@ -38,8 +38,12 @@ correction/retraction, clear/erasure and owner isolation. Ten focused documentat
 checks passed, including maintained links and frozen evidence pins. These checks ran
 against the public candidate, not only the private coordinator checkout.
 
-GitHub save and hosted CI are pending at this checkpoint preparation; no deployment
-is authorized. Git owns the exact commit identity rather than a hand-maintained copy.
+The application/spec baseline is saved on GitHub. Initial hosted Python and
+documentation jobs passed; web conformance was still running when the browser job
+failed during Chromium installation: `ubuntu-latest` selected Ubuntu 26.04, unsupported
+by locked Playwright 1.56.1. The browser job is now pinned to supported Ubuntu 24.04;
+application code/dependencies are unchanged. Hosted browser success remains pending.
+No deployment is authorized. Git owns the exact checkpoint identity.
 
 The live walkthrough used existing account data and inspected wardrobe, saved
 proposals, recall, feedback history, exploration controls, plan and wear forms. It did
