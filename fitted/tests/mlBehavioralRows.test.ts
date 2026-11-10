@@ -282,3 +282,37 @@ describe("cross-runtime — projected rows drive the REAL Python reducers", () =
     expect(sig.liked_full_signatures).toEqual([]);
   });
 });
+
+
+describe("reason amendments preserve behavioral vote identity", () => {
+  it("updates per-item evidence without moving an old rejection ahead of a newer like", async () => {
+    const user = oid(), item = oid(), rejectedId = oid(), snap = oid();
+    const binding = { user, items: [item], snapshotId: snap, candidateId: "c0", baseKey: "same", fullSignature: "same-sig" };
+    await OutfitInteraction.collection.insertMany([
+      { ...binding, _id: rejectedId, action: "rejected", createdAt: new Date("2026-07-01T00:00:00Z") },
+      { ...binding, _id: oid(), snapshotId: oid(), action: "accepted", createdAt: new Date("2026-07-02T00:00:00Z") },
+      { ...binding, _id: oid(), eventKind: "reason_amendment", reactionId: rejectedId,
+        perItemFeedback: [{ itemId: item, disliked: true }], createdAt: new Date("2026-07-03T00:00:00Z") },
+    ]);
+    const rows = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
+    expect(rows.interactionRows).toHaveLength(2);
+    expect(rows.interactionRows[1].perItemFeedback).toEqual([{ itemId: String(item), disliked: true }]);
+    expect(rows.interactionRows[1].createdAt).toBe("2026-07-01T00:00:00.000Z");
+    const signal = reduceViaPython(rows);
+    expect(signal.liked_full_signatures).toEqual(["same-sig"]);
+  });
+
+  it("reason amendments do not crowd a vote out of the 500-row scan", async () => {
+    const user = oid(), item = oid(), parentId = oid();
+    const binding = { user, items: [item], snapshotId: oid(), candidateId: "c0", baseKey: "b", fullSignature: "sig" };
+    await OutfitInteraction.collection.insertMany([
+      { ...binding, _id: parentId, action: "rejected", createdAt: new Date("2026-07-01T00:00:00Z") },
+      ...Array.from({ length: INTERACTION_ROWS_SCAN_LIMIT }, (_, i) => ({ ...binding, _id: oid(), eventKind: "reason_amendment", reactionId: parentId,
+        perItemFeedback: [{ itemId: item, disliked: true }], createdAt: new Date(2026, 6, 2, 0, 0, i) })),
+    ]);
+    const rows = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
+    expect(rows.interactionRows).toHaveLength(1);
+    expect(rows.interactionRows[0].action).toBe("rejected");
+    expect(rows.interactionRows[0].perItemFeedback).toEqual([{ itemId: String(item), disliked: true }]);
+  });
+});

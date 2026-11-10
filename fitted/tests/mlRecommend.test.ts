@@ -285,6 +285,29 @@ async function json(res: Awaited<ReturnType<typeof mlRecommend>>) {
 // Cases.
 // ---------------------------------------------------------------------------
 describe("daily + rescue first render", () => {
+  it("carries persisted shown history into the next daily request without requiring likes", async () => {
+    const service = jest.fn(fakeService());
+    const deps = makeDeps({ callService: service });
+    const firstId = uuid();
+    const first = await json(await mlRecommend(req({ requestId: firstId, occasion: "class" }), deps));
+    expect(first.status).toBe(200);
+    expect(first.body.shown).toHaveLength(2);
+    expect(service.mock.calls[0][0].behavioralRows.recentSnapshots).toEqual([]);
+    const saved = (await GenerationSnapshot.findOne({ user: userId, requestId: firstId }).lean()) as Any;
+    expect(saved.shownFullSignatures).toHaveLength(2);
+
+    const second = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class" }), deps));
+    expect(second.status).toBe(200);
+    expect(second.body.shown).toHaveLength(2);
+    expect(service).toHaveBeenCalledTimes(2);
+    expect(service.mock.calls[1][0].behavioralRows.recentSnapshots).toEqual([
+      { nSurfaced: saved.nSurfaced, shownFullSignatures: saved.shownFullSignatures },
+    ]);
+    expect(service.mock.calls[1][0].behavioralRows.interactionRows).toEqual([]);
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+    expect(await OutfitExperience.countDocuments({ user: userId })).toBe(0);
+  });
+
   it("daily render writes a valid snapshot and returns a G15 browser response with {snapshotId,candidateId}", async () => {
     const res = await mlRecommend(req({ requestId: uuid(), occasion: "weekend brunch" }), makeDeps());
     const { status, body } = await json(res);
@@ -1915,14 +1938,73 @@ describe("R15 durable manual weather", () => {
     expect(await GenerationSnapshot.countDocuments({ user: userId, requestId: first.requestId })).toBe(1);
   });
 
-  it("keeps automatic cross-bucket retry conflicts while same-bucket summaries replay", async () => {
+  it("replays the completed automatic command across weather buckets without fetching or generating again", async () => {
     let weather: "mild" | "cold" = "mild";
-    const deps = makeDeps({ resolveWeather: async () => ({ weather, weatherRaw: "Forecast", weatherSource: "forecast" }) });
+    const service = jest.fn(fakeService());
+    const resolveWeather = jest.fn(async (): Promise<WeatherResolution> => ({ weather, weatherRaw: "Forecast", weatherSource: "forecast" }));
+    const deps = makeDeps({ callService: service, resolveWeather });
+    const command = { requestId: uuid(), occasion: "Class" };
+    const first = await mlRecommend(req(command), deps);
+    const firstBody = await first.json();
+    weather = "cold";
+    const retry = await mlRecommend(req(command), deps);
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).shown).toEqual(firstBody.shown);
+    expect(service).toHaveBeenCalledTimes(1);
+    expect(resolveWeather).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["lat", "lon", "eventTimeISO", "weather"])("rejects changed explicit %s under the same root command token", async field => {
+    const service = jest.fn(fakeService());
+    const deps = makeDeps({ callService: service });
+    const command = { requestId: uuid(), occasion: "Class", lat: 40, lon: -70, eventTimeISO: "2026-10-15T12:00:00Z" };
+    expect((await mlRecommend(req(command), deps)).status).toBe(200);
+    const changed = { lat: 41, lon: -71, eventTimeISO: "2026-10-16T12:00:00Z", weather: "mild" }[field];
+    expect((await mlRecommend(req({ ...command, [field]: changed }), deps)).status).toBe(409);
+    expect(service).toHaveBeenCalledTimes(1);
+    const saved = await GenerationSnapshot.findOne({ user: userId }).lean<Any>();
+    expect(saved.weatherCommandHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(saved).not.toHaveProperty("lat"); expect(saved).not.toHaveProperty("lon");
+  });
+
+  it("reconciles concurrent identical automatic commands even when they capture different buckets", async () => {
+    let resolutions = 0; let arrivals = 0; let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const deps = makeDeps({
+      resolveWeather: async () => ({ weather: ++resolutions === 1 ? "mild" : "cold", weatherRaw: "Forecast", weatherSource: "forecast" }),
+      callService: async body => { if (++arrivals === 2) release(); await barrier; return fakeService()(body); },
+    });
+    const command = { requestId: uuid(), occasion: "Class" };
+    const responses = await Promise.all([mlRecommend(req(command), deps), mlRecommend(req(command), deps)]);
+    expect(responses.map(response => response.status)).toEqual([200, 200]);
+    const bodies = await Promise.all(responses.map(response => response.json()));
+    expect(bodies[0].shown).toEqual(bodies[1].shown);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId: command.requestId })).toBe(1);
+  });
+
+  it("retains conservative bucket conflicts for historical rows without command evidence", async () => {
+    let weather: "mild" | "cold" = "mild";
+    const service = jest.fn(fakeService());
+    const deps = makeDeps({ callService: service, resolveWeather: async () => ({ weather, weatherRaw: "Forecast", weatherSource: "forecast" }) });
     const command = { requestId: uuid(), occasion: "Class" };
     expect((await mlRecommend(req(command), deps)).status).toBe(200);
+    const row = await GenerationSnapshot.findOne({ user: userId }).lean<Any>();
+    // Native insertion models pre-existing evidence, never rewrites a frozen current row.
+    await GenerationSnapshot.collection.deleteOne({ _id: row._id });
+    delete row.weatherCommandHash;
+    await GenerationSnapshot.collection.insertOne(row);
     weather = "cold";
     expect((await mlRecommend(req(command), deps)).status).toBe(409);
+    expect(service).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects a provider-authored weather command digest without binding or persistence", async () => {
+    const deps = makeDeps({ callService: fakeService({ overridePayload: payload => { payload.weatherCommandHash = "a".repeat(64); } }) });
+    const response = await (await mlRecommend(req({ requestId: uuid(), occasion: "Class" }), deps)).json();
+    expect(response.bindable).toBe(false);
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+
 });
 
 
@@ -2019,4 +2101,35 @@ describe("R16 layer-choice response integrity", () => {
     const result = await (await mlRecommend(req(command()), deps)).json();
     expect(result.bindable).toBe(false); expect(await GenerationSnapshot.countDocuments()).toBe(0);
   });
+});
+
+it("reason amendments preserve sampler vote count and captured provenance, including legacy votes", async () => {
+  const { postInteraction, __resetInteractionRateLimit } = await import("@/lib/interactions");
+  __resetInteractionRateLimit();
+  const first = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class" }), makeDeps()));
+  expect(first.status).toBe(200);
+  const binding = first.body.shown[0];
+  const feedbackDeps = { verifyUser: async () => ({ userId }), models: { User, GenerationSnapshot, OutfitInteraction } };
+  const reaction = await postInteraction(req({ snapshotId: binding.snapshotId, candidateId: binding.candidateId, action: "rejected" }), feedbackDeps);
+  expect(reaction.status).toBe(200);
+  const vote = (await reaction.json()).interaction;
+  for (let i = 0; i < 4; i++) {
+    const amendment = await postInteraction(req({ kind: "reason_amendment", reactionId: vote.id, operationId: uuid(), feedbackReason: { codes: ["not_me"] } }), feedbackDeps);
+    expect(amendment.status).toBe(200);
+  }
+  expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(5);
+  let observed: RenderBody | undefined;
+  const service = fakeService();
+  const deps = makeDeps({ callService: async body => { observed = body; return service(body); } });
+  const next = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class" }), deps));
+  expect(next.status).toBe(200);
+  expect(observed!.behavioralRows.interactionRows).toHaveLength(1);
+  expect(observed!.interactionCountAtRequest).toBe(1);
+  expect((await GenerationSnapshot.findById(next.body.shown[0].snapshotId).lean<Any>()).interactionCountAtRequest).toBe(1);
+  // An absent eventKind remains a vote; this change must not reinterpret stored legacy evidence.
+  await OutfitInteraction.create({ user: userId, action: "accepted", items: [itemIds.top, itemIds.b1] });
+  const afterLegacy = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class" }), deps));
+  expect(afterLegacy.status).toBe(200);
+  expect(observed!.interactionCountAtRequest).toBe(2);
+  expect((await GenerationSnapshot.findById(afterLegacy.body.shown[0].snapshotId).lean<Any>()).interactionCountAtRequest).toBe(2);
 });

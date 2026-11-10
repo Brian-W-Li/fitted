@@ -347,6 +347,8 @@ def test_model_refusal_routes_to_the_degenerate_corpus_with_finish_status():
         "refusal": "I can't help with that.",
     }
     assert payload["generator"]["finishStatus"] == {"finishReason": "stop", "refused": True}
+    assert generator.call_count == 1
+    assert len(attempts) == 1
 
 
 def test_cap_truncated_response_routes_to_the_degenerate_corpus():
@@ -358,6 +360,8 @@ def test_cap_truncated_response_routes_to_the_degenerate_corpus():
         "finishReason": "length",
         "refused": False,
     }
+    assert generator.call_count == 1
+    assert len(body["payload"]["generationAttempts"]) == 1
 
 
 def test_unrecognized_finish_reason_routes_to_the_degenerate_corpus():

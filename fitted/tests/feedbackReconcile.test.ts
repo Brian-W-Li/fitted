@@ -6,7 +6,7 @@
  */
 import { reconcileShownFeedback, feedbackFromAction, buildActionByKey } from "@/lib/feedbackReconcile";
 
-type Shown = { snapshotId: string; candidateId: string; feedback?: "liked" | "disliked" };
+type Shown = { snapshotId: string; candidateId: string; feedback?: "liked" | "disliked"; reactionId?: string };
 const card = (candidateId: string, feedback?: "liked" | "disliked"): Shown => ({
   snapshotId: "s1",
   candidateId,
@@ -31,8 +31,8 @@ describe("buildActionByKey (history GET → reconcile map; TEST-1 drift guard)",
     ]);
     // The map key MUST match the card key reconcileShownFeedback derives, or reconciliation silently
     // no-ops and the stale-chip corpus vector reopens.
-    expect(map.get(key("c1"))).toBe("accepted");
-    expect(map.get(key("c2"))).toBe("rejected");
+    expect(map.get(key("c1"))?.action).toBe("accepted");
+    expect(map.get(key("c2"))?.action).toBe("rejected");
     // And it actually drives a reconcile end-to-end (flips a stale mark).
     const { shown } = reconcileShownFeedback([card("c1", "disliked")], map);
     expect(shown[0].feedback).toBe("liked");
@@ -56,7 +56,7 @@ describe("buildActionByKey (history GET → reconcile map; TEST-1 drift guard)",
 describe("reconcileShownFeedback (audit #2/#4)", () => {
   it("flips a stale 'disliked' to 'liked' when the server shows the card was flipped (kills the stale enrich)", () => {
     const shown = [card("c1", "disliked")];
-    const { shown: out, changed } = reconcileShownFeedback(shown, new Map([[key("c1"), "accepted"]]));
+    const { shown: out, changed } = reconcileShownFeedback(shown, new Map([[key("c1"), { action: "accepted" }]]));
     expect(changed).toBe(true);
     expect(out[0].feedback).toBe("liked");
   });
@@ -70,7 +70,7 @@ describe("reconcileShownFeedback (audit #2/#4)", () => {
 
   it("keeps a mark that still matches the server (a genuinely-current dislike)", () => {
     const shown = [card("c1", "disliked")];
-    const { shown: out, changed } = reconcileShownFeedback(shown, new Map([[key("c1"), "rejected"]]));
+    const { shown: out, changed } = reconcileShownFeedback(shown, new Map([[key("c1"), { action: "rejected" }]]));
     expect(changed).toBe(false);
     expect(out).toBe(shown); // same ref — no needless re-render
     expect(out[0].feedback).toBe("disliked");
@@ -79,8 +79,8 @@ describe("reconcileShownFeedback (audit #2/#4)", () => {
   it("reconciles a mixed set and only rewrites what diverged", () => {
     const shown = [card("c1", "disliked"), card("c2", "liked"), card("c3")];
     const server = new Map([
-      [key("c1"), "accepted"], // flipped → liked
-      [key("c2"), "accepted"], // unchanged → liked
+      [key("c1"), { action: "accepted" }], // flipped → liked
+      [key("c2"), { action: "accepted" }], // unchanged → liked
       // c3 absent → stays unrated
     ]);
     const { shown: out, changed } = reconcileShownFeedback(shown, server);
@@ -88,4 +88,24 @@ describe("reconcileShownFeedback (audit #2/#4)", () => {
     expect(out.map((o) => o.feedback)).toEqual(["liked", "liked", undefined]);
     expect(out[1]).toBe(shown[1]); // c2 unchanged → same object ref
   });
+});
+
+
+it("uses the exact current History reaction ID even when the chip is unchanged", () => {
+  const stale = { ...card("c1", "disliked"), reactionId: "old" };
+  const map = buildActionByKey([{ snapshotId: "s1", candidateId: "c1", action: "rejected", id: "650000000000000000000003" }]);
+  expect(reconcileShownFeedback([stale], map)).toMatchObject({ changed: true, shown: [{ feedback: "disliked", reactionId: "650000000000000000000003" }] });
+  expect(reconcileShownFeedback([stale], new Map()).shown[0]).toMatchObject({ feedback: undefined, reactionId: undefined });
+});
+
+
+it("restores corrected reasons even when the reaction ID is unchanged and clears them after removal", () => {
+  const saved = { ...card("c1", "liked"), reactionId: "650000000000000000000003",
+    feedbackReason: { scope: "request" as const, concern: "formality" as const, rawText: "Old note" } };
+  const map = buildActionByKey([{ snapshotId: "s1", candidateId: "c1", action: "accepted", id: saved.reactionId,
+    feedbackReason: { scope: "item", concern: "fit", itemId: "shirt", rawText: "Too big" } }]);
+  const result = reconcileShownFeedback([saved], map);
+  expect(result.changed).toBe(true);
+  expect(result.shown[0].feedbackReason).toMatchObject({ scope: "item", rawText: "Too big" });
+  expect(reconcileShownFeedback(result.shown, new Map()).shown[0].feedbackReason).toBeUndefined();
 });

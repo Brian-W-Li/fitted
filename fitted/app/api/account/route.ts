@@ -153,42 +153,29 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // Mutate only supplied metadata paths. One owner-document write preserves unrelated
+    // concurrent profile edits and orders this update against the account-erasure barrier.
+    const fields: Array<[string, boolean, unknown]> = [
+      ["age", ageProvided, ageParsed],
+      ["gender", genderProvided, genderParsed],
+      ["appRatingScore10", ratingProvided, ratingParsed],
+      ["appFeedbackComment", feedbackCommentProvided, feedbackCommentParsed],
+      ["customPhotoURL", photoDataUrlProvided, photoDataUrl === "" ? null : photoDataUrl],
+    ];
+    const set: Record<string, unknown> = {};
+    const unset: Record<string, 1> = {};
+    for (const [field, supplied, value] of fields) {
+      if (!supplied) continue;
+      if (value === null) unset[`metadata.${field}`] = 1;
+      else set[`metadata.${field}`] = value;
+    }
     const { User } = await initDatabase();
-    const user = await User.findById(auth.userId);
-
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    const meta = user.metadata ?? new Map<string, unknown>();
-    if (!(meta instanceof Map)) {
-      user.metadata = new Map(Object.entries(meta as Record<string, unknown>));
-    }
-    if (ageProvided) {
-      if (ageParsed === null) user.metadata.delete("age");
-      else user.metadata.set("age", ageParsed);
-    }
-    if (genderProvided) {
-      if (genderParsed === null) user.metadata.delete("gender");
-      else user.metadata.set("gender", genderParsed);
-    }
-    if (ratingProvided) {
-      if (ratingParsed === null) user.metadata.delete("appRatingScore10");
-      else user.metadata.set("appRatingScore10", ratingParsed);
-    }
-    if (feedbackCommentProvided) {
-      if (feedbackCommentParsed === null) user.metadata.delete("appFeedbackComment");
-      else user.metadata.set("appFeedbackComment", feedbackCommentParsed);
-    }
-    if (photoDataUrlProvided) {
-      if (photoDataUrl === null || photoDataUrl === "") {
-        user.metadata.delete("customPhotoURL");
-      } else {
-        user.metadata.set("customPhotoURL", photoDataUrl);
-      }
-    }
-
-    await user.save();
+    const user = await User.findOneAndUpdate(
+      { _id: auth.userId, erasureStarted: { $ne: true } },
+      { ...(Object.keys(set).length ? { $set: set } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}) },
+      { new: true, runValidators: true, writeConcern: { w: "majority" } },
+    );
+    if (!user) return NextResponse.json({ error: "Account no longer accepts profile changes" }, { status: 409 });
 
     const metaAfter = user.metadata as unknown;
     const customPhotoURL = getMeta(metaAfter, "customPhotoURL");

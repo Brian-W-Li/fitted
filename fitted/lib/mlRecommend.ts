@@ -1,6 +1,7 @@
 import { normalizeLayerRole } from "@/lib/layerRole";
 import { finishImageLeases, mongoImageId, localImageId, withImageConcurrency, type ImageRetentionModels } from "@/lib/imageRetention";
 import { snapshotVisible } from "@/lib/snapshotVisibility";
+import { voteEvidenceFilter } from "@/lib/feedbackEvidence.cjs";
 /**
  * M5 recommend orchestrator (C5, seam #6) — the flag-on vertical the rewritten route calls. It
  * assembles the seam 3–5 building blocks + the seam-6 route-owned cross-checks into one render:
@@ -18,6 +19,7 @@ import { snapshotVisible } from "@/lib/snapshotVisibility";
  */
 import { NextResponse, type NextRequest } from "next/server";
 import mongoose from "mongoose";
+import { createHash } from "crypto";
 import { initDatabase } from "@/lib/db";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { getWeatherContext } from "@/lib/weather";
@@ -364,6 +366,23 @@ function parseShownVariation(raw: unknown): ShownVariation | null {
   return value as unknown as ShownVariation;
 }
 
+/** Server-owned command identity; store a digest instead of precise coordinates.
+ * Forecast output is excluded: it is evidence captured by the completed render.
+ * Null/absent and empty raw details share the existing resolver semantics. */
+function rootWeatherCommandHash(body: Any): string {
+  const automaticGeo = body.weather == null && typeof body.lat === "number" && typeof body.lon === "number";
+  return createHash("sha256").update(JSON.stringify({
+    version: 1,
+    weather: body.weather ?? null,
+    source: body.weatherSource ?? null,
+    raw: body.weather != null && typeof body.weatherRaw === "string" ? body.weatherRaw || null : null,
+    signals: body.weatherSignals == null ? null : { rain: body.weatherSignals.rain, wind: body.weatherSignals.wind },
+    lat: automaticGeo ? body.lat : null,
+    lon: automaticGeo ? body.lon : null,
+    eventTimeISO: automaticGeo && typeof body.eventTimeISO === "string" ? body.eventTimeISO : null,
+  })).digest("hex");
+}
+
 // ---------------------------------------------------------------------------
 // The orchestrator.
 // ---------------------------------------------------------------------------
@@ -396,6 +415,11 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     if (body.controls && "excludedOutfitItemIds" in Object(body.controls)) {
       return respondError(400, "variation_invalid", "Explore from a shown source instead of supplying its pieces");
     }
+
+    // Read before automatic weather resolution, but replay only after all lineage,
+    // ownership, visibility and command checks below. Historical rows have no digest.
+    const existing = await GenerationSnapshot.findOne({ user: userObjectId, requestId }).lean();
+    let weatherCommandHash: string | undefined;
 
     // 3. §C.1 lineage gate FIRST, then intent — a re-roll carries only {requestId, parentSnapshotId,
     //    controls}; intent + Lens are derived FROM THE PARENT, never the client (else a rescue re-roll,
@@ -571,7 +595,14 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         if (err instanceof RequestContractError) return respondError(400, "contract_invalid", err.message);
         throw err;
       }
-      const resolved = manual ?? await deps.resolveWeather(weatherInput);
+      weatherCommandHash = rootWeatherCommandHash(body);
+      const captured = existing?.weatherCommandHash === weatherCommandHash;
+      const resolved = manual ?? (captured && body.weather == null ? {
+        weather: existing.weather as WeatherBucket,
+        weatherRaw: existing.weatherRaw ?? null,
+        weatherSource: weatherSourceFromSnapshot(existing.weatherSource),
+        weatherSignals: weatherSignalsFromSnapshot(existing.weatherSignals),
+      } : await deps.resolveWeather(weatherInput));
       weatherSource = weatherSourceFromSnapshot(resolved.weatherSource);
       lensInput = {
         occasion: body.occasion,
@@ -630,12 +661,20 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       variationSourceRevision,
     });
 
+    const matchesWinner = (winner: Any) => {
+      if (weatherCommandHash && winner.weatherCommandHash && weatherCommandHash !== winner.weatherCommandHash) return false;
+      // Concurrent identical automatic commands may have captured different forecasts.
+      // The winning snapshot is authoritative; legacy rows retain the old bucket check.
+      const comparison = weatherCommandHash && winner.weatherCommandHash === weatherCommandHash && body.weather == null
+        ? { ...incomingIdentity, weather: winner.weather } : incomingIdentity;
+      return identityMatches(comparison, identityFromDoc(winner)) && sameFrozenWeather(winner);
+    };
+
     // 5. §C.4 early read-check: a completed-render retry replays the winner; a reused requestId for a
     //    DIFFERENT render identity is a conflict (G5).
-    const existing = await GenerationSnapshot.findOne({ user: userObjectId, requestId }).lean();
     if (existing) {
       if (!await snapshotVisible(userObjectId, existing)) return respondError(404, "proposal_unavailable", "That proposal is no longer available");
-      if (identityMatches(incomingIdentity, identityFromDoc(existing)) && sameFrozenWeather(existing)) {
+      if (matchesWinner(existing)) {
         return NextResponse.json(projectBrowserResponse(existing, existing._id.toString()));
       }
       return respondError(409, "request_id_conflict", "requestId reused for a different render");
@@ -675,7 +714,8 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       return respondError(400, "controls_structurally_infeasible", structuralError);
     }
 
-    const interactionCountAtRequest = await OutfitInteraction.countDocuments({ user: userObjectId });
+    // Reason amendments carry content about existing votes, not additional sampler support.
+    const interactionCountAtRequest = await OutfitInteraction.countDocuments({ user: userObjectId, ...voteEvidenceFilter });
     const behavioralRows = await buildBehavioralRows(userObjectId, {
       OutfitInteraction,
       GenerationSnapshot,
@@ -817,6 +857,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         wardrobeById,
         weatherSource,
         weatherSignals: lens.weatherSignals,
+        weatherCommandHash,
       });
       if (payload.layerChoice) {
         const choice = payload.layerChoice as { status: string };
@@ -901,7 +942,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       // early check (a genuine concurrent double-submit of a different render under one token).
       const winner = writeResult.snapshot;
       if (!await snapshotVisible(userObjectId, winner)) return respondError(404, "proposal_unavailable", "That proposal is no longer available");
-      if (!identityMatches(incomingIdentity, identityFromDoc(winner)) || !sameFrozenWeather(winner)) {
+      if (!matchesWinner(winner)) {
         return respondError(409, "request_id_conflict", "requestId reused for a different render");
       }
       return NextResponse.json(projectBrowserResponse(winner, winner._id.toString()));

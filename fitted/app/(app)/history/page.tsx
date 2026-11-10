@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import FeedbackDetails, { FeedbackNote, hasFeedbackDetails } from "../dashboard/FeedbackDetails";
+import { OBJECT_ID_RE } from "@/lib/formats";
+import { useDislikeEnrich, type EnrichData } from "@/lib/useDislikeEnrich";
+import type { FeedbackReasonValue, PerItemFeedbackValue } from "@/lib/feedbackTypes";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { resolveImageSrc } from "@/lib/imageUrl";
 
 // ============================================================================
@@ -43,6 +47,8 @@ interface HistoryCard {
   optionPath?: string;
   risk?: string;
   templateType?: string;
+  feedbackReason?: FeedbackReasonValue;
+  perItemFeedback?: PerItemFeedbackValue[];
 }
 
 type TabType = "liked" | "disliked";
@@ -89,62 +95,111 @@ export default function HistoryPage() {
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => setFirebaseUser(user));
-    return () => unsub();
-  }, []);
+  const [editCard, setEditCard] = useState<HistoryCard | null>(null);
+  const ownerRef = useRef<string | null>(null);
+  const ownerEpoch = useRef(0);
+  const historyRead = useRef(0);
 
-  useEffect(() => {
-    if (firebaseUser) void fetchHistory(firebaseUser);
-  }, [firebaseUser]);
-
-  async function fetchHistory(user: FirebaseUser) {
-    setLoading(true);
-    setError("");
-    setActionError("");
+  const fetchHistory = useCallback(async (user: FirebaseUser) => {
+    const epoch = ownerEpoch.current, read = ++historyRead.current;
+    const current = () => ownerRef.current === user.uid && ownerEpoch.current === epoch && historyRead.current === read;
+    if (!current()) return;
+    setLoading(true); setError(""); setActionError("");
     try {
       const token = await user.getIdToken();
-      // ONE call — the server returns latest-state for BOTH signs; we split into tabs client-side (a
-      // per-action query would strand a flipped candidate under its stale sign, and one call halves
-      // the cold-connect round-trips on the free-tier Atlas).
+      if (!current()) return;
       const res = await fetch("/api/interactions", { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed to fetch history");
       const data = await res.json();
-      setCards((data.interactions ?? []) as HistoryCard[]);
-    } catch (err) {
-      console.error("Error fetching history:", err);
-      setError("Failed to load your outfit history. Please try again.");
+      if (current()) setCards((data.interactions ?? []) as HistoryCard[]);
+    } catch {
+      if (current()) setError("Failed to load your outfit history. Please try again.");
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, user => {
+      if (ownerRef.current !== (user?.uid ?? null)) ownerEpoch.current++;
+      ownerRef.current = user?.uid ?? null;
+      setCards([]); setEditCard(null); setBusyId(null); setConfirmRemoveId(null); setActionError("");
+      setFirebaseUser(user);
+      if (!user) setLoading(false);
+    });
+    return () => { ownerEpoch.current++; ownerRef.current = null; unsub(); };
+  }, []);
+  useEffect(() => { if (firebaseUser) void fetchHistory(firebaseUser); }, [firebaseUser, fetchHistory]);
+
+  const { saveDislikeReasons, retryEnrich, statusFor } = useDislikeEnrich(useCallback(async command => {
+    const user = firebaseUser, epoch = ownerEpoch.current;
+    const current = () => Boolean(user && ownerRef.current === user.uid && ownerEpoch.current === epoch);
+    if (!user || !current()) return "stale";
+    try {
+      const token = await user.getIdToken();
+      if (!current()) return "stale";
+      const res = await fetch("/api/interactions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(command) });
+      const body = await res.json().catch(() => null);
+      if (!current()) return "stale";
+      if (res.ok) {
+        if (!(body?.success === true && typeof body.amendment?.id === "string" && OBJECT_ID_RE.test(body.amendment.id) && body.amendment.reactionId === command.reactionId)) return "retry";
+        setCards(previous => previous.map(card => card.id === command.reactionId
+          ? { ...card, feedbackReason: command.feedbackReason, perItemFeedback: command.perItemFeedback } : card));
+        await fetchHistory(user);
+        return "saved";
+      }
+      if ([400, 401, 403, 404, 409, 410, 413, 415, 422].includes(res.status)) {
+        await fetchHistory(user);
+        if (current()) setActionError("These details could not be saved. Check the current reaction before trying again.");
+        return "stale";
+      }
+      return "retry";
+    } catch { return current() ? "retry" : "stale"; }
+  }, [firebaseUser, fetchHistory]), firebaseUser?.uid ?? null);
+
+  const saveDetails = async (data: EnrichData) => {
+    if (!editCard?.snapshotId || !editCard.candidateId || !firebaseUser || ownerRef.current !== firebaseUser.uid) return;
+    const target = { snapshotId: editCard.snapshotId, candidateId: editCard.candidateId, reactionId: editCard.id };
+    setEditCard(null);
+    await saveDislikeReasons(target, data);
+  };
 
   // FLIP — append the opposite action (POST); H61 latest-state makes it win, so the card moves tabs.
   async function flipReaction(card: HistoryCard) {
     if (!firebaseUser || busyId || !card.snapshotId || !card.candidateId) return;
     const opposite = card.action === "accepted" ? "rejected" : "accepted";
+    const epoch = ownerEpoch.current;
+    const current = () => ownerRef.current === firebaseUser.uid && ownerEpoch.current === epoch;
+    if (!current()) return;
+    historyRead.current++; setLoading(false); // Retire any older refresh before this mutation.
     setBusyId(card.id);
     setActionError("");
     try {
       const token = await firebaseUser.getIdToken();
+      if (!current()) return;
       const res = await fetch("/api/interactions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ snapshotId: card.snapshotId, candidateId: card.candidateId, action: opposite }),
       });
+      if (!current()) return;
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { code?: string } | null;
+        if (!current()) return;
         setActionError(curationErrorMessage(body?.code, "update"));
         return;
       }
+      const receipt = await res.json().catch(() => null);
+      if (!current()) return;
+      historyRead.current++; setLoading(false); // A refresh started during the write may contain the old reaction.
       // Update the action in place — the card leaves THIS tab (shownCards filters by activeTab) and
       // its count moves to the other. We deliberately do NOT auto-switch tabs: a friend curating a
       // list shouldn't be yanked away mid-review; the other tab's badge shows where it went.
-      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, action: opposite } : c)));
+      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, action: opposite, ...(typeof receipt?.interaction?.id === "string" ? { id: receipt.interaction.id } : {}), feedbackReason: undefined, perItemFeedback: undefined } : c)));
     } catch {
-      setActionError("Couldn't update that reaction. Please try again.");
+      if (current()) setActionError("Couldn't update that reaction. Please try again.");
     } finally {
-      setBusyId(null);
+      if (current()) setBusyId(null);
     }
   }
 
@@ -152,26 +207,34 @@ export default function HistoryPage() {
   // success (idempotent): the card leaves the list either way.
   async function removeReaction(card: HistoryCard) {
     if (!firebaseUser || busyId || !card.snapshotId || !card.candidateId) return;
+    const epoch = ownerEpoch.current;
+    const current = () => ownerRef.current === firebaseUser.uid && ownerEpoch.current === epoch;
+    if (!current()) return;
+    historyRead.current++; setLoading(false); // Retire any older refresh before this mutation.
     setBusyId(card.id);
     setActionError("");
     try {
       const token = await firebaseUser.getIdToken();
+      if (!current()) return;
       const qs = `snapshotId=${encodeURIComponent(card.snapshotId)}&candidateId=${encodeURIComponent(card.candidateId)}`;
       const res = await fetch(`/api/interactions?${qs}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!current()) return;
       if (!res.ok && res.status !== 404) {
         const body = (await res.json().catch(() => null)) as { code?: string } | null;
+        if (!current()) return;
         setActionError(curationErrorMessage(body?.code, "remove"));
         return;
       }
+      historyRead.current++; setLoading(false); // Never let an in-flight refresh resurrect erased notes.
       setCards((prev) => prev.filter((c) => c.id !== card.id));
     } catch {
-      setActionError("Couldn't remove that reaction. Please try again.");
+      if (current()) setActionError("Couldn't remove that reaction. Please try again.");
     } finally {
-      setBusyId(null);
-      setConfirmRemoveId(null);
+      if (current()) setBusyId(null);
+      if (current()) setConfirmRemoveId(null);
     }
   }
 
@@ -274,6 +337,8 @@ export default function HistoryPage() {
             const busy = busyId === card.id;
             const confirming = confirmRemoveId === card.id;
             const curatable = Boolean(card.snapshotId && card.candidateId);
+            const target = { snapshotId: card.snapshotId ?? "", candidateId: card.candidateId ?? "", reactionId: card.id };
+            const detailStatus = statusFor(target);
             return (
               <div
                 key={`${card.snapshotId}:${card.candidateId}`}
@@ -321,6 +386,12 @@ export default function HistoryPage() {
                   <p className="mt-2 text-xs text-slate-500 truncate">
                     {card.displayItems.map((i) => i.name ?? "Item").join(" · ")}
                   </p>
+
+                  <FeedbackNote reason={card.feedbackReason} items={card.displayItems} />
+
+                  {curatable && (detailStatus === "saving" ? <p className="text-xs text-slate-500">Saving details…</p>
+                    : detailStatus === "failed" ? <button onClick={() => retryEnrich(target)} className="text-xs text-amber-700 underline">Couldn&apos;t save the details — retry</button>
+                    : hasFeedbackDetails(card) ? <button disabled={busy} onClick={() => setEditCard(card)} className="text-xs text-slate-600 underline disabled:opacity-50">Edit details</button> : null)}
 
                   {/* Curation controls (D-1). Hidden for the (Track-2-nonexistent) unbound legacy row. */}
                   {curatable && (
@@ -371,6 +442,7 @@ export default function HistoryPage() {
           })}
         </div>
       )}
+      {editCard && <FeedbackDetails outfit={editCard} occasion={editCard.occasion} onClose={() => setEditCard(null)} onSave={saveDetails} />}
     </div>
   );
 }

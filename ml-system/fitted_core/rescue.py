@@ -942,15 +942,12 @@ def _generate_and_parse(generator: Generator, prompt: GenerationPrompt) -> Optio
     repair retry (the graceful-fallback signal — never raises on bad GPT data, §13). The repair
     fires **only** on a parse (``invalidJson``) failure: a payload that parses but fails the §12
     schema is handled downstream by ``validate_gpt_payload`` dropping candidates, never a second
-    re-generation (spearhead.md §G/§H). Exactly one retry; the stub makes this path
+    re-generation (spearhead.md §G/§H). At most one formatting retry, unless an abnormal finish or exhausted service budget
+    prevents repair; the stub makes the ordinary path
     deterministically testable via a canned invalid-then-valid pair (§J).
     """
-    parsed = parse_gpt_json(generator.generate(prompt))
-    if parsed.issue is None:
-        return parsed.payload
-    # invalidJson → one §12 blind re-generation with the repair-augmented prompt.
-    repaired = parse_gpt_json(generator.generate(_repair_prompt(prompt)))
-    return repaired.payload  # None when still invalid → graceful fallback
+    payload, _ = _generate_and_parse_with_trace(generator, prompt)
+    return payload
 
 
 def _build_ranker_context(
@@ -1182,8 +1179,8 @@ def _generate_and_parse_with_trace(
 ) -> tuple[Optional[object], tuple[GenerationAttemptTrace, ...]]:
     """``_generate_and_parse`` capturing each attempt's raw text + repair flag (§8.2-E).
 
-    Mirrors the closed ``_generate_and_parse`` exactly (one §12 invalidJson repair) but records the
-    raw generation string of every attempt instead of discarding it. The closed function is untouched.
+    Shared generation policy for traced and ordinary callers: one ordinary JSON repair,
+    suppressed for abnormal finishes or exhausted service dispatch budget.
 
     Each attempt also captures the generator's ``last_finish_status`` (§A.6 point 5) — the
     ``OpenAIGenerator`` sets it per call; generators without the attribute (stubs/replays)
@@ -1203,6 +1200,14 @@ def _generate_and_parse_with_trace(
     ]
     if parsed.issue is None:
         return parsed.payload, tuple(attempts)
+    status = attempts[0].finish_status
+    # A formatting repair cannot address a refusal or an abnormal provider finish.
+    # Missing metadata on replay/test generators retains ordinary JSON repair.
+    if status is not None and (status.refusal or status.finish_reason not in (None, "stop")):
+        return None, tuple(attempts)
+    can_repair = getattr(generator, "can_repair", None)
+    if can_repair is not None and not can_repair():
+        return None, tuple(attempts)
     raw_repair = generator.generate(_repair_prompt(prompt))
     repaired = parse_gpt_json(raw_repair)
     attempts.append(

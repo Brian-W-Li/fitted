@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,11 +15,32 @@ const fitted = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = path.resolve(fitted, "..");
 const project = "demo-fitted-baseline";
 const production = process.argv.includes("--production");
-assert.ok(process.argv.slice(2).every(arg => arg === "--production"), "unknown baseline argument");
+const feedbackOnly = process.argv.includes("--feedback-only");
+assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only"].includes(arg)), "unknown baseline argument");
 const origin = "http://127.0.0.1:3107";
 const authOrigin = "http://127.0.0.1:9099";
 const serviceOrigin = "http://127.0.0.1:8097";
 const children = [];
+
+function assertLockedDependencies(directory) {
+  const manifest = JSON.parse(readFileSync(path.join(directory, "package.json"), "utf8"));
+  const lock = JSON.parse(readFileSync(path.join(directory, "package-lock.json"), "utf8"));
+  const names = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).sort();
+  const mismatches = [];
+  for (const name of names) {
+    const expected = lock.packages?.[`node_modules/${name}`]?.version;
+    const installedPath = path.join(directory, "node_modules", name, "package.json");
+    const installed = existsSync(installedPath) ? JSON.parse(readFileSync(installedPath, "utf8")).version : null;
+    if (!expected || installed !== expected) {
+      mismatches.push(`${name}: installed ${installed ?? "missing"}, locked ${expected ?? "missing"}`);
+    }
+  }
+  assert.equal(mismatches.length, 0,
+    `Browser baseline dependencies differ from package-lock.json:\n${mismatches.join("\n")}\nRun npm ci in ${directory}, then rerun the baseline.`);
+}
+
+// A linked older checkout must not silently supply a different runtime for this build.
+assertLockedDependencies(fitted);
 const temp = await mkdtemp(path.join(tmpdir(), "fitted-baseline-"));
 let mongo, mongoClient, browser, debugPage;
 
@@ -125,6 +146,130 @@ async function account(email) {
   const [synced, concurrent] = await Promise.all([sync(), sync()]);
   assert.equal(synced.userId, concurrent.userId, "concurrent first login resolves one owner");
   return { email, password, token: created.idToken, userId: synced.userId, firebaseUid: created.localId };
+}
+
+async function checkFeedbackJourney(db, page, owner, memoryHeaders) {
+  // Reasons amend one exact reaction; they never renew a vote or defeat curation.
+  await page.goto(`${origin}/dashboard`);
+  await page.locator("textarea").fill("Feedback amendment check");
+  await paceRender();
+  const [feedbackRecommendation] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
+    page.getByRole("button", { name: /Get Recommendations/i }).click(),
+  ]);
+  assert.equal(feedbackRecommendation.status(), 200);
+  const [dislikeResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Dislike", exact: true }).first().click(),
+  ]);
+  const voteReceipt = await dislikeResponse.json();
+  assert.equal(dislikeResponse.status(), 200);
+  const votesBeforeReasons = await db.collection("outfitinteractions").countDocuments({
+    user: new ObjectId(owner.userId), eventKind: { $ne: "reason_amendment" },
+  });
+  await page.getByRole("button", { name: "Something’s off", exact: true }).first().click();
+  await page.getByRole("button", { name: "Style", exact: true }).click();
+  const [reasonResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Save details", exact: true }).click(),
+  ]);
+  assert.equal(reasonResponse.status(), 200);
+  const amendmentCommand = reasonResponse.request().postDataJSON();
+  assert.equal(amendmentCommand.kind, "reason_amendment");
+  assert.equal(amendmentCommand.reactionId, voteReceipt.interaction.id);
+  assert.ok(!("action" in amendmentCommand), "reason amendment is not another vote");
+  const feedbackVote = await db.collection("outfitinteractions").findOne({ _id: new ObjectId(voteReceipt.interaction.id) });
+  const feedbackBinding = { user: new ObjectId(owner.userId), snapshotId: feedbackVote.snapshotId, candidateId: feedbackVote.candidateId };
+  const retryAmendment = await fetch(`${origin}/api/interactions`, { method: "POST",
+    headers: { ...memoryHeaders, "Content-Type": "application/json" }, body: JSON.stringify(amendmentCommand) });
+  assert.equal(retryAmendment.status, 200);
+  assert.equal(await db.collection("outfitinteractions").countDocuments(feedbackBinding), 2, "retry keeps one vote and one amendment");
+  const countRequestId = randomUUID();
+  const countCheck = await json(`${origin}/api/recommend`, { method: "POST",
+    headers: { ...memoryHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId: countRequestId, occasion: "Feedback count check" }) });
+  assert.ok(countCheck.shown.length, "feedback count request remains buildable");
+  const countSnapshot = await db.collection("generationsnapshots").findOne({ user: new ObjectId(owner.userId), requestId: countRequestId });
+  assert.equal(countSnapshot.interactionCountAtRequest, votesBeforeReasons, "reason amendments cannot raise the sampler reaction count");
+  await page.reload();
+  await page.getByRole("button", { name: "Edit details", exact: true }).first().click();
+  // Leave the old reason form open while the same reaction is corrected elsewhere.
+  const flipFeedback = await fetch(`${origin}/api/interactions`, { method: "POST",
+    headers: { ...memoryHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ snapshotId: String(feedbackVote.snapshotId), candidateId: feedbackVote.candidateId, action: "accepted" }) });
+  assert.equal(flipFeedback.status, 200);
+  const flippedReceipt = await flipFeedback.json();
+  await page.getByRole("button", { name: "Formality", exact: true }).click();
+  const [staleReasonResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Save details", exact: true }).click(),
+  ]);
+  assert.equal(staleReasonResponse.status(), 409, "old reason form cannot reverse the like");
+  await page.getByText("Liked", { exact: true }).first().waitFor();
+  const feedbackHistory = await json(`${origin}/api/interactions`, { headers: memoryHeaders });
+  assert.ok(feedbackHistory.interactions.some(row => row.id === flippedReceipt.interaction.id && row.action === "accepted"));
+  // A liked outfit can have an item-specific fit concern without a new dislike.
+  const scopedViewport = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Something’s off", exact: true }).first().click();
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  await page.getByLabel("Which item?", { exact: true }).selectOption(String(feedbackVote.items[0]));
+  await page.getByLabel("A quick note (optional)", { exact: true }).fill("Too big for me, but I like the combination");
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "scoped feedback fits mobile");
+  if (process.env.FITTED_BROWSER_SCREENSHOT) await page.screenshot({ path: process.env.FITTED_BROWSER_SCREENSHOT + ".scoped-feedback.png", fullPage: true });
+  const [fitResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Save details", exact: true }).click(),
+  ]);
+  assert.equal(fitResponse.status(), 200);
+  const scopedHistory = await json(`${origin}/api/interactions`, { headers: memoryHeaders });
+  const scopedCard = scopedHistory.interactions.find(row => row.id === flippedReceipt.interaction.id);
+  assert.equal(scopedCard.action, "accepted");
+  assert.deepEqual(scopedCard.feedbackReason, { scope: "item", itemId: String(feedbackVote.items[0]), concern: "fit",
+    rawText: "Too big for me, but I like the combination" });
+  assert.ok(!scopedCard.perItemFeedback?.length, "a fit note never manufactures an item dislike");
+  const votesAfterScopedNote = await db.collection("outfitinteractions").countDocuments({ user: new ObjectId(owner.userId), eventKind: { $ne: "reason_amendment" } });
+  assert.equal(votesAfterScopedNote, votesBeforeReasons + 1, "only the explicit flip added a vote");
+  await page.goto(`${origin}/history`);
+  await page.getByText("Too big for me, but I like the combination", { exact: false }).first().waitFor();
+  await page.getByRole("button", { name: "Edit details", exact: true }).first().click();
+  await page.getByLabel("A quick note (optional)", { exact: true }).fill("Too loose for me; keep the combination");
+  const [historyEditResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Save details", exact: true }).click(),
+  ]);
+  assert.equal(historyEditResponse.status(), 200);
+  await page.reload();
+  await page.getByText("Too loose for me; keep the combination", { exact: false }).first().waitFor();
+  await page.goto(`${origin}/dashboard`);
+  await page.getByRole("button", { name: "Edit details", exact: true }).first().click();
+  assert.equal(await page.getByLabel("Which item?", { exact: true }).inputValue(), String(feedbackVote.items[0]));
+  assert.equal(await page.getByLabel("A quick note (optional)", { exact: true }).inputValue(), "Too loose for me; keep the combination");
+  const [noteClearResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Clear details", exact: true }).click(),
+  ]);
+  assert.equal(noteClearResponse.status(), 200);
+  await page.reload();
+  await page.getByRole("button", { name: "Something’s off", exact: true }).first().waitFor();
+  const clearedHistory = await json(`${origin}/api/interactions`, { headers: memoryHeaders });
+  const clearedCard = clearedHistory.interactions.find(row => row.id === flippedReceipt.interaction.id);
+  assert.equal(clearedCard.action, "accepted");
+  assert.ok(!clearedCard.feedbackReason, "clearing a note must not resurrect an earlier reason");
+  assert.equal(await db.collection("outfitinteractions").countDocuments({ user: new ObjectId(owner.userId), eventKind: { $ne: "reason_amendment" } }), votesAfterScopedNote);
+  await page.setViewportSize(scopedViewport);
+  await page.goto(`${origin}/history`);
+  await page.getByRole("button", { name: "Remove", exact: true }).first().click();
+  const [removedFeedback] = await Promise.all([
+    page.waitForResponse(response => response.url().includes("/api/interactions?") && response.request().method() === "DELETE"),
+    page.getByRole("button", { name: "Remove", exact: true }).first().click(),
+  ]);
+  assert.equal(removedFeedback.status(), 200);
+  assert.equal(await db.collection("outfitinteractions").countDocuments(feedbackBinding), 0, "curation erases votes and amendment content");
+  const erasedRetry = await fetch(`${origin}/api/interactions`, { method: "POST",
+    headers: { ...memoryHeaders, "Content-Type": "application/json" }, body: JSON.stringify(amendmentCommand) });
+  assert.equal(erasedRetry.status, 404, "old retry cannot resurrect erased feedback");
+
 }
 
 async function run() {
@@ -258,9 +403,19 @@ async function run() {
   await page.goto(`${origin}/signin`);
   await page.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function");
   await page.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), owner);
+  if (feedbackOnly) {
+    await checkFeedbackJourney(db, page, owner, memoryHeaders);
+    const isolatedHistory = await json(`${origin}/api/interactions`, { headers: { Authorization: `Bearer ${other.token}` } });
+    assert.equal(isolatedHistory.interactions.length, 0, "feedback history isolates owners");
+    await context.close();
+    console.log(`PASS ${production ? "production-build" : "development"} focused feedback browser: scoped notes on likes/dislikes, mobile, History edit, reload, clear, retry, stale correction, removal and owner isolation`);
+    return;
+  }
+
   await page.goto(`${origin}/wardrobe`);
   await page.getByText("Baseline blue shirt").waitFor();
-  await page.getByRole("link", { name: "Build an outfit around this" }).first().click();
+  // The fixture asserts rescue around the blue shirt; wardrobe order is not a contract.
+  await page.locator(`a[href^="/dashboard?rescue=${ids[0]}&"]`).click();
   await page.getByText("Building an outfit around").waitFor();
   await page.locator("textarea").fill("Weekend casual lunch");
   // Manual conditions drive the real selection pipeline and survive saved return.
@@ -432,6 +587,11 @@ async function run() {
   const sourceBottom = variation.shown[0].displayItems.find(item => item.itemId === otherBottom);
   assert.ok(sourceBottom, "variation source has the alternative bottom");
   const suggestionCard = page.getByRole("heading", { name: "Recent suggestions for this garment" }).locator("..").locator("article").first();
+  const substituteImageId = new ObjectId();
+  const templateImage = await db.collection("wardrobeimages").findOne({ _id: imageId });
+  await db.collection("wardrobeimages").insertOne({ ...templateImage, _id: substituteImageId,
+    wardrobeItem: new ObjectId(oldPiece), snapshotRetained: false, generationLeases: [], wearReferences: [] });
+  await db.collection("wardrobeitems").updateOne({ _id: new ObjectId(oldPiece) }, { $set: { imagePath: `mongo:${substituteImageId}` } });
   await suggestionCard.getByRole("button", { name: "Report what I wore" }).click();
   await suggestionCard.getByRole("radio", { name: "I changed some pieces" }).check();
   await suggestionCard.getByRole("checkbox", { name: sourceBottom.name }).uncheck();
@@ -440,7 +600,7 @@ async function run() {
   await suggestionCard.getByRole("button", { name: "Save wear report" }).click();
   await page.getByText("Wear report saved.", { exact: false }).first().waitFor();
   await page.getByText("You reported a wear from this suggestion.", { exact: false }).first().waitFor();
-  const changedReport = await db.collection("outfitexperiences").findOne({ user: new ObjectId(owner.userId), lifecycle: "active" });
+  let changedReport = await db.collection("outfitexperiences").findOne({ user: new ObjectId(owner.userId), lifecycle: "active" });
   assert.ok(changedReport, "changed actual outfit was reported");
   assert.equal(changedReport.revisions.at(-1).state.compositionStatus, "changed");
   assert.ok(changedReport.memberItemIds.map(String).includes(oldPiece), "worn substitute is indexed");
@@ -449,6 +609,32 @@ async function run() {
   const unwornLookup = await json(`${origin}/api/experiences?itemId=${otherBottom}`, { headers: memoryHeaders });
   assert.ok(wornLookup.experiences.some(row => row.experienceId === changedReport.experienceId), "substitute retrieves the wear");
   assert.ok(!unwornLookup.experiences.some(row => row.experienceId === changedReport.experienceId), "unworn suggestion does not retrieve the wear");
+  const substitute = wornLookup.experiences.find(row => row.experienceId === changedReport.experienceId).items.find(item => item.itemId === oldPiece);
+  assert.equal(substitute.imageUrl, `mongo:${substituteImageId}`, "added garment recalls its captured wardrobe photo");
+  assert.equal(substitute.photo.origin, "wardrobe");
+  const refreshedImageId = new ObjectId();
+  await db.collection("wardrobeimages").insertOne({ ...templateImage, _id: refreshedImageId,
+    wardrobeItem: new ObjectId(oldPiece), snapshotRetained: false, generationLeases: [], wearReferences: [] });
+  await db.collection("wardrobeitems").updateOne({ _id: new ObjectId(oldPiece) }, { $set: { imagePath: `mongo:${refreshedImageId}` } });
+  await page.reload();
+  const wearPhotoCard = page.getByRole("heading", { name: "Reported wears" }).locator("..").locator("article")
+    .filter({ hasText: "Actual situation: Evening class" });
+  const historicPhoto = wearPhotoCard.locator(`img[src="/api/images/${substituteImageId}"]`);
+  await historicPhoto.waitFor();
+  assert.ok(await historicPhoto.evaluate(image => image.complete && image.naturalWidth > 0), "closet replacement does not rewrite the recorded photo");
+  await wearPhotoCard.getByRole("button", { name: "Correct wear report" }).click();
+  await wearPhotoCard.getByRole("checkbox", { name: `Capture current garment photo for ${substitute.name}`, exact: true }).check();
+  const [photoCorrectionResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith(`/api/experiences/${changedReport.experienceId}`) && response.request().method() === "PATCH"),
+    wearPhotoCard.getByRole("button", { name: "Save correction" }).click(),
+  ]);
+  assert.equal(photoCorrectionResponse.status(), 200, "explicit photo refresh acknowledged");
+  changedReport = await db.collection("outfitexperiences").findOne({ experienceId: changedReport.experienceId });
+  assert.equal(changedReport.revisions.at(-1).state.memberItems.find(item => item.itemId === oldPiece).photo.imageRef, `mongo:${refreshedImageId}`);
+  assert.equal(changedReport.revisions[0].state.memberItems.find(item => item.itemId === oldPiece).photo.imageRef, `mongo:${substituteImageId}`);
+  assert.ok((await db.collection("wardrobeimages").findOne({ _id: substituteImageId })).wearReferences.includes(changedReport.experienceId), "older retained revision protects its photo");
+  await page.reload();
+  await wearPhotoCard.locator(`img[src="/api/images/${refreshedImageId}"]`).waitFor();
   // R4: the new proposal starts from the corrected actual composition, which contains oldPiece
   // and excludes the suggestion's otherBottom. The explicit choice keeps the shirt and leaves
   // out oldPiece; the server must resolve that choice from the active experience revision.
@@ -477,7 +663,7 @@ async function run() {
   const actualRow = await db.collection("generationsnapshots").findOne({ user: new ObjectId(owner.userId), requestId: actualRequest.requestId });
   assert.equal(actualRow.variationSourceExperienceId, changedReport.experienceId);
   assert.equal(actualRow.variationSourceRevision, changedReport.currentRevision);
-  assert.equal((await db.collection("outfitexperiences").findOne({ experienceId: changedReport.experienceId })).currentRevision, 1,
+  assert.equal((await db.collection("outfitexperiences").findOne({ experienceId: changedReport.experienceId })).currentRevision, changedReport.currentRevision,
     "making a new proposal does not rewrite actual wear");
   // R6: open the exact persisted proposal directly, reload, then explicitly report wear.
   // The new proposal is only an idea until this separate report is saved.
@@ -878,6 +1064,8 @@ async function run() {
   const originalLayered = await json(`${origin}/api/experiences/suggestion?${new URL(layeredUrl).searchParams}`, { headers: memoryHeaders });
   assert.ok(originalLayered.suggestion.items.some(item => item.role === "mid_layer"));
 
+  await checkFeedbackJourney(db, page, owner, memoryHeaders);
+
   const otherContext = await browser.newContext();
   const otherPage = await otherContext.newPage();
   await otherPage.goto(`${origin}/signin`);
@@ -952,7 +1140,7 @@ async function run() {
   assert.equal(await db.collection("users").countDocuments({ email: other.email }), 1);
   await otherContext.close();
   await context.close();
-  console.log(`PASS ${production ? "production-build synthetic" : "development synthetic"} local browser: detail correction/captured preservation, mid-layer rescue/saved plan/wear/correction, same-situation exploration, optional adaptation on narrow screen, rescue, plan photos and inline date carryover, direct unworn planned variation, dated planning/reschedule/removal, changed and second wear recall, shown/actual variation, no-option, correction, retraction, clear, erasure, image, history and owner isolation`);
+  console.log(`PASS ${production ? "production-build synthetic" : "development synthetic"} local browser: feedback amendment/retry/correction/removal, detail correction/captured preservation, mid-layer rescue/saved plan/wear/correction, same-situation exploration, optional adaptation on narrow screen, rescue, plan photos and inline date carryover, direct unworn planned variation, dated planning/reschedule/removal, changed and second wear recall, shown/actual variation, no-option, correction, retraction, clear, erasure, image, history and owner isolation`);
 }
 
 try {

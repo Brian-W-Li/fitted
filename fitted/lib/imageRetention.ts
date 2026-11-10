@@ -9,6 +9,7 @@ export const unretainedImageFilter = {
   attachmentLease: { $exists: false },
   snapshotRetained: { $ne: true },
   "generationLeases.0": { $exists: false },
+  "wearReferences.0": { $exists: false },
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

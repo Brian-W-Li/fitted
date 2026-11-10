@@ -164,14 +164,6 @@ export async function POST(request: NextRequest) {
     }
 
     const { WardrobeItem, WardrobeImage, User } = await initDatabase();
-    const itemCount = await WardrobeItem.countDocuments({ user: userId }).exec();
-    if (itemCount >= MAX_ITEMS_PER_USER) {
-      return NextResponse.json(
-        { error: `Wardrobe is full (${MAX_ITEMS_PER_USER} items max) — delete items to add more` },
-        { status: 400 },
-      );
-    }
-
     // Use the form-supplied clothingType when valid; otherwise classify from
     // category/name (the form does not supply it today — §10.3 ingestion classifier).
     const clothingTypeToSave: ClothingType =
@@ -212,8 +204,19 @@ export async function POST(request: NextRequest) {
       notes: notes || undefined,
       isAvailable,
     };
-    const [itemDoc] = await ownerWriteFence(User, userId, session =>
-      WardrobeItem.create([payload], { session, timestamps: false }));
+    const itemDoc = await ownerWriteFence(User, userId, async session => {
+      // The shared owner write serializes capacity admission across workers. A count
+      // before the transaction lets concurrent near-cap creates both consume the last slot.
+      if (await WardrobeItem.countDocuments({ user: userId }).session(session) >= MAX_ITEMS_PER_USER) return null;
+      const [created] = await WardrobeItem.create([payload], { session, timestamps: false });
+      return created;
+    });
+    if (!itemDoc) {
+      return NextResponse.json(
+        { error: `Wardrobe is full (${MAX_ITEMS_PER_USER} items max) — delete items to add more` },
+        { status: 400 },
+      );
+    }
 
     // Reject an acknowledgement after erasure; the transaction, not this cleanup, fences rows.
     if (!(await User.exists({ _id: userId, erasureStarted: { $ne: true } }))) {

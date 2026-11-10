@@ -48,6 +48,10 @@ GENERATOR_STORE_MODE = "none"  # G14 — distillation/evals storage disabled; Mo
 GENERATOR_PROMPT_CACHE_RETENTION = PROMPT_CACHE_RETENTION_IN_MEMORY
 OPENAI_TIMEOUT_SECONDS = 30.0
 OPENAI_MAX_RETRIES = 0
+# Elapsed monotonic time gates dispatch, with per-call SDK inactivity timeouts
+# clamped to what remains. This is not hard cancellation of remote provider work.
+MODEL_DISPATCH_BUDGET_SECONDS = 32.0
+MIN_REPAIR_BUDGET_SECONDS = 5.0
 
 GENERATOR_API_SURFACES = frozenset({"chat_completions"})
 GENERATOR_RESPONSE_FORMATS = frozenset({RESPONSE_FORMAT_JSON_SCHEMA_STRICT, RESPONSE_FORMAT_JSON_OBJECT})
@@ -71,7 +75,8 @@ GENERATOR_PROMPT_CACHE_RETENTIONS = frozenset({PROMPT_CACHE_RETENTION_IN_MEMORY}
 # [MIN_RESCUE_CANDIDATES=6, MAX_CANDIDATES=40], so a high-yield rescue can out-ask 12 and
 # risk truncation at 2200; that half of the pre-C5 empirical gate (m5-cutover.md) was never
 # re-run live and is a graded residual (TOKCAP-2, runbook §8). It degrades gracefully — a
-# truncated rescue is a parse-fail → one repair → "couldn't find enough" fallback, never a
+# truncated rescue is recorded without repeating the unchanged ask, then returns an honest empty
+# fallback, never a
 # 500 or a corpus lie. Env-overridable so a tune needs no deploy — but only up
 # to the hard ceiling below: a fat-fingered Fly secret must not silently remove the
 # per-request spend envelope while /readyz stays green.

@@ -122,11 +122,13 @@ function WardrobeCard({
   onEdit,
   onDelete,
   onToggleAvailability,
+  deletionBusy,
 }: {
   item: WardrobeItem;
   onEdit: (item: WardrobeItem) => void;
   onDelete: (item: WardrobeItem) => void;
   onToggleAvailability: (item: WardrobeItem) => void;
+  deletionBusy: boolean;
 }) {
   const imgSrc = imageUrlFromPath(item.imageUrl || item.imagePath);
   const isAvailable = item.isAvailable ?? true;
@@ -207,6 +209,7 @@ function WardrobeCard({
         <button
           type="button"
           onClick={() => onDelete(item)}
+          disabled={deletionBusy}
           className="flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-white/90 text-red-600 shadow-sm hover:bg-red-50"
           title="Delete"
           aria-label="Delete"
@@ -1429,6 +1432,7 @@ function WardrobeContent() {
   const detailRef = useRef<HTMLElement | null>(null);
   const authOwnerRef = useRef<string | null>(null);
   const clearRunRef = useRef(0);
+  const destructiveActionRef = useRef<symbol | null>(null);
   const [wardrobeLoadedFor, setWardrobeLoadedFor] = useState<string | null>(null);
   const [wardrobeLoadFailed, setWardrobeLoadFailed] = useState(false);
   const [items, setItems] = useState<WardrobeItem[]>([]);
@@ -1436,8 +1440,9 @@ function WardrobeContent() {
   const [editingItem, setEditingItem] = useState<WardrobeItem | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(false);
-  const [clearing, setClearing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [clearCleanupPending, setClearCleanupPending] = useState(false);
+  const [itemCleanupPending, setItemCleanupPending] = useState<WardrobeItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Photo failures that must OUTLIVE the modal. The modal keeps its own copy so the notice is
   // visible mid-batch, but that state dies on unmount — i.e. at the end of every batch — and the
@@ -1472,13 +1477,15 @@ function WardrobeContent() {
     const unsub = onAuthStateChanged(auth, (user) => {
       if (authOwnerRef.current !== (user?.uid ?? null)) {
         clearRunRef.current++;
-        setClearing(false);
+        destructiveActionRef.current = null;
+        setDeleting(false);
         setItems([]);
         setIsModalOpen(false);
         setEditingItem(null);
         setPhotoFailures([]);
         setPhotoReloadRequired([]);
         setClearCleanupPending(false);
+        setItemCleanupPending([]);
         setWardrobeLoadedFor(null);
         setWardrobeLoadFailed(false);
         authOwnerRef.current = user?.uid ?? null;
@@ -1574,14 +1581,24 @@ function WardrobeContent() {
   }, [hasRequestedItem, requestedItemId, requestedItemReady, wardrobeLoadFailed]);
 
   async function handleDeleteItem(item: WardrobeItem) {
-    if (!firebaseUser) return;
+    if (!firebaseUser || destructiveActionRef.current) return;
     // Deletion is permanent (the photo goes too, unless an outfit-history snapshot still references
     // it — the D2 retention carve-out) and the trash button sits a fat-finger away from Edit —
     // confirm, same as Delete-all.
     if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
+    const operation = Symbol("item deletion");
+    destructiveActionRef.current = operation;
+    setDeleting(true);
+    const owner = firebaseUser;
+    const run = clearRunRef.current;
+    const isCurrent = () => authOwnerRef.current === owner.uid && clearRunRef.current === run;
+    let requestSent = false;
+    const pending = () => setItemCleanupPending(previous => previous.some(row => row.id === item.id) ? previous : [...previous, item]);
     try {
       setError(null);
-      const token = await firebaseUser.getIdToken();
+      const token = await owner.getIdToken();
+      if (!isCurrent()) return;
+      requestSent = true;
       const res = await fetch(`/api/wardrobe/${item.id}`, {
         method: "DELETE",
         headers: {
@@ -1589,14 +1606,43 @@ function WardrobeContent() {
         },
       });
       const data = await res.json().catch(() => ({}));
+      if (!isCurrent()) return;
+      const complete = data.ok === true && data.itemDeleted === true && data.cleanupComplete === true;
+      if (res.ok && !complete) {
+        pending();
+        await reloadAfterDeletion(owner, token, run, "The garment deletion result could not be confirmed. Check your closet and retry.");
+        return;
+      }
       if (!res.ok) {
+        if (res.status >= 500 || data.cleanupComplete === false) {
+          pending();
+          await reloadAfterDeletion(owner, token, run, data.error ?? "Garment deletion could not be confirmed. Check your closet and retry.");
+          return;
+        }
         setError(data.error ?? "Failed to delete item.");
         return;
       }
+      setItemCleanupPending(previous => previous.filter(row => row.id !== item.id));
       setItems((prev) => prev.filter((it) => it.id !== item.id));
     } catch (e) {
       console.error("Error deleting wardrobe item:", e);
-      setError("Failed to delete item.");
+      if (!isCurrent()) return;
+      if (!requestSent) { setError("Could not start garment deletion. Please try again."); return; }
+      pending();
+      try {
+        const token = await owner.getIdToken();
+        await reloadAfterDeletion(owner, token, run, "The garment deletion result could not be confirmed. Check your closet and retry.");
+      } catch {
+        if (!isCurrent()) return;
+        setWardrobeLoadedFor(null);
+        setWardrobeLoadFailed(true);
+        setError("Garment deletion and the current closet could not be confirmed. Reload this page, then retry.");
+      }
+    } finally {
+      if (destructiveActionRef.current === operation) {
+        destructiveActionRef.current = null;
+        if (isCurrent()) setDeleting(false);
+      }
     }
   }
 
@@ -1735,17 +1781,19 @@ function WardrobeContent() {
   }, [editingItem, addStep, addInferred]);
 
   async function handleClearAll() {
-    if (!firebaseUser) return;
+    if (!firebaseUser || destructiveActionRef.current) return;
     if (!confirm(clearCleanupPending
       ? "Retry deleting ALL wardrobe items and finish photo cleanup? This also deletes items added in another tab. This cannot be undone."
       : "Delete ALL wardrobe items, including any added in another tab? This cannot be undone.")) return;
+    const operation = Symbol("wardrobe clear");
+    destructiveActionRef.current = operation;
     const owner = firebaseUser;
     const run = ++clearRunRef.current;
     const isCurrent = () => authOwnerRef.current === owner.uid && clearRunRef.current === run;
     let requestSent = false;
     try {
       setError(null);
-      setClearing(true);
+      setDeleting(true);
       const token = await owner.getIdToken();
       if (!isCurrent()) return;
       requestSent = true;
@@ -1755,17 +1803,19 @@ function WardrobeContent() {
       });
       const data = await res.json().catch(() => ({}));
       if (!isCurrent()) return;
-      if (res.ok) {
+      if (res.ok && data.ok === true && data.itemsCleared === true && data.cleanupComplete === true &&
+        Number.isSafeInteger(data.deletedCount) && data.deletedCount >= 0) {
         setClearCleanupPending(false);
-        await reloadAfterClear(owner, token, run, null);
+        setItemCleanupPending([]);
+        await reloadAfterDeletion(owner, token, run, null);
         return;
       }
-      if (res.status < 500 && data.cleanupComplete !== false) {
+      if (!res.ok && res.status < 500 && data.cleanupComplete !== false) {
         setError(data.error ?? "Could not clear wardrobe.");
         return;
       }
       setClearCleanupPending(true);
-      await reloadAfterClear(owner, token, run, data.error ?? "Wardrobe deletion may be incomplete. Retry after checking your closet.");
+      await reloadAfterDeletion(owner, token, run, data.error ?? "Wardrobe deletion may be incomplete. Retry after checking your closet.");
     } catch (e) {
       console.error("Error clearing wardrobe:", e);
       if (isCurrent()) {
@@ -1774,7 +1824,7 @@ function WardrobeContent() {
           try {
             const token = await owner.getIdToken();
             if (!isCurrent()) return;
-            await reloadAfterClear(owner, token, run, "The deletion result could not be confirmed. Check your closet and retry.");
+            await reloadAfterDeletion(owner, token, run, "The deletion result could not be confirmed. Check your closet and retry.");
           } catch {
             if (!isCurrent()) return;
             setWardrobeLoadedFor(null);
@@ -1784,11 +1834,14 @@ function WardrobeContent() {
         } else setError("Could not start wardrobe deletion. Please try again.");
       }
     } finally {
-      if (isCurrent()) setClearing(false);
+      if (destructiveActionRef.current === operation) {
+        destructiveActionRef.current = null;
+        if (isCurrent()) setDeleting(false);
+      }
     }
   }
 
-  async function reloadAfterClear(owner: FirebaseUser, token: string, run: number, message: string | null) {
+  async function reloadAfterDeletion(owner: FirebaseUser, token: string, run: number, message: string | null) {
     if (authOwnerRef.current !== owner.uid || clearRunRef.current !== run) return;
     setLoading(true);
     try {
@@ -1831,14 +1884,14 @@ function WardrobeContent() {
           <button
             type="button"
             onClick={handleClearAll}
-            disabled={!firebaseUser || loading || clearing}
+            disabled={!firebaseUser || loading || deleting}
             className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {clearing ? "Deleting…" : clearCleanupPending ? "Retry delete / cleanup" : "Delete all"}
+            {deleting ? "Deleting…" : clearCleanupPending ? "Retry delete / cleanup" : "Delete all"}
           </button>
           <button
             type="button"
-            disabled={clearing}
+            disabled={deleting}
             onClick={() => {
               setEditingItem(null);
               setAddStep("upload");
@@ -1885,6 +1938,13 @@ function WardrobeContent() {
           {error}
         </p>
       )}
+      {itemCleanupPending.map(item => (
+        <button key={item.id} type="button" disabled={!firebaseUser || loading || deleting}
+          className="mb-3 mr-3 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600"
+          onClick={() => handleDeleteItem(item)}>
+          Retry deletion / photo cleanup for {item.name}
+        </button>
+      ))}
 
       {hasRequestedItem && (
         <section
@@ -2056,6 +2116,7 @@ function WardrobeContent() {
                   setIsModalOpen(true);
                 }}
                 onDelete={handleDeleteItem}
+                deletionBusy={deleting}
                 onToggleAvailability={handleToggleAvailability}
               />
             ))}

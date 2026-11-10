@@ -6,8 +6,8 @@ import { CLOTHING_TYPES, deriveClothingType, type ClothingType } from "@/lib/clo
 import { deriveWarmth } from "@/lib/deriveWarmth";
 import { WARMTH_MIN, WARMTH_MAX } from "@/lib/warmth";
 import { validateWardrobePatchPayload } from "@/lib/wardrobeRequestValidation";
-import { reclaimWardrobeImage } from "@/lib/imageRetention";
-import { attachmentImageIds, attachmentState } from "@/lib/imageAttachments";
+import { deleteUserWardrobeItem, WardrobeItemDeletionIncomplete } from "@/lib/deleteWardrobeItem";
+import { attachmentState } from "@/lib/imageAttachments";
 
 // Auth is the shared, failure-class-split helper (DEFECTS-H88): this file used to carry its own
 // inline copy that mapped a DATABASE fault to 401 "Invalid or expired token" — do not reintroduce
@@ -193,31 +193,15 @@ export async function DELETE(
 
     const { WardrobeItem, WardrobeImage, GenerationSnapshot } = await initDatabase();
 
-    const doc = await WardrobeItem.findOneAndDelete({
-      _id: itemId,
-      user: userId,
-    }).exec();
-
-    if (!doc) {
-      return NextResponse.json(
-        { error: "Item not found" },
-        { status: 404 },
-      );
-    }
-
-    const imageIds = attachmentImageIds(doc);
-    for (const imageId of imageIds) {
-      if (!imageId) continue;
-      try {
-        await reclaimWardrobeImage({ WardrobeItem, WardrobeImage, GenerationSnapshot }, userId, imageId);
-      } catch (e) {
-        console.error("Failed to delete linked wardrobe image:", e);
-      }
-    }
-
-    return NextResponse.json({ ok: true });
+    const receipt = await deleteUserWardrobeItem({ WardrobeItem, WardrobeImage, GenerationSnapshot }, userId, itemId);
+    return NextResponse.json({ ok: true, ...receipt });
   } catch (error) {
     console.error("Error deleting wardrobe item:", error);
+    if (error instanceof WardrobeItemDeletionIncomplete) {
+      return NextResponse.json({ ok: false, ...error.receipt, error: error.receipt.itemDeleted === true
+        ? "Garment deleted, but photo cleanup is incomplete. Retry cleanup."
+        : "Garment deletion could not be confirmed. Reload your closet and retry." }, { status: 503 });
+    }
     return NextResponse.json(
       { error: "Failed to delete wardrobe item" },
       { status: 500 },

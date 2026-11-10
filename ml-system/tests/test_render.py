@@ -305,14 +305,14 @@ class _PerCallFinishStub(StubGenerator):
 
 def test_each_attempt_captures_its_own_finish_status_not_the_last_one():
     # Attribution guard: attempt 1's status must be read BEFORE the repair call runs, so a
-    # truncated first attempt keeps finish_reason="length" even after a clean repair retry.
+    # ordinary malformed first attempt keeps its unknown finish even after a clean repair.
     wardrobe = [_item("t1", ItemType.top), _item("b1", ItemType.bottom)]
     request = _daily_request(wardrobe)
     valid = _envelope(_outfit([("t1", Role.base_top), ("b1", Role.base_bottom)], ["t1"]))
     stub = _PerCallFinishStub(
         ['{"outfits":[{"items"', valid],
         [
-            FinishStatus(finish_reason="length", refusal=None),
+            FinishStatus(finish_reason=None, refusal=None),
             FinishStatus(finish_reason="stop", refusal=None),
         ],
     )
@@ -320,7 +320,7 @@ def test_each_attempt_captures_its_own_finish_status_not_the_last_one():
     trace = render_with_trace(request, stub)
 
     assert stub.call_count == 2  # invalid-then-valid: the one §12 repair fired
-    assert trace.attempts[0].finish_status == FinishStatus(finish_reason="length", refusal=None)
+    assert trace.attempts[0].finish_status == FinishStatus(finish_reason=None, refusal=None)
     assert trace.attempts[1].finish_status == FinishStatus(finish_reason="stop", refusal=None)
 
 

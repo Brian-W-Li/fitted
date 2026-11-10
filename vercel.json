@@ -4,7 +4,8 @@
     "deploymentEnabled": {
       "codex/r2-context-variation": false,
       "codex/r21-readiness": false,
-      "codex/s1-styling-details": false
+      "codex/s1-styling-details": false,
+      "codex/style-memory-baseline": false
     }
   }
 }

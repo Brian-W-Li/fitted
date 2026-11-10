@@ -223,3 +223,40 @@ describe("PATCH /api/account — photo validation", () => {
     expect(meta(await reload(id), "customPhotoURL")).toBeUndefined();
   });
 });
+
+
+it("refuses a profile update admitted before account erasure starts", async () => {
+  const id = await seedUser({ age: 25, customPhotoURL: "data:image/png;base64,AAAA" });
+  const request = req({ age: 26, photoDataUrl: "data:image/png;base64,AQID" });
+  request.json = async () => {
+    // Authentication already admitted the open owner. Set the durable barrier
+    // before the profile mutation; retain the owner to model interrupted cleanup.
+    await User.updateOne({ _id: id }, { $set: { erasureStarted: true } });
+    return { age: 26, photoDataUrl: "data:image/png;base64,AQID" };
+  };
+  const response = await (await import("@/app/api/account/route")).PATCH(request);
+  expect(response.status).toBe(409);
+  const owner = await reload(id);
+  expect(meta(owner, "age")).toBe(25);
+  expect(meta(owner, "customPhotoURL")).toBe("data:image/png;base64,AAAA");
+});
+
+
+it("preserves the current profile on an empty PATCH", async () => {
+  const id = await seedUser({ age: 25, gender: "female", unrelatedPreference: "keep", customPhotoURL: "data:image/png;base64,AAAA" });
+  const response = await PATCH({});
+  expect(response.status).toBe(200);
+  expect((await response.json()).user).toMatchObject({ id, age: 25, gender: "female", hasCustomPhoto: true, photoURL: "data:image/png;base64,AAAA" });
+  const owner = await reload(id);
+  expect(owner.metadata).toEqual({ age: 25, gender: "female", unrelatedPreference: "keep", customPhotoURL: "data:image/png;base64,AAAA" });
+});
+
+it("preserves concurrent disjoint profile updates and unrelated metadata", async () => {
+  const id = await seedUser({ age: 25, gender: "female", unrelatedPreference: "keep" });
+  const responses = await Promise.all([PATCH({ age: 26 }), PATCH({ gender: "nonbinary" })]);
+  expect(responses.map(response => response.status)).toEqual([200, 200]);
+  const owner = await reload(id);
+  expect(meta(owner, "age")).toBe(26);
+  expect(meta(owner, "gender")).toBe("nonbinary");
+  expect(meta(owner, "unrelatedPreference")).toBe("keep");
+});

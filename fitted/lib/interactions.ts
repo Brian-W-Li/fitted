@@ -1,3 +1,6 @@
+import { amendFeedback, FeedbackMutationError } from "@/lib/feedbackAmendments";
+import { normalizeFeedbackReason, FeedbackReasonError } from "@/lib/feedbackReasons";
+import { resolveFeedbackEvidence, voteEvidenceFilter, FEEDBACK_ACCOUNT_ROW_LIMIT } from "@/lib/feedbackEvidence.cjs";
 import { ownerWriteFence, OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
 import { snapshotVisible, visibleSnapshots } from "@/lib/snapshotVisibility";
 /**
@@ -28,11 +31,12 @@ import { snapshotVisible, visibleSnapshots } from "@/lib/snapshotVisibility";
  * DELETE is the curation door (the "little bro tapped 5 reactions" case, D-1): a HARD-delete of every
  * row for one `{snapshotId, candidateId}` binding, scoped to the caller's user, via the same sanctioned
  * native-driver door the account-erasure cascade uses (below the co-presence `pre('validate')` guard,
- * which is document-only and never fired on deletes anyway). This is NOT a break of the append-only
+ * which is document-only and never fired on deletes anyway). Removal and amendment
+ * admission use the same owner transaction fence. This is NOT a break of the append-only
  * posture: a *correction* is still a new event (a flip = an appended opposite action via POST); DELETE
  * is deliberate *curation/erasure* of a retracted-or-junk label, and with no derived affinity anywhere
  * (affinity recomputes from the log every request) a delete is consistent by construction — the reducer
- * + export simply stop seeing the rows, reverting that candidate to shown-but-unrated (`label=null`).
+ * + export simply stop seeing both votes and amendments, reverting that candidate to shown-but-unrated (`label=null`).
  * Snapshots are NEVER touched (immutable training truth, H10/H29); deleting a `rejected` correctly
  * un-blocks that candidate's signature AND drops its baseKey from the disliked-cooldown buffer (both
  * interaction-derived — recomputed from the log — so the aversion is forgotten, as intended) but does
@@ -50,9 +54,7 @@ import mongoose from "mongoose";
 import { initDatabase } from "@/lib/db";
 import { verifyFirebaseUser, type AuthResult } from "@/lib/apiAuth";
 import {
-  FEEDBACK_REASON_CODES,
   FEEDBACK_REASON_RAW_TEXT_MAX_CHARS,
-  type FeedbackReasonCode,
 } from "@/models/OutfitInteraction";
 import { OBJECT_ID_RE } from "@/lib/formats";
 import { pickLatestPerCandidate } from "@/lib/latestFeedbackState";
@@ -64,7 +66,7 @@ type Any = any;
 // (derived from the Python reducers' COUNTED_ACTIONS ∪ REJECTED_ACTION) by crossRuntimeContract.test.ts.
 export const ALLOWED_ACTIONS = new Set(["accepted", "rejected"]);
 export const MAX_PER_ITEM_FEEDBACK = 20; // §A clamp table (mirror of config.MAX_PER_ITEM_FEEDBACK)
-export const MAX_INTERACTIONS_PER_USER = 2000; // per-user storage ceiling (append-only rows only grow)
+export const MAX_INTERACTIONS_PER_USER = FEEDBACK_ACCOUNT_ROW_LIMIT; // per-user storage ceiling (append-only rows only grow)
 const NOTES_MAX_CHARS = FEEDBACK_REASON_RAW_TEXT_MAX_CHARS; // 500 — same route cap
 // History reachability (#4): scan the FULL per-user corpus (the storage cap), not the old
 // `createdAt >= 1 month` + 50-cap that made older feedback un-curatable over a weeks-long collection.
@@ -73,8 +75,6 @@ const NOTES_MAX_CHARS = FEEDBACK_REASON_RAW_TEXT_MAX_CHARS; // 500 — same rout
 // curatable (flip/remove), or the "little bro" cleanup can't reach it. Bounded by the 2000-row
 // per-user ceiling; deduped to latest-state the card count is far smaller in practice.
 const HISTORY_SCAN_LIMIT = MAX_INTERACTIONS_PER_USER;
-
-const REASON_CODE_SET = new Set<string>(FEEDBACK_REASON_CODES);
 
 // --- Per-user rate limit (§A) — a token bucket bounding the append-only write path so one account
 // cannot flood its OWN feedback corpus (this route is own-account-only; not a cross-user threat).
@@ -113,6 +113,9 @@ export interface InteractionDeps {
   models: InteractionModels;
   /** Injectable clock (ms) for the rate limiter — defaults to Date.now; tests freeze it. */
   now?: () => number;
+  /** Test-only scheduling and uncertain acknowledgment seams. */
+  beforeWrite?: (kind: "reaction" | "amendment" | "delete") => Promise<void>;
+  afterNativeWrite?: (kind: "reaction" | "amendment" | "delete") => Promise<void>;
 }
 
 export async function prodInteractionDeps(): Promise<InteractionDeps> {
@@ -122,43 +125,6 @@ export async function prodInteractionDeps(): Promise<InteractionDeps> {
 
 function respondError(status: number, code: string, message: string): NextResponse {
   return NextResponse.json({ error: message, code }, { status });
-}
-
-// ---------------------------------------------------------------------------
-// feedbackReason normalization — closed §16 code set + bounded rawText. Returns the subdoc only when
-// at least one code or non-empty rawText exists; throws a code on a bad code (→ 400, never silent).
-// ---------------------------------------------------------------------------
-class FeedbackReasonError extends Error {}
-
-function normalizeFeedbackReason(
-  raw: unknown,
-): { codes?: FeedbackReasonCode[]; rawText?: string } | undefined {
-  if (raw == null) return undefined;
-  if (typeof raw !== "object" || Array.isArray(raw)) throw new FeedbackReasonError("feedbackReason must be an object");
-  const r = raw as Record<string, unknown>;
-
-  let codes: FeedbackReasonCode[] | undefined;
-  if (r.codes != null) {
-    if (!Array.isArray(r.codes)) throw new FeedbackReasonError("feedbackReason.codes must be an array");
-    const seen = new Set<string>();
-    for (const c of r.codes) {
-      if (typeof c !== "string" || !REASON_CODE_SET.has(c)) {
-        throw new FeedbackReasonError(`invalid feedbackReason code: ${JSON.stringify(c)}`);
-      }
-      seen.add(c);
-    }
-    if (seen.size > 0) codes = [...seen] as FeedbackReasonCode[];
-  }
-
-  let rawText: string | undefined;
-  if (r.rawText != null) {
-    if (typeof r.rawText !== "string") throw new FeedbackReasonError("feedbackReason.rawText must be a string");
-    const trimmed = r.rawText.slice(0, NOTES_MAX_CHARS);
-    if (trimmed.trim().length > 0) rawText = trimmed;
-  }
-
-  if (!codes && !rawText) return undefined; // nothing worth persisting
-  return { ...(codes ? { codes } : {}), ...(rawText ? { rawText } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +143,11 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
     const body = (await request.json().catch(() => null)) as Any;
     if (!body || typeof body !== "object") return respondError(400, "contract_invalid", "malformed body");
 
+    if (body.kind === "reason_amendment") {
+      const amendment = await amendFeedback(userObjectId, body, deps);
+      return NextResponse.json({ success: true, amendment });
+    }
+    if (body.kind !== undefined && body.kind !== "reaction") return respondError(400, "contract_invalid", "Invalid feedback command kind");
     const { action, snapshotId, candidateId } = body;
 
     // G8 — action allowlist; a disallowed value writes NO row.
@@ -260,27 +231,24 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
     // Structured feedbackReason (closed §16 codes + bounded rawText).
     let feedbackReason;
     try {
-      feedbackReason = normalizeFeedbackReason(body.feedbackReason);
+      feedbackReason = normalizeFeedbackReason(body.feedbackReason, candidateItemSet);
     } catch (err) {
       if (err instanceof FeedbackReasonError) return respondError(400, "invalid_feedback_reason", err.message);
       throw err;
     }
 
-    // Per-user row ceiling (§I — the storage-bounds symmetry with wardrobe's 300-item cap and the
-    // image byte budget): the append-only design means rows only grow, and the in-process rate
-    // limiter above is per-instance, not a storage bound. 2000 rows is years of real feedback for
-    // one friend and bounds a scripted loop at ~20MB worst-case against the shared M0.
-    const interactionCount = await OutfitInteraction.countDocuments({ user: userObjectId });
-    if (interactionCount >= MAX_INTERACTIONS_PER_USER) {
-      return respondError(400, "storage_limit", "feedback storage limit reached");
+    if (body.kind === undefined && (body.feedbackReason != null || body.perItemFeedback != null)) {
+      return respondError(409, "reason_amendment_required", "Refresh this page before adding reasons to your reaction");
     }
 
+    // One owner-fenced cap covers votes and amendments. The per-instance rate
+    // limiter is courtesy pacing; it cannot enforce a cross-worker storage budget.
     // Append-only write via .create() so the co-presence pre('validate') guard fires. Everything the
     // reducers read is SERVER-DERIVED. `items` are hex strings — mongoose casts to the ObjectId refs.
     const timestamp = new Date();
     const payload = {
       _id: new mongoose.Types.ObjectId(), createdAt: timestamp, updatedAt: timestamp,
-      user: userObjectId,
+      user: userObjectId, eventKind: "reaction",
       items: candidateItemIds,
       action,
       context: { occasion: snapshot.occasion ?? "casual" },
@@ -291,8 +259,13 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
       ...(perItemFeedback ? { perItemFeedback } : {}),
       ...(feedbackReason ? { feedbackReason } : {}),
     };
-    const [interaction] = await ownerWriteFence<Any[]>(deps.models.User, userObjectId, session =>
-      OutfitInteraction.create([payload], { session, timestamps: false }));
+    await deps.beforeWrite?.("reaction");
+    const [interaction] = await ownerWriteFence<Any[]>(deps.models.User, userObjectId, async session => {
+      const count = await OutfitInteraction.countDocuments({ user: userObjectId }).session(session);
+      if (count >= MAX_INTERACTIONS_PER_USER) throw new FeedbackMutationError(400, "storage_limit", "Feedback storage limit reached");
+      return OutfitInteraction.create([payload], { session, timestamps: false });
+    });
+    await deps.afterNativeWrite?.("reaction");
 
     // Acknowledged writes from already-admitted requests self-erase once the owner
     // is flagged or absent. Transactional admission is the erasure safety mechanism.
@@ -305,7 +278,9 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
     }
     const currentSnapshot = await GenerationSnapshot.findOne({ _id: snapshotId, user: userObjectId, redacted: { $ne: true } }).lean();
     if (!currentSnapshot || !await snapshotVisible(userObjectId, currentSnapshot)) {
-      await OutfitInteraction.collection.deleteOne({ _id: interaction._id, user: userObjectId });
+      await ownerWriteFence(deps.models.User, userObjectId, session => OutfitInteraction.collection.deleteMany({
+        user: userObjectId, $or: [{ _id: interaction._id }, { eventKind: "reason_amendment", reactionId: interaction._id }],
+      }, { session }));
       return respondError(404, "snapshot_not_found", "snapshot is no longer available");
     }
 
@@ -314,6 +289,8 @@ export async function postInteraction(request: NextRequest, deps: InteractionDep
       interaction: { id: interaction._id.toString(), action: interaction.action },
     });
   } catch (error) {
+    if (error instanceof FeedbackMutationError) return respondError(error.status, error.code, error.message);
+    if (error instanceof FeedbackReasonError) return respondError(400, "invalid_feedback_reason", error.message);
     if (error instanceof OwnerWriteUnavailable) return respondError(401, "auth", "User not found");
     console.error("Error saving interaction:", error);
     return respondError(500, "internal", "Failed to save interaction");
@@ -343,6 +320,8 @@ export interface HistoryCard {
   optionPath?: string;
   risk?: string;
   templateType?: string;
+  feedbackReason?: import("@/lib/feedbackTypes").FeedbackReasonValue;
+  perItemFeedback?: import("@/lib/feedbackTypes").PerItemFeedbackValue[];
 }
 
 /** Join one interaction row to its bound snapshot candidate → the card content the history renders. */
@@ -362,6 +341,16 @@ function projectHistoryCard(interaction: Any, snapshot: Any | undefined): Histor
     (c: Any) => c.candidateId === interaction.candidateId,
   );
   if (!candidate) return base;
+  if (interaction.feedbackReason) {
+    const reason = interaction.feedbackReason;
+    base.feedbackReason = { ...(reason.codes?.length ? { codes: reason.codes } : {}),
+      ...(reason.rawText ? { rawText: reason.rawText } : {}),
+      ...(reason.scope ? { scope: reason.scope, concern: reason.concern } : {}),
+      ...(reason.itemId ? { itemId: String(reason.itemId) } : {}) };
+  }
+  if (interaction.perItemFeedback?.length) base.perItemFeedback = interaction.perItemFeedback.map((item: Any) => ({
+    itemId: String(item.itemId), disliked: item.disliked === true, ...(item.notes ? { notes: item.notes } : {}),
+  }));
   const engineVisibleById = new Map<string, Any>(
     (Array.isArray(snapshot.itemSnapshots) ? snapshot.itemSnapshots : []).map((it: Any) => [
       it.itemId,
@@ -400,26 +389,28 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
     // signs before deciding the winning tab — filtering by action in the query would strand a flipped
     // candidate under its stale sign. Same deterministic sort as the reducer's projection.
     const { OutfitInteraction, GenerationSnapshot } = deps.models;
-    // Project ONLY what pickLatestPerCandidate + projectHistoryCard read: the binding/order fields +
-    // action + occasion. The card CONTENT is server-joined from the snapshot (below), never the row —
-    // so an unprojected find would pull heavy per-row fields (perItemFeedback notes, feedbackReason
-    // rawText, items) for up to HISTORY_SCAN_LIMIT (2000) rows and discard them. On the free-tier M0
-    // wire that read cost is real (and it fires again on every dashboard restore-reconcile).
-    const rawRows = (await OutfitInteraction.find({ user: userObjectId })
-      .select("action context.occasion createdAt snapshotId candidateId")
+    // Fetch bounded vote identity and reasons for editable History details. Candidate
+    // content remains server-joined; amendments never crowd votes out of the scan.
+    const rawRows = (await OutfitInteraction.find({ user: userObjectId, ...voteEvidenceFilter })
+      .select("user items action context.occasion createdAt snapshotId candidateId baseKey fullSignature feedbackReason perItemFeedback")
       .sort({ createdAt: -1, _id: -1 })
       .limit(HISTORY_SCAN_LIMIT)
       .lean()
       .exec()) as Any[];
 
-    // §23-H61 latest-state collapse (D-2): one row per {snapshotId, candidateId}, newest wins — so a
-    // one-tap dislike + its later "why" enrich, or a like since flipped, render as ONE card, never two.
+    // Latest-state collapses votes only; optional reason amendments never change
+    // the History card identity, effective vote time or winning action.
     // The optional `?action=` filter is applied AFTER the collapse (on the WINNING action) so a caller
     // asking for one tab still gets correct latest-state; History fetches all and splits client-side.
     const wanted = action && ALLOWED_ACTIONS.has(action) ? action : null;
-    const interactions = pickLatestPerCandidate(rawRows).filter(
+    const latestVotes = pickLatestPerCandidate(rawRows).filter(
       (i) => wanted == null || i.action === wanted,
     );
+
+    const amendments = latestVotes.length ? await OutfitInteraction.find({
+      user: userObjectId, eventKind: "reason_amendment", reactionId: { $in: latestVotes.map(row => row._id) },
+    }).sort({ createdAt: -1, _id: -1 }).limit(FEEDBACK_ACCOUNT_ROW_LIMIT).lean().exec() : [];
+    const interactions = resolveFeedbackEvidence(latestVotes, amendments);
 
     // User-scoped snapshot join (the cross-user read guard: only THIS user's snapshots resolve).
     const snapshotIds = [
@@ -490,13 +481,12 @@ export async function deleteInteraction(request: NextRequest, deps: InteractionD
     // ObjectId casts matter: the native driver does no Mongoose casting (mirror of interactions.ts
     // erasure-race + User.ts cascade), so a hex-string user/snapshot would match zero ObjectId fields.
     const { OutfitInteraction } = deps.models;
-    const result = await OutfitInteraction.db
-      .collection("outfitinteractions")
-      .deleteMany({
-        user: userObjectId,
-        snapshotId: new mongoose.Types.ObjectId(snapshotId),
-        candidateId,
-      });
+    await deps.beforeWrite?.("delete");
+    const result = await ownerWriteFence<{ deletedCount?: number }>(deps.models.User, userObjectId, session =>
+      OutfitInteraction.db.collection("outfitinteractions").deleteMany({
+        user: userObjectId, snapshotId: new mongoose.Types.ObjectId(snapshotId), candidateId,
+      }, { session }));
+    await deps.afterNativeWrite?.("delete");
     const deleted = typeof result?.deletedCount === "number" ? result.deletedCount : 0;
     if (deleted === 0) {
       // Cross-user (nothing owned matched) OR already-removed. The client treats its own 404 as
@@ -506,6 +496,7 @@ export async function deleteInteraction(request: NextRequest, deps: InteractionD
     }
     return NextResponse.json({ success: true, deleted });
   } catch (error) {
+    if (error instanceof OwnerWriteUnavailable) return respondError(401, "auth", "User not found");
     console.error("Error deleting interaction:", error);
     return respondError(500, "internal", "Failed to delete interaction");
   }

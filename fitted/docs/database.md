@@ -1,72 +1,22 @@
-> **DEPLOYED-SCHEMA REFERENCE, NOT V2 DIRECTION.** This describes the current/legacy Mongo shape.
-> For future v2 data-model targets, use `../../docs/Fitted_Spec_v2.md`. For exact current behavior,
-> prefer the model source files in `../models/`.
+# Database source map
 
-# Database design
+This is a navigation guide, not a second schema specification. Models and storage helpers establish current behavior; [spec §§6/15/16](../../docs/Fitted_Spec_v2.md#6-data-model) own design/lifecycle contracts. [Root setup](../../README.md#run-locally) owns environment prerequisites.
 
-MongoDB + Mongoose back the data layer. Connect with `initDatabase()` from `@/lib/db`, which opens the client and registers indexes.
+## Connection and admission
 
-## Environment
-- `MONGODB_URI` – full connection string (place in `.env.local` for Next.js).
+[initDatabase](../lib/db.ts) connects and initializes registered models. Production automatic index creation is disabled; admission verifies required existing indexes rather than creating them. Identity/snapshot admission and owned writes require the appropriate indexes and transaction-capable MongoDB. Use the [connection configuration](../lib/mongodb.ts), [identity admission](../lib/identityAdmission.ts) and root setup for the executable boundary.
 
-## Collections
+## Storage owners
 
-### User (`models/User.ts`)
-- Identity: `authProvider`, `authId` (unique pair), `email` (unique).
-- Profile: `displayName`, `photoURL`.
-- `metadata`: optional free-form map for future attributes.
+| Record | Source owner | Meaning |
+|---|---|---|
+| Identity, profile and plans | [User](../models/User.ts), [planning store](../lib/outfitPlanning/store.ts) | Plans are dated intent references, not reported wear. |
+| Current wardrobe | [WardrobeItem](../models/WardrobeItem.ts) | Owned garment facts, availability and image references. |
+| Owned images | [WardrobeImage](../models/WardrobeImage.ts) | Primary/supplemental images; captured source-photo retention is a separate lifecycle. |
+| Shown-generation evidence | [GenerationSnapshot](../models/GenerationSnapshot.ts) | Live immutable captured inputs/funnel/shown identity with sanctioned redaction; it is not dormant. |
+| Reactions | [OutfitInteraction](../models/OutfitInteraction.ts), [interaction handlers](../lib/interactions.ts) | Snapshot-bound accepted/rejected proxies; unused enum/scope fields do not imply implemented learning. |
+| Actual wear | [OutfitExperience](../models/OutfitExperience.ts), [experience contract](../lib/outfitExperience/contract.ts), [store](../lib/outfitExperience/store.ts) | Separate confirmed composition, context, revisions and optional outcome; not a like or a plan. |
 
-Indexes:
-- `{ authProvider: 1, authId: 1 }` unique for auth lookup.
-- `{ email: 1 }` unique for email-based queries.
+## Ownership and deletion
 
-### WardrobeItem (`models/WardrobeItem.ts`)
-- Scope: required `user` reference so every item belongs to one user.
-- Engine fields: `clothingType` (`top`/`bottom`/`dress`/`outer_layer`/`shoes`) and required `warmth` (0-10).
-- Description: `name`, `category`, `subCategory`, `pattern`, `colors`, `seasons`, `occasions`, `layerRole`, `brand`, `fit`, `size`, `imageUrl`, `imagePath`, `tags`, `notes`, `isAvailable`, `isFavorite`, `lastWornAt`, `metadata`.
-
-Indexes:
-- `{ user: 1, category: 1 }` — common browse/filter by category within a user.
-- `{ user: 1, tags: 1 }` — tag filters.
-- `{ user: 1, isFavorite: 1 }` — favorites.
-- `{ user: 1, updatedAt: -1 }` — recency for feeds/history.
-
-### OutfitInteraction (`models/OutfitInteraction.ts`)
-- Scope: required `user` plus `items` array of wardrobe item ids.
-- Action: `action` enum (`generated`, `accepted`, `rejected`, `saved`, `worn`, `rated`, `planned`, `packed`, `corrected`), optional `rating`/`feedback`.
-- Context: weather, temp, location, occasion, notes.
-- Feedback: per-item feedback, the M5 structured "why" (`feedbackReason`: closed `codes` from `FEEDBACK_REASON_CODES` + bounded `rawText`), and the M4 nullable snapshot-binding fields (`snapshotId`, `candidateId`, `baseKey`, `fullSignature`). (`inferredWhy` is a dormant legacy column — its Gemini write-back was removed at M5; do not treat it as populated.)
-- Learning scope: optional `scopeTarget` and `learningDisposition`; behavior is wired later.
-
-Indexes:
-- `{ user: 1, createdAt: -1, _id: -1 }` — timelines per user; the `_id` tie-break makes same-millisecond feedback ordering deterministic (load-bearing for the §H reducer's most-recent-first scan).
-- `{ user: 1, items: 1 }` — quickly aggregate feedback for an item set.
-- `{ snapshotId: 1, candidateId: 1 }` — snapshot-bound feedback joins.
-
-### WardrobeImage (`models/WardrobeImage.ts`)
-- Scope: required `user` and `wardrobeItem` references.
-- Payload: `base64`, `contentType`, `sizeBytes`. `WardrobeItem.imagePath` points at the document as `mongo:<id>`.
-
-Indexes:
-- `{ user: 1, wardrobeItem: 1 }` — lookup and cleanup for a user's item image.
-
-### GenerationSnapshot (`models/GenerationSnapshot.ts`)
-- Scope: immutable M4b training-truth record, dormant until M5 writes it.
-- Captures resolved lens inputs, version/provenance, item snapshots, the full candidate funnel, scores, and shown-candidate bindings.
-- Mutable only through the reserved redaction fields (`redacted`, `redactedAt`, `redactionReason`).
-
-## User association guarantee
-Wardrobe items, wardrobe images, outfit interactions, and live GenerationSnapshots require a `user` reference. Queries should always be scoped with `user` to ensure data isolation per account.
-
-## Access control helpers (`lib/db.ts`)
-Use these helpers instead of raw queries to ensure users only access their own data:
-
-- `getUserWardrobeItems(userId)` – get all items for a user
-- `getUserWardrobeItem(userId, itemId)` – get one item only if owned by user
-- `getUserOutfitInteractions(userId)` – get all interactions for a user
-
-## Cascade delete
-When a user is deleted via `User.deleteOne()` or `User.findOneAndDelete()`, Mongoose middleware automatically removes their wardrobe items, outfit interactions, wardrobe image documents, AND generation snapshots (account deletion is erasure — docs/Fitted_Spec_v2.md §23-H43). Use `deleteUserWithData(userId)` from `lib/db.ts` for a clean helper.
-
-## Extensibility
-`metadata` fields in each collection allow adding new attributes later (e.g., ML outputs, stats) without breaking existing data. Add indexes as new query patterns emerge.
+Scope reads and writes to the authenticated owner and validate referenced-source ownership. Account erasure fences in-flight writes and sweeps registered owned content; plans disappear with their owner. [User cascade](../models/User.ts), [account handler](../app/api/account/route.ts) and [erasure recovery](../lib/resumeUserErasure.ts) own that implementation. Do not replace the account route with a raw model delete and assume it proves the same concurrent-write/Firebase guarantees. [Manual recovery](../../docs/Fitted_Spec_v2.md#151-generationsnapshot--the-contract-next) resumes a deletion already requested. Item removal, wardrobe clearing, experience removal and account erasure have distinct semantics; use their governing helpers and tests.

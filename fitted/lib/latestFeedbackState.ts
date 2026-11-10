@@ -7,7 +7,7 @@
  * scan) and the M6 export (`scripts/exportTrack2Core.cjs` — explicit createdAt-then-_id compare) apply.
  *
  * History (`getInteractions`) uses THIS helper so the curation view shows exactly one card per
- * candidate (a one-tap dislike + its later "why" enrich collapse to a single latest-state card; a
+ * candidate (reason amendments enrich their exact original vote without changing its ordering; a
  * flip moves the candidate to the other tab). Cross-runtime agreement is pinned by ONE shared
  * fixture — `tests/fixtures/latestFeedbackState.fixture.json` — asserted equal here (jest), against
  * the export's picker (jest), and against the reducer (pytest). Do NOT trust DB sort as truth: apply
@@ -18,6 +18,7 @@
 
 /** A row must expose its binding + ordering fields; everything else is carried through opaquely. */
 export interface LatestStateRow {
+  eventKind?: string | null;
   snapshotId?: { toString(): string } | string | null;
   candidateId?: string | null;
   createdAt?: Date | string | number | null;
@@ -64,7 +65,7 @@ export function isNewer(a: LatestStateRow, b: LatestStateRow): boolean {
 export function pickLatestPerCandidate<T extends LatestStateRow>(rows: Iterable<T>): T[] {
   const latest = new Map<string, T>();
   for (const row of rows) {
-    if (row.action == null || !PARTICIPATING_ACTIONS.has(row.action)) continue; // only accepted/rejected win
+    if (row.eventKind === "reason_amendment" || row.action == null || !PARTICIPATING_ACTIONS.has(row.action)) continue; // only accepted/rejected win
     const key = bindingKey(row);
     if (key == null) continue;
     const prev = latest.get(key);

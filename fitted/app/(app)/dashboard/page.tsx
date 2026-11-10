@@ -10,7 +10,10 @@ import { resolveImageSrc } from "@/lib/imageUrl";
 import { clearSessionCookie } from "@/lib/sessionCookie";
 import { MAX_OCCASION_CHARS } from "@/lib/mlRequestAdapter";
 import { isEmptyDegradedRender } from "@/lib/renderResultGuards";
-import { useDislikeEnrich } from "@/lib/useDislikeEnrich";
+import { OBJECT_ID_RE } from "@/lib/formats";
+import FeedbackDetails, { FeedbackNote, hasFeedbackDetails } from "./FeedbackDetails";
+import type { FeedbackReasonValue, PerItemFeedbackValue } from "@/lib/feedbackTypes";
+import { useDislikeEnrich, type EnrichData } from "@/lib/useDislikeEnrich";
 import { emptyStateMessage, recommendErrorMessage, partialRenderHint } from "@/lib/recommendCopy";
 import type { ClothingType } from "@/lib/clothingType";
 import { getEventTimeISO, localDateTimeValue, type EventTimeBucket } from "@/lib/eventTime";
@@ -51,6 +54,9 @@ interface ShownOutfit {
   templateType?: string;
   /** client-only UI state — which way this variant was rated this session */
   feedback?: "liked" | "disliked";
+  reactionId?: string;
+  feedbackReason?: FeedbackReasonValue;
+  perItemFeedback?: PerItemFeedbackValue[];
 }
 
 interface RenderFlags {
@@ -189,137 +195,6 @@ const RISK_BADGE: Record<string, string> = {
   noticeable: "bg-yellow-100 text-yellow-700",
   bold: "bg-orange-100 text-orange-700",
 };
-
-// ============================================================================
-// Dislike feedback modal — per-item dislikes + structured reason codes (§16).
-// ============================================================================
-interface PerItemFeedback {
-  itemId: string;
-  disliked: boolean;
-  notes?: string;
-}
-
-
-const DISLIKE_REASONS: { code: string; label: string }[] = [
-  { code: "too_boring", label: "Too boring" },
-  { code: "too_much", label: "Too much" },
-  { code: "not_practical", label: "Not practical" },
-  { code: "not_me", label: "Not my style" },
-  { code: "wrong_context", label: "Wrong for the occasion" },
-  { code: "weather_forced", label: "Wrong for the weather" },
-  { code: "too_repetitive", label: "Too repetitive" },
-];
-
-function FeedbackModal({
-  outfit,
-  onClose,
-  onSave,
-}: {
-  outfit: ShownOutfit;
-  onClose: () => void;
-  onSave: (data: { perItemFeedback: PerItemFeedback[]; codes: string[] }) => void;
-}) {
-  const [disliked, setDisliked] = useState<Set<string>>(new Set());
-  const [codes, setCodes] = useState<Set<string>>(new Set());
-
-  const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => {
-    const next = new Set(set);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setter(next);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-xl font-semibold">What didn&apos;t work?</h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div>
-            <p className="text-sm font-medium text-slate-700 mb-2">Mark any pieces that felt off (optional)</p>
-            <div className="space-y-2">
-              {sortDisplayItems(outfit.displayItems).map((item) => {
-                const imgSrc = imageUrlFromPath(item.imageUrl);
-                const isDisliked = disliked.has(item.itemId);
-                return (
-                  <div
-                    key={item.itemId}
-                    className={`p-3 rounded-lg border flex items-center gap-3 ${
-                      isDisliked ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"
-                    }`}
-                  >
-                    {imgSrc ? (
-                      <img src={imgSrc} alt={item.name} className="w-14 h-14 object-cover rounded-lg" />
-                    ) : (
-                      <div className="w-14 h-14 bg-slate-200 rounded-lg flex items-center justify-center text-[10px] text-slate-500">
-                        No photo
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-slate-900 text-sm truncate">{item.name ?? "Item"}</p>
-                      <p className="text-xs text-slate-500">{displayRoleLabel(item.clothingType, item.role)}</p>
-                    </div>
-                    <button
-                      onClick={() => toggle(disliked, item.itemId, setDisliked)}
-                      className={`px-3 py-1 text-sm font-medium rounded-lg ${
-                        isDisliked ? "bg-red-200 text-red-800" : "bg-slate-200 text-slate-700 hover:bg-red-100"
-                      }`}
-                    >
-                      {isDisliked ? "Disliked" : "Dislike"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <p className="text-sm font-medium text-slate-700 mb-2">Why? (optional)</p>
-            <div className="flex flex-wrap gap-2">
-              {DISLIKE_REASONS.map(({ code, label }) => (
-                <button
-                  key={code}
-                  onClick={() => toggle(codes, code, setCodes)}
-                  className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
-                    codes.has(code)
-                      ? "bg-slate-900 text-white border-slate-900"
-                      : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200">
-            Cancel
-          </button>
-          <button
-            onClick={() =>
-              onSave({
-                perItemFeedback: [...disliked].map((itemId) => ({ itemId, disliked: true })),
-                codes: [...codes],
-              })
-            }
-            className="px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-800"
-          >
-            Submit dislike
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ============================================================================
 // Regenerate modal — R9 controls (lock pieces to keep, mark pieces to avoid). Drives one
@@ -517,7 +392,7 @@ function OutfitCard({
             : "bg-slate-50 border-slate-200"
       }`}
     >
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
           <span
             className="px-3 py-1 bg-slate-900 text-white text-sm font-medium rounded-full"
@@ -534,7 +409,7 @@ function OutfitCard({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={onRegenerate}
             className="px-3 py-1 bg-blue-100 text-blue-700 text-sm font-medium rounded-lg hover:bg-blue-200 flex items-center gap-1"
@@ -556,7 +431,7 @@ function OutfitCard({
               {outfit.feedback === "liked" ? "Liked" : "Disliked"}
             </span>
           )}
-          {outfit.feedback === "disliked" &&
+          {outfit.feedback && outfit.reactionId &&
             (enrichStatus === "saving" ? (
               <span className="text-xs text-slate-400">Saving details…</span>
             ) : enrichStatus === "failed" ? (
@@ -571,12 +446,13 @@ function OutfitCard({
                 onClick={onExplain}
                 className="text-xs text-slate-500 underline hover:text-slate-700 transition-colors"
               >
-                Tell us why?
+                {hasFeedbackDetails(outfit) ? "Edit details" : "Something’s off"}
               </button>
             ))}
         </div>
       </div>
 
+      <FeedbackNote reason={outfit.feedbackReason} items={outfit.displayItems} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
         {sortDisplayItems(outfit.displayItems).map((item) => {
           const imgSrc = imageUrlFromPath(item.imageUrl);
@@ -645,6 +521,9 @@ function DashboardInner() {
   const [eventTimeBucket, setEventTimeBucket] = useState<EventTimeBucket>("now");
   const [customEventDateTime, setCustomEventDateTime] = useState("");
   const [result, setResult] = useState<RenderResult | null>(null);
+  const reactionGenerationsRef = useRef(new Map<string, number>());
+  const resultRef = useRef(result);
+  resultRef.current = result;
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState("");
 
@@ -781,6 +660,7 @@ function DashboardInner() {
 
   // Restore persisted render on return + resume any un-cleared pending envelope (F10).
   useEffect(() => {
+    reactionGenerationsRef.current.clear();
     setResult(null); setOccasion(""); setExpectedWeather(EMPTY_EXPECTED_WEATHER);
     setError(""); setInFlight(false); setFeedbackModal(null); setRegenModal(null);
     activeLensRef.current = null; activeLocksRef.current = [];
@@ -789,8 +669,9 @@ function DashboardInner() {
     const rescue = searchParams.get("rescue");
     setRescueItemId(rescue); setRescueItemName(rescue ? searchParams.get("name") ?? "" : "");
     const saved = readJSON<PersistedDashboard>(DASHBOARD_KEY(uid));
-    if (saved?.result) {
-      setResult(saved.result);
+    const restored = saved?.result ? { ...saved.result, shown: saved.result.shown.map(outfit => ({ ...outfit, reactionId: undefined, feedbackReason: undefined, perItemFeedback: undefined })) } : null;
+    if (restored && saved) {
+      setResult(restored);
       setOccasion(saved.occasion ?? "");
       activeLensRef.current = saved.lensSummary ?? { occasion: saved.occasion ?? "" };
       setExpectedWeather(expectedWeatherFromLens(saved.lensSummary));
@@ -805,7 +686,7 @@ function DashboardInner() {
       // No render is resuming (which would replace the result), so reconcile the restored chips.
       // Pass the SAVED occasion so a re-persist round-trips it exactly (the callback's closure
       // `occasion` is still "" here — setOccasion above hasn't flushed for this async continuation).
-      void reconcileFeedbackFromServer(firebaseUser, saved.result, saved.occasion ?? "");
+      void reconcileFeedbackFromServer(firebaseUser, restored!, saved.occasion ?? "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
@@ -848,25 +729,22 @@ function DashboardInner() {
     [uid, occasion],
   );
 
-  // Reconcile a restored render's feedback chips against server latest-state (audit #2/#4): History
-  // curation (flip/remove) done elsewhere would otherwise leave a STALE "disliked" chip whose lingering
-  // "Tell us why?" posts a fresh rejected that supersedes the flip (corpus corruption), or hide the
-  // re-rate buttons on a removed card. Best-effort + mount-only, and it applies ONLY if the user hasn't
-  // touched the restored result yet (identity guard) so it can never clobber a fresh in-session mark.
+  // Fresh History supplies both current chips and exact amendment targets.
   const reconcileFeedbackFromServer = useCallback(
     async (user: FirebaseUser, baseResult: RenderResult, savedOccasion: string) => {
       const ownerEpoch = activeUserEpochRef.current;
       const isCurrentOwner = () => activeUserUidRef.current === user.uid && activeUserEpochRef.current === ownerEpoch;
       try {
         const token = await user.getIdToken();
-        if (!isCurrentOwner()) return;
+        if (!isCurrentOwner()) return false;
         const res = await fetch("/api/interactions", { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) return;
+        if (!res.ok) return false;
         const data = (await res.json()) as { interactions?: HistoryActionRow[] };
-        if (!isCurrentOwner()) return;
+        if (!isCurrentOwner()) return false;
+        if (!Array.isArray(data.interactions)) return false;
         const actionByKey = buildActionByKey(data.interactions);
         const { shown, changed } = reconcileShownFeedback(baseResult.shown, actionByKey);
-        if (!changed) return;
+        if (!changed) return true;
         const next = { ...baseResult, shown };
         setResult((prev) => {
           if (prev !== baseResult) return prev; // user already interacted — never clobber a live mark
@@ -875,8 +753,9 @@ function DashboardInner() {
           persistResult(next, savedOccasion);
           return next;
         });
+        return true;
       } catch {
-        // best-effort — a failed reconcile leaves the restored marks, no worse than before the fix
+        return false; // No guessed target after a failed History read.
       }
     },
     [persistResult],
@@ -972,7 +851,8 @@ function DashboardInner() {
 
   /** Resume an un-cleared pending envelope after a reload/lost response (§C.4 F10). Re-sends the
    *  SAME requestId + frozen Lens: a completed render replays the winner (no second spend); an
-   *  in-flight one re-calls (at most one extra generation, dropped by the index). */
+   *  unfinished request may be rejected while the service is busy or dispatch again later.
+   *  Snapshot uniqueness controls persistence, not the number of provider calls. */
   const resumePending = useCallback(
     (userUid: string, envelope: PendingEnvelope) => {
       const user = auth.currentUser;
@@ -1091,112 +971,106 @@ function DashboardInner() {
     [firebaseUser, uid, regenModal, inFlight, signingOut, occasion, runRender],
   );
 
-  // --- Feedback binds {snapshotId, candidateId} (never itemIds). ---
-  const postFeedback = useCallback(
-    async (
-      outfit: Pick<ShownOutfit, "snapshotId" | "candidateId">,
-      action: "accepted" | "rejected",
-      extra?: { perItemFeedback?: PerItemFeedback[]; codes?: string[] },
-    ): Promise<boolean> => {
-      if (!firebaseUser) return false;
-      const ownerEpoch = activeUserEpochRef.current;
-      const isCurrentOwner = () => activeUserUidRef.current === firebaseUser.uid && activeUserEpochRef.current === ownerEpoch;
-      try {
-        const token = await firebaseUser.getIdToken();
-        if (!isCurrentOwner()) return false;
-        const res = await fetch("/api/interactions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            snapshotId: outfit.snapshotId,
-            candidateId: outfit.candidateId,
-            action,
-            ...(extra?.perItemFeedback?.length ? { perItemFeedback: extra.perItemFeedback } : {}),
-            ...(extra?.codes?.length ? { feedbackReason: { codes: extra.codes } } : {}),
-          }),
-        });
-        return isCurrentOwner() && res.ok;
-      } catch {
-        return false;
-      }
-    },
-    [firebaseUser],
-  );
+  // Primary reactions still use one tap. Their validated receipt is the exact
+  // target for optional reasons; amendments never emit an action or binding echo.
+  const postFeedback = useCallback(async (outfit: Pick<ShownOutfit, "snapshotId" | "candidateId">,
+    action: "accepted" | "rejected"): Promise<string | null> => {
+    if (!firebaseUser) return null;
+    const epoch = activeUserEpochRef.current;
+    const current = () => activeUserUidRef.current === firebaseUser.uid && activeUserEpochRef.current === epoch;
+    try {
+      const token = await firebaseUser.getIdToken();
+      if (!current()) return null;
+      const response = await fetch("/api/interactions", { method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId, action }) });
+      const body = await response.json().catch(() => null);
+      const receipt = body?.interaction;
+      return current() && response.ok && receipt?.action === action && typeof receipt.id === "string" && OBJECT_ID_RE.test(receipt.id)
+        ? receipt.id.toLowerCase() : null;
+    } catch { return null; }
+  }, [firebaseUser]);
 
-  const markFeedback = useCallback(
-    (index: number, feedback: "liked" | "disliked") => {
-      setResult((prev) => {
-        if (!prev) return prev;
-        const shown = prev.shown.map((o, i) => (i === index ? { ...o, feedback } : o));
-        const next = { ...prev, shown };
-        persistResult(next);
-        return next;
-      });
-    },
-    [persistResult],
-  );
-
-  const handleLike = async (index: number) => {
-    if (!uid || activeUserUidRef.current !== uid) return;
-    const outfit = result?.shown[index];
-    if (!outfit) return;
-    const ownerEpoch = activeUserEpochRef.current;
-    markFeedback(index, "liked");
-    const ok = await postFeedback(outfit, "accepted");
-    if (activeUserEpochRef.current !== ownerEpoch) return;
-    if (!ok) {
-      markFeedbackClear(index);
-      setError("Couldn't save your like. Please try again.");
-    }
-  };
-
-  const markFeedbackClear = (index: number) =>
-    setResult((prev) => {
-      if (!prev) return prev;
-      const shown = prev.shown.map((o, i) => (i === index ? { ...o, feedback: undefined } : o));
-      const next = { ...prev, shown };
-      persistResult(next);
-      return next;
+  const markFeedback = useCallback((target: Pick<ShownOutfit, "snapshotId" | "candidateId">,
+    feedback: "liked" | "disliked", reactionId?: string) => {
+    setResult(previous => {
+      if (!previous) return previous;
+      const next = { ...previous, shown: previous.shown.map(outfit => outfit.snapshotId === target.snapshotId && outfit.candidateId === target.candidateId
+        ? { ...outfit, feedback, reactionId, feedbackReason: undefined, perItemFeedback: undefined } : outfit) };
+      persistResult(next); return next;
     });
-
-  // One-tap dislike — symmetric with Like (§Q4c): posts 'rejected' immediately so a dislike costs the
-  // same as a like. The old flow forced the "what didn't work?" modal before any dislike registered,
-  // making dislikes more expensive than likes and skewing the accept/reject balance the M6 re-measure
-  // trains on toward the positive. Now the reasons are an optional follow-up (below), not a toll.
-  const handleDislike = async (index: number) => {
+  }, [persistResult]);
+  const markFeedbackClear = useCallback((target: Pick<ShownOutfit, "snapshotId" | "candidateId">, reactionId?: string) => {
+    setResult(previous => {
+      if (!previous) return previous;
+      const next = { ...previous, shown: previous.shown.map(outfit => outfit.snapshotId === target.snapshotId && outfit.candidateId === target.candidateId &&
+        (reactionId ? outfit.reactionId === reactionId : !outfit.reactionId) ? { ...outfit, feedback: undefined, reactionId: undefined, feedbackReason: undefined, perItemFeedback: undefined } : outfit) };
+      persistResult(next); return next;
+    });
+  }, [persistResult]);
+  const reactToOutfit = async (index: number, action: "accepted" | "rejected") => {
     if (!uid || activeUserUidRef.current !== uid) return;
-    const outfit = result?.shown[index];
-    if (!outfit) return;
-    const ownerEpoch = activeUserEpochRef.current;
-    markFeedback(index, "disliked");
-    const ok = await postFeedback(outfit, "rejected");
-    if (activeUserEpochRef.current !== ownerEpoch) return;
-    if (!ok) {
-      markFeedbackClear(index);
-      setError("Couldn't save your feedback. Please try again.");
-    }
+    const outfit = result?.shown[index]; if (!outfit) return;
+    const epoch = activeUserEpochRef.current;
+    const key = `${outfit.snapshotId}:${outfit.candidateId}`;
+    const generation = (reactionGenerationsRef.current.get(key) ?? 0) + 1;
+    reactionGenerationsRef.current.set(key, generation);
+    const chip = action === "accepted" ? "liked" : "disliked";
+    setError(""); markFeedback(outfit, chip);
+    const reactionId = await postFeedback(outfit, action);
+    // Owner lifetime and command order are independent. A delayed older receipt
+    // must neither replace a newer target nor clear its optimistic/saved chip.
+    if (activeUserEpochRef.current !== epoch || reactionGenerationsRef.current.get(key) !== generation) return;
+    if (reactionId) markFeedback(outfit, chip, reactionId);
+    else { markFeedbackClear(outfit); setError("Couldn't confirm your feedback. Please reload to check it or try again."); }
   };
+  const handleLike = (index: number) => reactToOutfit(index, "accepted");
+  const handleDislike = (index: number) => reactToOutfit(index, "rejected");
 
-  // D-3 — durable dislike-reason enrich: the reasons are HELD and retried on failure (per-card
-  // affordance) instead of silently lost. Attaching them as a second same-action row is safe —
-  // per-candidate latest-state (§23-H61) collapses it onto the one-tap, so it is never double-counted,
-  // and a retried duplicate is harmless. See lib/useDislikeEnrich for the in-session-only rationale.
-  const { saveDislikeReasons, retryEnrich, statusFor } = useDislikeEnrich(
-    useCallback(
-      (binding, data) => postFeedback(binding, "rejected", data),
-      [postFeedback],
-    ),
-  );
+  const { saveDislikeReasons, retryEnrich, statusFor } = useDislikeEnrich(useCallback(async command => {
+    if (!firebaseUser) return "stale";
+    const epoch = activeUserEpochRef.current;
+    const current = () => activeUserUidRef.current === firebaseUser.uid && activeUserEpochRef.current === epoch;
+    try {
+      const token = await firebaseUser.getIdToken();
+      if (!current()) return "stale";
+      const response = await fetch("/api/interactions", { method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(command) });
+      const body = await response.json().catch(() => null);
+      if (!current()) return "stale";
+      if (response.ok) {
+        if (!(body?.success === true && typeof body.amendment?.id === "string" && OBJECT_ID_RE.test(body.amendment.id) &&
+          body.amendment.reactionId === command.reactionId)) return "retry";
+        setResult(previous => {
+          if (!previous || !current()) return previous;
+          const next = { ...previous, shown: previous.shown.map(outfit => outfit.reactionId === command.reactionId
+            ? { ...outfit, feedbackReason: command.feedbackReason, perItemFeedback: command.perItemFeedback } : outfit) };
+          persistResult(next); return next;
+        });
+        return "saved";
+      }
+      if ([400, 401, 403, 404, 409, 410, 413, 415, 422].includes(response.status)) {
+        setError(body?.code === "storage_limit" ? "Feedback storage is full. Remove unwanted reactions before adding details."
+          : response.status === 400 ? "Could not save these details. Check your selections before trying again."
+          : response.status === 401 ? "Your session expired. Sign in again to check your feedback."
+          : response.status === 410 ? "This account is no longer available. Reload to check its status."
+          : "That reaction changed or was removed. Check the current feedback before adding details.");
+        const base = resultRef.current;
+        if (base && !await reconcileFeedbackFromServer(firebaseUser, base, activeLensRef.current?.occasion ?? "") && current()) {
+          const target = base.shown.find(outfit => outfit.reactionId === command.reactionId);
+          if (target) markFeedbackClear(target, command.reactionId);
+        }
+        return "stale";
+      }
+      return "retry";
+    } catch { return current() ? "retry" : "stale"; }
+  }, [firebaseUser, reconcileFeedbackFromServer, markFeedbackClear, persistResult]), uid);
 
-  // Optional "tell us why?" follow-up to a dislike. The one-tap already recorded a reasonless
-  // 'rejected', so closing the modal here loses nothing — the reasons are held by the enrich hook.
-  const handleSaveDislike = async (data: { perItemFeedback: PerItemFeedback[]; codes: string[] }) => {
-    if (!uid || activeUserUidRef.current !== uid) return;
-    if (!feedbackModal) return;
-    const { outfit, index } = feedbackModal;
+  const handleSaveDislike = async (data: EnrichData) => {
+    if (!uid || activeUserUidRef.current !== uid || !feedbackModal?.outfit.reactionId) return;
+    const opened = feedbackModal.outfit;
     setFeedbackModal(null);
-    markFeedback(index, "disliked");
-    await saveDislikeReasons({ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId }, data);
+    await saveDislikeReasons({ snapshotId: opened.snapshotId, candidateId: opened.candidateId, reactionId: opened.reactionId! }, data);
   };
 
   const bindable = Boolean(result?.bindable);
@@ -1410,9 +1284,9 @@ function DashboardInner() {
                 forcedItemId={rescueItemId}
                 onLike={() => handleLike(index)}
                 onDislike={() => handleDislike(index)}
-                onExplain={() => setFeedbackModal({ outfit, index })}
+                onExplain={() => { if (outfit.reactionId) setFeedbackModal({ outfit, index }); }}
                 enrichStatus={statusFor(outfit)}
-                onRetryEnrich={() => retryEnrich({ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId })}
+                onRetryEnrich={() => { if (outfit.reactionId) retryEnrich({ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId, reactionId: outfit.reactionId }); }}
                 onRegenerate={() => {
                   setError("");
                   setRegenModal({ outfit, index });
@@ -1452,7 +1326,7 @@ function DashboardInner() {
       </div>
 
       {feedbackModal && (
-        <FeedbackModal outfit={feedbackModal.outfit} onClose={() => setFeedbackModal(null)} onSave={handleSaveDislike} />
+        <FeedbackDetails outfit={feedbackModal.outfit} occasion={activeLensRef.current?.occasion ?? ""} onClose={() => setFeedbackModal(null)} onSave={handleSaveDislike} />
       )}
       {regenModal && (
         <RegenerateModal

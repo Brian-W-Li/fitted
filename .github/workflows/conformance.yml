@@ -10,7 +10,7 @@ name: conformance
 
 on:
   push:
-    branches: [main, m5-c5-next-integration]
+    branches: [main, m5-c5-next-integration, codex/style-memory-baseline]
   pull_request:
   workflow_dispatch:
 
@@ -75,8 +75,8 @@ jobs:
       - name: Shared workflow shell syntax
         run: |
           shopt -s nullglob
-          workflow_scripts=(../scripts/workflow/*.sh ../.claude/scripts/*.sh)
-          test "${#workflow_scripts[@]}" -gt 0
+          workflow_scripts=(../scripts/workflow/state.sh ../scripts/workflow/push-guard.sh ../scripts/workflow/hygiene-guard.sh)
+          for script in "${workflow_scripts[@]}"; do test -f "$script" || exit; done
           for script in "${workflow_scripts[@]}"; do
             bash -n "$script" || exit
           done

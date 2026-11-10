@@ -398,3 +398,15 @@ def test_outfits_envelope_schema_is_strict_mode_compliant_and_role_enum_matches(
     ]["items"]["properties"]["role"]["enum"]
     assert role_enum == [role.value for role in Role]  # derived, never re-typed
     assert RESPONSE_FORMAT_JSON_SCHEMA_STRICT != RESPONSE_FORMAT_JSON_OBJECT
+
+
+def test_dispatch_timeout_is_lowered_without_mutating_configured_ceiling(monkeypatch):
+    captured = {}
+    _install_fake_openai(monkeypatch, captured)
+    generator = OpenAIGenerator(api_key="k", timeout_seconds=30)
+    generator.generate_with_timeout(_prompt(), 7)
+    assert captured["client_kwargs"]["timeout"] == 7
+    generator.generate_with_timeout(_prompt(), 60)
+    assert captured["client_kwargs"]["timeout"] == 30
+    generator.generate(_prompt())
+    assert captured["client_kwargs"]["timeout"] == 30

@@ -1,4 +1,5 @@
 import { Schema, model, models, type InferSchemaType } from "mongoose";
+import { FEEDBACK_SCOPES, FEEDBACK_CONCERNS } from "@/lib/feedbackTypes";
 
 const PerItemFeedbackSchema = new Schema(
   {
@@ -32,6 +33,10 @@ export const FEEDBACK_REASON_RAW_TEXT_MAX_CHARS = 500; // same route cap as perI
 const FeedbackReasonSchema = new Schema(
   {
     codes: [{ type: String, enum: [...FEEDBACK_REASON_CODES] }],
+    // Declaration scope is evidence only. It never becomes a category ban or a vote.
+    scope: { type: String, enum: [...FEEDBACK_SCOPES] },
+    itemId: { type: Schema.Types.ObjectId, ref: "WardrobeItem" },
+    concern: { type: String, enum: [...FEEDBACK_CONCERNS] },
     rawText: { type: String, maxlength: FEEDBACK_REASON_RAW_TEXT_MAX_CHARS },
     source: { type: String, enum: ["user"], default: "user" },
   },
@@ -52,10 +57,15 @@ const ContextSchema = new Schema(
 const OutfitInteractionSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    // Absent kind remains a legacy vote. Reasons are separately appended evidence.
+    eventKind: { type: String, enum: ["reaction", "reason_amendment"], default: undefined },
+    reactionId: { type: Schema.Types.ObjectId },
+    operationId: { type: String, maxlength: 64 },
+    requestKey: { type: String },
     items: [{ type: Schema.Types.ObjectId, ref: "WardrobeItem", required: true }],
     action: {
       type: String,
-      required: true,
+      required: function () { return this.eventKind !== "reason_amendment"; },
       // M5 (C8) trimmed the dead CS148 legacy verbs (generated/saved/worn/rated) and `corrected`.
       // The live write path (POST /api/interactions, G8 allowlist) emits only accepted|rejected;
       // `corrected` was superseded by H61 (a correction is a NEW accepted|rejected event keyed
@@ -116,6 +126,22 @@ const OutfitInteractionSchema = new Schema(
  * Empty strings count as absent (an empty join key is not a real binding).
  */
 OutfitInteractionSchema.pre("validate", function (next) {
+  if (this.eventKind === "reason_amendment" &&
+      (!this.reactionId || !this.operationId || !this.requestKey || this.action != null)) {
+    return next(new Error("Reason amendments require a target and operation, and cannot carry a vote"));
+  }
+  if (this.eventKind !== "reason_amendment" && (this.reactionId || this.operationId || this.requestKey)) {
+    return next(new Error("Reaction rows cannot carry amendment fields"));
+  }
+  const reason = this.feedbackReason;
+  if (reason?.scope) {
+    if (!reason.concern || (reason.scope === "item" ? !reason.itemId || !this.items.some(item => String(item) === String(reason.itemId)) : reason.itemId != null) ||
+        (reason.concern === "fit" && reason.scope !== "item")) {
+      return next(new Error("Scoped reasons require a bound target and an item for personal fit"));
+    }
+  } else if (reason?.itemId != null || reason?.concern != null) {
+    return next(new Error("Reason target and concern require an explicit scope"));
+  }
   const presentCount = [
     this.snapshotId,
     this.candidateId,
@@ -123,7 +149,7 @@ OutfitInteractionSchema.pre("validate", function (next) {
     this.fullSignature,
   ].filter((v) => v !== undefined && v !== null && v !== "").length;
 
-  if (presentCount !== 0 && presentCount !== 4) {
+  if ((this.eventKind === "reason_amendment" && presentCount !== 4) || (presentCount !== 0 && presentCount !== 4)) {
     return next(
       new Error(
         "OutfitInteraction binding fields must be all present or all absent " +

@@ -2,7 +2,7 @@ name: whole-app browser baseline
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/style-memory-baseline]
   pull_request:
   workflow_dispatch:
 

@@ -26,7 +26,7 @@ function acknowledgement(plan: OutfitPlanRecord) {
 export class OutfitPlanningStore {
   constructor(private readonly options: Options = {}) {}
   private async owner(user: Types.ObjectId): Promise<PlanningOwner> {
-    const owner = await User.collection.findOne({ _id: user }, { projection: { outfitPlans: 1, planningVersion: 1 } });
+    const owner = await User.collection.findOne({ _id: user, erasureStarted: { $ne: true } }, { projection: { outfitPlans: 1, planningVersion: 1 } });
     if (!owner) throw new ExperienceError(410, "account_unavailable");
     return owner as PlanningOwner;
   }
@@ -37,10 +37,11 @@ export class OutfitPlanningStore {
   private async write(user: Types.ObjectId, owner: PlanningOwner, plans: OutfitPlanRecord[]) {
     await this.options.beforeWrite?.();
     const version = owner.planningVersion ?? 0;
-    // Never upsert a User. A deletion either removes this write or prevents it entirely.
-    const result = await User.collection.updateOne({ _id: user, ...(owner.planningVersion === undefined
+    // Same-document CAS orders the plan write against the durable erasure barrier.
+    // Never upsert a User; a pending or removed owner cannot receive new intent.
+    const result = await User.collection.updateOne({ _id: user, erasureStarted: { $ne: true }, ...(owner.planningVersion === undefined
       ? { planningVersion: { $exists: false } } : { planningVersion: version }) },
-      { $set: { outfitPlans: plans, planningVersion: version + 1 } });
+      { $set: { outfitPlans: plans, planningVersion: version + 1 } }, { writeConcern: { w: "majority" } });
     if (!result.matchedCount) return false;
     await this.options.afterWrite?.();
     await this.owner(user); // Never acknowledge a write to an account deleted during the request.

@@ -1,3 +1,4 @@
+import { resolveFeedbackEvidence, voteEvidenceFilter, REASON_AMENDMENT, FEEDBACK_ACCOUNT_ROW_LIMIT } from "@/lib/feedbackEvidence.cjs";
 import { visibleSnapshots, type SnapshotVisibility } from "@/lib/snapshotVisibility";
 /**
  * M5 behavioral-rows projection (C5, seam #4) — the Mongo → wire projection the SERVICE reduces.
@@ -60,6 +61,10 @@ type Stringable = { toString(): string } | string | null | undefined;
 type Datelike = { toISOString(): string } | string | null | undefined;
 
 export interface InteractionLean {
+  _id?: Stringable;
+  user?: Stringable;
+  reactionId?: Stringable;
+  eventKind?: string | null;
   action?: string | null;
   createdAt?: Datelike;
   snapshotId?: Stringable;
@@ -138,7 +143,7 @@ export async function buildBehavioralRows(
   models: BehavioralQueryModels,
 ): Promise<BehavioralRowsWire> {
   const [interactions, snapshots] = await Promise.all([
-    models.OutfitInteraction.find({ user: userId })
+    models.OutfitInteraction.find({ user: userId, ...voteEvidenceFilter })
       .sort({ createdAt: -1, _id: -1 })
       .limit(INTERACTION_ROWS_SCAN_LIMIT)
       .lean(),
@@ -147,6 +152,13 @@ export async function buildBehavioralRows(
       .limit(REPETITION_WINDOW_SNAPSHOTS)
       .lean(),
   ]);
+  // Admission caps the entire owner ledger at this bound; all admitted amendments are covered.
+  // Filter votes before the 500-row reducer bound so reasons cannot crowd out actual reactions.
+  const amendments = interactions.length ? await models.OutfitInteraction.find({
+    user: userId, eventKind: REASON_AMENDMENT,
+    reactionId: { $in: interactions.map(row => row._id) },
+  }).sort({ createdAt: -1, _id: -1 }).limit(FEEDBACK_ACCOUNT_ROW_LIMIT).lean() : [];
+  const evidence = resolveFeedbackEvidence(interactions, amendments);
   // Existing reactions to a later-redacted proposal cannot keep teaching the reducer.
   // Preserve the bounded scan; missing snapshots retain their historical treatment.
   const bound = await models.GenerationSnapshot.find({ user: userId,
@@ -155,7 +167,7 @@ export async function buildBehavioralRows(
   const visible = new Set(await visibleSnapshots(userId, bound));
   const redactedIds = new Set(bound.filter(row => !visible.has(row)).map(row => hex(row._id)));
   return {
-    interactionRows: interactions.filter((row) => !redactedIds.has(String(row.snapshotId))).map(projectInteractionRow),
+    interactionRows: evidence.filter((row) => !redactedIds.has(String(row.snapshotId))).map(projectInteractionRow),
     recentSnapshots: (await visibleSnapshots(userId, snapshots)).map(projectSnapshotRow),
   };
 }

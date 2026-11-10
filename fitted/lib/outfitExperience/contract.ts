@@ -7,7 +7,11 @@ export const MAX_EXPERIENCE_REVISIONS = 32; // Retraction has a separate final s
 export const EXPERIENCE_PAGE_SIZE = 20;
 export const EXPERIENCE_SCAN_SIZE = 100;
 export type Outcome = "worked" | "change_next_time" | "unknown";
-export interface ActualItem { itemId: string; name: string; clothingType: string; role?: "base_top" | "mid_layer" }
+export interface WearPhoto { imageRef: string; origin: "suggestion" | "wardrobe"; capturedAt: string }
+export interface ActualItem { itemId: string; name: string; clothingType: string; role?: "base_top" | "mid_layer";
+  /** Undefined is legacy evidence; null is a new explicitly missing capture. */
+  photo?: WearPhoto | null;
+}
 export type ContextInput = { kind: "user"; text: string } | { kind: "suggestion"; confirmed: boolean };
 export interface WearState extends WearDate {
   context: WearContext;
@@ -27,7 +31,7 @@ export interface CreateInput extends WearInput {
   experienceId: string; operationId: string; snapshotId: string; candidateId: string;
 }
 export interface EditInput extends WearInput {
-  operationId: string; expectedPreviousRevision: number;
+  operationId: string; expectedPreviousRevision: number; photoRefreshItemIds?: string[];
 }
 
 function invalid(message: string): never { throw new ExperienceValidationError("request", message); }
@@ -82,8 +86,16 @@ export function createInput(raw: unknown, now: Date): CreateInput {
 }
 export function editInput(raw: unknown, now: Date): EditInput {
   const r = object(raw);
-  exactKeys(r, [...WEAR_KEYS, "operationId", "expectedPreviousRevision"]);
-  return { ...wear(r, now), operationId: operationId(r.operationId), expectedPreviousRevision: previousRevision(r.expectedPreviousRevision) };
+  exactKeys(r, [...WEAR_KEYS, "operationId", "expectedPreviousRevision", "photoRefreshItemIds"]);
+  let photoRefreshItemIds: string[] | undefined;
+  if (r.photoRefreshItemIds !== undefined) {
+    if (!Array.isArray(r.photoRefreshItemIds) || r.photoRefreshItemIds.length > 5) invalid("Choose at most five photo refreshes");
+    const ids = r.photoRefreshItemIds.map(objectId);
+    if (new Set(ids).size !== ids.length) invalid("Photo refresh pieces must be unique");
+    if (ids.length) photoRefreshItemIds = ids.sort();
+  }
+  return { ...wear(r, now), operationId: operationId(r.operationId), expectedPreviousRevision: previousRevision(r.expectedPreviousRevision),
+    ...(photoRefreshItemIds ? { photoRefreshItemIds } : {}) };
 }
 export function retractInput(raw: unknown) {
   const r = object(raw);

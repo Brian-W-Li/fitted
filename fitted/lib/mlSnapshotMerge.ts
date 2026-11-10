@@ -104,7 +104,9 @@ export function normalizeControls(controls: unknown): NormalizedControls {
 //   • weatherRaw — automatically resolved context is captured by the first completed render.
 //     An identical command replays that captured context even if a same-bucket forecast refreshes.
 //     Explicit frozen raw context is checked separately at both replay paths in mlRecommend.
-//     The bucket remains identity; authorship still requires each service attempt to echo its raw.
+//     New root commands also bind the client weather inputs by a server-owned digest; an identical
+//     automatic retry uses the winning bucket. Historical rows retain the bucket identity check.
+//     Authorship still requires each service attempt to echo its resolved context.
 // ---------------------------------------------------------------------------
 export interface RenderIdentity {
   user: string;
@@ -579,6 +581,7 @@ const RESERVED_PAYLOAD_KEYS = new Set([
   "createdAt",
   "updatedAt",
   "interactionCountAtRequest",
+  "weatherCommandHash",
 ]);
 
 const M5_PAYLOAD_KEYS = new Set([
@@ -623,6 +626,7 @@ export interface MergeInputs {
   /** Server-owned context provenance; never accepted from the service payload. */
   weatherSource?: WeatherSource;
   weatherSignals?: WeatherSignals;
+  weatherCommandHash?: string;
 }
 
 /**
@@ -644,6 +648,7 @@ export function buildSnapshotDoc(inputs: MergeInputs): Record<string, unknown> {
   doc.user = user;
   doc.interactionCountAtRequest = interactionCountAtRequest;
   doc.weatherSource = weatherSourceFromSnapshot(inputs.weatherSource);
+  if (inputs.weatherCommandHash) doc.weatherCommandHash = inputs.weatherCommandHash;
   if (inputs.weatherSignals) doc.weatherSignals = { ...inputs.weatherSignals };
   else delete doc.weatherSignals;
 

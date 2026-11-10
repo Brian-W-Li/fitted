@@ -1,95 +1,117 @@
-"""Serialization pin — renders currently execute ON the single ASGI event loop.
-
-``async def app`` calls ``service.handle_render(raw)`` synchronously (service/app.py), and the
-generator inside is the blocking sync OpenAI SDK call (fitted_core/generation.py) — so while one
-render is in flight the event loop is held and every other request, **including /readyz**, waits
-behind it. Under the 1-machine Fly pin that makes effective render concurrency exactly 1: a
-burst of simultaneous first renders queues serially and the tail can cross the Next-side 45s
-abort (the friend-evening failure mode — runbook §8 pre-recruit checklist: stagger onboarding).
-
-This test PINS the current serial behavior; it is a documented liability, not an endorsement.
-The fix (dispatching ``handle_render`` off the loop — an executor/worker design call registered
-in runbook §8 / Spec §23) is EXPECTED to flip the ordering asserted here: when it lands, this
-test goes red and must be rewritten to assert the opposite order (readyz completes while the
-render is parked). That flip is the fix's proof.
-"""
-
-from __future__ import annotations
-
+"""Health and overload must not wait behind synchronous provider work."""
 import asyncio
 import threading
-
 from service.tests.helpers import AUTH, http_async, make_app, render_body
 
-
-class _BlockingGenerator:
-    """A generator that parks inside ``generate`` until released FROM ANOTHER THREAD.
-
-    The release can never come from the event loop itself — the whole point is that the loop
-    is held while ``generate`` runs — so anything loop-side waiting on it would deadlock.
-    """
-
-    def __init__(self) -> None:
+class BlockingGenerator:
+    def __init__(self):
         self.entered = threading.Event()
         self.release = threading.Event()
         self.call_count = 0
-        self.prompts: list = []
-
-    def generate(self, prompt) -> str:
+    def generate(self, prompt):
         self.call_count += 1
-        self.prompts.append(prompt)
         self.entered.set()
-        if not self.release.wait(timeout=15):
-            raise RuntimeError("release never fired — releaser thread died?")
-        # Content is irrelevant to the pin: schema-invalid JSON walks the normal
-        # repair→degenerate path and still yields a 200 envelope.
-        return "{}"
+        if not self.release.wait(2):
+            raise RuntimeError("test release timed out")
+        return '{"outfits": []}'
 
 
-def test_in_flight_render_blocks_readyz_until_it_finishes() -> None:
-    generator = _BlockingGenerator()
+def test_health_and_overload_respond_while_provider_is_parked():
+    generator = BlockingGenerator()
+    app, _ = make_app(generator=generator)
+    async def scenario():
+        task = asyncio.create_task(http_async(app, "POST", "/render", headers=AUTH, json_body=render_body()))
+        try:
+            assert await asyncio.to_thread(generator.entered.wait, 3)
+            assert not task.done(), "render finished before the probe could run"
+            status, body = await asyncio.wait_for(http_async(app, "GET", "/readyz"), .5)
+            assert status == 200 and body["ready"]
+            status, body = await asyncio.wait_for(http_async(app, "POST", "/render", headers=AUTH, json_body=render_body()), .5)
+            assert status == 429 and body["error"]["code"] == "rate_limit"
+            assert generator.call_count == 1
+            # Busy must not bypass authentication.
+            assert (await http_async(app, "POST", "/render", json_body=render_body()))[0] == 401
+        finally:
+            generator.release.set()
+            await task
+        assert (await http_async(app, "POST", "/render", headers=AUTH, json_body=render_body()))[0] == 200
+    asyncio.run(scenario())
+
+
+def test_cancelled_caller_keeps_slot_until_provider_finishes():
+    generator = BlockingGenerator()
+    app, _ = make_app(generator=generator)
+    async def scenario():
+        task = asyncio.create_task(http_async(app, "POST", "/render", headers=AUTH, json_body=render_body()))
+        assert await asyncio.to_thread(generator.entered.wait, 3)
+        try:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            assert (await http_async(app, "GET", "/readyz"))[0] == 200
+            assert (await http_async(app, "POST", "/render", headers=AUTH, json_body=render_body()))[0] == 429
+            assert generator.call_count == 1
+        finally:
+            generator.release.set()
+        # Wait for the parked worker to complete without issuing more paid work.
+        # Access only the executor task already created by this scenario.
+        workers = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        await asyncio.gather(*workers)
+        await asyncio.sleep(0)  # task's done callback releases the admission slot
+        assert (await http_async(app, "POST", "/render", headers=AUTH, json_body=render_body()))[0] == 200
+    asyncio.run(scenario())
+
+
+def test_failed_provider_releases_slot_and_records_dispatch():
+    class FailingGenerator:
+        calls = 0
+        def generate(self, prompt):
+            self.calls += 1
+            raise RuntimeError("synthetic provider failure")
+    generator = FailingGenerator()
+    app, _ = make_app(generator=generator)
+    async def scenario():
+        for _ in range(2):
+            status, body = await http_async(app, "POST", "/render", headers=AUTH, json_body=render_body())
+            assert status == 200 and body["degenerate"]
+            assert body["payload"]["generationAttempts"] == []
+            assert body["payload"]["diagnostics"]["engineFailure"] is not None
+            assert body["payload"]["diagnostics"]["parse"]["generatorCalls"] == 1
+    asyncio.run(scenario())
+    assert generator.calls == 2
+
+
+def test_delayed_body_reader_rechecks_capacity_before_dispatch():
+    """Both requests pass the first guard; only the first complete body may dispatch."""
+    import json
+
+    generator = BlockingGenerator()
     app, _ = make_app(generator=generator)
 
-    # Releaser thread: once the render is parked inside generate(), hold the loop briefly,
-    # then release. (threading.Event.wait in generate() blocks the LOOP thread; only this
-    # background thread can un-park it.)
-    def _releaser() -> None:
-        if generator.entered.wait(timeout=15):
+    async def scenario():
+        body_started = asyncio.Event()
+        body_release = asyncio.Event()
+
+        async def delayed_receive():
+            body_started.set()
+            await body_release.wait()
+            return {"type": "http.request", "body": json.dumps(render_body()).encode(), "more_body": False}
+
+        delayed = asyncio.create_task(http_async(app, "POST", "/render", headers=AUTH, receive=delayed_receive))
+        await asyncio.wait_for(body_started.wait(), .5)
+        winning = asyncio.create_task(http_async(app, "POST", "/render", headers=AUTH, json_body=render_body()))
+        try:
+            assert await asyncio.to_thread(generator.entered.wait, 1)
+            body_release.set()
+            status, body = await asyncio.wait_for(delayed, .5)
+            assert status == 429 and body["error"]["code"] == "rate_limit"
+            assert generator.call_count == 1
+            assert not winning.done(), "provider must remain parked during rejection"
+        finally:
+            body_release.set()
             generator.release.set()
+            await asyncio.gather(delayed, winning)
 
-    releaser = threading.Thread(target=_releaser, daemon=True)
-    releaser.start()
-
-    order: list[str] = []
-
-    async def scenario() -> tuple[int, int]:
-        async def render() -> int:
-            status, _ = await http_async(
-                app, "POST", "/render", headers=AUTH, json_body=render_body()
-            )
-            order.append("render")
-            return status
-
-        async def readyz() -> int:
-            # One explicit yield so this task starts strictly AFTER the render task has
-            # taken its first scheduling slot (where it parks inside generate, holding the
-            # loop). If renders ran off-loop, this near-instant probe would finish FIRST —
-            # the ordering below is the discriminating assertion, not wall-clock timing.
-            await asyncio.sleep(0)
-            status, _ = await http_async(app, "GET", "/readyz")
-            order.append("readyz")
-            return status
-
-        render_task = asyncio.ensure_future(render())
-        readyz_task = asyncio.ensure_future(readyz())
-        return await render_task, await readyz_task
-
-    render_status, readyz_status = asyncio.run(scenario())
-    releaser.join(timeout=15)
-
-    assert render_status == 200  # degenerate-but-valid envelope; the request completed
-    assert readyz_status == 200
-    # THE PIN: the readyz probe — issued while the render held the loop — could only
-    # complete after the render finished. Serial by construction, concurrency = 1.
-    assert order == ["render", "readyz"]
-    assert generator.call_count >= 1
+    asyncio.run(scenario())

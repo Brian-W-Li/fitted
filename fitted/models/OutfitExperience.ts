@@ -27,10 +27,16 @@ const contextSchema = new Schema({
   source: { type: String, enum: ["user", "suggestion"], required: true },
   confirmed: { type: Boolean, required: true }, version: { type: Number, enum: [1], required: true },
 }, { _id: false, strict: "throw" });
+const wearPhotoSchema = new Schema({
+  imageRef: { type: String, required: true, match: /^mongo:[a-f0-9]{24}$/ },
+  origin: { type: String, required: true, enum: ["suggestion", "wardrobe"] },
+  capturedAt: { type: String, required: true, validate: (value: string) => Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value },
+}, { _id: false, strict: "throw" });
 const actualItemSchema = new Schema({
   itemId: { type: String, required: true }, name: { type: String, required: true, maxlength: 200 },
   clothingType: { type: String, required: true },
   role: { type: String, enum: ["base_top", "mid_layer"] },
+  photo: { type: wearPhotoSchema, default: undefined },
 }, { _id: false, strict: "throw" });
 const stateSchema = new Schema({
   occurredOn: { type: String, required: true }, timezone: { type: String, required: true, maxlength: 100 },

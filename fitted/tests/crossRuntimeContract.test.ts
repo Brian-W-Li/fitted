@@ -55,6 +55,7 @@ const CONTRACT = JSON.parse(
     clamps: Record<string, number>;
     reducerScanBounds: Record<string, number>;
     generatorExpectation: Record<string, string | number>;
+    renderPolicy: { modelDispatchBudgetSeconds: number; minRepairBudgetSeconds: number };
     roleToSlot: Record<string, string>;
     layerChoiceNotes: Record<string, string>;
     enums: Record<string, string[]>;
@@ -169,17 +170,23 @@ describe("cross-runtime clamps (TS == contract_fields.json crossRuntime.clamps)"
   });
 });
 
-describe("service round-trip timeout margin (SERVICE_TIMEOUT_MS vs the pinned OpenAI timeout)", () => {
-  // The prose invariant in lib/mlServiceClient.ts, made mechanical: Next's round-trip timeout must
-  // exceed the service's OpenAI call timeout (cross-runtime-pinned generatorExpectation
-  // .timeoutSeconds) plus overhead, and sit under the recommend route's maxDuration=60s budget
-  // (the client clamps operator overrides to 50s for the same reason). Without this, bumping the
-  // pinned 30s would silently invert the margin: the client would abort while the service is still
-  // legitimately waiting on OpenAI. Runs on the module-load value (jest leaves
-  // ML_SERVICE_TIMEOUT_MS unset, so this exercises the production default path).
-  const openAiTimeoutMs = Number(CONTRACT.crossRuntime.generatorExpectation.timeoutSeconds) * 1000;
-  it("exceeds the service OpenAI timeout with ≥5s overhead margin", () => {
-    expect(SERVICE_TIMEOUT_MS).toBeGreaterThanOrEqual(openAiTimeoutMs + 5_000);
+describe("service round-trip timeout margin against the full model dispatch budget", () => {
+  const modelDispatchBudgetMs = CONTRACT.crossRuntime.renderPolicy.modelDispatchBudgetSeconds * 1000;
+  it("allows the full dispatch budget with at least 5s transport/selection margin", () => {
+    expect(SERVICE_TIMEOUT_MS).toBeGreaterThanOrEqual(modelDispatchBudgetMs + 5_000);
+  });
+  it("preserves that margin even for a too-small operator override", () => {
+    const previous = process.env.ML_SERVICE_TIMEOUT_MS;
+    process.env.ML_SERVICE_TIMEOUT_MS = "1000";
+    try {
+      jest.isolateModules(() => {
+        const configured = jest.requireActual<typeof import("@/lib/mlServiceClient")>("@/lib/mlServiceClient").SERVICE_TIMEOUT_MS;
+        expect(configured).toBeGreaterThanOrEqual(modelDispatchBudgetMs + 5_000);
+      });
+    } finally {
+      if (previous === undefined) delete process.env.ML_SERVICE_TIMEOUT_MS;
+      else process.env.ML_SERVICE_TIMEOUT_MS = previous;
+    }
   });
   it("sits within the 50s clamp, under the route's 60s maxDuration budget", () => {
     expect(SERVICE_TIMEOUT_MS).toBeLessThanOrEqual(50_000);

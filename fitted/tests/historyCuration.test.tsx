@@ -5,7 +5,7 @@
  * split into the right tabs; a flip POSTs the opposite action for the right binding and moves the card;
  * a remove DELETEs the binding (after confirm) and drops the card.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 jest.mock("@/lib/firebaseClient", () => ({ auth: {} }));
@@ -95,4 +95,59 @@ describe("History curation (D-1)", () => {
     });
     expect(screen.queryByText("White Tee")).not.toBeInTheDocument();
   });
+});
+
+
+it("edits and clears a saved concern from History while preserving its liked reaction", async () => {
+  const reactionId = "650000000000000000000002";
+  let note: Record<string, unknown> | undefined = { scope: "item", itemId: "t1", concern: "fit", rawText: "Too big" };
+  Object.defineProperty(crypto, "randomUUID", { configurable: true, value: () => "11111111-1111-4111-8111-111111111111" });
+  global.fetch = jest.fn(async (url, opts) => {
+    const method = opts?.method ?? "GET";
+    calls.push({ url: String(url), method, body: opts?.body as string | undefined });
+    if (method === "GET") return { ok: true, status: 200, json: async () => ({ interactions: [{ ...seedCards()[0], id: reactionId, feedbackReason: note }] }) } as Response;
+    const command = JSON.parse(String(opts?.body));
+    note = command.feedbackReason.scope ? command.feedbackReason : undefined;
+    return { ok: true, status: 200, json: async () => ({ success: true, amendment: { id: "650000000000000000000003", reactionId } }) } as Response;
+  });
+  render(<HistoryPage />);
+  await userEvent.click(await screen.findByRole("button", { name: "Edit details" }));
+  expect(screen.getByLabelText("A quick note (optional)")).toHaveValue("Too big");
+  await userEvent.clear(screen.getByLabelText("A quick note (optional)"));
+  await userEvent.type(screen.getByLabelText("A quick note (optional)"), "Sleeves too long");
+  await userEvent.click(screen.getByRole("button", { name: "Save details" }));
+  expect(await screen.findByText("Sleeves too long")).toBeInTheDocument();
+  await userEvent.click(await screen.findByRole("button", { name: "Edit details" }));
+  await userEvent.click(screen.getByRole("button", { name: "Clear details" }));
+  await waitFor(() => expect(screen.queryByText("Sleeves too long")).not.toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "Change to dislike" })).toBeInTheDocument();
+  const commands = calls.filter(call => call.method === "POST").map(call => JSON.parse(call.body!));
+  expect(commands).toHaveLength(2);
+  expect(commands.every(command => command.kind === "reason_amendment" && !command.action)).toBe(true);
+  expect(commands[1]).toMatchObject({ reactionId, feedbackReason: { codes: [] }, perItemFeedback: [] });
+});
+
+
+it("a refresh started during removal cannot resurrect the removed reaction or its note", async () => {
+  let finishDelete!: (value: Response) => void;
+  let finishRefresh!: (value: Response) => void;
+  const rows = [{ ...seedCards()[0], feedbackReason: { scope: "request", concern: "formality", rawText: "Old saved note" } }];
+  const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body }) as Response;
+  let reads = 0;
+  global.fetch = jest.fn(async (_url, opts) => {
+    if (opts?.method === "DELETE") return await new Promise<Response>(resolve => { finishDelete = resolve; });
+    if (++reads === 1) return ok({ interactions: rows });
+    return await new Promise<Response>(resolve => { finishRefresh = resolve; });
+  });
+  render(<HistoryPage />);
+  await userEvent.click(await screen.findByRole("button", { name: "Remove" }));
+  await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+  await waitFor(() => expect(finishDelete).toBeDefined());
+  await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(finishRefresh).toBeDefined());
+  await act(async () => { finishDelete(ok({ success: true, deleted: 2 })); });
+  await act(async () => { finishRefresh(ok({ interactions: rows })); });
+  expect(screen.queryByText("Old saved note")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Change to dislike" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Loading history…")).not.toBeInTheDocument();
 });

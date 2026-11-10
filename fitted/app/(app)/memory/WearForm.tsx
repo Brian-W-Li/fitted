@@ -45,6 +45,7 @@ export default function WearForm({ user, suggestion, experience, closet = [], on
   const [changedMode, setChangedMode] = useState(experience?.state.compositionStatus === "changed");
   const [selectedIds, setSelectedIds] = useState<string[]>(() => (experience?.items ?? suggestion?.items ?? []).map(item => item.itemId));
   const [addId, setAddId] = useState("");
+  const [photoRefreshIds, setPhotoRefreshIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -70,14 +71,22 @@ export default function WearForm({ user, suggestion, experience, closet = [], on
       setOutcome(experience.state.outcome);
       setChangedMode(experience.state.compositionStatus === "changed");
       setSelectedIds(experience.items.map(item => item.itemId));
+      setPhotoRefreshIds([]);
     }
     try {
       const savedPending = localStorage.getItem(storageKey);
-      if (savedPending) { setPending(JSON.parse(savedPending) as Pending); setOpen(true); }
+      if (savedPending) {
+        const command = JSON.parse(savedPending) as Pending;
+        setPending(command);
+        setPhotoRefreshIds(Array.isArray(command.body.photoRefreshItemIds) ? command.body.photoRefreshItemIds.filter((id): id is string => typeof id === "string") : []);
+        setOpen(true);
+      }
     } catch { /* Storage is optional. In-memory retries still use the same payload. */ }
   }, [storageKey, experience]);
   if (!source || (experience && experience.lifecycle !== "active")) return null;
   const create = !experience;
+  const keptIds = changedMode ? selectedIds : membershipLocked ? experience?.items.map(item => item.itemId) ?? [] : source.items.map(item => item.itemId);
+  const refreshableItems = experience?.items.filter(item => keptIds.includes(item.itemId) && item.availability !== "missing") ?? [];
   const suggestedSituation = suggestion?.suggestionContext ?? (experience?.state.context.source === "suggestion" ? experience.state.context.rawOccasion : "");
   async function submit() {
     if (busyRef.current || !source) return;
@@ -90,6 +99,8 @@ export default function WearForm({ user, suggestion, experience, closet = [], on
         context: context.trim() || experience?.state.context.source === "user" || (experience && !experience.source && confirmSuggestion !== experience.state.context.confirmed) ? { kind: "user", text: context } : { kind: "suggestion", confirmed: confirmSuggestion },
         outcome, compositionStatus: changedMode ? "changed" : "as_shown",
         ...(changedMode ? { memberItemIds: selectedIds } : {}),
+        ...(experience && photoRefreshIds.some(id => refreshableItems.some(item => item.itemId === id))
+          ? { photoRefreshItemIds: photoRefreshIds.filter(id => refreshableItems.some(item => item.itemId === id)) } : {}),
       },
     };
     const submittedKey = storageKey;
@@ -116,6 +127,7 @@ export default function WearForm({ user, suggestion, experience, closet = [], on
     <button type="button" className="font-medium text-blue-700 underline" onClick={() => setOpen(!open)}>{open ? "Close wear form" : create ? "Report what I wore" : "Correct wear report"}</button>
     {open && <div className="mt-3 space-y-3 rounded-lg bg-white p-3 border border-slate-200">
       <p className="text-slate-700">Report only pieces you actually wore. The shown suggestion stays as the source; a like or saved idea is not wear.</p>
+      <p className="text-slate-600">This report keeps the available garment photos even if you later replace them or remove the pieces from your closet. Erasing the report releases its photos; other saved records may still keep them.</p>
       <fieldset disabled={!!pending} className="space-y-2"><legend className="font-medium">What did you actually wear?</legend>
         <label className="mr-4"><input type="radio" name={`composition-${storageKey}`} checked={!changedMode} disabled={membershipLocked && experience?.state.compositionStatus === "changed"} onChange={() => { setChangedMode(false); setSelectedIds(source.items.map(item => item.itemId)); }} /> Same as suggested</label>
         <label><input type="radio" name={`composition-${storageKey}`} checked={changedMode} disabled={!source.items.length && experience?.state.compositionStatus !== "changed"} onChange={() => setChangedMode(true)} /> I changed some pieces</label>
@@ -139,6 +151,13 @@ export default function WearForm({ user, suggestion, experience, closet = [], on
         {!source.items.length && <p className="text-amber-700">The original suggestion is unavailable. You can correct other details while keeping these reported pieces.</p>}
         <p className="text-slate-600">Keep at least one suggested piece. Choose a dress or a top and bottom, with optional outer layer and shoes. For separates, you can add one top marked as a mid layer over a base top; two mid layers are not supported. Currently unavailable closet pieces can still describe a past wear.</p>
       </div>}
+      {!!refreshableItems.length && <fieldset disabled={!!pending} className="space-y-2 rounded border p-2">
+        <legend className="font-medium">Garment photos</legend>
+        <p className="text-slate-600">Corrections keep the recorded garment photos. Choose a piece below to capture its current closet photo for this report. These photos identify the garments; they do not show the outfit you wore.</p>
+        {refreshableItems.map(item => <label key={item.itemId} className="block"><input type="checkbox"
+          checked={photoRefreshIds.includes(item.itemId)} onChange={event => setPhotoRefreshIds(ids => event.target.checked
+            ? [...ids, item.itemId] : ids.filter(id => id !== item.itemId))} /> Capture current garment photo for {item.name}</label>)}
+      </fieldset>}
       <label className="block">Date worn <input aria-label="Date worn" type="date" value={date} max={localDate(timezone).occurredOn} disabled={!!pending} onChange={e => setDate(e.target.value)} className="ml-2 border rounded p-1" /></label>
       <label className="block">Actual situation <input aria-label="Actual situation" type="text" maxLength={200} value={context} disabled={!!pending} onChange={e => setContext(e.target.value)} placeholder="e.g. class" className="ml-2 border rounded p-1" /></label>
       {!!suggestedSituation && <label className="block"><input type="checkbox" checked={confirmSuggestion} disabled={!!context.trim() || !!pending} onChange={e => setConfirmSuggestion(e.target.checked)} /> I wore it for the suggested situation: {suggestedSituation}</label>}

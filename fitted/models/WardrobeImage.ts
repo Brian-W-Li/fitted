@@ -13,6 +13,9 @@ const WardrobeImageSchema = new Schema(
     attachmentLease: { type: String },
     generationLeases: { type: [String], default: [] },
     snapshotRetained: { type: Boolean, default: false },
+    // One owner-scoped hold per wear report protects all its retained revisions.
+    // Atomic report erasure releases these holds; account erasure bypasses all holds.
+    wearReferences: { type: [String], default: undefined },
     sizeBytes: { type: Number, required: true },     // original bytes length (before base64)
   },
   { timestamps: true },

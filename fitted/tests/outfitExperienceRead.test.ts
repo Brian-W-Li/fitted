@@ -7,6 +7,7 @@ import OutfitExperience, { experienceCollection } from "@/models/OutfitExperienc
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import OutfitInteraction from "@/models/OutfitInteraction";
 import WardrobeItem from "@/models/WardrobeItem";
+import WardrobeImage from "@/models/WardrobeImage";
 import User from "@/models/User";
 import { ExperienceStore } from "@/lib/outfitExperience/store";
 import { getExperience, getSuggestion, recallExperiences, recentSuggestions } from "@/lib/outfitExperience/read";
@@ -186,4 +187,62 @@ it("saved unlayered proposal explains the original layer option without claiming
   expect(suggestion.weatherSignals).toEqual({ rain: true, wind: false });
   expect(suggestion.layerChoice?.note).toContain("This proposal does not include an outer layer");
   expect((await GenerationSnapshot.collection.findOne({ _id: f.snapshotId }))?.layerChoice).toEqual(offered);
+});
+
+
+async function capturedPhotoRecord() {
+  const f = await experienceFixture();
+  const bottom = await WardrobeItem.create({ user: f.owner, name: "Captured trousers", clothingType: "bottom", category: "bottom", warmth: 4, colors: ["black"] });
+  const images = await Promise.all([f.itemId, String(bottom._id)].map(wardrobeItem => WardrobeImage.create({
+    user: f.owner, wardrobeItem, base64: "private-pixels", contentType: "image/png", sizeBytes: 10,
+  })));
+  await new ExperienceStore({ now }).create(f.owner, f.input);
+  const members = [{ itemId: f.itemId, name: "Green shirt", clothingType: "top",
+    photo: { imageRef: `mongo:${images[0]._id}`, origin: "suggestion", capturedAt: now().toISOString() } },
+  { itemId: String(bottom._id), name: "Captured trousers", clothingType: "bottom",
+    photo: { imageRef: `mongo:${images[1]._id}`, origin: "wardrobe", capturedAt: now().toISOString() } }];
+  // Native captured fixture isolates read semantics; production capture/validation has its own tests.
+  await experienceCollection().updateOne({ user: new Types.ObjectId(f.owner), experienceId: f.input.experienceId },
+    { $set: { memberItemIds: members.map(item => new Types.ObjectId(item.itemId)),
+      "revisions.0.state.compositionStatus": "changed", "revisions.0.state.memberItems": members } } as never);
+  return { f, bottom, images, members };
+}
+
+it("shows captured photos for added actual garments after the suggestion is unavailable", async () => {
+  const { f, bottom, images } = await capturedPhotoRecord();
+  await GenerationSnapshot.collection.updateOne({ _id: f.snapshotId }, { $set: { redacted: true } });
+  await WardrobeItem.deleteOne({ _id: bottom._id });
+  const view = await getExperience(f.owner, f.input.experienceId);
+  expect(view.sourceAvailable).toBe(false);
+  expect(view.items).toMatchObject([{ imageUrl: `mongo:${images[0]._id}` },
+    { imageUrl: `mongo:${images[1]._id}`, availability: "missing" }]);
+  expect(JSON.stringify(view)).not.toContain("private-pixels");
+});
+
+it("keeps explicit missing capture separate from legacy source fallback", async () => {
+  const { f, members } = await capturedPhotoRecord();
+  await experienceCollection().updateOne({ experienceId: f.input.experienceId },
+    { $set: { "revisions.0.state.memberItems": [{ ...members[0], photo: null },
+      { itemId: members[1].itemId, name: members[1].name, clothingType: "bottom" }] } } as never);
+  const view = await getExperience(f.owner, f.input.experienceId);
+  expect(view.items?.[0].imageUrl).toBeNull();
+  expect(view.items?.[1].imageUrl).toBeNull();
+  await experienceCollection().updateOne({ experienceId: f.input.experienceId },
+    { $unset: { "revisions.0.state.memberItems.0.photo": "" } });
+  expect((await getExperience(f.owner, f.input.experienceId)).items?.[0].imageUrl).toBe("mongo:synthetic");
+  await GenerationSnapshot.collection.updateOne({ _id: f.snapshotId }, { $set: { redacted: true } });
+  expect((await getExperience(f.owner, f.input.experienceId)).items?.[0].imageUrl).toBeNull();
+});
+
+it("suppresses missing, foreign-owner and other-garment captured photos", async () => {
+  const { f, images, members } = await capturedPhotoRecord();
+  const other = await experienceFixture();
+  await WardrobeImage.updateOne({ _id: images[0]._id }, { $set: { user: other.owner } });
+  await WardrobeImage.updateOne({ _id: images[1]._id }, { $set: { wardrobeItem: other.itemId } });
+  let view = await getExperience(f.owner, f.input.experienceId);
+  expect(view.items?.map(item => item.imageUrl)).toEqual([null, null]);
+  await WardrobeImage.deleteMany({ _id: { $in: images.map(image => image._id) } });
+  view = await getExperience(f.owner, f.input.experienceId);
+  expect(view.items?.map(item => item.imageUrl)).toEqual([null, null]);
+  expect(view.state?.memberItems).toEqual(members);
 });

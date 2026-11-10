@@ -179,3 +179,22 @@ it("bounds lifetime retry markers without blocking removal or date corrections t
   await store().remove(f.owner, input.planId);
   expect(await store().list(f.owner)).toEqual({ plans: [] });
 });
+
+
+it("refuses plan reads and retries once account erasure has started", async () => {
+  const f = await experienceFixture(); const input = command(f);
+  await store().create(f.owner, input);
+  await User.updateOne({ _id: f.owner }, { $set: { erasureStarted: true } });
+  await expect(store().list(f.owner)).rejects.toMatchObject({ status: 410, code: "account_unavailable" });
+  await expect(store().create(f.owner, input)).rejects.toMatchObject({ status: 410, code: "account_unavailable" });
+});
+
+it("does not commit a plan admitted before erasure but written after its barrier", async () => {
+  const f = await experienceFixture(); const input = command(f);
+  const pending = new OutfitPlanningStore({ now, beforeWrite: async () => {
+    await User.updateOne({ _id: f.owner }, { $set: { erasureStarted: true } });
+  } });
+  await expect(pending.create(f.owner, input)).rejects.toMatchObject({ status: 410, code: "account_unavailable" });
+  const owner = await User.collection.findOne({ _id: new Types.ObjectId(f.owner) });
+  expect(owner!.outfitPlans ?? []).toEqual([]);
+});

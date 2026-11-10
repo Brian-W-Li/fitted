@@ -1,109 +1,17 @@
-# Fitted ML System
+# Fitted Python engine and service
 
-> **Two layers live here — don't confuse them:**
-> - **`fitted_core/`** — the **v2 substrate** (the current focus). Pure-function contracts +
->   sampler for the GPT-orchestration refactor, built test-first under `tests/` (pytest).
->   Authoritative design: `docs/Fitted_Spec_v2.md` + `docs/plans/m0-m1-substrate.md` (M0/M1, completed) + `docs/plans/m2-validator.md` (M2, completed) + `docs/plans/m3-ranker.md` (M3, completed) + `docs/plans/spearhead.md` (Spearhead, completed).
->   **M0–M3 + Spearhead complete — sampler substrate (partition, caps, 70/30 `SignalScorer` seam, candidate scaling, `build_candidate_pool` entry point), the M2 GPT-response validator (parse, strict schema, SlotMap/pool validation, keys + dedup, StyleMove, candidate bounds), the M3 ranker (Step-4 filters, additive scoring, diversity, fallback ladder, deterministic tie-break), and the Spearhead orphan-rescue vertical: the `Generator` seam (`generation.py` — the lone lazy-`openai` IO boundary), rescue orchestration (`rescue.py` — forced-item pin, H22 sufficiency, generate→parse→validate→drop→rank), the post-rank response layer (`response.py` — cold-start `compatibility`/`visibility` → `optionPath`/`risk` + 2-D spread), and the C6 eval surface (`evaluation.py`/`cli.py`). M4 (data path + dormant snapshot substrate, C1–C8) shipped — M4a (DB wipe, 5-value `clothingType` + keyword-derived `warmth`, PreferenceSummary rip) live, M4b (GenerationSnapshot model/serde/cascade) dormant; the H26 compatibility spike is DONE (C1–C6, 2026-07-05; verdict NO-GO by the frozen letter — deliverable `experiments/h26/results.md`); next active work: the M5 cutover (`docs/Fitted_Spec_v2.md` §20).**
-> - **`outfit_recommender.py`** — the **legacy rule-based demo** (Issue #32, below). Kept as a
->   runnable reference only; retired at M6 when the trained scorer lands. Not the architecture.
->
-> The rest of this file documents the legacy demo.
+The authenticated [service](service/app.py) calls [fitted_core](fitted_core/).
+The engine samples owned garments, generates bounded drafts, validates composition,
+ranks and diversifies candidates, and captures shown-generation evidence.
+[generation.py](fitted_core/generation.py) is the explicit model-SDK/network boundary.
+Next.js owns authentication, Mongo queries and persistence; the core owns no database.
 
----
+[Root setup](../README.md#run-locally), [the documentation map](../docs/README.md),
+[the specification](../docs/Fitted_Spec_v2.md) and [the roadmap](../docs/ROADMAP.md)
+own setup, authority, design and current execution respectively.
+Existing feedback uses item IDs and exact outfit signatures. A trained head has no
+production vote; the selected learning contract remains development work.
 
-## Legacy demo (Issue #32)
-
-### What This Does
-
-Rule-based outfit recommendation system that:
-1. Takes clothing items from user's wardrobe
-2. Generates outfit combinations (top + bottom + shoes)
-3. Scores them based on rules (color matching, patterns, occasion)
-4. Returns top recommendations
-
----
-
-## Quick Demo
-
-```bash
-cd ml-system
-python3 outfit_recommender.py
-```
-
-Youll see outfit recommendations for different occasions.
-
----
-
-## How It Works
-
-### Input:
-```python
-ClothingItem(
-    id="shirt1",
-    category="top",
-    color="#0066CC",     # For example, Lets take blue.
-    pattern="solid",
-    style="casual"
-)
-```
-
-### Rules Applied:
-1. **Color Matching**
-   - Neutrals (black, white, gray) match everything
-   - Max 3 different colors per outfit
-   - Score: -20 if colors clash
-
-2. **Pattern Mixing**
-   - Solid + solid = OK
-   - Solid + pattern = OK
-   - Pattern + pattern = risky
-   - Score: -15 if too many patterns
-
-3. **Occasion Matching**
-   - Casual: casual/athletic styles OK
-   - Business: business/formal styles OK
-   - Score: -25 if wrong occasion
-
-### Output:
-```python
-Outfit(
-    top=blue_shirt,
-    bottom=black_jeans,
-    shoes=white_sneakers,
-    score=95,
-    reason="colors match well, appropriate for casual"
-)
-```
-
----
-
-## Legacy ML Note
-
-This section describes the old demo seam only. The current v2 ML seam is `fitted_core`'s
-`SignalScorer`; see `docs/Fitted_Spec_v2.md` and `docs/plans/m0-m1-substrate.md`.
-
-```python
-# Current (rules):
-def _score_outfit(self, top, bottom, shoes, occasion):
-    score = 100
-    if not self._colors_match(...):
-        score -= 20
-    return score
-
-# Legacy idea (not the v2 plan):
-def _score_outfit(self, top, bottom, shoes, occasion):
-    features = self._extract_features(top, bottom, shoes, occasion)
-    score = ml_model.predict(features)  # ← Just change this!
-    return score
-```
-
-The v2 implementation does not keep this interface; it retires the demo at M6.
-
----
-
-## Files
-
-- `outfit_recommender.py` - Main recommendation engine
-- `cv-integration.md` - What CV team provides
-- `README.md` - This file
+Run `python -m pytest tests service/tests -q` from this directory. Tests use injected
+generators; they do not require paid model calls. The historical rule-based example
+is not the production engine.

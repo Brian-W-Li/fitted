@@ -623,3 +623,23 @@ describe("exportTrack2 — photo-less items are COUNTED, not silently invisible 
     expect(manifest.counts.labeledExamplesNotImageUsable).toBe(0);
   });
 });
+
+
+describe("reason amendments preserve exported label provenance", () => {
+  it("keeps raw events while exporting effective reasons at the original vote time", async () => {
+    const user = oid(), snapshot = makeSnapshot(user, String(oid()), String(oid()));
+    const vote = { _id: oid(), user, snapshotId: snapshot._id, candidateId: "cand1", baseKey: "b", fullSignature: "sig",
+      items: ["item1", "item2"], action: "rejected", createdAt: new Date("2026-07-01T00:00:00Z"),
+      feedbackReason: { codes: ["not_me"], source: "user" } };
+    const amendment = { ...vote, _id: oid(), action: undefined, eventKind: "reason_amendment", reactionId: vote._id,
+      createdAt: new Date("2026-07-02T00:00:00Z"), feedbackReason: { codes: ["wrong_context"], source: "user" } };
+    await db.collection("generationsnapshots").insertOne(snapshot);
+    await db.collection("outfitinteractions").insertMany([vote, amendment]);
+    await exportTrack2({ db, outDir, userFilter: user });
+    expect(readJsonl(outDir, "interactions_raw.jsonl")).toHaveLength(2);
+    expect(readJsonl(outDir, "interactions_latest.jsonl")[0]).toMatchObject({ _id: String(vote._id),
+      createdAt: "2026-07-01T00:00:00.000Z", feedbackReason: { codes: ["wrong_context"] } });
+    expect(readJsonl(outDir, "training_examples.jsonl")[0]).toMatchObject({ label: "rejected",
+      labeledAt: "2026-07-01T00:00:00.000Z", feedbackReason: { codes: ["wrong_context"] } });
+  });
+});

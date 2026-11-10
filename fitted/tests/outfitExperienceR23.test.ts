@@ -61,7 +61,7 @@ it("accepts an eligible mid as the sole top without relabeling that unlayered ou
   await store.create(f.owner, changed(f.input, [w.mid, w.bottom]));
   const saved = await experienceCollection().findOne({ experienceId: f.input.experienceId });
   expect(saved!.revisions![0].state.memberItems).toEqual([
-    { itemId: w.mid, name: "Quarter zip", clothingType: "top" }, { itemId: w.bottom, name: "Trousers", clothingType: "bottom" },
+    { itemId: w.mid, name: "Quarter zip", clothingType: "top", photo: null }, { itemId: w.bottom, name: "Trousers", clothingType: "bottom", photo: null },
   ]);
 });
 

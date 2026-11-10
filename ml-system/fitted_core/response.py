@@ -32,6 +32,7 @@ Sources: docs/Fitted_Spec_v2.md §6.5/§11/§12 (H20), docs/plans/spearhead.md �
 """
 
 import itertools
+import math
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Mapping, Optional, Protocol
@@ -545,6 +546,7 @@ def select_spread(
     variants_by_full_signature: Mapping[str, OutfitVariant],
     n: int,
     reserve_layer: bool = False,
+    *, selection_scores: Optional[Mapping[str, float]] = None,
 ) -> tuple[list[OutfitVariant], bool]:
     """Pick ≤ `n` variants spanning distinct `(path, risk)` cells (spearhead.md §G; selection-only).
 
@@ -554,14 +556,29 @@ def select_spread(
     (real ranker scores, M6) → the ranker score leads and `compatibility` only breaks ties. Then
     greedily takes the first variant that opens a new `(path, risk)` cell, up to `n`.
 
+    Optional selection_scores replaces only the ordering score for an explicit local
+    experiment. It must cover exactly the survivor signatures with finite numbers.
+    Original scores/breakdowns stay unchanged; normal serving supplies no map.
+
     When distinct cells can't be filled (clustered/bland closet), it falls back to the top-`n` in
     that same order — and `spread_collapsed` reports it: `True` iff two surfaced variants share a
     cell (a duplicate cell had to pad the set). Fully deterministic (no new RNG — `full_signature`
     is unique per pass, M2 dedup), never recomputes a score, never pads with a duplicate variant.
     """
+    # Local selection experiments may supply a separate order score. No production
+    # caller supplies it; original variant/ranker scores and trace stay immutable.
+    order_scores = None
+    if selection_scores is not None:
+        expected = {outfit.full_signature for outfit in ranked.outfits}
+        if set(selection_scores) != expected:
+            raise ValueError("selection scores must cover exactly the survivor pool")
+        if any(type(v) not in (int, float) or not math.isfinite(v) for v in selection_scores.values()):
+            raise ValueError("selection scores must be finite numbers")
+        order_scores = dict(selection_scores)
     ordered = sorted(
         (variants_by_full_signature[outfit.full_signature] for outfit in ranked.outfits),
-        key=lambda v: (-v.score, -v.compatibility, v.full_signature),
+        key=lambda v: (-(v.score if order_scores is None else order_scores[v.full_signature]),
+                       -v.compatibility, v.full_signature),
     )
 
     selected: list[OutfitVariant] = []

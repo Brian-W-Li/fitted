@@ -310,3 +310,31 @@ describe("GET /api/wardrobe — the read that returns a whole closet", () => {
     expect(MAX_ITEMS_PER_USER).toBeLessThanOrEqual(MAX_WARDROBE_ITEMS);
   });
 });
+
+it("serializes concurrent creates at the wardrobe ceiling without borrowing another owner's capacity", async () => {
+  const { MAX_ITEMS_PER_USER } = await import("@/lib/wardrobeLimits");
+  const { rendezvous } = await import("./helpers/experienceFixture");
+  await WardrobeItem.collection.insertMany(Array.from({ length: MAX_ITEMS_PER_USER - 1 }, (_, i) => ({
+    user: new User.base.Types.ObjectId(userId), name: `Seed ${i}`, category: "top", clothingType: "top", warmth: 5,
+  })));
+  const other = await User.create({ authProvider: "firebase", authId: "capacity-bystander", email: "capacity-bystander@x.com" });
+  await WardrobeItem.create({ user: other._id, name: "Bystander tee", category: "top", clothingType: "top", warmth: 5 });
+  const meet = rendezvous(2);
+  const start = User.db.startSession.bind(User.db);
+  let starts = 0;
+  const spy = jest.spyOn(User.db, "startSession").mockImplementation(async () => {
+    const session = await start();
+    if (++starts <= 2) await meet(); // Both commands have prepared before either starts its transaction.
+    return session;
+  });
+  try {
+    const responses = await Promise.all([post({ name: "First at capacity", category: "top" }), post({ name: "Second at capacity", category: "top" })]);
+    expect(responses.map(response => response.status).sort()).toEqual([201, 400]);
+    const refusal = responses.find(response => response.status === 400)!;
+    expect((await refusal.json()).error).toContain(`Wardrobe is full (${MAX_ITEMS_PER_USER} items max)`);
+  } finally { spy.mockRestore(); }
+  expect(await count()).toBe(MAX_ITEMS_PER_USER);
+  expect(await WardrobeItem.find({ user: other._id }).distinct("name")).toEqual(["Bystander tee"]);
+  expect((await post({ name: "Still full", category: "top" })).status).toBe(400);
+  expect(await count()).toBe(MAX_ITEMS_PER_USER);
+});

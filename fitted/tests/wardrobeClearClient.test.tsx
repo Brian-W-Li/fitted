@@ -19,6 +19,70 @@ const failed = (body: unknown) => ({ ok: false, status: 503, json: async () => b
 
 beforeEach(() => { window.confirm = jest.fn(() => true); });
 
+it("blocks overlapping item deletion and clear until the first mutation is reconciled", async () => {
+  let finish!: (response: Response) => void;
+  let writes = 0;
+  global.fetch = jest.fn(async (url: string, options?: RequestInit) => {
+    if (url === "/api/wardrobe" && !options?.method) return ok({ items: [item] });
+    if (options?.method === "DELETE") { writes++; return new Promise<Response>(resolve => { finish = resolve; }); }
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as unknown as typeof fetch;
+  render(<WardrobePage />);
+  await screen.findByText("Green shirt");
+  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await waitFor(() => expect(writes).toBe(1));
+  try {
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Deleting|Delete all/ })).toBeDisabled();
+  } finally {
+    await act(async () => finish(ok({ ok: true, itemDeleted: true, cleanupComplete: true })));
+  }
+  expect(writes).toBe(1);
+  expect(screen.getByRole("button", { name: "Delete all" })).toBeEnabled();
+});
+
+it.each(["item", "clear", "malformed item"])("treats a successful %s status without a complete deletion receipt as uncertain", async kind => {
+  let reads = 0;
+  global.fetch = jest.fn(async (url: string) => {
+    if (url === "/api/wardrobe") return ok({ items: ++reads === 1 ? [item] : [] });
+    if (url === "/api/wardrobe/shirt" || url === "/api/wardrobe/clear") return kind === "malformed item"
+      ? { ...ok({}), json: async () => { throw new Error("synthetic malformed JSON"); } }
+      : ok({ ok: true });
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as unknown as typeof fetch;
+  render(<WardrobePage />);
+  await screen.findByText("Green shirt");
+  await userEvent.click(screen.getByRole("button", { name: kind === "clear" ? "Delete all" : "Delete" }));
+  expect(await screen.findByRole("button", { name: kind === "clear" ? "Retry delete / cleanup" : "Retry deletion / photo cleanup for Green shirt" })).toBeEnabled();
+  expect(screen.queryByText("Green shirt")).not.toBeInTheDocument();
+  expect(reads).toBe(2);
+});
+
+it.each(["partial", "transport"])("reconciles a %s item deletion and keeps targeted cleanup retry after its row disappears", async failure => {
+  let reads = 0, deletes = 0;
+  global.fetch = jest.fn(async (url: string, options?: RequestInit) => {
+    if (url === "/api/wardrobe" && !options?.method) return ok({ items: ++reads === 1 ? [item] : [] });
+    if (url === "/api/wardrobe/shirt" && options?.method === "DELETE") {
+      if (++deletes > 1) return ok({ ok: true, itemDeleted: true, cleanupComplete: true });
+      if (failure === "transport") throw new Error("synthetic connection loss");
+      return failed({ itemDeleted: true, cleanupComplete: false, error: "Garment deleted, but photo cleanup is incomplete. Retry cleanup." });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as unknown as typeof fetch;
+  const logging = jest.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    render(<WardrobePage />);
+    await screen.findByText("Green shirt");
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const retry = await screen.findByRole("button", { name: "Retry deletion / photo cleanup for Green shirt" });
+    await waitFor(() => expect(screen.queryByText("Green shirt")).not.toBeInTheDocument());
+    expect(retry).toBeEnabled();
+    await userEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Retry deletion \/ photo cleanup/ })).not.toBeInTheDocument());
+    expect(deletes).toBe(2);
+  } finally { logging.mockRestore(); }
+});
+
 it("replaces stale garments after a partial clear and allows cleanup retry with an empty list", async () => {
   let reads = 0;
   let clears = 0;

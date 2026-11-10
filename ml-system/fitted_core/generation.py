@@ -265,6 +265,19 @@ class OpenAIGenerator:
         return values
 
     def generate(self, prompt: GenerationPrompt) -> str:
+        return self._generate(prompt, self._timeout_seconds)
+
+    def generate_with_timeout(self, prompt: GenerationPrompt, timeout_seconds: float) -> str:
+        """Lower the SDK inactivity timeout for one dispatch; never mutate the configured ceiling.
+
+        This does not forcibly cancel remote work or establish a total HTTP wall-clock deadline.
+        """
+        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be finite and positive")
+        timeout = min(timeout_seconds, self._timeout_seconds) if self._timeout_seconds is not None else timeout_seconds
+        return self._generate(prompt, timeout)
+
+    def _generate(self, prompt: GenerationPrompt, timeout_seconds: Optional[float]) -> str:
         # Cleared before anything can raise: on a reused generator, an SDK/import error
         # must never leave the *previous* call's usage/finish status observable — C3 reads
         # `last_finish_status` per attempt for §D degenerate-corpus routing, so a stale
@@ -278,8 +291,8 @@ class OpenAIGenerator:
         client_kwargs: dict[str, object] = {}
         if self._api_key:
             client_kwargs["api_key"] = self._api_key
-        if self._timeout_seconds is not None:
-            client_kwargs["timeout"] = self._timeout_seconds
+        if timeout_seconds is not None:
+            client_kwargs["timeout"] = timeout_seconds
         if self._max_retries is not None:
             client_kwargs["max_retries"] = self._max_retries
         client = OpenAI(**client_kwargs)

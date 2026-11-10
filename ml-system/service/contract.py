@@ -338,6 +338,10 @@ def cross_runtime_mirror() -> dict:
             "runtime matches these, so a one-sided edit reddens a suite instead of drifting silently "
             "(post-m5-reset §4.1 C1/C2/C4)."
         ),
+        "renderPolicy": {
+            "modelDispatchBudgetSeconds": cfg.MODEL_DISPATCH_BUDGET_SECONDS,
+            "minRepairBudgetSeconds": cfg.MIN_REPAIR_BUDGET_SECONDS,
+        },
         "clamps": dict(CROSS_RUNTIME_CLAMPS),
         "reducerScanBounds": dict(CROSS_RUNTIME_REDUCER_SCAN_BOUNDS),
         "generatorExpectation": dict(CROSS_RUNTIME_GENERATOR_EXPECTATION),

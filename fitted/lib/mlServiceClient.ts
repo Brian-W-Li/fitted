@@ -16,27 +16,18 @@
  */
 import type { RenderBody } from "@/lib/mlRequestAdapter";
 
-/** Next's own timeout for the whole service round-trip. Must exceed the service's OpenAI timeout
- *  (the cross-runtime-pinned generatorExpectation.timeoutSeconds) + overhead and sit below the
- *  route `maxDuration` (§D/G6 — tuned at route integration; margin test-enforced in
- *  crossRuntimeContract.test.ts).
- *  A garbage env override falls back to the default (a NaN would make AbortSignal.timeout throw,
- *  degrading every call). */
+/** Next's timeout for the whole service round-trip. It includes the service's
+ * model dispatch budget plus transport, validation and selection overhead. The
+ * cross-runtime contract checks the margin. Provider SDK timeouts bound network
+ * inactivity; the dispatch budget does not forcibly cancel an already-running call. */
 function envTimeoutMs(): number {
   const raw = process.env.ML_SERVICE_TIMEOUT_MS;
   if (raw == null) return 45_000;
   const n = Number(raw);
-  // Clamp an operator override into [35s, 50s]. Upper bound: well under the route maxDuration (60s),
-  // leaving ~10s for the pre-service Mongo reads + post-service write — the recommend route's
-  // documented PRE + SERVICE_TIMEOUT + WRITE_MARGIN < 60s budget — so the AbortSignal.timeout degrade
-  // wins the race against Vercel's raw-504 kill (not an absolute guarantee under a pathological
-  // cold-start). Lower bound: the SAME single-call margin the crossRuntimeContract margin test
-  // enforces — client ≥ the service's OpenAI per-call timeout (30s) + 5s overhead. A fat-fingered
-  // tiny value (e.g. 1000) would otherwise abort EVERY render while the service still spends the full
-  // gpt-5.4-mini call (burned money, zero yield); a value in (0, 35s) would abort mid-first-call for
-  // the same effect. The unset default (45s) carries the full ~15s margin. (The service's TWO-call
-  // worst case exceeds even 50s — that is the deeper DEFECTS-H76 budget gap, a deploy-config decision.)
-  return Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, 35_000), 50_000) : 45_000;
+  // Service model dispatch budget: 32s. Preserve at least 5s round-trip overhead.
+  // The 50s upper clamp leaves nominal room for Mongo work within the route's
+  // 60s maxDuration. Slow infrastructure can still exhaust that outer deadline.
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, 37_000), 50_000) : 45_000;
 }
 export const SERVICE_TIMEOUT_MS = envTimeoutMs();
 

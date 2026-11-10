@@ -1,48 +1,7 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Fitted web app
 
-## Getting Started
+This is the Next.js interface and authenticated API. [Root setup](../README.md#run-locally) owns environment/build instructions; [the documentation map](../docs/README.md) owns authority and [the roadmap](../docs/ROADMAP.md) owns active work. Do not infer deployment from this checkout's branch name.
 
-First, run the development server:
+The browser reaches authenticated routes, which load owned wardrobe data and call the Python service. Shown generations, reactions, actual wear and planning intent have different storage and semantics; see [the database source map](docs/database.md).
 
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-
-## Database (MongoDB)
-
-This project uses MongoDB via Mongoose for user accounts, wardrobe items, wardrobe images, outfit
-interactions, and the dormant M4b `GenerationSnapshot` model.
-
-1) Install deps: `npm install` (adds `mongoose`).
-2) Configure `.env.local` with `MONGODB_URI=<your connection string>`.
-3) Use `initDatabase()` from `@/lib/db` inside API routes/server actions to connect and register indexes.
-
-## Auth
-Authentication is handled via Firebase Auth (Google sign-in).
-Each developer must create a `.env.local` with Firebase config values.
-
-### Schemas
-
-`models/*.ts` is authoritative for the live Mongo shape. For a short current reference, read
-`docs/database.md`; for v2 targets and deferred design decisions, read `../docs/Fitted_Spec_v2.md`.
+For changes, follow [AGENTS.md](../AGENTS.md). Run web checks from this directory. Production uses the paired web/Python deployment; generic Next.js deployment instructions are not Fitted's release procedure. Source/tests establish behavior and the roadmap distinguishes local, CI and hosted evidence.

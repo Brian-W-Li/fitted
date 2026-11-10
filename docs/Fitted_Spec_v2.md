@@ -1,8 +1,8 @@
 # Fitted — Technical & Product Specification v2
 
 > **Status:** Canonical, editable, living. This document **supersedes** the retired v1.2 PDF,
-> `docs/plans/spec-resolutions.md`, and `docs/scope-decisions.md`. Those are retired to history (git
-> preserves them); their decisions are folded in here, with the old `R#`/`S#`/`N#` identifiers mapped in
+> the retired resolution ledgers. Their decisions are folded in here; Git preserves
+> the ledgers, with the old `R#`/`S#`/`N#` identifiers mapped in
 > **Appendix A — Concordance** so existing cross-references still resolve.
 >
 > **Why v2 exists:** v1.2 was a PDF. We could not edit it, so every decision became an *addendum* in a
@@ -13,15 +13,14 @@
 
 ## 0. How to read this document
 
-**Precedence.** This file is authoritative. Where two sentences here conflict, the more specific section
-wins, and the conflict is a bug to fix in place (see §22, the doc-lifecycle rules carried over from
-`CLAUDE.md`).
+**Precedence.** This file owns product and technical design; source/tests establish current behavior. The roadmap owns current execution. Where two sentences here conflict, the more specific section
+wins, and the conflict is a bug to fix in place (see the documentation map and `AGENTS.md`).
 
 **Single-home rule.** Every concept is defined in exactly one section. Other sections *point* (`see §X`),
 never restate. Duplication is how docs drift.
 
 **Build-ladder tags.** This is an ambitious architecture built with humble first mechanisms. Every feature
-carries a rung so the spec doubles as a build order:
+retains its original design tag for historical dependency context. These tags do not report shipped behavior or select current work; [the roadmap](ROADMAP.md) owns execution:
 
 | Tag | Meaning |
 |---|---|
@@ -41,9 +40,8 @@ carries a rung so the spec doubles as a build order:
 - *The app stays working at every step.* The legacy recommendation vertical is replaced behind a feature
   flag, not ripped out before its replacement exists (§19).
 
-**Open holes.** Every known **design** gap is registered in **§23 (Open Holes Register)**; **defect**
-rows live in `docs/DEFECTS.md` (the D6a split — the classifier is in that file's header). There are no
-silent holes. If you find one, add it to the right register and resolve or mark it in the same edit.
+**Open holes.** Material **design** gaps are registered in **§23 (Open Holes Register)**; **defect**
+rows live in `docs/DEFECTS.md` (the D6a split — the classifier is in that file's header). Record material issues in the owning register or current roadmap; do not turn every minor observation into a new plan or prose row.
 
 ---
 
@@ -51,29 +49,42 @@ silent holes. If you find one, add it to the right register and resolve or mark 
 
 ## 1. Vision & the green-shirt promise
 
-Fitted helps **style-stuck people who own plenty of clothes** wear the better outfits already hiding in
-their closet. The user owns pieces they like but keeps dressing from the same small, safe subset because,
-in their head, those are the only items with trusted connections.
+Fitted should provide a personal stylist's judgment on demand through quick visual
+wardrobe interactions. A person can give a brief intention for today, tomorrow or
+the week, compare usable outfits from actual owned clothes, try/adjust/save/plan a
+look, and improve later choices through ordinary use. Outfit cards are the primary
+experience; daily chat or lengthy stylist interviews are not required.
 
-**The green-shirt story (the product's emotional core):**
+**Personal taste learning is a core product requirement.** Recommendations must
+meaningfully generalize from personal choices and experiences under the right style
+and context, beyond exact outfit recall or stored likes appended to a prompt.
+The particular learning model is an engineering choice that must earn production
+influence through appropriate evaluation. Track 2 closed the frozen catalog head's
+candidacy; it did not abandon this ambition. The current app is a foundation, not a
+demonstrated personal-taste learner.
 
-> The white hat, white shirt, and white pants feel connected — the user already trusts those combinations,
-> so they form a safe cluster. A liked-but-riskier piece (the green shirt) is an **orphan**: in the
-> morning it has no trusted edges, so the user retreats to the safe cluster. Fitted gives the green shirt
-> *believable connections* under a chosen context, and the ones the user actually wears become trusted.
+Serve crowded closets whose owners cannot see combinations, small curated closets
+whose owners want high use, and people with different seasonal/activity styles.
+An explicit style direction should steer a request. Optional automatic style
+selection is a separate design decision; liking one direction must not erase others.
 
-So Fitted is not only "recommend an outfit." It helps the user **build, see, and correct a personal style
-graph**: a network where clothing items are nodes and *style edges* are the wearable connections between
-them. Orphan items gain edges; worn edges strengthen; the closet stops feeling like five items.
+**The green-shirt promise:** turn a liked but avoided piece into believable owned
+combinations, starting from familiar anchors and opening room to explore. A reported
+wear records use; satisfaction and transferable pairing confidence require separately
+supported evidence. Maintain correction, scoped feedback and freedom to change taste.
 
-**The technical centerpiece (the ML dive).** Learning that graph from content + interaction data *is* the
-dive: content-based cold-start edges → behavioral edge strengthening → a trained scorer that predicts good
-connections (§11, `[STAGED]`). The graph and the ML dive are the same thing.
+Boards, routines, calendars and eventual visual tools serve this same intended
+experience: changing style intent becomes wearable personal progress. They are not
+a checklist of independent features. A short `StyleMove` is an output mechanic;
+learning, grounded selection and convenient execution are the product's substance.
+A graph is a possible relationship representation/view, not a required interface,
+database or particular learned model.
 
-**Positioning (what we are not).** Not an "AI closet app," not a digital-wardrobe tracker, not a
-virtual-try-on or shopping app, not a body/color-analysis quiz. Those are crowded or platform-owned. Our
-lane is **translation, diagnosis, and progression**: turning owned clothes + style intent into wearable
-outfits, teaching the one move that makes each work, and remembering context without trapping the user.
+The [full user stories](Fitted_Spec_v2_recovered_appendix.md#c1-detailed-user-stories-decisions-and-spec-implications)
+and C.0/C.8 preserve the comprehensive ambition. [The roadmap](ROADMAP.md) owns
+current scope; source/tests establish implementation. Honest missing garment facts,
+no-buy trust, exploration and user agency remain design constraints. Engineering
+conformance does not establish better taste or repeated usefulness.
 
 ## 2. The product loop & entry intents
 
@@ -111,7 +122,7 @@ not as a **secondary** inspection/correction/progress surface — a graph previe
 
 ## 3. Users & the experience ladder
 
-Designing for the user, value arrives as a ladder of felt moments — this is also the build order (§20):
+These felt moments explain the intended value. Their original tags/sequence are historical design context, not the current build order; the roadmap selects bounded work:
 
 1. **"Fitted gave my green shirt three believable ways to wear it for class."** — content edges + orphan
    rescue. *Day one, cold, no feedback needed.* `[NOW]`
@@ -120,7 +131,7 @@ Designing for the user, value arrives as a ladder of felt moments — this is al
    real worn/saved/rated outcome memory is a stronger later signal, never silently collapsed into
    `accepted`. `[NEXT]`
 3. **"My winter board came back when it got cold."** — dormant boards reviving. `[STAGED]`
-4. **"It learned my taste without trapping me."** — the learned edge scorer + anti-capture. `[STAGED]`
+4. **"It learned my taste without trapping me."** — context-aware personal learning + anti-capture, with its evaluated mechanism still to be chosen. `[STAGED]`
 
 **What success feels like:** *"I still look like myself, but less default."* "I used clothes I already
 owned." "I finally wore the piece I kept avoiding." "I understood the one thing that made it work." "It
@@ -176,24 +187,9 @@ The engine is a linear, non-overlapping pipeline (§9). Two stages are separated
 **Guiding principle:** Sampler bounds → Validator enforces that bound → Ranker decides. GPT performs no
 scoring or rule logic; the backend always owns final authority. GPT drift cannot corrupt scoring.
 
-**The replaceable seam (the ML dive plugs here).** The sampler's signal-selection slot exposes an item-level
-`SignalScorer` seam (§10, §11) for the **behavioral/personalization** scorer; the **content-compatibility** dive
-plugs a **distinct** pairwise/outfit-level seam (§23-H28). M5 lands the producer-side half only: an
-`OutfitScorer` is exercised while writing snapshots so `scoreTrace.compatibility/visibility` is populated
-without changing rank order. The additive rank-order hook on `RankerContext`/`rank()` is reserved for M6 entry;
-the trained graph scorer swaps in at `[STAGED]` with no other code change **once that hook lands**. This seam is
-the single most important structural deliverable.
+**Existing seams and future choices.** The item-level `SignalScorer` affects sampled pools when the signal branch is eligible; the outfit-level `OutfitScorer` supplies content diagnostics and response labels. A captured compatibility value does not establish a trained rank term. Existing response selection uses cold-start compatibility to break equal-score ties and diversify labels; that selection effect is distinct from ranker scoring. Current rank terms and final selection are owned by the ranker/response implementation (§§9/14/15).
 
-**What the engine is *today* vs. the destination** (read this before "style graph" misleads). At `[NOW]`
-the engine is a **closet-grounded GPT stylist with structured outputs and stable feedback keys**: GPT
-composes outfits fenced to the wardrobe + Lens, the deterministic ranker filters/diversifies them (the
-response layer buckets them into path/risk), and the response carries `baseKey`/`fullSignature`; feedback
-binds by `{snapshotId,candidateId}` and the server re-reads keys from the GenerationSnapshot (§15). Believability
-rides on **GPT's styling judgment fenced by the closet** — *not* a
-learned graph yet. The **personal style graph** is the brand, the metaphor, and the `[STAGED]` payoff:
-accumulated feedback + a learned compatibility model (§11) is what the data *grows into*. Same engine,
-different rungs — not the same moment. *(Seam caveat: "no other code change" holds only if the seam is the
-right shape — see §23-H28.)*
+**Current mechanism versus ambition.** A bounded stylist proposes owned combinations; structural validation, exact controls, deterministic feedback terms and diversity govern returned options. Like/dislike history can favor already-liked item IDs in new combinations and exact liked signatures, but it does not currently learn attribute relationships or style-specific taste. Wear outcomes remain separate. Personal learning must eventually generalize usefully under context (§1/§16); a graph, model family and integration point are implementation choices. The historical M6/catalog architecture is a candidate reference, not the prescribed destination or a permission to activate its frozen head. A future mechanism must influence actual final choices when justified, rather than merely add a trace or operate only on oversized closets.
 
 ## 6. Data model
 
@@ -221,11 +217,20 @@ breaking a stored identity/format — are the only kind worth pre-empting, and a
 key/snapshot holes, §7/§15/§23-H29/H30.)*
 
 ### 6.1 WardrobeItem `[NOW]`
+The wardrobe supports one optional main photo (`imagePath`, with legacy `imageUrl`)
+and up to two server-authored `supplementalImages` on the same garment. Add/edit can
+replace or remove a view; current-garment inspection enlarges it. Additional views
+are optional examples of front/back/detail capture, without mandatory view labels or
+full laid-out framing. They are excluded from CV/stylist/Python inputs and generation
+snapshots. Saved proposals keep their captured primary; their existing current-garment
+link opens the current views. This represents clothing more fully without claiming
+visual understanding, virtual try-on or improved recommendations.
+
 The node of the closet graph. Deployed schema carries
 `category`, `subCategory`, `pattern`, `colors[]`, `seasons[]`, `occasions[]`, `layerRole`, `brand`, `fit`,
 `size`, `isAvailable`, `isFavorite`, `lastWornAt`, `tags[]`. v2 adds the fields the engine actually
 conditions on, written natively by the rebuilt ingestion (no backfill of existing rows — M4 wipes the
-collection clean, since no real users accumulated against this fork; `docs/plans/m4-data-model-migration.md` §14):
+collection in the historical M4 migration; that executed wipe is not an instruction for existing accounts today; `docs/plans/m4-data-model-migration.md` §14):
 
 - **`clothingType` widened to 5 values** = `["top","bottom","dress","outer_layer","shoes"]` (exact
   underscore wire values = `fitted_core` `ItemType` member names, no translation table). The deployed enum
@@ -319,7 +324,7 @@ collection clean, since no real users accumulated against this fork; `docs/plans
   request adapter (§15), not the sampler.
 
 ### 6.4 The closet graph — ItemNode & StyleEdge (see §11 for behavior)
-- **Edges are stored sparsely**, only for item-pairs that have interaction history; **content
+- **Target graph representation, not a shipped edge collection:** edges would be stored sparsely for explicitly supported item-pair evidence (§16); **content
   compatibility is computed on demand by backend scoring functions** at request time, not materialized.
   **Lens is a feature on the interaction, not a separate edge table per lens** — edge-strength-under-a-lens
   is an aggregate query, not duplicated storage. This is what keeps the graph from exploding to O(lenses ×
@@ -327,7 +332,7 @@ collection clean, since no real users accumulated against this fork; `docs/plans
 
 ### 6.5 Outfit, OutfitVariant, StyleMove `[NOW]`
 - **Outfit** (API response object): `{id, templateType: two_piece|one_piece, items: [{itemId, role}],
-  score, scoreBreakdown}`. Items ordered base-roles-first, then outer, then shoes; optional roles omitted
+  score, scoreBreakdown}`. Items ordered base-roles-first, then optional mid, outer and shoes; optional roles omitted
   (no null fields). `templateType` is explicit; the UI never infers it.
 - **OutfitVariant**: response-layer wrapper around a validated, ranked outfit. The backend **response
   layer** (post-rank, *not* the closed ranker itself) assigns an `optionPath` (reliable|bridge|stretch)
@@ -343,21 +348,7 @@ collection clean, since no real users accumulated against this fork; `docs/plans
   "recommendation explanations" — a deliberate, recorded reversal; it is core to v2.)*
 
 ### 6.6 Feedback & memory
-- **OutfitInteraction** (deployed; reused and extended): already carries
-  `action ∈ {generated,accepted,rejected,saved,worn,rated}`, `rating`, `perItemFeedback:[{itemId,disliked,
-  notes}]`, `context:{weather,temperatureF,location,occasion}`. **Only `accepted`/`rejected` are written
-  today.** v2 uses existing `saved/worn/rated` actions and additively extends the enum for
-  `planned/packed/corrected` scoped-feedback events (§16) — **additive only: existing actions are never
-  renamed or removed** (posture rule 1). It also adds the **`{snapshotId, candidateId}`
-  binding** + **server-re-read `baseKey`/`fullSignature`** to each row (all nullable — present iff
-  snapshot-bound; pre-M5 legacy rows have none), plus the additive nullable **scope-vocab fields**
-  `scopeTarget?` / `learningDisposition?` (the feedback event's attach-point and its disposition; vocab +
-  semantics in §16, behavior `[STAGED]`). The immutable lens + item-feature snapshot lives **only** in
-  the referenced `GenerationSnapshot` (§15.1), never duplicated on the row; on snapshot-bound feedback the
-  server re-reads the candidate from the snapshot and never trusts client-echoed content (S4). Trainable "why" is captured
-  only by the structured `FeedbackReason` set (§16); no unstructured blurb is a **training label** — raw /
-  corrected user rationale is nonetheless **persisted with provenance** and excluded from training until
-  deliberately reviewed/compiled (§23-H34).
+- **OutfitInteraction:** the live reaction channel writes `accepted`/`rejected`; [the model](../fitted/models/OutfitInteraction.ts) owns the exact enum and reserved fields. Unused `planned`/`packed` scaffold does not implement planning events. Actual wear uses `OutfitExperience`, and dated intent uses the planning store (§16); do not reintroduce removed legacy verbs to collapse these records. Snapshot-bound reactions carry `{snapshotId,candidateId}` and server-read garment keys. The server verifies shown membership/ownership and never trusts echoed composition. Scope/disposition fields are design seams, not consumed context-aware learning. Structured reasons stay distinct from bounded raw rationale, which is provenance rather than a training label unless deliberately reviewed (§23-H34).
 - **StyleEdge memory** (§11): `compatibility` (content, derived) + `behavioralStrength` (sparse;
   non-negative in the `[NOW]`/`[NEXT]` layer, signed at `[STAGED]` — H18).
   *The deployed/ v1.2 additive memory (`ItemAffinity`, comboBoost/itemBoost) is **demoted** to the humble
@@ -370,7 +361,8 @@ collection clean, since no real users accumulated against this fork; `docs/plans
   projection cannot drift (recomputed from the log, consistent by construction; rebuilds clean after H43
   redaction). Materialize to a stored projection only later on measured request cost or an M6 feature-store
   need, with evidence (§14 / plan §7.3).
-- **GenerationSnapshot** (new): §15.1.
+- **OutfitExperience:** owner-bound, revisioned actual-wear memory, separate from reactions and planning; lifecycle and learning boundaries live in §16.
+- **GenerationSnapshot**: §15.1.
 
 ### 6.7 Caches (§15)
 **No runtime candidate cache** (retired at M5 — `m5-cutover.md` D2): the immutable `GenerationSnapshot` is
@@ -384,15 +376,14 @@ Two keys, never conflated (carried from v1.2 §5; trap-guard R10 inline).
   outer and shoes. Used for: dislike cooldown, BaseKey variant cap.
 - **FullSignature**: `BaseKey + "|outer=" + (outerId|"none") + "|shoes=" + (shoesId|"none")`. Used for:
   dedup within a generation pass, comboBoost/edge matching. Same base + different outer = different outfit.
-- **No lens component — the known gap (§23-H101).** Both keys are garment-identity only. Because
-  they are the edge identity in shipped code, and §11 specs the StyleEdge "under a lens", a 👍/👎
-  recorded for one occasion applies to every occasion. Adding a lens to FullSignature would be an
+- **No lens component — the known gap (§23-H101).** Both keys identify garment composition. The current unscoped reaction projection makes a 👍/👎 apply across occasions; scope could be modeled separately from these garment keys. Adding a lens to FullSignature would be an
   H30-style append; adding it to BaseKey (what the cooldown uses) is a **redefinition**, not an
   append — which is why H101 is a design call and not a patch.
-- **Forward-compat slot rule (§23-H30):** a future optional garment role (accessory/bag/hat/mid-layer —
+- **Forward-compat slot rule (§23-H30):** a future optional garment role (accessory/bag/hat —
   §6.1/§8) appends to the FullSignature **only when present**, in fixed canonical order, so existing keys stay
   valid (no migration). BaseKey stays **base-only** for `[NOW]` cooldown/variant-cap; making outer/shoe-defined
   looks a distinct identity is a registered **future** redefinition, not a `[NOW]` behavior.
+- **Mid-layer identity:** when present, append `|mid=<itemId>` after the outer/shoes fields in FullSignature. BaseKey and absent-mid signatures stay unchanged; historic evidence is not rewritten.
 - **Computed from the SlotMap after normalization** (§8), exactly once per outfit at generation.
 - **R10 precondition (trap-guard — do not remove):** keys cannot be length-prefix-encoded (the literal
   format is spec-fixed and tested), so they enforce two preconditions, raising on violation: (1) a valid
@@ -402,29 +393,31 @@ Two keys, never conflated (carried from v1.2 §5; trap-guard R10 inline).
   TS** (drift hazard); M4 persists them verbatim. Pre-M5 legacy feedback may echo them, but M5
   snapshot-bound feedback echoes `{snapshotId,candidateId}` and the server re-reads keys from the snapshot.
 
-Current S1 source adds optional declared pattern/fit to the stylist and captured
-engine-visible inputs. This enables attribute-informed advice, without a new ranking
-weight, physical-fit guarantee or measured benefit claim. Historical snapshots remain
-unchanged; a corrected current garment affects subsequent generation only. R23 source
-also permits one explicitly eligible mid-layer over a non-mid base top, optional
-outer/shoes, with the old unlayered signature unchanged. The current sprint plan and
-executable tests own these additive contracts over older five-slot descriptions.
-
 ## 8. Outfit structure & SlotMap normalization
 
-**Templates** (carried from v1.2 §6): **two_piece** = 1 base_top + 1 base_bottom + 0–1 outer + 0–1 shoes;
+**Templates** (carried from v1.2 §6): **two_piece** = 1 base_top + 1 base_bottom + 0–1 mid_layer + 0–1 outer + 0–1 shoes;
 **one_piece** = 1 one_piece (dress/jumpsuit) + 0–1 outer + 0–1 shoes. A one-piece never mixes with a
 separate top/bottom. Under-dress layering and accessories are **future garment roles** (§6.1) — new roles +
 new SlotMap slots, additive, `[STAGED]`/`[NORTH-STAR]`.
 
 **SlotMap** (internal normalization contract; never in the API response):
-`{dress, top, bottom, outer, shoes}`, each `itemId|None`. Every GPT candidate is normalized to a SlotMap
+`{dress, top, bottom, mid, outer, shoes}`, each `itemId|None`. Every GPT candidate is normalized to a SlotMap
 *before* any validation, scoring, or key computation.
+
+**Layering contract.** `mid_layer` is optional only for two-piece looks. It
+requires a `top` explicitly eligible through normalized `layerRole="mid"`; its
+base top cannot itself be marked mid. A mid-capable knit may instead be the sole
+`base_top`. One-piece layering and multiple mid stacks remain outside this contract.
+The closet's five coarse clothing types stay unchanged; garment eligibility and
+its role in a specific outfit are different facts. Layered snapshots retain the
+role/slot and eligibility, and layered actual wear captures base/mid roles so later
+closet edits cannot reinterpret past composition. Existing unlayered signatures and
+saved evidence retain their original shape. Release status belongs to [the roadmap](ROADMAP.md).
 
 **Validation rules** (structural only; never relax, even under fallback). Split across three owners so no
 reject is stranded (carried from N3):
 - **`normalize_to_slotmap`** owns rejects that are *inexpressible once collapsed*: a **second item for any
-  already-filled role** (second base_top/base_bottom/one_piece/outer/shoes) and any **unknown role** — these
+  already-filled role** (second base_top/base_bottom/one_piece/mid_layer/outer/shoes) and any **unknown role** — these
   would be silently dropped by last-write-wins, so they must be caught pre-collapse.
 - **`is_valid_slotmap`** owns slot-level rejects: mixed templates (dress+top/bottom), empty base, duplicate
   itemId across slots, wrong base count for the template.
@@ -504,37 +497,26 @@ The sampler is the shortlister: `list[WardrobeItem]` + RequestContext → bounde
 
 ## 11. The edge model & cold-start — the heart `[NOW]` content · `[NEXT]` behavioral · `[STAGED]` learned
 
-This section makes the green-shirt promise real and houses the ML dive.
+This section describes relationship evidence and current feedback mechanisms; the evaluated future learner remains a separate design choice.
 
-**A StyleEdge** between two items, under a lens, has exactly two fields:
+**Target StyleEdge representation:** if relationships are represented this way, a connection between two items under a lens has two conceptually separate fields. This is not a requirement that every personal-learning mechanism use a graph:
 
 > **"Under a lens" is the target and is NOT yet true of either field (§23-H101).** §7's canonical
-> keys — which are the edge identity in shipped code, and which drive the cooldown and comboBoost —
-> carry no lens component, so every behavioural edge collapses across occasions. This sentence stays
-> as written on purpose: it is what the graph is *for*, and weakening it to match the keys would
-> launder the gap away. H101 owns closing it; decide it together with H28.
+> garment keys — which drive the current unscoped cooldown and comboBoost —
+> do not carry scope, and current reaction projections also omit it. H101 owns the contextual preference gap; H28 records the separate content-scoring seam. Future design must preserve the distinction rather than weaken the ambition to match unscoped code.
 - **`compatibility`** — content-based; "do these work together stylistically?" Computed by pure Python
   scoring functions from canonical item attributes, compiled StyleProfile traits, and later embeddings /
   learned model output. **In M2, GPT may provide `StyleMove` prose only; future schemas may add closed-set
   diagnostic reason candidates once their owning milestone consumes them, but GPT never emits the
   compatibility score.** Available cold, day one. Not stored densely; computed at request
   time.
-- **`behavioralStrength`** — accrued from lived feedback (worn, rated-good, corrected); **sparse** (only
-  pairs the user actually touched). *Sign model is tag-dependent (H18):* the `[NOW]`/`[NEXT]` humble layer is
-  **non-negative** (positive affinity only — the negative side stays in the separate `dislikePenalty` +
-  cooldown, never decrement affinity, R2 — so the two memories can't contradict). A **signed** per-edge
-  accumulator (rated-bad −) is the `[STAGED]` graph evolution, adopted only when the learned scorer replaces
-  the additive layer.
+- **`behavioralStrength`** — intended contextual preference evidence, distinct from content compatibility. The current humble layer uses explicit accepted/rejected proxies; actual wear/outcomes remain separate and excluded from that reducer (§16). Sparse pair aggregation or a signed learned accumulator requires its own supported label/scoping design, not automatic projection of every wear into positive pair edges. In the humble layer affinity remains non-negative with a separate dislike penalty/cooldown (R2/H18).
 - **Not edge fields:** `freshness` / `exposure` are computed from the GenerationSnapshot show-history
-  (last-shown, show-count) as ranker inputs (§14). Post-wear outcomes are represented by `rating` +
-  structured `FeedbackReason`; source records come from GenerationSnapshot and interaction rows. None of
+  (last-shown, show-count) as ranker inputs (§14). Post-wear outcomes live in the separate experience records (§16); reaction reasons stay with reactions and immutable shown evidence stays in GenerationSnapshot. None of
   these become StyleEdge fields. *(Resolves H2: the edge model is strictly TWO fields.)*
 
 **Cold start (why rescue works on a new account):** a new user has zero behavioral edges. GPT proposes
-believable candidate completions for the forced item from the bounded pool; pure Python compatibility /
-risk scoring ranks and buckets the surviving drafts. No trained model, no feedback required. Spearhead
-emits `baseKey`/`fullSignature` so M4 can bind the later wear/like to the exact outfit; once M4 lands, that
-feedback forms behavioral edges and the item de-orphans. *That growth is the visible payoff.*
+candidate completions for the forced item from the bounded pool. The deterministic ranker selects using its implemented feedback/diversity terms; compatibility/visibility diagnostics inform post-rank response labels and spread, not a trained compatibility rank term. No trained model, no feedback required. The engine emits `baseKey`/`fullSignature` for exact shown identity. Reactions and reported actual wear bind to their own evidence (§16); they do not establish independent pairing confidence or a learned graph merely by existing.
 
 **Detecting orphans at cold start (H21):** with no behavioral edges yet, "items you never wear" cannot be
 edge-defined. The `[NOW]` rescue entry surfaces candidates from signals the deployed schema already has:
@@ -558,25 +540,9 @@ evolves into explicit lens-scoped pairwise edges. *(Demotion of R2, not deletion
 forward: at the affinity cap a 4-item itemBoost (~+8) can dwarf comboBoost (+2) — **measured in offline
 eval, not tuned blind** (levers: lower cap, sublinear affinity, per-item averaging).
 
-**The trained scorer — the dive** `[STAGED]`: learn to rank completions / predict edge strength from
-(content features + behavioral history + lens), trained on GenerationSnapshots + feedback. By **shape** it lands
-at two distinct seams (§23-H28): the **content-compatibility** prior on the **additive pairwise/outfit-level
-`rank()` hook** (the non-transitive, type-conditioned edge scorer an item-level scalar cannot represent), and the
-**behavioral/personalization** signal on the item-level `SignalScorer` protocol (§5/§10), `is_available()` true
-once loaded.
-Offline eval: NDCG@k / hit@k on accepted outfits, profile- and routine-conditioned (§21). **Eligibility
-gate (before the dive):** the **behavioral/personalization** signal only changes sampler behavior when a request
-has both ≥5 interactions *and* ≥1 type over cap; if prevalence is low, give the model a second surface (candidate
-ordering or ranker scoring). **The universal *content*-compatibility prior (§23-H26/H28) is exempt from the
-≥5-interaction gate** — it is cold-start-available by design (its purpose is to work at zero interactions), so it
-lands on the ungated ranker/content-scoring surface, *not* the interaction-gated sampler signal slot.
-Item-to-item *behavioral/collaborative* similarity is **within-user**, never Amazon-style shared-catalog (private,
-unique wardrobes). **A universal *content*-compatibility model** ("does a denim jacket go with a white tee?")
-may instead be learned from **public/external outfit corpora** — it is about clothes, not people, so it is
-privacy-safe and *not* a cross-user signal, and it is what makes the trained scorer feasible at portfolio
-scale (one closet is far too small to learn from), with within-user behavior personalizing that universal
-baseline (§23-H26). *(Resolves H3: graph vs additive scoring — additive is the humble behavioral layer; the
-learned graph scorer is the staged evolution, plugged at the same seam.)*
+**Future personal learning.** Personal taste must transfer beyond memorized garment IDs/signatures. A candidate may learn supported outfit-feature or pairing preferences under explicit style/context, with correctable evidence and abstention (§16); its model and label design remain undecided. Evaluate against the present engine and explicit scoped rules (§21). The sampler's current interaction-count/type-cap eligibility is routing logic, not proof of training readiness or a universal learning threshold. A mechanism limited to that slot may have no effect on small closets; actual candidate-level selection influence must be assessed.
+
+A universal content prior trained on public outfits is a separate possible component. It neither supplies personal taste by itself nor guarantees real-closet transfer. The historical H26/Track-2 head remains off. Public clothing data does not authorize sharing private behavioral labels; owner-scoped personal derivatives follow §22.
 
 ## 12. GPT generation & prompt contract `[NOW]`
 
@@ -586,11 +552,13 @@ StyleProfile traits) + the **intent**, and returns up to `candidateRequested` ou
 role-tagged item lists and allowed `StyleMove` text only in M2.
 
 **Hard rules in the system prompt** (carried from v1.2 §16): each outfit is two_piece (1 base_top + 1
-base_bottom) XOR one_piece; 0–1 outer, 0–1 shoes; no duplicate items; use only provided item ids; maximize
+base_bottom, optional eligible mid_layer under §8) XOR one_piece; 0–1 outer, 0–1 shoes; no duplicate items; use only provided item ids; maximize
 style cohesion + occasion alignment + diversity; **return strictly valid JSON only**; backend handles all
 rejection — do not retry autonomously. The prompt/schema explicitly excludes `score`, `rank`,
-`optionPath`, `risk`, `anchor/bridge/experiment`, and any other ranking label. One JSON-repair attempt on
-invalid output, then fail gracefully.
+`optionPath`, `risk`, `anchor/bridge/experiment`, and any other ranking label. At most one JSON-format repair after ordinary parse failure, then fail gracefully.
+A refusal or abnormal finish (including truncation) does not repeat the unchanged ask.
+Service repair also requires enough elapsed dispatch budget; the first completed attempt
+is retained when repair is skipped.
 
 **M2 GPT response schema.** M2 pins the first strict LLM boundary to the smallest contract; future fields
 are additive only after their owning milestone specs them. The root is an object with exactly
@@ -607,8 +575,7 @@ Each outfit candidate object may contain exactly:
 
 Each item object may contain exactly:
 - `itemId`: non-empty string.
-- `role`: one of the backend `Role` enum values (`base_top`, `base_bottom`, `one_piece`, `outer_layer`,
-  `shoes`).
+- `role`: one of the backend `Role` enum values defined by §8 (including optional `mid_layer`).
 
 `styleMove`, if present, may contain exactly:
 - `moveType`: non-empty string.
@@ -648,11 +615,7 @@ functions (H20)**. `imageUrl` is excluded from the GPT payload (token cost — a
 **Prompt-vs-board precedence** — **the target, NOT current behaviour (§23-H105)**: hard constraints
 (dress code / weather / comfort) > prompt occasion & formality > active StyleProfile shapes choices
 *within* the valid context > revealed negative signal suppresses bad repeats. A casual board never
-overrides a "formal interview" occasion. **Shipped reality:** only the last tier is implemented, and
-it is lens-blind (§23-H101) — occasion and weather reach `RankerContext` but are consumed solely as
-tie-break RNG seed inputs, `formality` is not in the data model, and StyleProfile exists only as
-dormant snapshot columns. Today the LLM prompt is the sole mechanism making an outfit
-occasion-appropriate. Read this chain as the destination; do not cite it as a contract.
+overrides a "formal interview" occasion. **Implemented limits:** occasion text guides the stylist; general dress-code/formality/comfort validation and active StyleProfiles are not implemented. Reaction-derived boosts/cooldowns are lens-blind (§23-H101). Weather reaches generation and tie-breaking, and the bounded removable-layer policy can reserve an eligible outer-layer option for mild/cold conditions with reported rain/wind signals. Exact controls and exclusions still take precedence. This does not establish waterproofness, wind protection, a general weather suitability scorer or context-aware personal taste. [Layer policy](../ml-system/fitted_core/layer_policy.py) owns that narrow selection mechanism.
 
 ## 13. Normalize + validate `[NOW]`
 
@@ -702,6 +665,8 @@ not perform network repair. The `itemId not in sampled pool` reject lives here (
   `app/api/regenerate/` no longer exists, so the cite is git-history only (§19).
 
 ## 15. Response + the GenerationSnapshot write (no runtime cache — D2) `[NEXT]` snapshot
+
+**Styling-text safety contract.** Declared pattern/fit can inform advice, but do not establish garment geometry. A composition guard for a declared graphic base top under a mid/outer layer replaces unsupported visibility promises with a short try/check; existing weather safety takes precedence. Original model text and shown/saved guarded advice stay distinct, with no change to membership, ranking, controls or signatures. Source/tests define the guard; [the roadmap](ROADMAP.md) records its release boundary.
 
 - **Response**: `outfits[]` (each with items, backend-assigned `optionPath`/`risk`, StyleMove,
   scoreBreakdown), plus `insufficientWardrobe` if triggered. Pre-M5/legacy feedback may still carry
@@ -769,8 +734,27 @@ corpus is the negative signal training wants, so it is never skipped when a payl
 that may be empty** — **absent ≠ empty** (an absent array is an invalid snapshot; an empty one is a valid
 degenerate render). **Named residual gap (M5 service hop):** when generation ran but the response was lost
 in transit (unreachable/timeout — no payload reaches the writer), no snapshot is written and the render
-degrades non-bindably (money may have been spent, no row). This is rare, zero-user, and un-bindable;
+degrades non-bindably (money may have been spent, no row). The frequency is unverified and the result is un-bindable;
 recorded here as a known gap class rather than fabricating unknowable provenance (D3/§23-H12).
+
+**Reliability contract (local candidate, not a hosted claim).** New root snapshots carry an
+internal server-owned digest of the effective client weather command. An identical completed
+retry replays captured context, including automatic weather that has since changed, without
+another forecast or model call. Changed effective client weather inputs (including automatic coordinates/event time)
+conflict; coordinates/time ignored by an explicit weather command do not change it. The digest does not retain precise coordinates, but is not anonymization. Historical
+rows have no invented command provenance and retain conservative weather-bucket checks.
+Concurrent duplicate reconciliation uses the same rule; a unique snapshot is persistence
+idempotency, not a guarantee of exactly one provider call.
+
+The service dispatches synchronous rendering off the ASGI loop with one active render per
+process and immediate authenticated overload rejection, rather than queuing paid work.
+Caller cancellation does not release capacity until its worker finishes. Single-machine,
+single-process deployment remains required for the existing per-process rate ceiling.
+Elapsed model dispatch budget gates ordinary repair and lowers each SDK inactivity timeout
+to the remaining allowance; values live in `service/config.py` and its tested contract mirror.
+Persisted generator `timeoutSeconds` is the configured ceiling, not each lowered dispatch
+value. This is not forced provider cancellation or a hard total wall-clock deadline: transport
+loss, database latency and SDK overrun can still prevent a paid result reaching the writer.
 
 **Field groups** (`?` = nullable/optional):
 - **Identity:** `_id` (the snapshotId — **TS-issued, pre-allocated before the browser response**, so each
@@ -810,7 +794,7 @@ recorded here as a known gap class rather than fabricating unknowable provenance
   engineVisible{…}, evidence{…}, embeddingRef?/visualFeatureRef? (reserved, H25) }`. **The provenance split
   is load-bearing.** `engineVisible` is *exactly* the `fitted_core.WardrobeItem` projection the engine
   conditioned on — `name`, `clothingType`, `warmth`, `styleTags`/`colorTags`/`occasionTags`, `material`,
-  `formality`, `imageUrl` — **true by construction** (the same projection M5 sends to the service, stored
+  `formality`, `imageUrl`, optional declared `pattern`/`fit`, and normalized `layerRole` — **true by construction** (the same projection M5 sends to the service, stored
   verbatim, no post-call refetch; the camelCase names are the documented snake↔camel mapping of
   `style_tags`/`color_tags`/`occasion_tags` (a key-rename, no value transform), **plus the engine's
   partition key `type`→`clothingType`** — a *name* rename a generic snake→camel converter will NOT produce,
@@ -824,14 +808,86 @@ recorded here as a known gap class rather than fabricating unknowable provenance
   field-slots but they are **empty until W-track CV**. A snapshot reader (M6) must treat an empty value as
   *unmeasured*, never as a negative feature, until `cvModelVersion` (below) marks the full-extraction CV.
   `evidence` is deployed-doc fields the engine **never saw**
-  (storage-only: `category`, `subCategory`, `pattern`, `seasons`, `isAvailable`, `isFavorite`, `lastWornAt`,
-  `brand`, `fit`, `size`, `layerRole`, `tags`, `rawAttributes?` (bounded, storage-only — raw CV/declared blob,
+  (storage-only: `category`, `subCategory`, `seasons`, `isAvailable`, `isFavorite`, `lastWornAt`,
+  `brand`, `size`, `tags`, `rawAttributes?` (bounded, storage-only — raw CV/declared blob,
   posture rule 1), `image{imageRef?/imageVersion?/hash?}` — **ref/version/hash only, never the blob**, H29(c),
   guarding H14).
+  - **Photo lifecycle:** generation atomically leases exact owned image rows before
+    the stylist call. Ordinary replacement/item deletion/clear preserve leases and durable
+    snapshot and wear references; account erasure purges them. Failed renders release unused leases
+    and reclaim superseded photos. Crashes or uncertain writes keep budget-counted leases
+    until safe reconciliation or account erasure; there is no automatic expiry. Replacement
+    needs temporary upload headroom; concurrent byte admission remains best-effort.
+    Wear references are durable report-ID holds committed with the owner-bound report
+    revision in the same transaction. Losing revision CAS operations roll back new
+    holds. Every retained revision, including retracted reports, continues to protect
+    its captured bytes. Report erasure atomically replaces content with a minimal
+    marker and removes all its holds, then reclaims only settled owner photos with no
+    remaining wardrobe, snapshot, wear or active lease use. Cleanup failure is retryable
+    from the marker; unknown commit acknowledgment never triggers speculative release.
+    Current attachment edits fence the complete view set; newly stored bytes carry
+    an attachment lease until the write is reconciled. Reclamation only admits settled
+    rows before checking references, relying on the fresh-ID-only attachment contract.
+    Ordinary clear majority-deletes the caller's garments before sweeping unretained
+    photos. Its receipt distinguishes acknowledged garment deletion from incomplete
+    photo cleanup; an uncertain/unacknowledged delete reports an unknown count and
+    does not sweep. Every explicit retry repeats deletion and the photo sweep, so it
+    can delete newly added garments too; the confirmation states that scope. The
+    client reloads the current closet after success, partial completion or uncertain
+    delivery, fences responses to the current account/run and hides stale contents
+    if reload fails. Already-pending owners are rejected by shared admission.
+    Garment capacity admission checks the owner’s item count inside the same
+    owner-fenced insertion transaction; simultaneous requests cannot both take the
+    final slot. The 300-item cap is separate from image-byte and aggregate storage limits.
+    Individual garment deletion majority-removes only the owner's exact item, then reconciles
+    captured attachment references plus owner/original-garment-scoped image rows. Valid-ID
+    deletion is idempotent even when the item is already absent; foreign IDs receive the same
+    owner-scoped no-op receipt. Malformed IDs still fail. Unknown delete delivery reports
+    unknown completion and does not sweep; acknowledged removal with failed cleanup reports
+    partial completion. Explicit retries revisit eligible photos after the item disappears,
+    preserving active/historic/leased bytes. The client reloads partial/uncertain outcomes,
+    retains a targeted retry, and serializes destructive actions through reconciliation so
+    an older reload cannot overwrite a later deletion. A 2xx without a complete receipt is
+    uncertain, not proof of completion. This guard serializes one browser's destructive
+    actions; server ownership/CAS/pins remain authoritative across clients.
+    General wardrobe writes cannot author image refs. Failed/partial photo writes preserve
+    committed views and show what could be confirmed; an uncertain append is not retried
+    automatically. Crash-leftover attachment leases also require safe reconciliation or
+    account erasure.
+    Production image insertion writes an open owner and the image in one transaction;
+    erasure majority-writes a barrier on that same owner before sweeping. A transaction
+    ordered first commits before the barrier and is swept; one ordered later cannot
+    admit bytes. Transaction-capable Mongo is required; standalone uploads fail closed.
+    Pending erasure retains the flagged owner through data/Firebase cleanup and final
+    owner removal. Ordinary API/session/auth-sync admission rejects that owner; DELETE
+    can retry. `lib/resumeUserErasure.ts` also supports manual operator recovery without
+    client credentials, only for an already flagged owner. After a continuation has
+    observed a pending owner, a concurrent finisher's removal can be reconciled only
+    after this continuation's own data/Firebase cleanup succeeds and a primary
+    majority read confirms owner absence. Initial absence still returns not-found;
+    failed or uncertain cleanup stays pending. No scheduled recovery is implied.
+    First-login admission reserves the unique Firebase identity in a transaction,
+    then freshly checks Firebase before commit on every callback attempt. Firebase removal
+    precedes physical owner removal, preventing a delayed sync from recreating an erased
+    identity. Admission checks deployed unique identity/email indexes and fails closed on
+    unavailable storage or verification; a lost commit response may leave one verified owner.
+    See `lib/identityAdmission.ts` and `tests/identityAdmission.test.ts`. Production garment,
+    snapshot, reaction/reason-amendment and wear-report insertion plus feedback removal
+    and wear-erasure marker upserts now
+    share an owner-write transaction fence (`lib/ownerWriteFence.ts`). Each row operation
+    uses the explicit session; duplicate recovery follows abort. Snapshot admission checks
+    its deployed partial unique user/requestId index. A lost commit response may leave a
+    committed row, which account erasure must sweep; uncertain snapshot photo pins remain.
+    These finite doors require transaction-capable Mongo and do not fall back. Profile metadata
+    and embedded plans use conditional open-owner updates on that same document, with majority
+    acknowledgments. Profile mutations and planning reads/replays/post-write checks reject
+    pending erasure.
+    No child-row transaction is needed for these owner-document mutations. External writers
+    and operational copies remain separate limits.
   - **Trainability rule:** a model claiming to model what the recommendation *conditioned on* trains **only**
     from `engineVisible` + the per-candidate score/identity fields; `evidence`/`embeddingRef` are
     new-capacity inputs whose use changes the off-policy assumptions. Moving a field `evidence`→`engineVisible`
-    requires a `schemaVersion` bump.
+    requires an explicit provenance/version contract. Historical snapshots keep their original fields; optional pattern/fit/layerRole additions are identified by the recorded core/prompt version, not retrofitted into old rows.
 - **Candidate funnel** (H29(b) — rejected + low-ranked must survive): `generationAttempts[]` (root/attempt
   events — invalid JSON, the §12 repair retry, aggregate warnings — captured here, **never forced into fake
   candidates**) and `candidates[]`, one array spanning generated → validated → ranked → shown. Each
@@ -891,6 +947,8 @@ recorded here as a known gap class rather than fabricating unknowable provenance
   `occasion`/`location`/`weatherRaw`/raw text, preserve keys/scores/`itemSnapshots`) stays `[STAGED]` as
   the tool for a future **consent-based retention** option, never for the word "delete".
 
+**Manual account-erasure recovery:** an interrupted deletion stays closed. If the user cannot retry through sign-in, an operator with the existing server environment can run `node scripts/resume-account-erasure.cjs <mongo-user-id> --resume-pending` from `fitted/`. [The recovery script](../fitted/scripts/resume-account-erasure.cjs) accepts only an already-requested `erasureStarted:true` owner and reuses production cleanup; it cannot initiate deletion. Recovery is manual, not scheduled. Never paste server credentials into commands or logs.
+
 **Identity binding.** On feedback the client echoes `{snapshotId, candidateId}` **only**; the server
 **re-reads** the candidate from the snapshot and **never trusts echoed content** — the canonical outfit
 `items[]` and keys are **server-set** from the re-read candidate. The authenticity gate (§16) verifies:
@@ -922,6 +980,7 @@ optional in `models.py`). Raw deployed inputs are preserved verbatim in the snap
 | `id` | `_id` | `ObjectId` → string |
 | `name` | `name` | direct |
 | `type` (`ItemType`) | `clothingType` (M4 5-value, written natively) | 1:1 enum pass-through (member names = wire values, `models.py`) |
+| `layer_role` | `layerRole` | normalized declared `base`/`mid`/`outer` or `null`; eligibility and outfit role remain distinct (§8) |
 | `warmth` (int 0–10, **required**) | `warmth` (M4 column; keyword-derived at ingestion) | direct |
 | `pattern` / `fit` (optional) | `pattern` / `fit` | bounded declared details; blank/unknown/malformed legacy values → `null`; S1 |
 | `color_tags` | `colors` | rename |
@@ -952,20 +1011,63 @@ each new per-item column follows the same **drop-not-sink** rule (additive; no a
 
 ## 16. Feedback & learning semantics `[NEXT]`
 
-**Explicit events teach; silence does not.** Learning events: `saved`, `planned`, `packed`, `worn`,
-`rated`, `corrected`. **Skipped/ignored options are logging-only, never negative** (a skip is ambiguous —
-hurry, mood, UI order). The deployed `OutfitInteraction.action` enum already contains `saved/worn/rated`;
-v2 activates those unused values and additively extends the enum for `planned/packed/corrected`.
+**Explicit evidence and intent remain distinct.** The current `OutfitInteraction.action` enum
+contains `accepted` and `rejected`: preference proxies, not proof of actual wear. Skips are not negatives.
 
-- **Intent-aware wear semantics:** `wear this today` counts as worn immediately; `save`/`plan` are intent,
-  not wear; worn-but-unrated defaults to a gentle weak-positive, never homework.
-- **Like/dislike remain the primary explicit teaching actions** (the user-facing learning story stays
-  simple). `saved/worn/rated` are weaker, secondary evidence; do not ask the user to constantly classify
-  feedback.
-- **Proxy boundary (M5):** `accepted`/`rejected` are explicit preference/proxy signals, not proof of real-world
-  wear. The M5 reducers may use `accepted` as the first positive behavioral signal because it is the only
-  shipped teaching surface, but future `saved`/`worn`/`rated` surfaces must remain distinguishable labels in
-  the corpus and must not reinterpret historical `accepted` rows as wear outcomes.
+- **Actual wear and planning:** `OutfitExperience` is owner-bound, revisioned memory of explicitly confirmed wear, with date/context provenance, optional outcome, correction, terminal retraction and content erasure. Changed composition records its actual owner-validated members and names; a shown suggestion stays an immutable source, never substituted for the actual list. Historical availability and present usability are separate reads. Learning disposition is fixed at `do_not_learn`. The public [experience contract](../fitted/lib/outfitExperience/contract.ts), [store](../fitted/lib/outfitExperience/store.ts) and [persistence tests](../fitted/tests/outfitExperiencePersistence.test.ts) own the executable lifecycle.
+- **Correction and erasure:** retries are idempotent, revisions use atomic expected-version checks, and erasure wins delayed writes using minimal disclosed anti-replay markers. Account erasure removes those markers too. Report-derived proposals require the active exact report revision on every product read, replay and feedback path; interrupted cleanup cannot expose stale derivatives. Confirmed wear remains readable independently of later source redaction. Removing a wear record does not erase its separately retained source photo; account erasure covers both.
+- **Wear garment photos:** new actual members capture an optional immutable owned
+  Mongo photo identity, with `origin` (`suggestion` or `wardrobe`) and ISO `capturedAt`.
+  Source-candidate members prefer the exact shown photo; additions use their current
+  primary closet photo, never an unshown sampled image. The capture time records when
+  the reference was prepared, not when the photo was taken or the outfit was worn.
+  These identify garments, not a photographed worn outfit, and do not change learning
+  eligibility. Image ownership and association with that garment are checked while
+  pinning; missing, foreign or wrong-garment bytes yield explicit `photo: null`.
+  Recall reads these exact references independently of source visibility or closet
+  replacement/removal. Ordinary corrections retain captured names/types/photos for
+  retained members, including a return to the shown composition; roles follow the
+  deliberately corrected composition. Explicit edit-only `photoRefreshItemIds` may
+  recapture current photos for up to five distinct retained, still-owned garments,
+  changing only their photo evidence. Older revision photos remain held until report
+  erasure. Legacy absent photo fields retain source-photo fallback only; they never
+  backfill from today's closet. Explicit null never backfills. A legacy report without
+  captured member facts needs its exact available source for explicit refresh; missing
+  evidence is not reconstructed. No migration or photo byte copying is implied.
+- **Saved proposals and dated plans:** saving/planning expresses intent, never reported wear or satisfaction. Plans retain exact owner-bound source references, named-zone calendar days, atomic versions and content-free removal markers. Hydration rechecks source visibility and current garment availability; admission does not guarantee future usability. Planning hints never prefill actual wear.
+- **Adaptation and exploration:** new-situation adaptation keeps one available source member and optionally excludes one exact different member. Omitting exclusion permits the same combination. The stylist receives anchor and situation, not the full source as a style reference; wording guides generation while exact controls are enforced. A changed-wear source remains revision-bound. Saved/shown same-situation exploration excludes the immediate source garment set, promising different membership from that source only, not pairwise/global novelty. A bounded render may find no alternative. These actions create suggestions without changing original intent, wear or reactions.
+- **Learning boundary:** existing like/dislike reducers retain their semantics. Experience records,
+  corrections and missing outcomes do not feed those reducers or alter ranking. Any future learning
+  use needs its own evidence and contract; historical accepted rows must never become wear outcomes.
+- **Reason amendments and effective votes:** optional reasons append an immutable
+  `reason_amendment` event in the existing feedback ledger, targeting the exact owned
+  original reaction ID. It has no action; its `createdAt` is append provenance, not a
+  fresh vote time. Its binding/member facts are server-derived. Amendment admission
+  checks that target is still the latest eligible accepted or rejected vote inside the owner-fenced
+  transaction; correction and binding removal use the same fence. Removal hard-deletes
+  both votes and amendments; a fresh reaction gets a new ID, so an old command cannot
+  attach to it. Account erasure purges the entire ledger. A stable operation ID derives
+  a deterministic amendment `_id` under the existing unique index; an exact confirmed
+  retry admits no row, while conflicting payloads fail. Retries with removed or
+  superseded targets fail without restoring content. Full amendment payloads replace
+  reasons/per-item feedback; absence clears prior reason fields. Original vote ID,
+  action, order and support stay unchanged. Serving selects at most 500 vote rows
+  before fetching their amendments; the shared projection also drives export, which
+  retains both event kinds in raw evidence. History exposes current vote IDs and
+  excludes amendments from its vote scan. Owner-fenced admission caps all ledger rows
+  together at 2,000; reasons count toward storage, never vote support. Generation
+  counts only vote rows for sampler routing and snapshot provenance, preserving legacy
+  vote counting; this event count is not unique training support or learning readiness.
+  The dashboard holds the acknowledged original target and a stable amendment retry
+  payload in-session; owner changes and stale responses cannot mutate another state.
+  Restored targets come from fresh History, never inferred from cached chips. A stale
+  amendment is discarded with current-feedback reconciliation; uncertain delivery
+  retains the same operation. Legacy stored rows without event kind remain votes
+  exactly as recorded, including historical reason-rich rejections. No retrospective
+  amendment classification occurs. Untyped reason-bearing POSTs fail with a refresh
+  response; an explicit `kind: reaction` is a deliberate fresh vote, distinct from
+  `kind: reason_amendment`. Existing primary votes remain append-only; exactly-once
+  primary voting and cancellation of dispatched requests are not promised.
 - **Feedback reasons** (separate from events): `good/neutral/bad`, `too_boring`, `too_much`,
   `not_practical`, `not_me`, `wrong_context`, `weather_forced`, `necessity`, `too_repetitive`.
   `not_practical` is first-class. These structured reasons are the sole trainable "why" channel for
@@ -990,8 +1092,8 @@ v2 activates those unused values and additively extends the enum for `planned/pa
   promotable. `do not learn from this` sets `learningDisposition=do_not_learn`, an early control. The **field**
   is reserved now (S6/H37); the quarantine/promote **behavior** is `[STAGED]`.
 - **Duplicate-feedback dedup (H11 forward write-path rule; M5 implements the projection)** — feedback rows
-  are **append-only** (every tap persisted with `createdAt`, full lineage, posture rule 3); the write path
-  never rejects or upserts duplicates. Affinity is a **compute-live projection** (no stored counter — OQ2),
+  are **append-only** (primary taps persist with `createdAt` and full lineage, posture rule 3);
+  reason amendments use their distinct operation identity and retry contract above. Affinity is a **compute-live projection** (no stored counter — OQ2),
   so concurrent feedback is two independent inserts with **no read-modify-write to race**. Dedup is a
   **read-time reducer** concern, applied where it matters: the set/recency projections
   (`liked_full_signatures`, the cooldown buffer) are **idempotent under duplication** and need none; the
@@ -1030,6 +1132,21 @@ v2 activates those unused values and additively extends the enum for `planned/pa
   History curation VIEW reads the same per-candidate latest-state (`lib/latestFeedbackState.ts`), pinned equal
   to the reducer + export by one shared fixture. Detail: `docs/plans/friend-facing-fixes.md` PHASE 1.
 
+
+### Personalization evidence boundaries
+
+Suggested, reacted, reported worn and explicitly reported worked are distinct evidence. An outfit experience is not a set of independent pair labels; co-occurrence and transitive paths do not establish compatibility. An outfit rejection remains outfit-level unless the user identifies a piece or pairing. Resolve the latest correction/state before testing learning eligibility, so a newer exception or `do_not_learn` state cannot resurrect an older positive or rejection. A reported wear with no outcome remains outcome-unknown.
+
+The intended product must generalize personal taste under context; production model and rollout choices remain open. The selected app-development contract is linked in §16.6; no earned production learner is claimed. Acceptance and post-wear satisfaction are separate targets. Feedback counts alone do not unlock influence. Thin support, missing/version-mismatched models, unfamiliar contexts or serving failure must abstain to the complete baseline; learned influence never overrides ownership, availability, structure, locks or exclusions. Explicit rules remain editable comparators, not discarded substitutes. Changed taste does not rewrite history; learning eligibility and personal memory must remain separately controllable. See §21 for evaluation and §22 for derivative-data lifecycle.
+
+### 16.6 Personal styling loop — selected development contract
+
+The [personal styling loop specification](plans/personal-styling-loop.md) owns the
+bounded implementation contract for editable style directions, scoped feedback and
+experimental taste learning in the actual app. It extends the durable contracts
+above. The roadmap owns execution and release evidence. Existing isolated experiments
+have no serving vote and are not prerequisites for this implementation.
+
 ## 17. Boards & routines lifecycle `[NEXT]` text · `[STAGED]` dormancy · `[NORTH-STAR]` calendar
 
 - **Text boards first** `[NEXT]` (B-track): a board from style words / phrases compiles to the typed StyleProfile (§6.2).
@@ -1051,7 +1168,7 @@ v2 activates those unused values and additively extends the enum for `planned/pa
 ## 18. CV / wardrobe ingestion — the W-track `[NEXT]`
 
 Ingestion is **data acquisition for the whole graph** — friction starves the wardrobe, the interactions,
-and the trained scorer. It is in scope (amends the CLAUDE.md frontend-redesign exclusion). Deployed today:
+and the trained scorer. It is in scope. The obsolete frontend-redesign exclusion is retired. Deployed today:
 synchronous per-item CV via `cv/infer` → external HF Space (`CV_SERVICE_URL`), brittle cold starts.
 
 **Standing ingestion posture (the yield-vs-integrity rule — canonical home; folded from the retired
@@ -1191,35 +1308,17 @@ preserves the on-screen outfits. Remaining minor residuals are ledgered in `docs
 
 # PART V — BUILD & OPERATIONS
 
-## 20. Build ladder (milestones)
+## 20. Historical engineering references
 
-The substrate (`ml-system/fitted_core/`, Python, pytest, no DB/keys) has M0–M3, the Spearhead rescue vertical, M4 (data path + dormant snapshot substrate), the H26 spike, and M5 (the live cutover, C1–C8; cloud deploy LIVE 2026-07-16 — `docs/plans/m5-c8-half2-runbook.md` §8) complete. Per-row status below.
+The M0–M5 sequence established the substrate and service cutover. These completed records preserve contract rationale; they do not select current work. [The roadmap](ROADMAP.md) is the execution owner.
 
-| Stage | Scope | Status / rung |
-|---|---|---|
-| **M0** | Contracts & pure functions: keys, SlotMap, seed, config, models | ✅ done |
-| **M1** | Sampler: partition, caps, 70/30, the SignalScorer seam (`ColdStartSignalScorer`) | ✅ done (M1-1..M1-5 — partition/caps/70-30 seam/candidate scaling/`build_candidate_pool` entry point per §10/§11; pytest green; the item-level signal seam's behavioral occupant (`AffinitySignalScorer`, `m5-cutover.md` §B) activates at **M5**, the *trained* scorer at M6) |
-| **M2** | SlotMap validation as a pipeline stage + strict GPT-JSON validation | ✅ done (C1–C6 — parse, strict §12 schema, SlotMap/pool validation, keys + exact-FullSignature dedup, StyleMove, candidate bounds; pytest green) |
-| **M3** | Ranker: cooldown, scoring (additive humble layer), variant cap, overuse, repetition, fallback, regen controls (over M2's already-deduped accepted candidates — M3 never re-dedups) | ✅ done (C1–C6; §12 mutation-hardened; pytest green) |
-| **Spearhead** | **Orphan-item rescue end-to-end**: forced item, lens context, Python-assigned reliable/bridge/stretch variants, StyleMove, and `baseKey`/`fullSignature` emitted for later feedback binding. The snapshot-bound scoped-feedback tail is `[NEXT]`/M4. | ✅ done (C1–C6; three new modules `generation`/`rescue`/`response` over the closed M0–M3 substrate + the `Generator` seam + the C6 `evaluation`/`cli` eval surface; pytest green; C6/H40 live-eval recorded in `docs/plans/spearhead.md` §E) |
-| **M4a** (data path — ships partly live) | DB wipe (§19); 5-value `clothingType` (enum widening + native ingestion writes on create+edit, no backfill); the **`warmth` column** (keyword-derived at ingestion — the one engine-required new column; `material`/`formality`/`styleTags` deferred to the W-track, §18); rebuilt wardrobe POST + edit handlers; `wardrobeVersion` field; action-enum + scope-vocab + binding fields on `OutfitInteraction`; **PreferenceSummary ripped wholesale** (collection + summarize endpoint + /account UI + dashboard fetch + recommend/regenerate calls + `db.ts`/`gemini.ts` deps). Verify by re-uploading a test wardrobe. Plan §14 (C1–C3). | ✅ done (C1–C3) |
-| **M4b** (snapshot substrate — dormant) | `fitted_core` version constants + serializer; **GenerationSnapshot model/storage/indexes + writer contract** (§15.1, incl. the reserved H43 redaction fields + the `cvModelVersion` seam); Python snapshot payload + Option-B trace wrappers; **`wardrobeimages` cascade-delete** (closes the H14 cascade arm); affinity projection posture (no authoritative `ItemAffinity`). At M4b the snapshot deletion/redaction behavior was deferred (dormant, no users) and the live authenticity gate to M5 (only the §16 contract + the schema seam are M4); the deletion path was later resolved at Track 2 as **erasure** (§23-H43), leaving only the optional PII-null scrub for the Privacy milestone. Ships nothing runnable; value lands at M5. Plan §14 (C4–C8). | ✅ done (C4–C8; ships dormant; M4b-boundary heavy-audited; M5-handoff in plan §14.5) |
-| **M5** | Deploy `fitted_core` (Fly.io, always-on, Docker); Next→service `fetch()` behind `USE_ML_SHORTLISTER`; health check + timeout + graceful fallback; request adapter (**§15.2 item projection** = renames/pass-throughs/no read-time derivation; **M5 §F Lens adapter** = request normalization such as weather bucketing, blank-occasion rejection, UTC `seedDate`, and deferred-constraints rejection); trust-boundary gates; **the live GenerationSnapshot write + `{snapshotId,candidateId}` shown-candidate binding / outfit-membership check**; the read-time latest-state reducer (§23-H61; the 300s `FEEDBACK_DEDUP_WINDOW` was retired — ordering does the work); rewrite of recommend/regenerate routes against this spec (regenerate = constrained fresh generation, no cache — D2); delete the M5-cutover arm in §19. **Entry prereqs (definition-of-ready):** H7 `generationIndex` lifecycle defined · H8 `seedDate` timezone fixed (UTC). H13 cross-runtime conformance is a **C8 pre-flip gate** (green before the flag flips), not an entry gate (`m5-cutover.md` §J). **Cross-milestone note:** `wardrobeVersion` (H6, W-track) stays inert (constant 0) at M5; render freshness rides fresh generation + the per-request cooldown/repetition signals, not a cache. | ✅ done (C1–C8 2026-07-08; cloud deploy LIVE 2026-07-16 — `m5-cutover.md` + runbook §8) |
-| **W-track (downstream of M4)** | Async CV queue + item states + dedicated review surface + VLM extraction/embeddings (§18). The **data-path persistence layer is M4**; this row covers the remaining async/queue/review surface. | `[NEXT]`/`[STAGED]` |
-| **B-track** | Text boards → StyleProfile compiler; then visual boards | `[NEXT]` text / `[STAGED]` visual |
-| **H26 compatibility spike** (pre-dive, offline) | Offline **public-corpus** content-compatibility baseline (Polyvore *disjoint* split; AUC@category-aware-negatives + FITB@4 over a frozen **Marqo-FashionSigLIP** image-embedding space; baseline ladder incl. **`gpt-5.4-mini`-as-judge** (FITB-based parity) + its $/latency) — the **zero-user demonstrable ML result** and the **go/no-go** on the trained scorer; **settles the H28 seam shape** (pairwise/edge, not item-level — settled by an in-spike item-level-vs-pairwise ablation, v2 §6, literature-grounded) *before* M5 wires the scorer call. **The thesis is a systems decision — _when does a tiny specialized model beat a per-edge LLM call?_ — not a quality contest (parity, not superiority):** `gpt-5.4-mini` is the production stylist (§5; `recommend/route.ts`, a mini-tier OpenAI model on text attributes), so the defensible win is "a trained compatibility prior reaches the honest hard-split band at a fraction of per-inference cost, with bit-determinism + offline + per-edge availability" (the §9 cost/determinism/availability table is the headline artifact; H26 lands no shortlister integration), and a **no-go still ships a result** as a clean engineering verdict (the negative + the cost table). Standalone — **not gated behind M5 deploy**; it is the **immediate next rung after this consolidation** (consolidation → H26 → M5), slotted before M5 wires the scorer call. Research + recipe in `docs/sessions/2026-06-26-m4a-post-audit.md`; sharpened in §23-H26/H28; **build doc = `docs/plans/h26-compatibility-spike-v2.md`** (v2 adopted + finalized 2026-06-28, audit in `docs/sessions/2026-06-28-h26-v2-spec-heavy-audit.md`). | **✅ DONE (C1–C6, 2026-07-05). Verdict: NO-GO by the frozen letter — gate B "underpowered / inconclusive" (miss-convention half-width 0.050302 > δ=0.05 by +3.02e-4 at the frozen N=500 cap; the CI sits wholly ABOVE +δ — a power miss, not an accuracy miss; the half-convention cross-check is powered and passes); A passes (+0.0995 [+0.0969, +0.1022] pair-AUC over zero-shot), D passes (0.845 outfit AUC / 62.1% FITB vs floors 0.81 / 0.50); judge non-vacuous (CI_low 0.306 > 0.25). Item-level seam shape independently falsified (+0.216 [+0.212, +0.220], Holm p < 2/B) — H28's pairwise choice corroborated on our data. Catalog→closet transfer OUTSIDE the healthy band (effective-N = 6, underpowered — the M6 re-measure entry condition, as pre-registered). Deliverable: `ml-system/experiments/h26/results.md` (systems table + all frozen disclosures); gate authority `metrics.json` (stage C6).** |
-| **Scorer-seam shape** (M5 trace seam; M6 rank hook) | M5 lands the **producer-side `OutfitScorer` exercise**: snapshot production computes pairwise/outfit-level cold-start compatibility/visibility for every scored candidate and stores it in `scoreTrace`, without changing rank order. The additive, default-None outfit/pairwise-level scoring hook on `rank()`/`RankerContext` remains the M6 entry seam; the current `SignalScorer` is item-level (`score(item, context)`), the wrong shape for the non-transitive, type-conditioned pairwise compatibility the dive needs (Vasileva 2018 / NGNN / OutfitTransformer). The M6 hook must be **cold-start-available** (not behind the sampler's ≥5-interaction gate — §11): the universal content prior works at zero interactions. **H26 settled the shape (its ablation independently falsified the item-level scalar on our data — pairwise/edge stands); M5 recorded the trace surface and M6 lands rank-order influence when trained scores exist.** | ✅ done for M5 trace seam (`snapshot.py` exercises `OutfitScorer` → `scoreTrace`) · `[STAGED]` for M6 rank hook |
-| **M6 (the dive)** | Trained edge/graph scorer — the **content-compatibility prior lands on the §23-H28 additive pairwise/outfit-level `rank()` hook** (the non-transitive, type-conditioned shape the item-level `SignalScorer` sampler slot cannot represent), **gated by the H26 spike above — which returned NO-GO by the frozen letter (a gate-B power miss at the frozen cap, not an accuracy miss), so M6 does not open on H26's authority alone**: entry requires re-powering gate B (extend the judged prefix over the frozen `fitb_order.json`) **and re-measuring the catalog→closet transfer on real-ingestion data**. **The power condition is now MET** (2026-07-21, `gate_b_extension.py` / §23-H56 / `metrics_extension.json`): at N=1000 the adjudicating gate-B diff is +0.2593 [+0.2260, +0.2987], half-width 0.036327 ≤ δ → powered-pass under the sealed letter (a sequential estimate reported ALONGSIDE — it does not rewrite the frozen N=500 NO-GO). **So the catalog→closet transfer re-measure is the sole remaining M6 entry gate** — H26 *reports* that transfer, it does not gate on the underpowered single closet — build doc §12/§13. **Re-measure prereg FROZEN 2026-07-20 at `ml-system/experiments/track2_transfer/preregistration.md` (+ `.json`)** — the freeze-before-look decision rule (single home; this row summarizes, it does not restate). The inherited H26 healthy band was RETIRED as a gate because it is structurally undecidable at cohort N (re-derived arithmetic, `derive_power.py`: Hanley-McNeil half-widths 0.133/0.115/0.093 at N=30/40/60; the `CI_low(AUC_closet) ≥ 0.70` floor read needs a point estimate *above the catalog ceiling itself* (0.7315) at every reachable N — unpassable; the `CI_high(drop) ≤ 0.12` read is impossible at N≤30 even at a perfect transfer — **this derivation is the trap-guard against a "moved the goalposts" charge: the inherited gate provably could not pass before any label existed**). The frozen rule: **(primary, decision-relevant) accepted-vs-rejected discrimination** within-user, AUC boundary 0.50 (human-judged negatives fix H26 §9.9's mechanical-negative proxy; ~doubles data/friend), decided by a **two-look group-sequential design** (25/arm then 50/arm, 97.5% CIs Bonferroni) with a **point-estimate floor ≥0.60** on ESTABLISHED and a **horizon expiry** (2026-10-31 / service teardown) → UNDERPOWERED-TERMINAL, so it decides even at pessimistic yield; **(secondary, reported-never-gates) two-boundary directional** transfer read {above-chance CI_low>0.50 / below-healthy CI_high<0.70}, the H26-continuous mechanical-negative read — **never promoted to primary post-hoc** even if it reads better; the frozen measurand (H26 trained head + FashionSigLIP + mean-over-edges + EXIF); the `exportTrack2Core.cjs` verdict hardened from a raw ≥30 count to a **scoreable-cluster certificate** (≥2-item outfits, image-usable, same-category-negative availability for transfer, signature-dedup, per-friend concentration cap ≤50%, author-excluded), pinned equal to the prereg by `test_preregistration.py`. Fable-reviewed before freeze (SHIP-WITH-CHANGES, all folded). Offline NDCG@k / AUC / FITB on the universal content prior (zero-user, runnable); the **behavioral/personalization** signal (which *does* ride the item-level `SignalScorer` slot) → learned + online A/B is the **user-dependent arm** (`[STAGED]`/`[NORTH-STAR]` on a no-users fork — §11/§23-H9). **Look-execution machinery specced** (`docs/plans/m6-embedding-pipeline.md`, 2026-08-23; build pending): the gated offline pipeline that computes the frozen measurand over a qualifying export and executes the pre-registered Look — built ahead of the data so every analysis micro-decision freezes pre-look. | `[STAGED]` |
-| **R-track** | Explicit routines → routine-scoped memory; dormancy/revival; then inferred/calendar | `[STAGED]`/`[NORTH-STAR]` |
-
-The hosting decision (Fly.io, Brian's own service, always-on Docker, no cold starts; separate from the CV
-HF Space) and the Python↔TS `fetch()` boundary are settled (carried from the M0/M1 plan).
-
-**Sequence from here (set 2026-06-27, post-M4 consolidation; amended by M5 cutover review 2026-07-06).** The order was **consolidation → H26 spike ✅ (2026-07-05; NO-GO by the frozen letter — §20 H26 row + `ml-system/experiments/h26/results.md`) → M5 ✅ (C1–C8 2026-07-08; cloud deploy live 2026-07-16)**. M5 landed the producer-side scorer trace seam only; the additive rank-order hook is deferred to M6 entry so cold-start compatibility does not reorder shipped behavior. The legacy recommend/regenerate vertical and the §19 dresses string-match arm were **cut, not migrated**, when `USE_ML_SHORTLISTER` flipped (the open deletion-license premise — no real users — expired when Track 2 went live). **The current rung is Track 2:** 3–5 friend closets through the live deployment (runbook §8) toward the M6/H26 re-measure entry conditions (M6 row above). Post-Track-2, the **W-track** (ingestion surface) and **B-track** (text boards → StyleProfile) are **coequal** — neither blocks the other, and the now-explicit someday-launch path (rejoin the CS-148 team *or* post + advertise to friends) makes the B-track user-facing surface a real downstream destination, not a dead end.
+- [Substrate](plans/m0-m1-substrate.md), [generation](plans/m2-validator.md), [ranking](plans/m3-ranker.md), [rescue](plans/spearhead.md), [data model](plans/m4-data-model-migration.md) and [cutover](plans/m5-cutover.md) retain specific engineering decisions referenced by source/tests.
+- [H26 results](../ml-system/experiments/h26/results.md) record the frozen catalog experiment's NO-GO precision decision. Track 2 later did not establish that head's real-closet transfer; retained private evidence owns its cohort and estimates. Neither result abandons personal learning, and neither grants a production vote.
+- [The M6 design](plans/m6-embedding-pipeline.md) and [historic runbook](plans/m5-c8-half2-runbook.md) are references, not authority to resume recruitment, operate a new study or roll out a learned scorer. Future ingestion/board/routine designs live in §§17–18; their old tags are not sprint assignments.
 
 ## 21. Evaluation & metrics
 
-**Three honest levels (this is a portfolio project, not a high-volume product):**
+**Three evidence levels:**
 1. deterministic unit/property tests for every contract (pytest);
 2. synthetic/replay eval (golden wardrobes + golden requests) for sanity and regressions;
 3. real-user metrics as **descriptive evidence, not overclaimed science** (small N).
@@ -1230,9 +1329,14 @@ no-buy accepted outfits; repeat-session rate after first success; invalid-JSON /
 reject / fallback-step distributions; latency p50/p95.
 
 **Offline (the dive):** NDCG@k / hit@k on accepted outfits; **profile- and routine-conditioned acceptance**;
-diversity/coverage; novelty-vs-repetition; counterfactuals (global memory vs profile vs routine). Requires
+diversity/coverage; novelty-vs-repetition; development comparisons (global memory vs profile vs routine), not inferred counterfactual rewards. Requires
 the GenerationSnapshot's exposure/candidate identity, positions, and feature snapshots — interaction rows
 alone are selection-biased. **Do not claim model lift unless sample size + exposure logging justify it.**
+
+
+**Personalization evaluation:** distinguish engineering correctness, repeated product usefulness and model improvement. Forced-item selection or absent history cannot establish a measured previously-neglected-item rescue; that claim needs an explicit neglect baseline and reported subsequent use. Silence/unshown options are not negative labels and snapshots do not provide counterfactual rewards.
+
+For a future learner, reconstruct each decision walk-forward using only evidence available before it; group related sessions/combinations to prevent leakage and exclude later corrections from earlier feature construction. Compare against the current engine, explicit scoped memory/rules and simple recency/use baselines. Report support, coverage/abstention, per-user errors, constraint violations and wardrobe drift alongside outcome-specific metrics. Replay is development evidence on selected labels, not causal policy improvement. Bounded experimental exposure and ongoing production influence require distinct predeclared outcome, scope, stopping and rollback decisions; an appropriately designed evaluation must establish worthwhile baseline-relative benefit without practical-constraint degradation before a production claim. No study or learned rollout is authorized by this documentation.
 
 ## 22. Operational safeguards, non-goals, doc lifecycle
 
@@ -1258,11 +1362,9 @@ sourcing; distributed-systems infrastructure (copy the contracts — candidate/r
 snapshots, cache-as-derived — not the machinery). *Reversed from v1.2 non-goals and now in scope:* StyleMove
 explanations, attribute-level StyleProfile traits, routine/occasion context — all deliberate, all here.
 
-**Privacy** `[STAGED]` (C7/C10): boards, routines, calendar, wardrobe photos, and interaction logs are
+**Privacy applies now; future integrations add contracts** (C7/C10): boards, routines, calendar, wardrobe photos, and interaction logs are
 sensitive. Before calendar integration or visual boards: define data minimization, deletion behavior, and
-private-by-default. **User-delete** cascades `wardrobeitems` + `outfitinteractions` + `wardrobeimages`
-(M4b, closing H14's cascade arm) **and — since Track 2 went live — `generationsnapshots`: account
-deletion is erasure, the resolved §23-H43 policy** (the M4-era "redaction seam reserved, not wired /
+private-by-default. **Account deletion** erases registered owner content through [the User cascade](../fitted/models/User.ts), including generation snapshots and wear records; dated plans disappear with their owner. Fencing and recovery follow §15.1; a raw model deletion alone is not the full account-route guarantee (the M4-era "redaction seam reserved, not wired /
 deferred to this milestone" framing expired when real users arrived). What still lands at this Privacy
 milestone is only the **non-delete** path: the optional PII-null *scrub* (null free-text, preserve
 `itemSnapshots`/keys/scores) as a future **consent-based retention** choice — never the delete path, which
@@ -1270,15 +1372,15 @@ is a hard erase. Cross-user
 **collaborative/behavioral** signals require item canonicalization + consent — out of scope; this
 bars collaborative signals, **not** a universal content-compatibility model trained on public outfit data (§23-H26).
 
-**Doc lifecycle (carried from CLAUDE.md):** this file is living — edit stale content in place, no
-"superseded by" narrative, no amendment history (git is the archive). Keep **trap-guards** (rationale that
-stops a re-mistake — R6 rounding, R1 framing, R10 reserved chars); delete evolution narrative. Conflicts
-are bugs, fixed on sight. If the file exceeds ~1,500 lines, spend a session compacting.
+
+**Future personal derivatives:** before any learner uses personal events, define owner → source events → export/cache/embedding/model lineage, bounded retention, purge/invalidation and rebuild after correction or erasure. Account deletion claims must cover app content and disclose operational-copy/provider limits; deleting database rows cannot revoke downloaded exports. Private-by-default owner scoping applies to artifacts and debug views. Isolated per-user parameters and periodic batch fitting are proposed implementation options, not an approved model architecture. Do not silently enroll historical `do_not_learn` records or change frozen research artifacts.
+
+**Documentation lifecycle:** [the documentation map](README.md) owns document authority and retirement; [AGENTS.md](../AGENTS.md) owns working procedure. Keep rationale that prevents a real mistake (for example key framing/reserved characters); edit stale design in place and leave execution history in Git.
 
 ## 23. Open Holes Register
 
-Every known **design** gap, with status. No silent holes; add here in the same edit you find one.
-**Defect rows live in `docs/DEFECTS.md`** (split at S4a, `docs/plans/maintainability.md` D6a; the
+Material **design** gaps and their resolution owners. Record consequential unresolved design issues here or in the current roadmap; do not add a prose row for every minor observation. The register is not an automatic work queue.
+**Defect rows live in `docs/DEFECTS.md`** (historical register split; the
 defect-vs-design classifier is in that file's header). IDs are one `H<n>` sequence shared across both
 files — a new row takes the next unused ID across BOTH, and rows there are cited as `DEFECTS-H<n>`.
 
@@ -1286,13 +1388,13 @@ files — a new row takes the next unused ID across BOTH, and rows there are cit
 |---|---|---|---|
 | H1 | Edge storage could explode to O(lenses × n²) | **RESOLVED** | *(RESOLVED-HERE.)* Behavioral edges sparse (interaction pairs only); compatibility computed on demand; lens is a feature on the interaction, not a per-lens edge table (§6.4) |
 | H2 | Edge memory can drift into too many sparse dimensions | **RESOLVED** | *(RESOLVED-HERE.)* StyleEdge stores exactly TWO fields: `compatibility` + `behavioralStrength`. Freshness/exposure are derived ranker inputs; ratings/reasons and source rows remain feedback/snapshot data, not edge fields (§11/§16). |
-| H3 | Graph vs the v1.2 additive scorer — two parallel systems? | **RESOLVED** | *(RESOLVED-HERE.)* Additive scorer = the humble first `behavioralStrength`; learned graph scorer is the staged evolution at the same seam (§11/§14) |
+| H3 | Graph vs the v1.2 additive scorer — two parallel systems? | **RESOLVED** | *(RESOLVED-HERE.)* The current additive scorer is a first feedback mechanism, not a parallel learned graph. Future contextual learning, representation and integration are selected/evaluated separately (§5/§11/§21) |
 | H4 | Within-day cache stability vs GPT stochasticity (temp>0) — a mid-day cache expiry reruns GPT and yields different candidates | **RESOLVED** | *(DISSOLVED / RESOLVED-DESIGN (M5 plan D2, 2026-07-06; §15 reconciled).)* The runtime candidate cache is removed entirely (`docs/plans/m5-cutover.md` D2): regenerate = one constrained fresh generation with lineage, so there is no cache lifetime to promise stability over. The promise becomes: *snapshots are immutable; every generation — first render or re-roll — is a fresh draw.* |
 | H5 | Board edit major/minor threshold (graded refresh) **and** the semantic-identity key that carries behavioral memory across `styleProfileVersion`s | **BLOCKED: the B-track /spec opens (threshold + identity key specced there)** | *(OPEN → DEFERRED-B-track.)* Threshold default: any palette/silhouette/formality change = major (strong refresh); keyword-only = minor (preserve pool). The identity-continuity mechanism (the stable key memory binds to, separate from the version) is specced at B-track |
 | H6 | The single `wardrobeVersion`-bumping item transition isn't named | **BLOCKED: the W-track /spec names the activation transition** | *(OPEN → DEFERRED-W-track.)* The W-track `/spec` must name the one transition meaning "now sampler-visible (active)"; that transition is the only bump. Reconcile `isAvailable` vs `needs_review` vs active. **M4/S5 adds the persisted `wardrobeVersion` field** (home = `User`, default 0, monotonic; `docs/plans/m4-data-model-migration.md` §10.4) — value constant until this transition is named; the bump itself stays W-track. |
 | H7 | `generationIndex` lifecycle (ownership, range, increment, reset) was undefined — it is the lineage/index field distinguishing a re-roll | **RESOLVED** | *(IMPLEMENTED (M5 C4/C5, `mlRecommend.ts`).)* M5 defines server ownership: first render index 0; regenerate child index = parent+1 from an ownership-verified parent re-read; client-supplied child index is ignored; duplicate `requestId` identity excludes clock-derived `seedDate` to avoid false conflicts. Load-bearing for re-roll lineage/idempotency (`m5-cutover.md` §C.1/§C.4 — no cache). |
 | H8 | Daily-reseed `date` timezone (server-UTC vs user-local) was undefined | **RESOLVED** | *(IMPLEMENTED (M5 C5, `mlRequestAdapter.ts` + service `_parse_render_body`).)* M5 fixes `seedDate` as required UTC `YYYY-MM-DD`, computed by the Next adapter and passed to the service; the service does not read a clock and independently rejects missing/null/malformed values. Must be identical across the adapter and service payload or seed/key provenance drifts at the day boundary. |
-| H9 | M6 eligibility prevalence unknown (needs both ≥5 interactions AND ≥1 type over cap) | **BLOCKED: M6 entry (measure eligibility prevalence on the friend corpus)** | *(OPEN → DEFERRED-pre-M6.)* Measure % of requests meeting both; if low, give the model a second surface (candidate ordering / ranker) |
+| H9 | Historical sampler eligibility can hide a preference mechanism on small closets | **BLOCKED: personalization mechanism selection and influence evaluation** | Existing sampler routing requires its interaction/type-cap conditions; these are not training-readiness thresholds. For a selected candidate, verify when it changes sampled/final choices and how it behaves below caps. No new friend collection is authorized by this row; §11/§21 own the future influence/evidence contract. |
 | H10 | M4 interaction-time feature snapshots not yet built; mutable wardrobe refs rewrite old feedback's meaning | **RESOLVED** | *(IMPLEMENTED (C5–C7) — live since the C8 flip 2026-07-16.)* GenerationSnapshot (§15.1) persists immutable feature snapshots before interactions become labels; the C6 builder-drift test pins that an edited/deleted item cannot alter an already-built `itemSnapshot`. M5 wires the live write + the no-post-Python-refetch rule on the TS merge. Visual hash/versioning remains W-track-dependent (H14/H33). |
 | H11 | M4 idempotency/transaction rules (duplicate feedback, affinity updates, concurrent caps, `wardrobeVersion` races) | **RESOLVED** | *(RESOLVED — append-only route + read-time reducer LANDED (C6).)* Backfill idempotency trivial (no live data). Forward write-path rule (S6, §16/plan §11.1): feedback rows are **append-only**; dedup is a **read-time reducer** concern in the compute-live affinity projection (no stored counter to race — OQ2). Set/recency projections (`liked_full_signatures`, cooldown) are idempotent under duplication; the **counted** `item_affinity` resolves to **per-candidate latest-state** (§23-H61) — the most-recent action per `{snapshotId, candidateId}` wins; a retry counts once and a correction nets to the latest (the 300s `FEEDBACK_DEDUP_WINDOW` is **retired**, ordering does the work). Write-path unique-index/upsert **rejected** (forecloses append-only events; repeats the §8.8 unique-index trap; flattens repeat-wears). M5 landed the read-time latest-state reducer (§23-H61; no window — ordering does the dedup). **M5 append-only obligation (Codex read 2026-06-27):** the binding co-presence guard is document-`validate`-only, and the **legacy `interactions` route still mutates/deletes rows** (`findOneAndUpdate`/`findOneAndDelete`) — at the M5 cutover, interaction writes must become **append-only** (corrections are new events, not in-place edits/deletes), per the §6.6 append-only-with-read-time-reducer posture, with tests that bound rows can't be partially written through *any* chosen write path. The hole's other sub-parts: concurrent per-type caps are deterministic config (no race); `wardrobeVersion`-bump concurrency rides H6/W-track. **Track 2 curation (D-1, `interactions.ts` `deleteInteraction`):** a *correction* stays append-only — a History flip is an appended opposite action via POST, never an in-place edit — so the "not in-place edits/deletes" rule above is intact; the separately-added `DELETE /api/interactions` is the sanctioned **curation/erasure** door (distinct from a correction): a user-scoped native-driver hard-delete of EVERY row for a `{snapshotId, candidateId}` binding, for retracted/junk labels (the "little bro tapped 5 reactions" case). Consistent by construction (affinity recomputes from the log; the reducer/export simply stop seeing the rows, reverting the candidate to shown-but-unrated); snapshots are never touched (§16 / §23-H61 / friend-facing-fixes.md PHASE 1). |
 | H12 | M5 graceful-fallback failure semantics were under-pinned | **RESOLVED** | *(RESOLVED-DESIGN (M5 D3/§D) → C5 writer + C8 smoke.)* M5 chooses the no-fabrication boundary: **valid engine payload reaches Next → write exactly one snapshot**, including degenerate payloads for engine-internal failures; **no payload** (service unreachable/timeout/5xx/auth/rate-limit/transport loss) → no snapshot, degraded non-bindable response, counter/log. C3 implements the service-side degenerate arms for contract-valid internal failures; C5 owns the Next degraded response and writer behavior; C8 smokes the failure path. The named residual is transport loss after spend: money may be spent but no payload reaches the writer, so no honest row exists (§15.1). |
@@ -1311,7 +1413,7 @@ files — a new row takes the next unused ID across BOTH, and rows there are cit
 | H25 | Compatibility/item representation is attribute-only; embeddings are `[STAGED]`; the §18 review gate excludes unreviewable features | **RESOLVED** | *(RESOLVED-HERE → reflect at M4/W-track.)* Item representation is **extensible** (tags now → embeddings later); scoring consumes a representation, never a fixed tag list. Learned features (per-item embedding) are a **usable scorer class** distinct from human-reviewable canonical fields (§11/§18) |
 | H26 | §11 "never shared-catalog" / §22 "cross-user out of scope" would also bar a universal compatibility model | **RESOLVED** | *(RESOLVED-HERE (split) → SPIKE COMPLETE (C1–C6, 2026-07-05): catalog feasibility MEASURED — the trained head clears the absolute floors (0.845 outfit AUC / 62.1% FITB, gate D) and adds value over its own backbone (gate A), but the mechanical verdict is NO-GO by the frozen letter (gate B power miss at the frozen N=500 cap) and the catalog→closet transfer reads outside the healthy band on an underpowered single closet — the M6 re-measure entry condition. Deliverable: `ml-system/experiments/h26/results.md`.)* Split: **behavioral/collaborative** cross-user stays out (privacy); a **universal *content*-compatibility model** trained on **public outfit corpora** is in-scope (clothes, not people) and is what makes the trained scorer feasible at portfolio scale — within-user behavior personalizes it (§11/§22). **Load-bearing for the dive's feasibility.** **Key unvalidated risk (audit 2026-06-26):** the catalog→real-closet **domain gap** — public corpora are clean flat-lay catalog photos; a real closet is messy phone photos, so the catalog→closet domain gap is **load-bearing and must be measured directly** (Popli 2022 is precedent for *measuring* real-photo↔catalog transfer — its often-cited 0.52–0.66 are weak self-supervised *pretext* baselines, **not** "naive transfer barely beats chance"; Popli's own method reaches 0.84 cross-dataset, so the lever is a fashion-domain representation, which the spike uses). De-risk with a cheap **offline spike** (Polyvore Outfits, **disjoint** split; AUC under category-aware negatives + FITB@4 over a frozen **Marqo-FashionSigLIP** image-embedding space; baseline ladder incl. **`gpt-5.4-mini`-as-judge** on the same items) **before** committing M6 — treating closet-transfer as a *separately probed* risk so a catalog AUC never masquerades as closet performance. Honest target band on the **disjoint** split ≈ 0.81–0.84 AUC / ~52–55% FITB (Vasileva 2018 Table 5: untyped SiameseNet 0.81/51.8%, type-aware CSN 0.84/55.2%). This spike is the demonstrable zero-user ML result; research + recipe in `docs/sessions/2026-06-26-m4a-post-audit.md`, **build doc `docs/plans/h26-compatibility-spike-v2.md`** (v2 adopted 2026-06-28) (the domain-gap drop is measured **pair-level on both sides**; the GPT parity head-to-head is **native forced-choice FITB@4** — the Monte-Carlo pair-level AUC arm is cut, v2 §8 — the headline cell is backbone/modality-frozen, the GPT comparator arm is pinned to image-only, and the category-co-occurrence baseline is a chance-by-construction sanity floor, not a beatable rung). |
 | H27 | §22 body/color non-goal would bar a body-type styling signal | **RESOLVED** | *(RESOLVED-HERE.)* Non-goal = no prescriptive quiz/scan + no objective "fashionability" score. An **optional, declared, coarse body-proportion archetype** as a refinable cold-start styling prior is **in-scope** (behavior reinforces current defaults; a prior enables better-than-default advice); measurements stay optional/out (sizing only) (§22) |
-| H28 | The `SignalScorer` seam is item-level (`score(item, context)`) — wrong shape for outfit/pairwise compatibility | **RESOLVED** | *(SHAPE SETTLED by H26 (2026-07-05: the in-spike ablation independently falsified the item-level scalar — seam diff +0.216, Holm p < 2/B; pairwise/edge stands) → M5 landed producer-side `scoreTrace` population; the additive `rank()`/`RankerContext` order hook remains M6 entry work.)* Reserve a **second seam shape**: an **outfit/pairwise-level scoring hook on the ranker** (scores a SlotMap / a pair), distinct from the item-level sampler slot. A summed per-item score cannot represent "these clash"; the compatibility dive needs the outfit-level hook to land (§5/§11/§14). **Empirical backing (audit 2026-06-26):** the compatibility literature is unanimous — Vasileva 2018 (type-conditioned **pairwise** distances; a single shared item-level embedding fails because compatibility is non-transitive), NGNN graph, OutfitTransformer (whole-outfit attention) — outfit compatibility is **pairwise/edge-level + type-conditioned**, outfit score = an *aggregation* over edges, never a summed per-item scalar. The cold-start MVP scorer must therefore be a **pairwise edge function** `f(item_i, item_j, types) → compatibility` (keep the seam INPUT as partial-outfit + candidate + lens/context — the §6.3 `RequestContext`, occasion/weather/routine — so a lens-conditioned, whole-outfit attention head can land at M6). M5 exercises that shape only in snapshot production, populating `scoreTrace.compatibility/visibility` without rank-order influence; cold-start compatibility must not reorder shipped M5 behavior. **Code-state (readiness amended by M5 cutover review 2026-07-06):** the ranker reservation is still conceptual, not yet in code — `RankerContext`/`rank()` carry **no** scorer hook. Landing it is an **additive default-None** outfit-level hook on `rank()`/`RankerContext` at M6 entry (additive ≠ reopen, distinct from H42's behavior-changing exemption). |
+| H28 | Item-level sampling and outfit-level content scoring need distinct seams | **RESOLVED** | H26 tested the limitation of the summed item-level scalar for its frozen content-compatibility task; [the results](../ml-system/experiments/h26/results.md) own estimates and methodology. M5 added outfit-level diagnostic traces without a learned rank-order vote. The historical proposed additive rank hook remains a candidate implementation, not a requirement that every future personal learner use pairwise edges or inherit that head. Any new influence path must evaluate actual final selection, retain score/provenance and preserve the baseline (§5/§11/§21). |
 | H29 | GenerationSnapshot may store only validated/shown candidates + text features (selection-biased, label-only, attribute-only) | **RESOLVED** | *(IMPLEMENTED (C5–C7) — live since the C8 flip 2026-07-16.)* §15.1 fixes the snapshot contract: (a) continuous scores in `scoreTrace`, including scored-but-unshown; (b) rejected + low-ranked candidates in `candidates[]`/`generationAttempts[]` with content-preservation; (c) visual ref/hash/embedding seam. M4b built the Mongoose model (raw caps + BSON guard + over-limit preservation, C5) and the Python `GenerationSnapshotPayload` + Option-B `*_with_trace` siblings (C6); M5 wires the live three-site funnel that calls them. **Two M5 obligations surfaced by the Codex read (2026-06-27), both one-way doors — fix before live writes:** (1) **variant-cap-dropped candidates carry a Step-5 score** (`_apply_variant_cap` sorts by `-score`) yet `rank_with_audit` files them in `filtered` with **no `ScoreBreakdown`** — they are *scored-but-unshown* per H29(a), so their Step-5 breakdown is a selection-bias signal currently discarded; M5 must either preserve it (a pre-diversity scored collection) or explicitly scope them out with a recorded rationale (§23-H48). (2) The TS raw-caps + content-preservation invariants are **advisory on the storage side** — the Python builder enforces them but the Mongoose schema accepts an oversized/bare doc, so the M5 live writer needs a **central TS validation helper** (caps/hash/truncation-flag + rejected-candidate content) before `.create()`, not just the Python guard. **Helper checklist widened (Codex forward-audit reconcile 2026-07-06, source-verified):** the schema also accepts semantically-invalid docs a serde-authored payload never produces but a TS-side writer bug could — `scoreTrace` fields are plain `Number` (accepts `Infinity`/out-of-[0,1] compat/vis vs the §15.1 range), and `shownCandidateIds`/`shownFullSignatures`/`nSurfaced` are independent fields with no membership/uniqueness cross-validator (an inconsistent shown set breaks the §16 authenticity gate's membership check). The helper therefore also validates: finite numbers, compat/vis ∈ [0,1], `candidateId` uniqueness, shown-set ⊆ candidates with `shown=true`/signature match, and `nSurfaced` consistency. |
 | H30 | `FullSignature` format is spec-locked; new garment roles would force a key migration; BaseKey identity is base-only | **RESOLVED** | *(RESOLVED-HERE (rule); the open identity half split to [[H106]].)* Extension rule: a new optional slot appends **only when present**, fixed canonical order, so existing keys stay valid. BaseKey stays **base-only** for `[NOW]` cooldown/variant-cap; outer/shoe-defined identity is a registered **future** redefinition (§7/§8) |
 | H31 | §22 "real-time online training" non-goal could be read to bar exploration | **RESOLVED** | *(RESOLVED-HERE.)* Out = continuous real-time gradient training. **In-scope**: a serving-time **exploration** policy (sometimes surface an orphan to learn its edges) + **periodic batch** retraining — how orphan-learning + anti-capture work; enables off-policy eval (§21/§22) |
@@ -1347,11 +1449,12 @@ files — a new row takes the next unused ID across BOTH, and rows there are cit
 | H61 | **Feedback correction/retraction affinity semantics unpinned.** The §H reducer treats `accepted`→(`item_affinity`+1 / `liked_full_signatures`) and `rejected`→(cooldown / dislike windows) as **independent additive channels**, and `item_affinity` dedup keys on `{snapshotId, candidateId, action}` — so a user who likes candidate X and later **corrects to dislike** the same X produces two non-colliding rows: the item keeps its `+1` affinity and stays in `liked_full_signatures` **while also** entering the cooldown/dislike windows. The history UI ("*to change your mind, just react again*") implies a correction takes effect; the reducer does not net it. H11's append-only rule governs **storage** (store a new row, never in-place edit), not reducer **retraction**, so this is genuinely unhomed. | **RESOLVED** | *(IMPLEMENTED (M5, `reducers.py`).)* **Per-candidate latest-STATE.** For each `{snapshotId, candidateId}` only the **most-recent action row** contributes to signals — i.e. the first row seen in the most-recent-first scan wins; older rows for that same candidate (incl. same-action repeats) are skipped. A candidate whose winning action is `rejected` also **blocks its `fullSignature`** from `liked_full_signatures` (a `blocked_signatures` set, since a set can't hold both signs). This honors the UI promise ("to change your mind, just react again"), and subsumes the 300s double-count guard (each candidate counts once — the `_is_duplicate_counted_event` window becomes deletable for counted actions). **Grain is exactly `{snapshotId, candidateId}`** — item affinity stays strictly per-candidate, so a like of outfit A and a dislike of a *different* outfit B that share an item keep BOTH signals (legit cross-candidate taste, not a contradiction). Requires the deterministic `{createdAt:-1, _id:-1}` projection sort (already shipped) so same-millisecond ties resolve stably. **M6 obligation:** the M6 labeler MUST use the same latest-state rule so training labels never disagree with serving signals; the discarded history stays available as auxiliary label-churn features. Storage stays append-only (no data loss); netting is read-time. Landed at the reducer (`reduce_interaction_rows`, `reducers.py:81`) with correction/waffle/tie/signature-block tests. |
 | H70 | **Coord / matching SETS have no representation — one purchase, N slots, N fragmented items.** The app models single garments in single slots; a garment bought and conceived as a set (a suit set = blazer + skirt; a two-piece coord) fragments into per-garment items, each named lossily. A human names the whole set as one thing, so the SET NAME leaks onto a single piece: Zhiyun's "suit dress" was the **skirt half** of a blazer+skirt suit set, and that leaked name is what drove the mis-slot (`docs/plans/clothingtype-slot-correctness.md`). The "build a full outfit" logic also cannot know that two owned items form a coherent pre-matched pair. (Surfaced 2026-07-22, Zhiyun mis-slot case study.) | **BLOCKED: the M6 edge-graph representation work begins** | *(OPEN — representation gap, M6-adjacent.)* Adjacent to H25 (extensible representation) / H28 (pairwise edge seam) / H52 rung-3 (context-resolved multi-role). A set is naturally a learned/declared **edge** ("these go together"), NOT a new `clothingType` value or a new item type — do not try to solve it in the 5-type plumbing. **Not friend-blocking:** once each piece is slotted correctly (the clothingType-slot-correctness plan), the individual items work; the set-awareness is an enrichment. Decide the representation with the M6 edge graph. |
 | H71 | **The weather dimension is effectively dead — every render resolves `weather="mild"` (22/22 live).** Two independent causes, both in the data (`weatherRaw` split): **(a) low geo adoption — 16/22 renders had NO lat/lon** (`weatherRaw==null`), so the resolver fell to `bucketFromSummary(occasion)` and the real occasions ("go traveling", "casual campus day") carry no weather keyword → default "mild" (`lib/mlRecommend.ts:161,175`); the geo prompt is browser-permission-gated and the admin-driver account has no browser at all (and since 2026-07-25 it is also **opt-in**: `dashboard/page.tsx` no longer calls `getCurrentPosition` on mount — see the resolution column). **(b) single-climate cohort — the 6 geo-granted renders hit the real open-meteo API** (`lib/weather.ts:129`), which returned "Clear sky, 22°C", and 22°C legitimately buckets to mild (`bucketFromTemp:188`, band 10–24°C). So the code is NOT broken (the geo→API path works, proven live); the dimension has ~zero variance because most renders lack geo AND a geographically-concentrated cohort has near-constant real weather. (2026-07-22 corpus mine.) **Sub-note:** `warmth` is the same invisible keyword-derived field (cardigan→10, blazer→8) but is **non-gating** — it only shifts the `option_path` compatibility bucket (`response.py:325-358`, "bucket never gates"), never yield — so it is this hole's degraded-dimension sub-note, not its own fix. | **OPEN** | *(load-bearing for M6 corpus + out-of-region friends.)* The M6 training corpus carries `weather` as a **constant** (a dead feature), and a friend in a genuinely hot/cold place gets climate-blind outfits (the prompt always says "Weather: mild", `rescue.py`). Orthogonal to the clothingType mis-slot (`docs/plans/clothingtype-slot-correctness.md`) — its own design call, Fable-reviewed when picked up: assertive geo prompt / manual temperature input / a stored home-location on the user. Do NOT bolt onto the mis-slot plan. Registered, not built. **2026-07-25 update — the "assertive geo prompt" lever is CLOSED by decision, not available:** the friend-first-use pass made geolocation opt-in (an in-app explanation + a tap, plus a Permissions-API resume so an existing grant is never re-asked), because a cold OS location dialog immediately after sign-in is a documented bail trigger. The corpus cost is near-zero and was weighed: adoption was never the binding cause — the 6 geo-granted renders returned 22°C→`mild` anyway, so cause (b), the single-climate cohort, is what actually flattens the dimension. **Do not "fix" this hole by restoring an automatic prompt.** The two remaining levers — manual temperature input, or a stored home-location on the user — are the ones that restore real variance, are climate-agnostic, and need no browser permission; they are what an out-of-region friend (flagged above) actually needs. |
-| H101 | **The lens is dropped at the canonical-key layer, so every behavioural edge collapses across occasions.** §11 — the section that houses the ambition — specs the StyleEdge "between two items, **under a lens**". §7 then keys outfits lens-free (`BaseKey = topId:bottomId`, `FullSignature = BaseKey\|outer=…\|shoes=…`) and names those same keys as what drives "dislike cooldown … comboBoost/**edge matching**". The keys ARE the edge identity in the shipped code, so a 👎 recorded for "I am going to the gym" applies its cooldown to "formal interview" too, and a 👍 boosts the combination everywhere. §14's scoring formula (`baseScore + comboBoost + itemBoost − dislikePenalty`) has no occasion term either. **The wiring is not missing — only the consumption is:** `RankerContext` carries a *required* `occasion` field, plumbed from `buildLens` (`fitted/lib/mlRequestAdapter.ts:321`) through the service, and `fitted_core/ranker.py` reads it **exactly once**, at `:737`, to seed the **tie-break RNG** — determinism, never relevance. Friend-reported 2026-07-27 (both testers independently asked whether feedback is prompt-scoped); live corroboration: Zhiyun's 22 dislikes against `COOLDOWN_BUFFER_SIZE=10` on a closet with one pair of shoes. Harm is bounded, not absolute — cooldown drops go to the relax reserve, re-admittable at the C5 `cooldown_relaxed` rung (`ranker.py` `_apply_step4_filters`), so it shifts preference rather than removing availability. Distinct from **H28**, which reserves lens-conditioning for the *content* scorer: nothing currently covers the **behavioural** side. | **OPEN** | *(the ambition's own dimension, missing at its foundation.)* This is the highest-value row in the 2026-07-27 batch: the live corpus is already accumulating lens-free edges (45 interactions and growing), and the keys are persisted verbatim by M4, so the shape chosen here is what M6 inherits. Forward-compat door already open in §7: **H30** permits *appending* components to FullSignature in fixed canonical order without migration — but BaseKey is explicitly "base-only for `[NOW]`", and BaseKey is what the cooldown uses, so a lens-scoped cooldown is a BaseKey redefinition, not an append. Design call, Fable-review when picked up; decide it **with** H28 (one lens-conditioning story for both edge fields, not two). Do **not** resolve it by weakening §11 to match the code. |
+| H101 | Current reaction boosts and cooldowns are not style/context scoped | **OPEN** | `fitted/lib/mlBehavioralRows.ts` projects reaction IDs/signatures without occasion, scope or disposition; `ml-system/fitted_core/reducers.py` therefore aggregates them across situations. A gym rejection can affect interview suggestions. Source-binding and exact garment keys are valid, but they do not establish contextual taste. Future scope design must give explicit style/context a stable identity, define treatment of legacy/unknown scope, and resolve latest correction before eligibility. Scope may be attached to evidence/projections separately from garment identity; changing persisted BaseKey/FullSignature instead requires an explicit compatibility/migration decision (§7). Do not weaken the intended contextual service or silently relabel old reactions. |
 | H102 | **The §16 structured "why" channel yields zero in practice.** Across 23 friend rejections on the live corpus, **0** carry `feedbackReason.codes`, `feedbackReason.rawText`, or `perItemFeedback`; the only populated row in the whole database belongs to Brian's own test account. This is working as designed — a one-tap dislike posts a reasonless `rejected` immediately and the "tell us why?" modal is optional (`fitted/lib/useDislikeEnrich.ts`, the D-3 durable-enrich contract) — but the consequence is that §23-**H34**'s "`rawText` stays provenance until reviewed/compiled" has nothing to compile, and Zhiyun's 22 dislikes on well-formed renders carry no diagnosis of *why* she rejected them. (2026-07-27 live-corpus read.) | **OPEN** | *(designed-not-demonstrated, informational.)* Not a bug and not friend-blocking; the primary read (accepted-vs-rejected) does not need reasons. Register so the §16 vocabulary is not mistaken for a populated training signal at M6, and so any future decision to make the reason prompt more assertive is weighed against the one-tap symmetry it would break (a dislike currently costs the same tap as a like — that symmetry is why the dislike arm has data at all). |
 | H103 | **The live image corpus carries no EXIF at all, so the preregistration's mandatory `exif_transpose` is a guaranteed no-op.** All **38** stored images have zero EXIF entries — and decisively, **32 of 38 are under `SKIP_BELOW_BYTES` (400 KB)**, the threshold at which `prepareImageForUpload` returns the file *untouched* (`fitted/app/(app)/wardrobe/page.tsx:1439`). The client pipeline therefore never ran on them: the orientation data was already absent **at pick time**. Sizes cluster at 90–150 KB, consistent with sources that have been through a messaging app or gallery re-save before upload. Consequences: **(a)** prereg §6's stated rationale — "the Track-2 corpus is orientation-mixed, and un-transposed phone photos roughly halve the signal" — does not describe this corpus, and its required orientation-6 regression fixture exercises a path real data cannot take; **(b)** 8/38 are landscape and at least two (Marc's grey baggy jeans, black Levi jeans) present the garment rotated ~90°, now **permanent** — no tag remains for anything downstream to correct; **(c)** embedding fidelity is set by whatever the intermediary app compressed to, not by the client's 1280 px / q0.85 pipeline. Sub-note, same remedy — **frame composition**: several of Marc's photos include his feet and room clutter and two jacket shots contain a second garment; one of Zhiyun's 15 is not a camera capture at all but a **cropped screenshot** — 1170×1458 against her other fourteen at 1280×1707, and 1170 px is the native screen width of an iPhone 12/13/14-class device. It shows the garment worn, cropped below the face, outdoors. **Whether the wearer is her or a listing model is NOT determinable from the file, and the distinction does not matter here** — either way it is a re-encoded screen grab rather than a photograph of the garment, which is exactly the class the onboarding line now warns against. **Severity ordering, because "looks unusual" is not the same as "measured to hurt" —** the frozen preprocess is `Resize(224) → ConvertMode → ToTensor → Normalize` with **no crop step** (`embedding_manifest_fashionsiglip.json`), so the whole frame is embedded for *every* photo in the corpus, not just the odd ones. Ranked by evidence: **(1) rotation is the only image property H26 actually measured, and it is large** — closet-probe AUC 0.4375 → 0.5625 after `exif_transpose` (results.md §6); **(2) a second garment in frame** corrupts what the item *is* rather than where it is (two of Marc's outerwear shots contain navy trousers, so the "Overcoat" vector encodes trousers) — label noise, and the more damaging of the two composition issues; **(3) on-model / outdoors / not-on-a-bed is NOT established as harmful and plausibly helps** — Marqo-FashionSigLIP is trained on fashion e-commerce imagery, which is dominated by on-model product photography, so a daylight worn shot may sit closer to the backbone's training distribution than a night-time flat-lay on a duvet; **(4) background clutter generally** is unknown but roughly uniform across all 38, so it largely cancels. Do not spend onboarding goodwill on (3) or (4). **Aspect ratio is the cheap detector** for the screenshot class: anything off the camera's native 3:4 deserves a look. (2026-07-27 corpus read, `PIL.Image.getexif` + dimensions over the M6 export.) | **OPEN** | *(onboarding-fixable, not code-fixable.)* The client is behaving correctly; no code change reaches this. The lever is the onboarding message (runbook §8): ask for uploads straight from the camera roll, not routed through a messaging app or screenshotted, and one garment per frame on a plain surface. Applied 2026-07-27. Do **not** amend the frozen preregistration — this is a finding *about* the corpus that §6's mitigation does not cover, and the freeze is a one-way door. |
-| H105 | **Three of §12's four precedence tiers do not exist in the shipped ranker.** §12 states the precedence "hard constraints (dress code / weather / comfort) > prompt occasion & formality > active StyleProfile shapes choices *within* the valid context > revealed negative signal suppresses bad repeats". Audited tier by tier against code: **(1) hard constraints** — `RankerContext.weather` is read once, at `ranker.py:737`, the tie-break RNG seed; weather's only real effects are a line in the LLM prompt and a post-rank display bucket, never a constraint or a filter. **(2) prompt occasion & formality** — occasion → prompt + the same RNG seed (H101); **`formality` is not in the data model at all**, scope-trimmed at M4 alongside `material`/`styleTags`. **(3) active StyleProfile** — exists only as three dormant columns on `fitted/models/GenerationSnapshot.ts:280-286` (`styleProfileId`, `styleProfileVersion`, `styleProfileSnapshot`); no model, no writer, no reader anywhere in `fitted_core` or `fitted/`. **(4) revealed negative signal** — the only implemented tier, and lens-blind per H101. Net consequence: **the LLM prompt is the sole mechanism making an outfit occasion-appropriate, and nothing downstream verifies it** — the deterministic Python layer that §5 insists must own ranking is, on the context dimension, a pass-through. Scope-check worth keeping: every `UPPER_SNAKE` constant in `fitted_core/config.py` was checked for defined-but-unused and came back **clean**, so this is specifically the lens/context dimension, not general dead code. (2026-07-27, prompted by friend feedback.) | **OPEN** | *(ambition-fidelity, the §12 prose is not current behaviour.)* §12's precedence sentence now carries a pointer to this row; it is a statement of the **target**, not of shipped behaviour, and must not be read as a contract. Resolution is not one fix — it is the sequencing question of which tiers M6 restores. **H71** already owns the weather half (its remaining levers: manual temperature input or a stored home location). Sub-note to fold in when H71 is next touched: H71's main text cites "the ranker's `WEATHER_WARMTH_BAND` penalty", which does not exist — the constant is consumed in `fitted_core/response.py:208-209` for the option-path display bucket; H71's own sub-note states this correctly while its main text does not. |
-| H106 | **BaseKey identity is base-only — outer/shoe-defined outfit identity is a registered future redefinition (§7/§8), split from [[H30]].** H30's extension rule covers *appending* optional slots to FullSignature without migration; redefining what BaseKey MEANS (the identity cooldown/variant-cap bind to) is not an append and would be a key migration. [[H101]] hits the same boundary from the lens side: a lens-scoped cooldown is a BaseKey redefinition too. | **BLOCKED: the H101/H28 lens-conditioning design call (M6) — BaseKey redefinition is decided there** | One decision for every BaseKey redefinition (outer/shoes, lens), not piecemeal (§7/§8, [[H101]], [[H30]]). |
+| H105 | General context/constraint suitability is not deterministically verified | **OPEN** | Occasion/style wording guides the stylist; active StyleProfiles, general dress-code/formality/comfort validation and contextual preference consumption are absent. Narrow exact controls and the removable-layer weather policy are implemented; `ml-system/fitted_core/layer_policy.py` does not establish protective garment properties or general weather suitability. §12 describes this boundary. Select missing tiers through the roadmap; neither historical M6 sequencing nor a wording change establishes implementation. |
+| H106 | Broader outfit identity and contextual cooldown need an explicit compatibility decision | **BLOCKED: scoped preference and garment-identity design** | Existing BaseKey stays base-only. Treating outer/shoes as a new base identity would redefine persisted keys; style/context scoping may instead attach to evidence/projections without changing garment keys (H101). Decide scoped legacy/unknown behavior and any actual key migration explicitly; do not implement a series of incidental identity patches (§7/H30). |
+| H113 | Changed actual-wear additions lack captured garment photos | **RESOLVED** | Stable owned references, explicit capture provenance, missing-vs-legacy semantics and transactional report holds are specified in §16/§15.1 and implemented locally in `outfitExperience/photos.ts`, store/read and the wear form. Real-Mongo race, correction, retry and erasure contracts live in `outfitExperiencePhotos.test.ts`; local release status is in the roadmap/defect register. No historical-photo reconstruction, worn-outfit photo or learned benefit is claimed. |
 
 ---
 
@@ -1414,7 +1517,7 @@ validation is **done** (TOKCAP-1 discharged 2026-07-20: full 12-outfit daily ask
 returned 12/12, finish `stop` — validated record in `service/config.py`; re-check driver = the
 `tokcap-full-ask` gauntlet persona, runbook §8). The **rescue** worst-case ask (unbounded by the
 daily-12 cap — `_rescue_candidate_requested` clamps to [6, 40]) was **not** re-validated live and is a
-graded residual (TOKCAP-2, runbook §8); it degrades gracefully (truncation → repair → "couldn't find
+graded residual (TOKCAP-2, runbook §8); it degrades gracefully (truncation recorded without an unchanged retry → "couldn't find
 enough", never a 500). *(The v1.2
 candidate-cache TTL is retired — M5 D2 removes the candidate cache entirely, `docs/plans/m5-cutover.md` §C;
 there is no cache constant.)* The 70/30 split

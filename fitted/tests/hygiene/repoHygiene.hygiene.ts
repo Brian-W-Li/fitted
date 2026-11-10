@@ -17,6 +17,7 @@ import { execFileSync, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
+import { markdownLocalTargets } from "./markdownLinks";
 
 // Check 15 runs real child suites (~11s warm); the project config cannot carry a
 // testTimeout (invalid at project level in jest 29), so the override lives here. The
@@ -79,7 +80,7 @@ function trackedMd(): string[] {
 // const, and check 10 scans this file too. Those cites resolve today; at S6, when the
 // plan is deleted, they must be scrubbed in the same commit or check 10 goes red — the
 // obligation is recorded in the plan's §7.3 S6 entry.
-const CITE_PREFIXES = "(?:docs|fitted|ml-system|\\.claude|\\.github)";
+const CITE_PREFIXES = "(?:docs|fitted|ml-system|scripts/workflow|\\.agents|\\.claude|\\.github)";
 const CITE_RE = new RegExp(
   "(?<![\\w./-])(" + CITE_PREFIXES + "\\/[A-Za-z0-9_][A-Za-z0-9_\\/.-]*\\.[A-Za-z0-9]+)",
   "g"
@@ -88,9 +89,9 @@ const CITE_RE = new RegExp(
 /** check 9: (doc, cited-path) pairs where the cited path does not exist. A cite resolves
  * against the repo root, or against the citing file's own directory (fitted/README.md
  * legitimately cites docs/database.md meaning fitted/docs/database.md). */
-function docCiteMissing(): string[] {
+function docCiteMissing(files = trackedMd()): string[] {
   const out: string[] = [];
-  for (const f of trackedMd()) {
+  for (const f of files) {
     const seen = new Set<string>();
     for (const m of read(f).matchAll(CITE_RE)) {
       const cite = m[1];
@@ -106,6 +107,36 @@ function docCiteMissing(): string[] {
     }
   }
   return out.sort();
+}
+
+/** Maintained guidance must resolve every path even while archives remain above
+ * target. Include new Codex skill files before staging so the working-tree check
+ * verifies the same instructions an agent can already read. */
+function maintainedMd(): string[] {
+  const files = ["README.md", "AGENTS.md", "CODEX.md", "docs/README.md", SPEC, "docs/ROADMAP.md", "fitted/README.md", "ml-system/README.md", "fitted/docs/database.md", PLAN];
+  function addSkills(dir: string): void {
+    if (!fs.existsSync(path.join(ROOT, dir))) return;
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) addSkills(rel);
+      else if (entry.isFile() && rel.endsWith(".md")) files.push(rel);
+    }
+  }
+  addSkills(".agents");
+  return files;
+}
+
+function maintainedCiteMissing(): string[] {
+  const files = maintainedMd();
+  const missing = docCiteMissing(files);
+  for (const file of files) {
+    for (const target of markdownLocalTargets(read(file))) {
+      if (!fs.existsSync(path.resolve(ROOT, path.dirname(file), target))) {
+        missing.push(`${file} -> ${target} (Markdown target)`);
+      }
+    }
+  }
+  return missing.sort();
 }
 
 const SOURCE_RE = /\.(ts|tsx|js|mjs|cjs|py|sh)$/;
@@ -283,7 +314,7 @@ function volatileMarkers(scope: string, text: string): string[] {
 }
 
 function allVolatileMarkers(): string[] {
-  const hits = volatileMarkers("CLAUDE.md", read("CLAUDE.md"));
+  const hits = volatileMarkers("AGENTS.md", read("AGENTS.md"));
   for (const f of trackedMd().filter((p) => /^docs\/plans\/[^/]+\.md$/.test(p))) {
     const banner = planBanner(read(f));
     if (banner) hits.push(...volatileMarkers(`${f} (banner)`, banner));
@@ -408,6 +439,11 @@ describe("repo hygiene — enforced channel (ratchets vs baseline; red = worse t
     console.log(`check 9 current ${missing.length} → target 0 (baseline ${baseline.enforced.check9_docCiteMissingPath})`);
   });
 
+  test("check 9a: active maintained guidance cites only existing paths (at target 0)", () => {
+    const missing = maintainedCiteMissing();
+    if (missing.length > 0) throw new Error(`check 9a: maintained guidance has broken cites:\n${missing.join("\n")}`);
+  });
+
   test("check 10: source files citing a nonexistent doc (at target 0)", () => {
     const missing = sourceCiteMissing();
     if (missing.length > 0) {
@@ -425,7 +461,7 @@ describe("repo hygiene — enforced channel (ratchets vs baseline; red = worse t
     if (violations.length > 0) throw new Error(`check 13: violations:\n${violations.join("\n")}`);
   });
 
-  test("check 14: volatile markers in CLAUDE.md / plan status banners", () => {
+  test("check 14: volatile markers in AGENTS.md / plan status banners", () => {
     const hits = allVolatileMarkers();
     if (hits.length > baseline.enforced.check14_volatileMarkers) {
       throw new Error(
@@ -486,7 +522,7 @@ describe("repo hygiene — printed channel (information, never blocks)", () => {
         .filter((f) => f !== DEFECTS && f !== appendix)
         .reduce((s, f) => s + bytesOf(f), 0),
       check3_largestDocBytes: Math.max(...md.map(bytesOf)),
-      check4_readingListBytes: ["CLAUDE.md", SPEC, PLAN]
+      check4_readingListBytes: ["README.md", "AGENTS.md", "docs/README.md", "docs/ROADMAP.md"]
         .filter((f) => fs.existsSync(path.join(ROOT, f)))
         .reduce((s, f) => s + bytesOf(f), 0),
       check5_plansCount: md.filter((f) => /^docs\/plans\/[^/]+\.md$/.test(f)).length,

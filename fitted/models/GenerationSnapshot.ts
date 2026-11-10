@@ -335,6 +335,8 @@ const GenerationSnapshotSchema = new Schema(
     weatherRaw: { type: String },
     // Next-owned provenance; no default/backfill that invents a historical source.
     weatherSource: { type: String, enum: WEATHER_SOURCES },
+    // Next-owned root weather command digest; absent on historical/child rows.
+    weatherCommandHash: { type: String, match: /^[a-f0-9]{64}$/ },
     weatherSignals: { type: new Schema({ rain: { type: Boolean, required: true }, wind: { type: Boolean, required: true } }, { _id: false, strict: true }), default: undefined },
     layerChoice: { type: new Schema({ status: { type: String, enum: ["off", "offered", "gap"], required: true }, note: { type: String, maxlength: 400, default: null } }, { _id: false, strict: true }), default: undefined },
     location: { type: String },

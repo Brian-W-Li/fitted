@@ -46,3 +46,6 @@ lab01-solo/
 .env.*
 !.env.example
 !.env.sample
+
+# Private local wardrobe and participant evidence never belongs in public source.
+/.private/

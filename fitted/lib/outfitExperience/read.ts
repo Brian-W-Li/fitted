@@ -4,6 +4,8 @@ import { Types } from "mongoose";
 import { experienceCollection, type ExperienceRecord } from "@/models/OutfitExperience";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import WardrobeItem from "@/models/WardrobeItem";
+import WardrobeImage from "@/models/WardrobeImage";
+import { OBJECT_ID_RE } from "@/lib/formats";
 import { EXPERIENCE_PAGE_SIZE, EXPERIENCE_SCAN_SIZE, objectId, operationId, type ActualItem } from "./contract";
 import { userWearContext, suggestedWearContext } from "./context";
 import { ExperienceError, ExperienceValidationError } from "./errors";
@@ -46,15 +48,34 @@ async function displayCandidate(user: Types.ObjectId, source: MemorySnapshot, ca
     };
   });
 }
+function capturedImageId(item: ActualItem): string | null {
+  const ref = item.photo?.imageRef;
+  if (typeof ref !== "string" || !ref.startsWith("mongo:")) return null;
+  const id = ref.slice("mongo:".length);
+  return OBJECT_ID_RE.test(id) ? id.toLowerCase() : null;
+}
 async function displayActual(user: Types.ObjectId, recorded: ActualItem[], sourceItems: Awaited<ReturnType<typeof displayCandidate>>) {
   const ids = recorded.map(item => new Types.ObjectId(objectId(item.itemId)));
-  const wardrobe = await WardrobeItem.collection.find({ user, _id: { $in: ids } },
-    { projection: { name: 1, clothingType: 1, isAvailable: 1 } }).toArray();
+  const capturedIds = recorded.map(capturedImageId).filter((id): id is string => id !== null);
+  // Read only identity metadata, never image bytes. A retained photo remains useful even
+  // after its closet garment disappears, but cannot cross owner or garment boundaries.
+  const [wardrobe, photos] = await Promise.all([
+    WardrobeItem.collection.find({ user, _id: { $in: ids } },
+      { projection: { name: 1, clothingType: 1, isAvailable: 1 } }).toArray(),
+    capturedIds.length ? WardrobeImage.collection.find({ user, _id: { $in: capturedIds.map(id => new Types.ObjectId(id)) } },
+      { projection: { _id: 1, wardrobeItem: 1 } }).toArray() : Promise.resolve([]),
+  ]);
   const current = new Map(wardrobe.map(item => [String(item._id), item]));
   const source = new Map(sourceItems.map(item => [item.itemId, item]));
   return recorded.map(item => {
     const now = current.get(item.itemId);
-    return { ...item, imageUrl: source.get(item.itemId)?.imageUrl ?? null,
+    const id = capturedImageId(item);
+    const captured = id && photos.some(photo => String(photo._id) === id && String(photo.wardrobeItem) === item.itemId);
+    // Undefined is legacy evidence, not proof a current wardrobe photo was captured.
+    // Explicit null is a known missing capture and must not acquire a source/current photo.
+    const imageUrl = item.photo === undefined ? source.get(item.itemId)?.imageUrl ?? null
+      : captured ? `mongo:${id}` : null;
+    return { ...item, imageUrl,
       availability: !now ? "missing" as const : now.isAvailable === false ? "unavailable" as const : "available" as const,
       changed: !!now && (now.name !== item.name || now.clothingType !== item.clothingType) };
   });

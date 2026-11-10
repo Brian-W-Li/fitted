@@ -6,6 +6,7 @@ import GenerationSnapshot from "@/models/GenerationSnapshot";
 import { createInput, editInput, retractInput, operationId, objectId, MAX_EXPERIENCE_REVISIONS, type WearInput, type WearState } from "./contract";
 import { suggestedWearContext, userWearContext } from "./context";
 import { ExperienceError } from "./errors";
+import { planWearPhotos, pinWearPhotos, releaseWearPhotos, reclaimAfterWearErasure } from "./photos";
 import { requireSource } from "./source";
 import { resolveComposition, type ResolvedComposition } from "./composition";
 
@@ -119,18 +120,24 @@ export class ExperienceStore {
     if (replay) return replay;
     if (previous) throw new ExperienceError(409, "experience_exists");
     const composition = await resolveComposition(user, input, input.snapshotId, input.candidateId);
-    const state = await this.state(user, input, input.snapshotId, input.candidateId, composition);
+    const recordedAt = this.now();
+    const photos = await planWearPhotos(user, composition.memberItems!, recordedAt.toISOString(),
+      composition.snapshot ? { snapshot: composition.snapshot, candidateId: input.candidateId } : undefined);
+    const state = await this.state(user, input, input.snapshotId, input.candidateId, { ...composition, memberItems: photos.items });
     const record: ExperienceRecord = {
       _id: new Types.ObjectId(), user, experienceId: input.experienceId, lifecycle: "active", schemaVersion: 1,
       snapshotId: new Types.ObjectId(input.snapshotId), candidateId: input.candidateId,
       memberItemIds: composition.memberItemIds, currentRevision: 1,
-      revisions: [{ revision: 1, operationId: input.operationId, requestKey: key, recordedAt: this.now(), type: "wear_reported", state }],
+      revisions: [{ revision: 1, operationId: input.operationId, requestKey: key, recordedAt, type: "wear_reported", state }],
     };
     await new OutfitExperience(record).validate();
     await this.admit(user, input.experienceId);
     await this.options.beforeWrite?.("create");
     await this.ownedWrite(user, "create", async () => {
-      try { await ownerWriteFence(User, user, session => experienceCollection().insertOne(record, { session })); }
+      try { await ownerWriteFence(User, user, async session => {
+        const memberItems = await pinWearPhotos(user, input.experienceId, photos, session);
+        await experienceCollection().insertOne({ ...record, revisions: [{ ...record.revisions![0], state: { ...state, memberItems } }] }, { session });
+      }); }
       catch (error) { if (!duplicate(error)) throw error; }
     });
     const current = await this.find(user, input.experienceId);
@@ -163,23 +170,49 @@ export class ExperienceStore {
       edited.memberItemIds?.length === previous.memberItemIds?.length &&
       edited.memberItemIds?.every((id, i) => id === String(previous.memberItemIds![i]));
     const sameShown = edited?.compositionStatus === "as_shown" && lastState.compositionStatus === "as_shown";
-    const composition: ResolvedComposition = sameChanged || sameShown
+    let composition: ResolvedComposition = sameChanged || sameShown
       ? { memberItemIds: previous.memberItemIds!, memberItems: lastState.memberItems }
-      : edited ? await resolveComposition(user, edited, previous.snapshotId!.toHexString(), previous.candidateId!)
+      : edited ? await resolveComposition(user, edited, previous.snapshotId!.toHexString(), previous.candidateId!, lastState.memberItems)
         : { memberItemIds: previous.memberItemIds!, memberItems: lastState.memberItems };
+    const recordedAt = this.now();
+    const refresh = edited?.photoRefreshItemIds ?? [];
+    if (refresh.length && !composition.memberItems) {
+      // An explicit refresh may recover legacy member facts from its exact source.
+      // It does not implicitly capture photos for the other legacy members.
+      composition = await resolveComposition(user, edited!, previous.snapshotId!.toHexString(), previous.candidateId!);
+    }
+    const photos = edited && composition.memberItems ? await planWearPhotos(user, composition.memberItems, recordedAt.toISOString(),
+      composition.snapshot ? { snapshot: composition.snapshot, candidateId: previous.candidateId! } : undefined,
+      lastState.memberItems ?? composition.memberItems?.filter(item => previous.memberItemIds!.some(id => String(id) === item.itemId)), refresh) : undefined;
     const state = edited
-      ? await this.state(user, edited, previous.snapshotId!.toHexString(), previous.candidateId!, composition, lastState)
+      ? await this.state(user, edited, previous.snapshotId!.toHexString(), previous.candidateId!,
+        { ...composition, ...(photos ? { memberItems: photos.items } : {}) }, lastState)
       : lastState;
-    const revision: ExperienceRevision = { revision: previous.currentRevision! + 1, operationId: input.operationId, requestKey: key, recordedAt: this.now(), type: type === "revise" ? "revised" : "retracted", state };
+    const revision: ExperienceRevision = { revision: previous.currentRevision! + 1, operationId: input.operationId, requestKey: key, recordedAt, type: type === "revise" ? "revised" : "retracted", state };
     const lifecycle = type === "retract" ? "retracted" : "active";
     await new OutfitExperience({ ...previous, lifecycle, memberItemIds: composition.memberItemIds,
       currentRevision: revision.revision, revisions: [...previous.revisions!, revision] }).validate();
     await this.options.beforeWrite?.(type);
-    await this.ownedWrite(user, type, () => experienceCollection().updateOne({
-      user, experienceId: id, lifecycle: "active", currentRevision: input.expectedPreviousRevision,
-      "revisions.operationId": { $ne: input.operationId },
-    }, { $set: { lifecycle, memberItemIds: composition.memberItemIds,
-      currentRevision: revision.revision }, $push: { revisions: revision } }));
+    try {
+      await this.ownedWrite(user, type, () => ownerWriteFence(User, user, async session => {
+        const memberItems = photos ? await pinWearPhotos(user, id, photos, session) : state.memberItems;
+        const committedRevision = { ...revision, state: { ...state, ...(memberItems ? { memberItems } : {}) } };
+        const result = await experienceCollection().updateOne({
+          user, experienceId: id, lifecycle: "active", currentRevision: input.expectedPreviousRevision,
+          "revisions.operationId": { $ne: input.operationId },
+        }, { $set: { lifecycle, memberItemIds: composition.memberItemIds,
+          currentRevision: revision.revision }, $push: { revisions: committedRevision } }, { session });
+        if (!result.matchedCount) throw new ExperienceError(409, "revision_conflict");
+      }));
+    } catch (error) {
+      if (error instanceof ExperienceError && error.code === "revision_conflict") {
+        // A simultaneous identical retry can win; an erased winner must still return410.
+        const winner = await this.find(user, id);
+        const replay = this.replay(winner, input.operationId, key);
+        if (replay) { await this.redactDerived(user, id, winner!.lifecycle === "active" ? winner!.currentRevision : undefined); return replay; }
+      }
+      throw error;
+    }
     const current = await this.find(user, id);
     const result = this.replay(current, input.operationId, key);
     if (!result) throw new ExperienceError(409, "revision_conflict");
@@ -205,14 +238,18 @@ export class ExperienceStore {
     await new OutfitExperience(marker).validate();
     await this.options.beforeWrite?.("erase");
     await this.ownedWrite(user, "erase", async () => {
-      try { await ownerWriteFence(User, user, session => experienceCollection().replaceOne({ user, experienceId: id }, marker, { upsert: true, session })); }
+      const erase = () => ownerWriteFence(User, user, async session => {
+        await experienceCollection().replaceOne({ user, experienceId: id }, marker, { upsert: true, session });
+        await releaseWearPhotos(user, id, session);
+      });
+      try { await erase(); }
       catch (error) {
         if (!duplicate(error)) throw error;
-        // Duplicate-key aborted the first transaction. Erase the winner in a NEW fenced
-        // transaction; never write again inside an aborted session.
-        await ownerWriteFence(User, user, session => experienceCollection().replaceOne({ user, experienceId: id }, marker, { upsert: true, session }));
+        // Duplicate-key aborted the first transaction. Use a new fenced transaction.
+        await erase();
       }
     });
     await this.redactDerived(user, id);
+    await reclaimAfterWearErasure(user);
   }
 }

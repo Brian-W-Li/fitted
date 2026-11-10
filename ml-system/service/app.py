@@ -37,6 +37,7 @@ failure is a valid-request engine failure and returns a 2xx degenerate payload (
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import hmac
 import json
@@ -159,17 +160,27 @@ class _TokenBucket:
 class _CountingGenerator:
     """Wraps the injected ``Generator`` to observe whether spend happened (§D stage split)."""
 
-    def __init__(self, inner: Generator) -> None:
+    def __init__(self, inner: Generator, clock: Callable[[], float], deadline: float) -> None:
         self._inner = inner
+        self._clock = clock
+        self._deadline = deadline
         self.calls = 0
+
+    def can_repair(self) -> bool:
+        return self._deadline - self._clock() >= cfg.MIN_REPAIR_BUDGET_SECONDS
 
     @property
     def last_finish_status(self):
         return getattr(self._inner, "last_finish_status", None)
 
     def generate(self, prompt: GenerationPrompt) -> str:
+        remaining = self._deadline - self._clock()
+        if remaining <= 0:
+            raise TimeoutError("Model dispatch budget exhausted before generation")
+        timeout = min(cfg.OPENAI_TIMEOUT_SECONDS, remaining)
+        timed_generate = getattr(self._inner, "generate_with_timeout", None)
         self.calls += 1
-        return self._inner.generate(prompt)
+        return timed_generate(prompt, timeout) if timed_generate is not None else self._inner.generate(prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -746,6 +757,7 @@ class FittedService:
     ) -> None:
         self._config, self._config_reason = load_service_config(env)
         self._generator_factory = generator_factory or _default_generator_factory
+        self._clock = clock
         self._bucket = _TokenBucket(cfg.RATE_LIMIT_BURST, cfg.RATE_LIMIT_REFILL_PER_SECOND, clock)
 
     # -- readyz (G9 — zero OpenAI spend, no auth key, never a secret value) ---------
@@ -821,6 +833,7 @@ class FittedService:
             return 400, _envelope("contract_invalid", str(exc))
 
         request = parsed.render_request
+        model_deadline = self._clock() + cfg.MODEL_DISPATCH_BUDGET_SECONDS
 
         # cache key + provenance are pure functions of the validated request + the service's
         # own config — they compute FIRST so the §D degenerate arm below always has the full
@@ -863,7 +876,7 @@ class FittedService:
             # bare 500 with no Next-writable row.
             signals = reduce_behavioral_signals(parsed.interaction_rows, parsed.snapshot_rows)
             scorer = AffinitySignalScorer(signals.item_affinity)
-            generator = _CountingGenerator(self._generator_factory(self._config))
+            generator = _CountingGenerator(self._generator_factory(self._config), self._clock, model_deadline)
             trace = render_with_trace(
                 request, generator, signal_scorer=scorer, behavioral_signals=signals
             )
@@ -1031,7 +1044,12 @@ def create_app(
         clock=clock,
     )
 
+    # Event-loop-owned slot: no queue and no increase in paid render concurrency.
+    # It belongs to the worker task, not the requesting connection.
+    active_render = None
+
     async def app(scope, receive, send) -> None:
+        nonlocal active_render
         if scope["type"] == "lifespan":
             while True:
                 message = await receive()
@@ -1056,6 +1074,8 @@ def create_app(
                 }
                 # Auth precedes everything — including the body read (auth-before-spend, §A).
                 rejected = service.authorize(headers)
+                if rejected is None and active_render is not None:
+                    rejected = (429, _envelope("rate_limit", "render capacity is busy — retry later"))
                 if rejected is None:
                     rejected = service.throttle()
                 if rejected is not None:
@@ -1068,7 +1088,25 @@ def create_app(
                             f"request body exceeds {cfg.MAX_REQUEST_BODY_BYTES} bytes",
                         )
                     else:
-                        status, body = service.handle_render(raw)
+                        # Reading the body yields; a different request may have reserved
+                        # the slot since the earlier check. Do not queue paid work.
+                        if active_render is not None:
+                            status, body = 429, _envelope("rate_limit", "render capacity is busy — retry later")
+                        else:
+                            worker = asyncio.create_task(asyncio.to_thread(service.handle_render, raw))
+                            active_render = worker
+
+                            def release_slot(completed):
+                                nonlocal active_render
+                                if active_render is completed:
+                                    active_render = None
+                                if not completed.cancelled():
+                                    completed.exception()  # retrieve even if caller went away
+
+                            worker.add_done_callback(release_slot)
+                            # Caller cancellation must not admit another paid render while
+                            # the synchronous provider call still runs in its worker.
+                            status, body = await asyncio.shield(worker)
             else:
                 status, body = 404, _envelope("contract_invalid", "unknown route")
         except Exception:

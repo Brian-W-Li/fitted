@@ -65,12 +65,13 @@ async function seedUser(uid: string) {
 }
 /** An item + its image; returns both ids. The item's imagePath points at the image (mongo:<id>). */
 async function seedItemWithImage(userId: string) {
+  const itemId = new Types.ObjectId();
   const img = await WardrobeImage.create({
-    user: userId, wardrobeItem: new Types.ObjectId(),
+    user: userId, wardrobeItem: itemId,
     base64: Buffer.from("PNG").toString("base64"), contentType: "image/png", sizeBytes: 3,
   });
   const item = await WardrobeItem.create({
-    user: userId, name: "Item", category: "top", clothingType: "top", warmth: 2,
+    _id: itemId, user: userId, name: "Item", category: "top", clothingType: "top", warmth: 2,
     imagePath: `mongo:${img._id.toString()}`,
   });
   return { itemId: item._id.toString(), imageId: img._id.toString() };
@@ -104,6 +105,21 @@ describe("DELETE /api/wardrobe/[id] — image cascade honors snapshot references
     expect(await WardrobeImage.countDocuments({ _id: new Types.ObjectId(imageId) })).toBe(1); // image SURVIVES
   });
 
+  it("reports photo cleanup failure and lets retry reclaim bytes after the item is gone", async () => {
+    const userId = await seedUser("firebase-uid");
+    const { itemId, imageId } = await seedItemWithImage(userId);
+    const exists = jest.spyOn(WardrobeImage, "exists").mockRejectedValueOnce(new Error("synthetic image lookup outage") as never);
+    let first: Response;
+    try { first = await DELETE(itemId); } finally { exists.mockRestore(); }
+    expect(await WardrobeItem.countDocuments({ _id: itemId })).toBe(0);
+    expect(await WardrobeImage.countDocuments({ _id: imageId })).toBe(1);
+    const retry = await DELETE(itemId);
+    const bytesRemaining = await WardrobeImage.countDocuments({ _id: imageId });
+    expect({ firstStatus: first.status, retryStatus: retry.status, bytesRemaining }).toEqual({
+      firstStatus: 503, retryStatus: 200, bytesRemaining: 0,
+    });
+  });
+
   it("does not keep an image referenced only by ANOTHER user's snapshot", async () => {
     const userId = await seedUser("firebase-uid");
     const { itemId, imageId } = await seedItemWithImage(userId);
@@ -113,6 +129,34 @@ describe("DELETE /api/wardrobe/[id] — image cascade honors snapshot references
     const res = await DELETE(itemId);
     expect(res.status).toBe(200);
     expect(await WardrobeImage.countDocuments({ _id: new Types.ObjectId(imageId) })).toBe(0); // deleted
+  });
+
+  it("defers cleanup after an unknown delete acknowledgement and reconciles on retry", async () => {
+    const userId = await seedUser("firebase-uid");
+    const { itemId, imageId } = await seedItemWithImage(userId);
+    const deletion = jest.spyOn(WardrobeItem, "findOneAndDelete").mockImplementationOnce(() => ({ exec: async () => {
+      await WardrobeItem.collection.deleteOne({ _id: new Types.ObjectId(itemId) });
+      throw new Error("synthetic lost delete acknowledgement");
+    } }) as never);
+    try {
+      const response = await DELETE(itemId);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ itemDeleted: null, cleanupComplete: false });
+      expect(await WardrobeImage.countDocuments({ _id: imageId })).toBe(1);
+    } finally { deletion.mockRestore(); }
+    expect((await DELETE(itemId)).status).toBe(200);
+    expect(await WardrobeImage.countDocuments({ _id: imageId })).toBe(0);
+  });
+
+  it("absent-item retry preserves historic and in-flight photos and never touches another owner", async () => {
+    const userId = await seedUser("firebase-uid");
+    const { itemId, imageId } = await seedItemWithImage(userId);
+    await referenceImageInSnapshot(userId, imageId);
+    const pinned = await WardrobeImage.create({ user: userId, wardrobeItem: itemId, base64: "AA==", contentType: "image/png", sizeBytes: 1, generationLeases: ["pending"] });
+    const foreign = await WardrobeImage.create({ user: new Types.ObjectId(), wardrobeItem: itemId, base64: "AA==", contentType: "image/png", sizeBytes: 1 });
+    await WardrobeItem.deleteOne({ _id: itemId });
+    expect((await DELETE(itemId)).status).toBe(200);
+    expect(await WardrobeImage.countDocuments({ _id: { $in: [imageId, pinned._id, foreign._id] } })).toBe(3);
   });
 
   it("404s a malformed (non-ObjectId) item id instead of a Mongoose CastError 500", async () => {

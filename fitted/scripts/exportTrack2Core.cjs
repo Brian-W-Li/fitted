@@ -10,6 +10,7 @@
 const { mkdirSync, writeFileSync, rmSync } = require("fs");
 const { resolve } = require("path");
 const mongoose = require("mongoose");
+const { resolveFeedbackEvidence, REASON_AMENDMENT } = require("../lib/feedbackEvidence.cjs");
 
 const BUNDLE_VERSION = "track2-export.v1";
 
@@ -59,7 +60,7 @@ const PARTICIPATING_ACTIONS = new Set(["accepted", "rejected"]);
 function pickLatestPerCandidate(rows) {
   const latest = new Map();
   for (const r of rows) {
-    if (!r || r.action == null || !PARTICIPATING_ACTIONS.has(r.action)) continue;
+    if (!r || r.eventKind === REASON_AMENDMENT || r.action == null || !PARTICIPATING_ACTIONS.has(r.action)) continue;
     const snap = r.snapshotId == null ? "" : String(r.snapshotId);
     const cand = r.candidateId == null ? "" : String(r.candidateId);
     if (!snap.trim() || !cand.trim()) continue; // .trim() parity with the reducer's _truthy_str
@@ -332,7 +333,9 @@ async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
   }
 
   // §H61 latest-state collapse per {snapshotId, candidateId} (shared rule — see pickLatestPerCandidate).
-  const latestByKey = pickLatestPerCandidate(interactions);
+  const latestByKey = pickLatestPerCandidate(resolveFeedbackEvidence(
+    interactions, interactions.filter(row => row.eventKind === REASON_AMENDMENT),
+  ));
 
   // Training examples: one row per SHOWN candidate, joined to its immutable item features + images.
   // Join drops are COUNTED, never silent: a nonzero shownCandidateIdsUnmatched means a shown id had
@@ -451,7 +454,7 @@ async function exportTrack2({ db, outDir, userFilter, operatorAuthId = null }) {
     },
     schemaNotes: {
       trainingTruth: "itemSnapshots[].engineVisible (immutable render-time copy); NOT live WardrobeItem",
-      label: "accepted|rejected|null — §H61 latest-state per {snapshotId,candidateId}",
+      label: "accepted|rejected|null — §H61 latest vote per {snapshotId,candidateId}; exact-parent reason amendments preserve vote time",
       redactedExcluded: true,
       redactedScope:
         "snapshots.jsonl + training_examples only; interactions_raw/wardrobe are user-scoped, so a label bound to a redacted snapshot still appears in interactions_raw (and counts in labelsWithoutTrainingExample)",

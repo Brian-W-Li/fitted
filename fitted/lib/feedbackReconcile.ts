@@ -1,16 +1,7 @@
-/**
- * Reconcile the dashboard's RESTORED feedback chips against server latest-state (audit #2/#4).
- *
- * The dashboard persists each shown outfit's `feedback` mark to sessionStorage so a return visit shows
- * your reactions. But those marks go STALE the moment you curate the same outfit in History (flip or
- * remove): a stale "disliked" chip still renders the "Tell us why?" affordance, and answering it posts
- * a FRESH `rejected` whose newer `createdAt` silently supersedes the flip — reversing an explicit
- * curation choice in the one-shot corpus. It also hides the like/dislike buttons, so a removed
- * candidate can't be re-rated. Both close by deriving the chip from the server's current latest action
- * on restore, instead of trusting the cached mark.
- *
- * Pure so it is unit-tested without the dashboard's firebase/fetch/sessionStorage machinery.
- */
+/** Restore chips and amendment targets from fresh owner-scoped History evidence. */
+
+import type { FeedbackReasonValue, PerItemFeedbackValue } from "@/lib/feedbackTypes";
+import { OBJECT_ID_RE } from "@/lib/formats";
 
 export type ServerAction = "accepted" | "rejected";
 
@@ -31,19 +22,23 @@ export interface HistoryActionRow {
   snapshotId?: string;
   candidateId?: string;
   action?: string;
+  id?: string;
+  feedbackReason?: FeedbackReasonValue;
+  perItemFeedback?: PerItemFeedbackValue[];
 }
+type CurrentReaction = Pick<HistoryActionRow, "feedbackReason" | "perItemFeedback" | "id"> & { action: string };
 
 /**
- * Build the `{snapshotId}:{candidateId} → action` map the reconcile reads, from the history GET payload.
+ * Build the `{snapshotId}:{candidateId} → current reaction` map the reconcile reads, from the history GET payload.
  * Extracted (and tested) so a drift in the response field names or the key format reddens a unit test
- * rather than silently reopening the stale-chip → superseding-POST corpus vector (TEST-1). Rows missing
+ * rather than silently reopening the stale-chip → wrong amendment target (TEST-1). Rows missing
  * any of the three fields are skipped (an unbound/degenerate row can't key a card).
  */
-export function buildActionByKey(rows: HistoryActionRow[] | undefined | null): Map<string, string> {
-  const actionByKey = new Map<string, string>();
+export function buildActionByKey(rows: HistoryActionRow[] | undefined | null): Map<string, CurrentReaction> {
+  const actionByKey = new Map<string, CurrentReaction>();
   for (const r of rows ?? []) {
     if (r.snapshotId && r.candidateId && r.action) {
-      actionByKey.set(feedbackKey({ snapshotId: r.snapshotId, candidateId: r.candidateId }), r.action);
+      actionByKey.set(feedbackKey({ snapshotId: r.snapshotId, candidateId: r.candidateId }), { action: r.action, ...(r.feedbackReason ? { feedbackReason: r.feedbackReason } : {}), ...(r.perItemFeedback ? { perItemFeedback: r.perItemFeedback } : {}), ...(typeof r.id === "string" && OBJECT_ID_RE.test(r.id) ? { id: r.id.toLowerCase() } : {}) });
     }
   }
   return actionByKey;
@@ -54,14 +49,19 @@ export function buildActionByKey(rows: HistoryActionRow[] | undefined | null): M
  * the same array reference when nothing changed so the caller can skip a needless re-render / persist.
  */
 export function reconcileShownFeedback<
-  T extends { snapshotId: string; candidateId: string; feedback?: "liked" | "disliked" },
->(shown: T[], actionByKey: Map<string, string>): { shown: T[]; changed: boolean } {
+  T extends { snapshotId: string; candidateId: string; feedback?: "liked" | "disliked"; reactionId?: string; feedbackReason?: FeedbackReasonValue; perItemFeedback?: PerItemFeedbackValue[] },
+>(shown: T[], actionByKey: Map<string, CurrentReaction>): { shown: T[]; changed: boolean } {
   let changed = false;
   const next = shown.map((o) => {
-    const fb = feedbackFromAction(actionByKey.get(feedbackKey(o)));
-    if (fb === o.feedback) return o;
+    const row = actionByKey.get(feedbackKey(o));
+    const fb = feedbackFromAction(row?.action);
+    const reactionId = fb ? row?.id : undefined;
+    const feedbackReason = fb ? row?.feedbackReason : undefined;
+    const perItemFeedback = fb ? row?.perItemFeedback : undefined;
+    if (fb === o.feedback && reactionId === o.reactionId && JSON.stringify(feedbackReason) === JSON.stringify(o.feedbackReason)
+      && JSON.stringify(perItemFeedback) === JSON.stringify(o.perItemFeedback)) return o;
     changed = true;
-    return { ...o, feedback: fb };
+    return { ...o, feedback: fb, reactionId, feedbackReason, perItemFeedback };
   });
   return changed ? { shown: next, changed } : { shown, changed };
 }

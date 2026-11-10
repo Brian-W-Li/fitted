@@ -10,7 +10,7 @@
  *   2. the Fly render service is pinned to EXACTLY 1 machine (G1 — >1 silently multiplies the
  *      per-instance rate ceiling)
  * One INFORMATIONAL readout (never fails the monitor — a thin corpus is legitimate pre-recruit):
- *   3. the live corpus yield/growth (users / snapshots / labeled interactions). The CERTIFIED yield
+ *   3. the live corpus yield/growth (users / snapshots / feedback ledger rows and votes). The CERTIFIED yield
  *      (scoreable-cluster decidability) is export_track2.mjs's job — this is a cheap liveness peek.
  *
  * All checks are READ-ONLY: no writes, no OpenAI spend. Safe to run any time / on a daily schedule.
@@ -27,6 +27,7 @@ import { appendFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import mongoose from "mongoose";
+import { voteEvidenceFilter } from "../lib/feedbackEvidence.cjs";
 import { loadEnvLocal } from "./track2-live.mjs";
 
 loadEnvLocal();
@@ -105,13 +106,14 @@ async function yieldReadout() {
   try {
     conn = await mongoose.createConnection(ATLAS_URI, { serverSelectionTimeoutMS: 15000 }).asPromise();
     const db = conn.db;
-    const [users, snaps, interactions, accepted] = await Promise.all([
+    const [users, snaps, ledgerRows, votes, accepted] = await Promise.all([
       db.collection("users").countDocuments(),
       db.collection("generationsnapshots").countDocuments(),
       db.collection("outfitinteractions").countDocuments(),
-      db.collection("outfitinteractions").countDocuments({ action: "accepted" }),
+      db.collection("outfitinteractions").countDocuments(voteEvidenceFilter),
+      db.collection("outfitinteractions").countDocuments({ ...voteEvidenceFilter, action: "accepted" }),
     ]);
-    return `yield: users=${users} snapshots=${snaps} interactions=${interactions} (accepted=${accepted}) — certified decidability = export_track2`;
+    return `yield: users=${users} snapshots=${snaps} feedbackLedgerRows=${ledgerRows} votes=${votes} (accepted=${accepted}) — certified decidability = export_track2`;
   } catch (e) {
     return `yield: WARN Atlas read failed: ${e.message.split("\n")[0]}`;
   } finally {
