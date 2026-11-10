@@ -405,6 +405,28 @@ If available human evidence is ineligible or insufficient, show honest abstentio
 do not invent labels, convert old pair choices into binary votes or demand a repeat
 questionnaire. Human preference improvement remains unestablished until observed.
 
+The faithful rehearsal may use a declared captured subset in the existing compiled
+local app. Its private input, photos, audit and screenshots stay outside Git and
+public workflow artifacts. Preserve original IDs, declared unknowns and complete
+color sets; verify photo paths/hashes and materialize only owner-bound image records.
+Replay from a preserved candidate bank keeps each selected draft's membership and
+prose intact, records its source artifact/job/attempt/outfit provenance, and filters
+without consulting labels. It is neither fresh styling nor an unchanged original
+provider-response replay. Any operator-authored feedback must flow through normal
+new snapshots/reactions, be identified separately from owner preferences, and be
+counted by distinct eligible composition. Missing support or no changed selection
+is reported honestly. This rehearsal does not complete persistent-exclusion acceptance.
+
+The local harness entry is `fitted/scripts/baseline-browser.mjs`; its private input
+and first-request assertions live in `private-replay-input.mjs` and
+`private-replay-journey.mjs` alongside it. `ml-system/service/private_replay.py` owns
+label-independent intact-draft selection. Synthetic loader contracts run with
+`npm run test:browser-fixtures`; replay selection contracts live in
+`ml-system/service/tests/test_private_replay.py`. From `fitted/`, use
+`npm run baseline:browser:production -- --private-replay=/absolute/private-input.json`
+and repeat `--private-forbid-root=/absolute/export-checkout` for additional publication
+roots. This mode requires explicit private input; CI runs only synthetic fixtures.
+
 Tests start with focused pure feature/learner and real-Mongo lifecycle checks, then
 one web/Python integrated regression, TypeScript/lint/build, and the compiled synthetic
 browser journey. The browser must inspect displayed garments, not only score badges.

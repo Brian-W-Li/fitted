@@ -47,6 +47,8 @@ jobs:
           cache-dependency-path: fitted/package-lock.json
       - name: Install (clean)
         run: npm ci
+      - name: Browser fixture contracts (synthetic, no services)
+        run: npm run test:browser-fixtures
       - name: jest (floor lives in fitted/tests/repoHygiene.baseline.json)
         run: npm test
       - name: tsc --noEmit

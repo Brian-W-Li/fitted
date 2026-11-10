@@ -62,8 +62,8 @@ reactions/dispositions through the real APIs. Its collecting path uses ordinary
 generated snapshots and the actual History UI. These checks demonstrate mechanisms;
 they do not prove that ordinary use accumulates equivalent complete training history,
 that human taste predictions improve, or that fresh provider generations are good.
-The faithful existing-wardrobe walkthrough remains required; the complete synthetic
-whole-app regression now passes locally.
+The faithful existing-wardrobe lifecycle walkthrough remains required; its first
+request is verified below. The complete synthetic whole-app regression passes.
 
 The complete public app web regression passed 1,746 tests with ten skips; Python
 core/service passed 1,251 tests. A subsequent focused spec review reproduced an older
@@ -71,42 +71,58 @@ Routine refinement using the newer semantic label. The resolver now retains the 
 meaning while preserving current cosmetic renames; the affected 163-test regression
 passed after the fix. TypeScript passes on the final candidate. The production build
 and focused browser journey passed before that narrow resolver fix; targeted lint and
-focused navigation/frozen-pin guards pass. Hosted conformance for `ac0c9fbf` passed.
-Its first full browser run reached the saved proposal, then failed because the harness
-waited for intentionally collapsed weather text without opening the disclosure. The
-harness opens it before and after reload, and 14 focused proposal tests pass,
-including hidden-then-visible provenance checks. A second hosted run found the same
-old assertion in the unworn planned-proposal path; all three checks now open the
-disclosure. The complete compiled local browser journey subsequently passed, including
-rescue, exploration/adaptation, plans, actual wear/correction/deletion, feedback,
-photo ownership and the collecting/activated styling loop. Hosted conformance for the
-first test-only follow-up passed. Final hosted browser verification remains pending;
-application runtime code and deployment guards are unchanged. That hosted run then
-exposed a separate harness acknowledgement race at photo correction: it reloaded after
-HTTP 200/database commit but before the UI consumed the response and cleared its pending
-command. The intentionally safe retry state was correct. The harness now waits for
-visible acknowledgement and the refreshed correction control. A new deferred-body
-remount regression plus affected wear-form tests passed (11 tests); no production
-recovery behavior changed. That hosted run then passed collecting and activated
-membership checks before failing at a Mac-specific screenshot output path on Linux.
-The generic harness now uses the platform temporary directory for these synthetic
-artifacts; no app or data behavior changes. The replacement hosted outcome remains
-pending.
+focused navigation/frozen-pin guards pass. Exact code/test checkpoint `6faeb021` passed both
+[hosted conformance](https://github.com/Brian-W-Li/fitted/actions/runs/42760690478)
+(web tests/type/lint, Python and documentation) and the
+[complete hosted browser journey](https://github.com/Brian-W-Li/fitted/actions/runs/42760690552).
+The full local compiled journey also passed. Earlier hosted failures exposed stale
+weather-disclosure expectations, a test reload before visible wear acknowledgement,
+and a platform-specific screenshot path. Their focused regressions and harness-only
+corrections are retained in Git; they did not change application runtime behavior.
+
 The earlier broad private-checkout Python study guards correctly rejected changed
 production fingerprints; their frozen evidence was not rewritten or exported.
 Local results, hosted CI and product benefit remain separate evidence.
 
+## Private local verification tooling
+
+A separate local-only browser mode now validates a checksum-pinned captured subset,
+verifies original photo bytes and paths, materializes an isolated owner and replays
+intact drafts from an explicitly supplied preserved bank. Input/photo paths must stay
+outside the running checkout and explicitly forbidden export roots. The replay mode
+is exclusive and fails closed; no provider or synthetic fallback is used. Contract
+fixtures in this repository are synthetic. Actual private inputs, photos, provenance
+receipts, reports and screenshots stay outside Git and public workflow artifacts.
+
+The compiled private first-request checkpoint passed locally: saved direction/situation
+controls, default-off opt-in, one real application request, captured context, zero
+imported support, intact original drafts, displayed garment membership and decoded
+photos. A separate private preparation receipt verifies raw source coordinates and
+object equality; the generic loader alone verifies the prepared input. This is not
+fresh styling, whole-closet parity or evidence of taste improvement. Screenshot labels
+are harness annotations, not production UI. Setup controls currently push the results
+far below the fold; result accessibility needs a focused review.
+
+Independent source review found no remaining blocker in this bounded test slice;
+Node/Python checks cover checksum/MIME/path guards, correction metadata, owner binding,
+exclusive mode and label-independent intact-draft selection. New generic tooling and
+CI integration are a separate checkpoint from the verified `6faeb021` runtime above;
+its exact hosted result must be inspected after saving. The coordinator retains the
+private run locations and unrelated dirty-file inventory outside this public export.
+
 ## Remaining work and next actions
 
-Explicit scoped item/composition instructions are not implemented. The faithful
-existing-wardrobe walkthrough and its narrower-screen assessment remain open.
-The complete synthetic lifecycle browser regression passes locally, with final hosted
-verification pending. Human usefulness is unestablished.
+Explicit scoped item/composition instructions are not implemented. Ordinary complete
+history accumulation, private feedback/undo/profile/control/correction journeys,
+planning/wear navigation and narrow-screen assessment remain open. The complete
+synthetic lifecycle regression passes locally and on hosted CI. Human usefulness
+is unestablished. Personal-account browser work awaits the user's own sign-in;
+isolated local tests do not require it.
 
-1. Finish the current app-only regression and bounded review checkpoint; save it on
-   GitHub with its limitations stated and inspect hosted checks separately.
-2. Preserve the observed synthetic mechanism evidence while closing the remaining
-   ordinary-history, faithful-wardrobe and existing-journey verification gaps.
-3. Select the next focused implementation slice from the owning specification, with
-   a review/test/documentation cycle before broadening again. Release requires separate
-   authorization; no paid calls or deployment are part of this checkpoint.
+1. Save the bounded generic replay tooling and inspect its exact hosted conformance
+   and default whole-app browser checks. Keep private evidence out of the export.
+2. Extend only the next private verification slice through complete generated history
+   and clearly authored test reactions, then review its evidence before more features.
+3. Implement remaining scoped instructions through a focused specification/code/review/
+   test/documentation cycle; address result accessibility in a separate bounded pass.
+   No paid calls or deployment are authorized; the full goal remains incomplete.

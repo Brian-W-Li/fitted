@@ -9,6 +9,7 @@ import json
 
 from fitted_core.models import Role
 from service.app import create_app
+from service.private_replay import private_replay_from_environment
 from service.tests.helpers import envelope, outfit
 
 
@@ -63,10 +64,12 @@ class BaselineGenerator:
         return _fixture()
 
 
+_private_generator = private_replay_from_environment(os.environ)
+
 app = create_app(
     {
         "OPENAI_API_KEY": "sk-baseline-no-network",
         "SERVICE_KEY_CURRENT": "local-baseline-key",
     },
-    generator_factory=lambda _: BaselineGenerator(),
+    generator_factory=lambda _: _private_generator if _private_generator is not None else BaselineGenerator(),
 )

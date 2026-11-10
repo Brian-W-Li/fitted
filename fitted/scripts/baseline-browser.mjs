@@ -10,6 +10,8 @@ import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { MongoClient, ObjectId } from "mongodb";
 import { chromium } from "@playwright/test";
 import { createServer } from "node:net";
+import { loadPrivateReplayInput, createPrivateReplayRun, materializePrivateWardrobe, writePrivateReplayReport } from "./private-replay-input.mjs";
+import { runPrivateReplayJourney } from "./private-replay-journey.mjs";
 
 const fitted = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = path.resolve(fitted, "..");
@@ -17,8 +19,14 @@ const project = "demo-fitted-baseline";
 const production = process.argv.includes("--production");
 const feedbackOnly = process.argv.includes("--feedback-only");
 const styleOnly = process.argv.includes("--style-only");
-assert.ok(!(feedbackOnly && styleOnly), "choose one focused browser journey");
-assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only", "--style-only"].includes(arg)), "unknown baseline argument");
+const privateArguments = process.argv.slice(2).filter(arg => arg.startsWith("--private-replay="));
+assert.ok(privateArguments.length <= 1, "choose one explicit private replay input");
+const privateReplayPath = privateArguments[0]?.slice("--private-replay=".length);
+const privateForbiddenRoots = process.argv.slice(2).filter(arg => arg.startsWith("--private-forbid-root=")).map(arg => arg.slice("--private-forbid-root=".length));
+assert.ok(!privateForbiddenRoots.length || privateArguments.length === 1, "private forbidden roots require explicit private replay mode");
+assert.ok(privateForbiddenRoots.every(root => path.isAbsolute(root)), "private forbidden roots must be absolute paths");
+assert.ok(Number(feedbackOnly) + Number(styleOnly) + Number(privateArguments.length > 0) <= 1, "choose one focused browser journey");
+assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only", "--style-only"].includes(arg) || arg.startsWith("--private-replay=") || arg.startsWith("--private-forbid-root=")), "unknown baseline argument");
 const origin = "http://127.0.0.1:3107";
 const authOrigin = "http://127.0.0.1:9099";
 const serviceOrigin = "http://127.0.0.1:8097";
@@ -44,7 +52,7 @@ function assertLockedDependencies(directory) {
 // A linked older checkout must not silently supply a different runtime for this build.
 assertLockedDependencies(fitted);
 const temp = await mkdtemp(path.join(tmpdir(), "fitted-baseline-"));
-let mongo, mongoClient, browser, debugPage;
+let mongo, mongoClient, browser, debugPage, privateReplay, privateRun;
 
 function localTarget(url, allowed) {
   const parsed = new URL(url);
@@ -532,6 +540,7 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
   assert.ok(activated.row.candidates.some(candidate => Math.abs(candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) > 0), "snapshot records a nonzero bounded relationship contribution");
   await page.waitForFunction(() => { const images = Array.from(document.querySelectorAll(".p-5.border.rounded-xl img")); return images.length === 9 && images.every(image => image.complete && image.naturalWidth > 0); });
   const activatedScreenshot = path.join(tmpdir(), "fitted-style-activated.png");
+  const removedScreenshot = path.join(tmpdir(), "fitted-style-after-support-removal.png");
   await page.screenshot({ path: activatedScreenshot, fullPage: true });
   // Explicitly retract the authored support through actual authenticated commands;
   // whole-outfit reactions stay intact, and the next request must recompute its baseline.
@@ -541,12 +550,16 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
   assert.equal(removed.row.preference.status, "abstained"); assert.equal(removed.row.preference.support, 0);
   assert.deepEqual(removed.row.preference.baselineShownFullSignatures, removed.row.shownFullSignatures, "removed support serves the current complete zero-learner baseline");
   assert.ok(removed.row.candidates.every(candidate => (candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) === 0));
-  const removedScreenshot = path.join(tmpdir(), "fitted-style-after-support-removal.png");
   await page.screenshot({ path: removedScreenshot, fullPage: true });
   console.log(`PASS authored synthetic activated loop: 12 balanced XOR labels through real reaction API, disjoint query garments, four candidates/three cards, changed final membership versus captured comparator, explicit support removal and recomputed abstaining baseline. Screenshots: ${activatedScreenshot} and ${removedScreenshot}. No human-benefit evidence.`);
 }
 
 async function run() {
+  if (privateArguments.length) {
+    privateReplay = await loadPrivateReplayInput(privateReplayPath, { checkoutRoots: [root, ...privateForbiddenRoots] });
+    privateRun = await createPrivateReplayRun(privateReplay);
+    await writePrivateReplayReport(privateRun, { status: "validated", inputSha256: privateReplay.inputDigest, provenance: privateReplay.input.provenance });
+  }
   for (const url of [origin, authOrigin, serviceOrigin]) localTarget(url, ["http:"]);
   // Preflight every fixed endpoint before starting any service. Otherwise ready() could
   // mistake an unrelated listener for the child that this runner owns.
@@ -585,7 +598,8 @@ async function run() {
   // IDs are fixed before the service starts; the real Mongo records are inserted below.
   const ids = Array.from({ length: 6 }, (_, i) => new ObjectId(`65000000000000000000000${i + 1}`));
   const pythonEnv = { PATH: process.env.PATH ?? "", PYTHONPATH: path.join(root, "ml-system"),
-    FITTED_BASELINE_ITEM_IDS: ids.map(x => x.toString()).join(",") };
+    ...(privateReplay ? { FITTED_PRIVATE_REPLAY_INPUT: privateReplay.inputPath, FITTED_PRIVATE_REPLAY_SHA256: privateReplay.inputDigest,
+      FITTED_PRIVATE_REPLAY_AUDIT: privateRun.auditPath } : { FITTED_BASELINE_ITEM_IDS: ids.map(x => x.toString()).join(",") }) };
   const localPython = path.join(root, "ml-system/.venv/bin/python");
   const python = child(existsSync(localPython) ? localPython : "python3",
     ["-m", "uvicorn", "service.baseline_app:app", "--host", "127.0.0.1", "--port", "8097"], path.join(root, "ml-system"), pythonEnv);
@@ -631,6 +645,20 @@ async function run() {
   await ready(`${origin}/signin`, next, 120000);
 
   const owner = await account("owner@baseline.test");
+  if (privateReplay) {
+    await materializePrivateWardrobe(db, owner.userId, privateReplay);
+    browser = await chromium.launch({ headless: true, channel: process.env.FITTED_BASELINE_CHROME_CHANNEL || "chrome", timeout: 30_000 });
+    const context = await boundedBrowserStep(browser.newContext(), "create private replay browser context");
+    context.setDefaultTimeout(30_000); context.setDefaultNavigationTimeout(30_000);
+    const page = await boundedBrowserStep(context.newPage(), "create private replay browser page"); debugPage = page;
+    await page.goto(`${origin}/signin`);
+    await page.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function", undefined, { timeout: 30_000 });
+    await boundedBrowserStep(page.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), owner), "private replay owner emulator sign-in");
+    await runPrivateReplayJourney({ db, page, owner, origin, loaded: privateReplay, run: privateRun, paceRender });
+    await context.close();
+    console.log(`PASS private captured-photo first-request checkpoint; private report: ${privateRun.reportPath}. Feedback/undo/profile/controls remain pending review.`);
+    return;
+  }
   const other = await account("other@baseline.test");
   const items = [
     ["Baseline blue shirt", "top", "top"], ["Baseline chinos", "bottom", "bottom"],
@@ -1445,9 +1473,20 @@ async function run() {
 try {
   await run();
 } catch (error) {
-  console.error(error);
-  if (debugPage) console.error("browser text:", (await debugPage.locator("body").innerText().catch(() => "" )).slice(-2500));
-  for (const proc of children) console.error("service log:\n", proc.baselineOutput());
+  if (privateArguments.length) {
+    if (privateRun) {
+      let previous = {};
+      try { previous = JSON.parse(readFileSync(privateRun.reportPath, "utf8")); } catch { /* Preserve the original failure if the early report was incomplete. */ }
+      await writePrivateReplayReport(privateRun, { ...previous, status: "failed", failure: { message: String(error), stack: error?.stack,
+        browserText: debugPage ? await debugPage.locator("body").innerText().catch(() => "") : "", services: children.map(proc => proc.baselineOutput()) } });
+      await debugPage?.screenshot({ path: path.join(privateRun.runDirectory, "failure.png"), fullPage: true }).catch(() => {});
+    }
+    console.error("Private replay failed; diagnostic content remains in its private run report.");
+  } else {
+    console.error(error);
+    if (debugPage) console.error("browser text:", (await debugPage.locator("body").innerText().catch(() => "" )).slice(-2500));
+    for (const proc of children) console.error("service log:\n", proc.baselineOutput());
+  }
   process.exitCode = 1;
 } finally {
   await browser?.close().catch(() => {});
