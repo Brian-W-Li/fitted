@@ -105,10 +105,14 @@ far below the fold; result accessibility needs a focused review.
 
 Independent source review found no remaining blocker in this bounded test slice;
 Node/Python checks cover checksum/MIME/path guards, correction metadata, owner binding,
-exclusive mode and label-independent intact-draft selection. New generic tooling and
-CI integration are a separate checkpoint from the verified `6faeb021` runtime above;
-its exact hosted result must be inspected after saving. The coordinator retains the
-private run locations and unrelated dirty-file inventory outside this public export.
+exclusive mode and label-independent intact-draft selection. Generic tooling checkpoint
+`426bfd77` passed exact hosted [conformance](https://github.com/Brian-W-Li/fitted/actions/runs/42761992072)
+and the [complete browser regression](https://github.com/Brian-W-Li/fitted/actions/runs/42761992296).
+It changes verification tooling, not production feature behavior. Local checks also
+pass: nine Node fixture contracts, the integrated Python core/service regression,
+TypeScript, lint with existing warnings, and focused documentation guards. The
+coordinator retains private run locations and unrelated dirty-file inventory outside
+this public export. This documentation-only follow-up preserves that verified runtime.
 
 ## Remaining work and next actions
 
@@ -119,10 +123,11 @@ synthetic lifecycle regression passes locally and on hosted CI. Human usefulness
 is unestablished. Personal-account browser work awaits the user's own sign-in;
 isolated local tests do not require it.
 
-1. Save the bounded generic replay tooling and inspect its exact hosted conformance
-   and default whole-app browser checks. Keep private evidence out of the export.
-2. Extend only the next private verification slice through complete generated history
-   and clearly authored test reactions, then review its evidence before more features.
+1. Verify the next bounded private slice through complete generated history and six
+   distinct clearly authored reactions, then review the subsequent request's resolved
+   evidence. Activation or membership change is not required for collection proof.
+2. Continue the remaining private correction/undo/isolation/navigation checks in focused
+   slices; keep private evidence out of the export.
 3. Implement remaining scoped instructions through a focused specification/code/review/
    test/documentation cycle; address result accessibility in a separate bounded pass.
    No paid calls or deployment are authorized; the full goal remains incomplete.
