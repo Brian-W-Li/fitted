@@ -38,12 +38,15 @@ correction/retraction, clear/erasure and owner isolation. Ten focused documentat
 checks passed, including maintained links and frozen evidence pins. These checks ran
 against the public candidate, not only the private coordinator checkout.
 
-The application/spec baseline is saved on GitHub. Initial hosted Python and
-documentation jobs passed; web conformance was still running when the browser job
-failed during Chromium installation: `ubuntu-latest` selected Ubuntu 26.04, unsupported
-by locked Playwright 1.56.1. The browser job is now pinned to supported Ubuntu 24.04;
-application code/dependencies are unchanged. Hosted browser success remains pending.
-No deployment is authorized. Git owns the exact checkpoint identity.
+The application/spec baseline is saved on GitHub. Verified code checkpoint `91a25045`
+passed both [hosted conformance](https://github.com/Brian-W-Li/fitted/actions/runs/42750741014)
+(web tests/type/lint, Python and documentation) and the
+[hosted compiled browser baseline](https://github.com/Brian-W-Li/fitted/actions/runs/42750740975).
+The initial browser setup failure was repaired by pinning its runner to Ubuntu 24.04:
+`ubuntu-latest` had migrated to Ubuntu 26.04, unsupported by locked Playwright 1.56.1.
+Application code/dependencies did not change for that repair. This documentation-only
+follow-up records review/CI results; no app rerun is needed solely for this prose.
+No deployment, fresh provider inference or human-benefit result is claimed.
 
 The live walkthrough used existing account data and inspected wardrobe, saved
 proposals, recall, feedback history, exploration controls, plan and wear forms. It did
@@ -63,8 +66,8 @@ No new styling feature implementation is claimed from this preparation.
 
 ## Next actions
 
-1. Save the verified baseline/spec on GitHub and verify its remote identity and CI.
-2. Implement the reviewed loop in bounded slices, starting with owner-bound profile,
+1. Implement the reviewed loop in bounded slices, starting with owner-bound profile,
    situation and evidence contracts; retain the existing app throughout.
-3. Rehearse candidate supply, feature support and numerical runtime before enabling
+2. Rehearse candidate supply, feature support and numerical runtime before enabling
    experimental learned influence, then demonstrate the complete local app journey.
+3. Keep local, CI and hosted product evidence separate; a later release is explicit.

@@ -1,6 +1,7 @@
 # Personal styling loop — implementation specification
 
-Status: selected development goal; specification under independent review.
+Status: selected development goal; critical specification review complete;
+feature implementation has not started.
 This document owns this bounded implementation contract. The [canonical spec](../Fitted_Spec_v2.md)
 owns product ambition and existing contracts; the [roadmap](../ROADMAP.md) owns progress,
 the verified code baseline, checks, blockers and release status. Nothing here claims
@@ -402,3 +403,18 @@ Development is local and experimental. Hosted model influence, deployment, provi
 spending and new participant collection require their separate explicit authorization.
 Fresh generation quality and repeated human usefulness remain unverified until observed;
 engineering pass counts must not be presented as taste improvement.
+
+## 9. Critical review disposition
+
+Three independent reviewers read this specification against source and ambition:
+
+| Review focus | Critical changes made after challenge |
+|---|---|
+| Product and ambition | Reachable unspecified-weather use, visible support state, canonical Board/profile identity, small deterministic setup, honest order/no-change outcomes, and a faithful wardrobe walkthrough beyond synthetic proof. |
+| Architecture and lifecycle | Terminal superseded-command replay, atomic revision admission, explicit archive branches, immediate tombstone fencing plus content erasure, bounded instruction scopes and paired protocol compatibility. |
+| ML and evidence | Typed learning dispositions, latest composition before eligibility across snapshots, complete bounded history, finite features and shared missingness rules, numerical budget/solver, and an actual competition for a displayed slot. |
+
+Raised critical findings are resolved for the specification stage after bounded
+follow-up review. This is not implementation approval or a learning-benefit result.
+Candidate supply, numerical runtime, correction/erasure races and complete-app
+usefulness remain the acceptance work specified above.
