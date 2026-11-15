@@ -35,8 +35,14 @@ exclusions, the private request-control/factual/availability/plan/wear checks an
 usability remain open. Next: build scoped exclusions with focused tests and independent
 review, then finish the remaining faithful journey and simplify Home. No user input
 is currently required; no personal sign-in, paid calls, merge or deployment occurred.
-Publication and exact hosted checks for this new candidate are pending; its starting
-saved public checkpoint is `855a8975`. The larger goal remains active and incomplete.
+Code checkpoint `9f2a15383fcef179ce2ebdd9b92a154b69040a7a` is pushed on the sanitized
+`codex/style-memory-baseline` branch, based on saved `855a8975`. Exact hosted
+[conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43762242545) and
+[whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43762242645)
+both passed. Local services and hosted handles are terminal. The documentation-only
+closeout retains these verified code bytes. An independent Python audit matched all
+six stages. Inclusion changed actual displayed membership against its own baseline;
+other fitted probes kept the same set. The larger goal remains active and incomplete.
 
 ## Ordinary collection checkpoint — November 15, 2026
 
