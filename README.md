@@ -15,7 +15,8 @@ Python engine and service are in `ml-system/`.
 
 The application source includes owned-item rescue, saved proposals, same-situation
 exploration, weather and removable-layer context, dated plans, explicit wear memory,
-correction and retraction. Suggestions, plans, reactions and actual wear remain
+correction and retraction. Explicit item/complete-outfit exclusions support saved scopes,
+request-only use and removal/Undo. Suggestions, plans, reactions and actual wear remain
 separate records. One explicitly marked mid-layer may accompany a base tee/shirt;
 a sweater may also be the sole top. S1 forwards declared pattern and fit to the
 stylist and captured inputs, without guessing missing detail or changing ranking

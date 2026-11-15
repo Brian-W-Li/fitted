@@ -304,6 +304,8 @@ const GenerationSnapshotSchema = new Schema(
     // --- A: identity ---
     schemaVersion: { type: Number, required: true, default: 1 },
     styleContext: { type: Schema.Types.Mixed },
+    explicitExclusions: { type: Schema.Types.Mixed },
+    exclusionCommandKey: { type: String },
     preference: { type: Schema.Types.Mixed },
     commandStatus: { type: String, enum: ["superseded"] },
     supersededSelection: { type: [String], default: undefined }, // the additive-evolution lever

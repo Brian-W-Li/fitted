@@ -1,5 +1,60 @@
 # Current direction and work
 
+## Explicit exclusions checkpoint — November 15, 2026
+
+The actual app now supports explicit saved item and exact complete-outfit exclusions,
+request-only exclusions, removal and Undo. Scope is the exact profile/Routine semantic
+version, independent of weather and learning opt-in. Earlier retained meanings remain
+editable from their shown outfit; fresh requests wait while that separate scope is
+managed. New semantic versions do not inherit rules, and adaptation resolves only its
+new null-Routine scope. Notes, votes, plans and wear never become instructions.
+
+Saved writes validate new target ownership inside the owner transaction and preserve
+inert deleted/unavailable references. Commands freeze acknowledged set references and
+one-request input; retries replay their captured policy after later rule edits. Stale
+fresh references fail before provider dispatch, and in-flight edits retain terminal
+superseded receipts. Item bans and complete unordered membership bans are nonrelaxable
+through generation, pre-learning filtering, ranking, cooldown fallback, layer reservations
+and final admission. All snapshot outcomes retain the independently versioned policy.
+A kept/banned piece conflict stops before generation. Both runtimes must ship together;
+older strict services reject this new optional envelope before spending.
+
+Independent reviews caught enum coercion across runtimes, a modal that could preview a
+new result's context while retaining an older source, and current rules being displayed
+as a pending command's frozen rules. Those were repaired. Real-Mongo admission cases
+cover replay after Undo, new stale refs, ownership/conflicts, missing/wrong echo, rejected
+shown membership, superseded retry, child omission and null-Routine adaptation. Five
+client integration cases cover consumption, exact remount recovery, acknowledgement,
+stale refresh, captured-source preview and editing retained-version rules. Wear adaptation
+receives only a live visible source's minimal scope identity, never copied profile meaning;
+focused erasure/adaptation checks pass after that final privacy refinement.
+
+The full local public web regression passed (1,821 tests / ten existing skips) before
+final focused privacy/test refinements; the final focused checks pass (nine admission,
+five client integration and 27 visibility/variation cases). Full Python core/service
+regression passes 1,317; TypeScript, lint (zero errors; 35 warnings) and 27 synthetic Node
+contracts pass. Two isolated non-equivalent mutations (subset-based combo matching and
+bypassed pre-learning filtering) were caught against passing baselines. The compiled
+private journey passed six normal renders: initial plus five instruction probes,
+using original captured photos and intact preserved drafts with zero feedback writes.
+Saved item/combo constraints, semantic-ID/revision-preserving Undo and one-request
+consumption were verified on actual displayed members. The following request actually
+showed the previously avoided piece again. Python independently checked all five signed
+policies and 15 displayed outfits. Private supply did not show every allowed top/superset;
+focused Python integration/negative tests establish that full exact-set distinction.
+
+Original wardrobe, first snapshot, all source/photo/input hashes and 111 raw draft
+objects remain unchanged. This is operator-authored control evidence, not owner taste,
+fresh generation or personal benefit. The compiled exclusion run preceded the minimal
+live wear-scope DTO refinement, which has separate focused coverage above. Hosted checks
+for the new saved candidate are pending. No paid calls, personal sign-in, merge or
+deployment occurred. The larger goal remains active and incomplete.
+
+Next: finish faithful private factual/availability correction and undo, remaining
+request controls and plan/wear navigation; then simplify Home and verify 390px use.
+The screenshot still shows setup dominating before outfits. No user input is currently
+needed. Preserve unrelated coordinator work and private ancestry when exporting.
+
 ## Correction and isolation checkpoint — November 15, 2026
 
 History now offers “Something’s off” for a bound plain reaction, so a concern can be

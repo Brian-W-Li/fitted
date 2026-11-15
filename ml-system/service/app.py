@@ -68,6 +68,7 @@ from fitted_core.snapshot import (
 )
 from fitted_core.snapshot_serde import to_wire, variant_to_wire
 from fitted_core.style_context import normalize_style_context, style_context_key
+from fitted_core.exclusions import normalize_explicit_exclusions, validate_pins
 from service import config as cfg
 from service import contract
 from service.config import ServiceConfig, load_service_config
@@ -637,8 +638,9 @@ def _validate_preference_rows(raw, owner_id):
 
 
 def _style_response(request, preference=None):
+    explicit = {"explicitExclusions": request.explicit_exclusions.to_wire()} if request.explicit_exclusions is not None else {}
     if request.style_context is None:
-        return {}
+        return explicit
     if preference is None:
         from fitted_core.preferences import FEATURE_VERSION, MODEL_VERSION, POLICY_VERSION
         preference = {"status": "abstained", "reason": "selection_not_reached", "support": 0,
@@ -646,7 +648,7 @@ def _style_response(request, preference=None):
                       "modelVersion": MODEL_VERSION, "policyVersion": POLICY_VERSION,
                       "evidenceDigest": None, "evidenceCutoff": None,
                       "baselineShownFullSignatures": [], "shownFullSignatures": []}
-    return {"protocolVersion": 2, "styleContext": request.style_context, "preference": preference}
+    return {**explicit, "protocolVersion": 2, "styleContext": request.style_context, "preference": preference}
 
 
 def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
@@ -678,6 +680,13 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     request_id = _string(body["requestId"], "requestId", max_chars=cfg.MAX_ID_CHARS)
     if not (_UUID_V4_RE.fullmatch(request_id) or _ULID_RE.fullmatch(request_id)):
         raise ContractInvalid("requestId must be a UUIDv4 or ULID (§C.4)")
+
+    try:
+        if "explicitExclusions" in body and body["explicitExclusions"] is None:
+            raise ValueError("explicitExclusions cannot be null")
+        explicit_exclusions = normalize_explicit_exclusions(body.get("explicitExclusions"), request_id)
+    except (TypeError, ValueError) as exc:
+        raise ContractInvalid(str(exc)) from exc
 
     session_id = _string(body["sessionId"], "sessionId", max_chars=cfg.MAX_SESSION_ID_CHARS)
 
@@ -772,6 +781,10 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
     # rescue forced item must not be disliked, and the effective pin set (locks + rescue forced
     # item) must be structurally buildable, ALL pre-spend.
     _preflight_controls(locked_item_ids, disliked_item_ids, wardrobe, forced_item_id, intent)
+    try:
+        validate_pins(explicit_exclusions, (*locked_item_ids, *((forced_item_id,) if forced_item_id else ())))
+    except ValueError as exc:
+        raise ContractInvalid(str(exc)) from exc
 
     wardrobe_version = _non_bool_int(body["wardrobeVersion"], "wardrobeVersion", maximum=cfg.MAX_WIRE_INT)
     interaction_count = _non_bool_int(
@@ -789,6 +802,7 @@ def _parse_render_body(body: dict, config: ServiceConfig) -> _ParsedRender:
             weather_summary=weather_raw,
             style_context=style_context,
             preference_rows=preference_rows,
+            explicit_exclusions=explicit_exclusions,
             weather_signals=weather_signals,
             session_id=session_id,
             wardrobe_version=wardrobe_version,

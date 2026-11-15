@@ -1,8 +1,9 @@
 import { createHash } from "crypto";
 import { Types, type ClientSession } from "mongoose";
 import User from "@/models/User";
+import WardrobeItem from "@/models/WardrobeItem";
 import { ownerWriteFence, OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
-import { emptyStyleMemory, type StyleContextSelection, type StyleMemoryData, type StyleMemoryResult } from "./contract";
+import { emptyStyleMemory, findExclusionSet, type StyleContextSelection, type StyleMemoryData, type StyleMemoryResult } from "./contract";
 import { parseStyleMemoryCommand, styleId, StyleMemoryError } from "./validation";
 import { applyStyleCommand, publicStyleMemory, STYLE_MEMORY_MAX_BYTES, STYLE_MEMORY_NORMAL_RECEIPTS, STYLE_MEMORY_RECEIPTS } from "./state";
 import { resolveOwnedStyleContext } from "./context";
@@ -43,7 +44,24 @@ export class StyleMemoryStore {
         const erasing = command.kind === "erase_board" || command.kind === "erase_routine";
         if (data.operations.length >= (erasing ? STYLE_MEMORY_RECEIPTS : STYLE_MEMORY_NORMAL_RECEIPTS)) throw new StyleMemoryError(429, "operation_limit", "Styling change storage is full. Existing directions and situations can still be erased.");
         acknowledgement = revision + 1;
+        const previousBoard = command.kind === "set_exclusions" ? data.boards.find(board => board.id === command.boardId) : null;
+        const previousEntries = previousBoard && command.kind === "set_exclusions" ? findExclusionSet(previousBoard, {
+          boardId: previousBoard.id, profileId: previousBoard.profileId, profileVersion: command.profileVersion,
+          routineId: command.routineId, routineVersion: command.routineVersion,
+        })?.entries ?? [] : [];
         applyStyleCommand(data, command, acknowledgement, timestamp);
+        if (command.kind === "set_exclusions") {
+          const board = data.boards.find(board => board.id === command.boardId)!;
+          const replacement = findExclusionSet(board, { boardId: board.id, profileId: board.profileId,
+            profileVersion: command.profileVersion, routineId: command.routineId, routineVersion: command.routineVersion })!;
+          const priorIds = new Set(previousEntries.map(entry => entry.id));
+          const targets = [...new Set(replacement.entries.filter(entry => !priorIds.has(entry.id)).flatMap(entry => entry.itemIds))];
+          if (targets.length) {
+            const owned = await WardrobeItem.collection.find({ user, _id: { $in: targets.map(id => new Types.ObjectId(id)) } },
+              { session, projection: { _id: 1 } }).toArray();
+            if (owned.length !== targets.length) throw new StyleMemoryError(400, "exclusion_item_unavailable", "New exclusions must name pieces that belong to your wardrobe.");
+          }
+        }
         data.operations.push({ id: command.operationId, digest, revision: acknowledgement });
         if (Buffer.byteLength(JSON.stringify(data), "utf8") > STYLE_MEMORY_MAX_BYTES) throw new StyleMemoryError(429, "storage_limit", "Saved styling storage is full. Erase an unwanted direction or situation first.");
         await User.collection.updateOne({ _id: user, erasureStarted: { $ne: true } }, { $set: { styleMemory: data, styleMemoryRevision: acknowledgement } }, { session });

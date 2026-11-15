@@ -2,7 +2,11 @@
 export interface CompiledStyleProfile { aestheticKeywords: string[]; palette: string[]; patterns: string[]; fits: string[] }
 export interface StyleProfileVersion { version: number; createdAt: string; rawSource: string; compiled: CompiledStyleProfile }
 export interface LearningOptIn { profileVersion: number; routineId: string; routineVersion: number; enabled: boolean }
-export interface Board { id: string; label: string; status: "active" | "archived"; profileId: string; currentVersion: number; versions: StyleProfileVersion[]; learningOptIns: LearningOptIn[]; defaultRoutineId?: string | null }
+export interface ExclusionScope { profileVersion: number; routineId: string | null; routineVersion: number | null }
+export interface ExclusionScopeSelection extends ExclusionScope { boardId: string; profileId: string }
+export interface SavedExclusionEntry { id: string; revision: number; kind: "item" | "combination"; itemIds: string[] }
+export interface SavedExclusionSet extends ExclusionScope { id: string; revision: number; entries: SavedExclusionEntry[] }
+export interface Board { id: string; label: string; status: "active" | "archived"; profileId: string; currentVersion: number; versions: StyleProfileVersion[]; learningOptIns: LearningOptIn[]; defaultRoutineId?: string | null; exclusionSets?: SavedExclusionSet[] }
 export interface Routine { id: string; label: string; status: "active" | "archived"; currentVersion: number; versions: { version: number; createdAt: string; label: string }[] }
 export interface StyleMemoryState { revision: number; boards: Board[]; routines: Routine[]; selectedBoardId: string | null; selectedRoutineId: string | null }
 export interface StyleContextSelection { boardId: string; profileId: string; profileVersion: number; routineId: string | null; routineVersion: number | null; learningEnabled: boolean }
@@ -20,11 +24,20 @@ export type StyleMemoryCommand = Base & (
   | { kind: "select_context"; boardId: string | null; routineId: string | null }
   | ({ kind: "set_default_routine"; routineId: string | null } & BoardTarget)
   | ({ kind: "set_learning"; profileVersion: number; routineId: string; routineVersion: number; enabled: boolean } & BoardTarget)
+  | ({ kind: "set_exclusions"; profileVersion: number; routineId: string | null; routineVersion: number | null; expectedSetRevision: number; itemIds: string[]; outfitItemIds: string[][] } & BoardTarget)
 );
+export type SetExclusionsCommand = Extract<StyleMemoryCommand, { kind: "set_exclusions" }>;
 export interface StyleMemoryResult { state: StyleMemoryState; operation: { id: string; revision: number } }
 export interface StyleTombstone { kind: "board" | "routine"; id: string; profileId?: string; revision: number }
 export interface StyleMemoryData { boards: Board[]; routines: Routine[]; selectedBoardId: string | null; selectedRoutineId: string | null; tombstones: StyleTombstone[]; operations: { id: string; digest: string; revision: number }[] }
 export const emptyStyleMemory = (): StyleMemoryData => ({ boards: [], routines: [], selectedBoardId: null, selectedRoutineId: null, tombstones: [], operations: [] });
+/** Exact instruction partition; no weather, opt-in, default Routine or version carryover. */
+export function findExclusionSet(source: Board | Pick<StyleMemoryState, "boards">, selection: ExclusionScopeSelection): SavedExclusionSet | null {
+  const board = "boards" in source ? source.boards.find(row => row.id === selection.boardId && row.profileId === selection.profileId) : source;
+  if (!board || board.id !== selection.boardId || board.profileId !== selection.profileId) return null;
+  return board.exclusionSets?.find(set => set.profileVersion === selection.profileVersion && set.routineId === selection.routineId &&
+    set.routineVersion === selection.routineVersion) ?? null;
+}
 /** Selection is derived from acknowledged state, never an inferred/default context. */
 export function selectedStyleContext(state: StyleMemoryState): StyleContextSelection | null {
   const board = state.boards.find(row => row.id === state.selectedBoardId && row.status === "active");

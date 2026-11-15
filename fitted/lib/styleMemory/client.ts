@@ -9,6 +9,34 @@ const record = (value: unknown): value is Record<string, unknown> => !!value && 
 const integer = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0;
 const strings = (value: unknown) => Array.isArray(value) && value.every(entry => typeof entry === "string");
 const id = (value: unknown) => typeof value === "string" && /^[a-f0-9]{24}$/.test(value);
+const positive = (value: unknown) => integer(value) && (value as number) > 0;
+function canonicalMembers(value: unknown, max: number): boolean {
+  return Array.isArray(value) && value.length >= 1 && value.length <= max && value.every(id) &&
+    value.every((member, index) => index === 0 || value[index - 1] < member);
+}
+function exclusionSets(value: unknown, versions: unknown): boolean {
+  if (value === undefined) return true; // Boards created before exclusions remain readable.
+  if (!Array.isArray(value) || value.length > 128 || !Array.isArray(versions)) return false;
+  const scopes = new Set<string>(), setIds = new Set<string>();
+  return value.every(set => {
+    if (!record(set) || !id(set.id) || !positive(set.revision) || !positive(set.profileVersion) ||
+      !versions.some(version => record(version) && version.version === set.profileVersion) ||
+      !((set.routineId === null && set.routineVersion === null) || (id(set.routineId) && positive(set.routineVersion))) ||
+      !Array.isArray(set.entries) || set.entries.length > 40) return false;
+    const scope = JSON.stringify([set.profileVersion, set.routineId, set.routineVersion]);
+    if (scopes.has(scope) || setIds.has(set.id as string)) return false;
+    scopes.add(scope); setIds.add(set.id as string);
+    const entries = new Set<string>(); let items = 0, combinations = 0;
+    return set.entries.every(entry => {
+      if (!record(entry) || !id(entry.id) || !positive(entry.revision) || (entry.revision as number) > (set.revision as number) ||
+        !["item", "combination"].includes(entry.kind as string) || !canonicalMembers(entry.itemIds, entry.kind === "item" ? 1 : 5) ||
+        entries.has(entry.id as string)) return false;
+      entries.add(entry.id as string);
+      if (entry.kind === "item") items++; else combinations++;
+      return items <= 20 && combinations <= 20;
+    });
+  });
+}
 function isState(value: unknown): value is StyleMemoryState {
   if (!record(value) || !integer(value.revision) || !Array.isArray(value.boards) || !Array.isArray(value.routines) ||
     !(value.selectedBoardId === null || id(value.selectedBoardId)) || !(value.selectedRoutineId === null || id(value.selectedRoutineId))) return false;
@@ -17,7 +45,8 @@ function isState(value: unknown): value is StyleMemoryState {
     board.versions.some(version => record(version) && version.version === board.currentVersion) &&
     board.versions.every(version => record(version) && integer(version.version) && typeof version.createdAt === "string" && typeof version.rawSource === "string" &&
       record(version.compiled) && ["aestheticKeywords", "palette", "patterns", "fits"].every(key => strings((version.compiled as Record<string, unknown>)[key]))) &&
-    Array.isArray(board.learningOptIns) && board.learningOptIns.every(opt => record(opt) && integer(opt.profileVersion) && id(opt.routineId) && integer(opt.routineVersion) && typeof opt.enabled === "boolean")) &&
+    Array.isArray(board.learningOptIns) && board.learningOptIns.every(opt => record(opt) && integer(opt.profileVersion) && id(opt.routineId) && integer(opt.routineVersion) && typeof opt.enabled === "boolean") &&
+    exclusionSets(board.exclusionSets, board.versions)) &&
     value.routines.every(routine => record(routine) && id(routine.id) && typeof routine.label === "string" && ["active", "archived"].includes(routine.status as string) &&
       integer(routine.currentVersion) && Array.isArray(routine.versions) && routine.versions.some(version => record(version) && version.version === routine.currentVersion) &&
       routine.versions.every(version => record(version) && integer(version.version) && typeof version.createdAt === "string" && typeof version.label === "string"));

@@ -49,6 +49,7 @@ hosted write behavior or fresh model quality. The maintained source index follow
 | `fitted/lib/ownerWriteFence.ts`, `fitted/models/User.ts`, `userErasure.ts` | Admission fence and owned-data deletion; new storage must participate. |
 | `fitted/lib/styleMemory/`, `stylePreferenceEvidence.ts`, `styleLearningAmendments.ts` | Versioned intentions, owner-fenced captured partitions and correctable resolved evidence. |
 | `ml-system/fitted_core/preferences.py`, `preference_features.py`, `style_context.py` | Stateless bounded relationship fit, declared feature contracts and generation context. |
+| `fitted/lib/explicitExclusions.ts`, `resolveExplicitExclusions.ts`, `styleMemory/exclusions.ts`, `useExclusionPreview.ts`; `ml-system/fitted_core/exclusions.py` | Explicit instruction identity, acknowledged scope/ownership, immutable policy, nonrelaxable filtering and visible pre-dispatch preview; separate from reactions. |
 
 Named protocol-v2 requests forward declared garment subtype to Python; legacy
 requests retain their prior projection. The stylist consumes declared text attributes,
@@ -233,6 +234,57 @@ declared style direction; then bounded learned preference; then existing diversi
 fallback. A conflicting kept/excluded anchor requires a visible correction before any
 provider call. Exhaustion returns fewer/no options honestly and never relaxes an explicit
 exclusion. An archived/erased profile cannot be used for fresh generation.
+
+### Selected exclusion implementation
+
+The instruction scope is the exact Board/profile semantic version plus an optional
+Routine/version; weather and learning opt-in do not change it. A retained old semantic
+version is not archived: a fresh child that legitimately inherits it resolves that
+version's own rules. Archiving its Board or Routine blocks fresh generation for every
+version; a semantic edit never copies exclusions to the new version. Rules for the
+null-Routine scope are separate, rather than global defaults unioned into other Routines.
+
+Embed optional `exclusionSets` in each Board, bounded to 128 retained scopes. A set has
+a canonical stable ID, monotonically increasing revision and at most 20 item rules plus
+20 exact-combination rules. An atomic `set_exclusions` command replaces one exact set
+under the existing operation ID/owner-revision fence and an expected set revision.
+Canonical rule IDs derive from scope, kind and sorted complete membership; changing
+membership creates a new semantic rule identity. Unchanged entries retain their revision;
+new/restored entries receive the acknowledged owner revision. Removing and restoring the
+same instruction keeps its semantic ID and advances its revision. This supports explicit
+edit/removal without an unbounded rule tombstone log. A combination may contain one
+piece (a dress) through five unique members. Newly saved targets must be owned, checked
+inside the owner transaction, but availability is not required. Existing references to
+later-deleted or unavailable garments remain inert and removable. Routine erasure removes
+its sets across Boards; Board/account erasure removes its embedded instructions.
+
+Fresh requests freeze an explicit saved-set reference (or null) and canonical one-request
+item/composition lists. A stale set reference fails before provider dispatch. Resolve
+saved rules in the same snapshot transaction as context/evidence, and bind one-request
+rules to the allocated request ID. The separate typed `explicitExclusions` envelope
+contains version `explicit-exclusions.v1`, request ID, saved reference, bounded entries
+and a canonical SHA-256 digest. Entries identify stable ID, revision, saved/request scope,
+kind and full membership. Each request-only list has the same 20/20 bounds, giving at most
+80 combined entries; no rule is silently dropped. Missing unavailable targets simply
+cannot match an available candidate. Newly supplied one-request targets must be owned.
+
+The command identity captures saved reference, canonical one-request input and resolved
+digest. A completed retry compares its original input references and captured resolved
+digest without consulting today's rule set; archive still permits historical replay and
+erasure still denies it. A fresh child resolves saved rules for its server-derived scope
+and takes only its own explicitly supplied one-request lists. In-flight saved-rule changes
+use the existing memory-revision superseded receipt. The self-versioned envelope is a
+strict optional wire/snapshot field separate from legacy controls; older services reject
+its unknown field before spending, and Next rejects a missing/different echoed envelope
+or prohibited final membership. Zero-option and superseded captures retain the policy.
+
+One shared item-intersection/exact-membership predicate governs generation pools,
+pre-learning candidates, ranking, every fallback, layer reservations and final response.
+Raw attempts remain intact for audit. A combo exclusion never bans its members individually
+or forbids a proper superset. Persistent edits and undo do not mutate feedback, old shown
+outfits, plans or wear. UI shows scope and applicable rules before each command; pending
+one-request input moves into that exact command before dispatch and is not reused by a
+later root/child/replacement command. Uncertain retries retain the frozen command.
 
 ## 7. One experimental learner
 
@@ -466,6 +518,18 @@ actual card membership checks. The six-render collection budget remains unchange
 collection-only mode. Incomplete collection skips this phase and exits 2; lifecycle
 assertion failures exit 1 and cannot report success. This adds correction/isolation
 mechanism evidence, not personal benefit, fresh generation or exclusion-feature proof.
+
+Use `--private-exclusions` with an explicit private replay input for the independent
+hard-instruction journey in `private-exclusions-journey.mjs`. It cannot mix with the
+feedback/lifecycle/style-only modes. After the first ordinary captured-photo request,
+exactly five fresh visible probes cover a saved piece ban, an exact complete-outfit ban
+with an original member still usable, removal/Undo with the same semantic ID and a
+new revision, a next-request-only piece ban, and the following request without that
+consumed ban. Commands/acknowledgements, owned version scope, canonical policy/digest,
+original attempts/provenance, photos and actual membership are checked. Original wardrobe,
+first snapshot and zero feedback history remain unchanged. A source/expectation failure
+is a failed run, never a pass. This proves hard-control mechanics, not personal taste,
+fresh model quality, or the remaining faithful plan/wear and narrow-screen journey.
 
 Tests start with focused pure feature/learner and real-Mongo lifecycle checks, then
 one web/Python integrated regression, TypeScript/lint/build, and the compiled synthetic

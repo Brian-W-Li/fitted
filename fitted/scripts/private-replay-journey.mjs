@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ObjectId } from "mongodb";
 import { writePrivateReplayReport } from "./private-replay-input.mjs";
+import { runPrivateExclusionsJourney } from "./private-exclusions-journey.mjs";
 import { runPrivateFeedbackJourney } from "./private-feedback-journey.mjs";
 
 export async function annotatePrivateReplay(page, subsetCount) {
@@ -15,11 +16,12 @@ export async function annotatePrivateReplay(page, subsetCount) {
     document.body.prepend(note);
   }, subsetCount);
 }
-export async function runPrivateReplayJourney({ db, page, owner, origin, loaded, run, paceRender, privateFeedback = false, privateLifecycle = false }) {
+export async function runPrivateReplayJourney({ db, page, owner, origin, loaded, run, paceRender, privateFeedback = false, privateLifecycle = false, privateExclusions = false }) {
   const report = { version: "private-walkthrough-report.v1", status: "running", checkpoint: "captured-photos-first-request",
     inputSha256: loaded.inputDigest, provenance: loaded.input.provenance, operatorFeedback: [], newProviderCalls: 0,
     annotation: { kind: "harness-only", partOfProductionUI: false, purpose: "Screenshot provenance label inserted by local verification tooling" },
     pending: ["six distinct operator-authored reactions", "concern/clear/explicit inclusion", "profile isolation", "request controls", "factual correction and undo", "availability correction and undo", "plan/wear navigation", "390px walkthrough"] };
+  if (privateExclusions) report.pending.push("saved and one-request exclusions");
   await writePrivateReplayReport(run, report);
   await page.goto(`${origin}/wardrobe`);
   await page.getByRole("button", { name: "Edit", exact: true }).first().waitFor();
@@ -101,6 +103,8 @@ export async function runPrivateReplayJourney({ db, page, owner, origin, loaded,
       shownGarmentIds: result.shown.map(outfit => outfit.displayItems.map(item => item.itemId)), preference: row.preference },
     sourceSelections: audit, screenshots: ["01-captured-wardrobe.png", "02-first-replayed-outfits.png"] });
   await writePrivateReplayReport(run, report);
+  if (privateExclusions) return runPrivateExclusionsJourney({ db, page, owner, origin, loaded, run, report, first: { row, request, result }, paceRender,
+    annotate: () => annotatePrivateReplay(page, loaded.input.wardrobe.length) });
   if (privateFeedback) return runPrivateFeedbackJourney({ db, page, owner, origin, loaded, run, paceRender, report,
     first: { result, request, row }, privateLifecycle, annotate: () => annotatePrivateReplay(page, loaded.input.wardrobe.length) });
   return report;

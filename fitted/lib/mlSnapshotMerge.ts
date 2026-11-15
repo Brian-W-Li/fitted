@@ -1,3 +1,4 @@
+import { validExplicitExclusions, type ExplicitExclusions } from "./explicitExclusions";
 /**
  * M5 route-owned merge + cross-check helpers (C5, seam #6) — the pure pieces the recommend route
  * assembles AROUND the service payload. `mlSnapshotValidation.ts` owns the payload-self-contained
@@ -488,6 +489,7 @@ export interface BrowserShownEntry {
 }
 
 export interface BrowserResponse {
+  explicitExclusions?: ExplicitExclusions;
   styleContext?: CapturedStyleContext;
   preference?: import("@/lib/stylePreferenceDecision").PreferenceDecision;
   commandStatus?: "superseded";
@@ -556,6 +558,7 @@ export function projectBrowserResponse(
   });
 
   const response: BrowserResponse = {
+    ...(validExplicitExclusions(doc.explicitExclusions) ? { explicitExclusions: doc.explicitExclusions } : {}),
     ...(validCapturedStyleContext(doc.styleContext) ? { styleContext: doc.styleContext } : {}),
     ...(doc.commandStatus === "superseded" ? { commandStatus: "superseded" as const } : {}),
     ...(projectPreferenceDecision(doc.preference) ? { preference: projectPreferenceDecision(doc.preference) } : {}),
@@ -597,6 +600,7 @@ const RESERVED_PAYLOAD_KEYS = new Set([
 ]);
 
 const M5_PAYLOAD_KEYS = new Set([
+  "explicitExclusions",
   "sessionId",
   "requestId",
   "parentSnapshotId",

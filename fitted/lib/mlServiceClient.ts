@@ -46,6 +46,7 @@ export type DegradedReasonHint = (typeof DEGRADED_REASON_HINTS)[number];
 
 /** A successful service render — the payload is opaque here; seam #5 validates + persists it. */
 export interface RenderServiceResponse {
+  explicitExclusions?: import("./explicitExclusions").ExplicitExclusions;
   protocolVersion?: number;
   preference?: import("@/lib/stylePreferenceDecision").PreferenceDecision;
   styleContext?: import("@/lib/styleContext").CapturedStyleContext;

@@ -5,6 +5,18 @@ export function invalid(message: string): never { throw new StyleMemoryError(400
 export function styleId(value: unknown): string { if (typeof value !== "string" || !/^[a-f0-9]{24}$/.test(value)) invalid("Choose a valid saved direction or situation."); return value; }
 function text(value: unknown, max: number, blank = false): string { if (typeof value !== "string" || value.length > max || !value.isWellFormed() || /[\u0000-\u001f\u007f-\u009f]/u.test(value) || (!blank && !value.trim())) invalid(`Use ${max} or fewer characters without control characters.`); return value.trim(); }
 function array(value: unknown, max: number): string[] { if (!Array.isArray(value) || value.length > max) invalid(`Choose at most ${max} terms.`); return [...new Set(value.map(term => text(term, 60)))]; }
+function exclusionMembers(value: unknown, max: number, allowEmpty: boolean): string[] {
+  if (!Array.isArray(value) || value.length > max || (!allowEmpty && value.length === 0)) invalid(`Choose ${allowEmpty ? "at most" : "between one and"} ${max} unique wardrobe pieces.`);
+  const ids = value.map(styleId);
+  if (new Set(ids).size !== ids.length) invalid("Exclusions must name unique wardrobe pieces.");
+  return ids.sort();
+}
+function exclusionOutfits(value: unknown): string[][] {
+  if (!Array.isArray(value) || value.length > 20) invalid("Choose at most 20 exact outfit exclusions.");
+  const outfits = value.map(members => exclusionMembers(members, 5, false));
+  if (new Set(outfits.map(members => members.join("|"))).size !== outfits.length) invalid("Each exact outfit exclusion must be unique.");
+  return outfits.sort((left, right) => left.join("|").localeCompare(right.join("|")));
+}
 export function compiledProfile(raw: unknown): CompiledStyleProfile {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) invalid("Review the style summary before saving.");
   const r = raw as Record<string, unknown>;
@@ -16,6 +28,7 @@ const fields: Record<string, string[]> = {
   archive_board: ["boardId"], restore_board: ["boardId"], erase_board: ["boardId"], create_routine: ["id", "label"], edit_routine: ["routineId", "label"], rename_routine: ["routineId", "label"],
   archive_routine: ["routineId"], restore_routine: ["routineId"], erase_routine: ["routineId"], select_context: ["boardId", "routineId"], set_default_routine: ["boardId", "routineId"],
   set_learning: ["boardId", "profileVersion", "routineId", "routineVersion", "enabled"],
+  set_exclusions: ["boardId", "profileVersion", "routineId", "routineVersion", "expectedSetRevision", "itemIds", "outfitItemIds"],
 };
 export function parseStyleMemoryCommand(raw: unknown): StyleMemoryCommand {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) invalid("Expected a styling command.");
@@ -29,13 +42,18 @@ export function parseStyleMemoryCommand(raw: unknown): StyleMemoryCommand {
   for (const key of fields[kind]) {
     const value = r[key];
     if (["id", "profileId", "boardId", "routineId"].includes(key)) {
-      const nullable = key === "routineId" && ["select_context", "set_default_routine"].includes(kind) || key === "boardId" && kind === "select_context";
+      const nullable = key === "routineId" && ["select_context", "set_default_routine", "set_exclusions"].includes(kind) || key === "boardId" && kind === "select_context";
       result[key] = nullable && value === null ? null : styleId(value);
     } else if (key === "label") result[key] = text(value, 60);
     else if (key === "rawSource") result[key] = text(value, 500, true);
     else if (key === "compiled") result[key] = compiledProfile(value);
+    else if (key === "itemIds") result[key] = exclusionMembers(value, 20, true);
+    else if (key === "outfitItemIds") result[key] = exclusionOutfits(value);
+    else if (key === "expectedSetRevision") { if (!Number.isSafeInteger(value) || (value as number) < 0) invalid("Refresh the exclusions before saving them."); result[key] = value; }
+    else if (key === "routineVersion" && kind === "set_exclusions" && value === null) result[key] = null;
     else if (key === "enabled") { if (typeof value !== "boolean") invalid("Choose whether learning is enabled."); result[key] = value; }
     else { if (!Number.isSafeInteger(value) || (value as number) < 1) invalid("Choose a valid semantic version."); result[key] = value; }
   }
+  if (kind === "set_exclusions" && (result.routineId === null) !== (result.routineVersion === null)) invalid("Choose both a saved situation and its version, or neither.");
   return result as unknown as StyleMemoryCommand;
 }

@@ -125,6 +125,9 @@ export function partialRenderHint(flags: RenderFlagsLike | undefined | null, sho
 const CONTROL_ERROR_COPY: Record<string, string> = {
   controls_structurally_infeasible:
     "Those “keep” picks can’t all go together — keep just one top, one bottom (or one dress), then regenerate.",
+  exclusions_invalid: "Review the pieces and scope of your exclusions before requesting outfits.",
+  exclusions_changed: "Saved exclusions changed. Review the refreshed rules before requesting outfits.",
+  exclusions_conflict: "A piece is marked both keep and excluded. Remove that exclusion or choose another piece.",
   controls_contradictory: "A piece is marked both keep and avoid — clear one of them and try again.",
   control_item_unavailable:
     "One of the pieces you kept or avoided isn’t in your closet anymore. Adjust your picks and try again.",

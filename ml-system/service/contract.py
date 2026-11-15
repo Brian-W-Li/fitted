@@ -63,7 +63,7 @@ RENDER_BODY_REQUIRED = frozenset({
     "behavioralRows",
     "generator",
 })
-RENDER_BODY_OPTIONAL: frozenset[str] = frozenset({"protocolVersion", "styleContext", "preferenceRows"})
+RENDER_BODY_OPTIONAL: frozenset[str] = frozenset({"protocolVersion", "styleContext", "preferenceRows", "explicitExclusions"})
 
 # --- controls (§C.3) — regenerate-lineage only; present-but-empty on a root render ----
 CONTROLS_REQUIRED = frozenset({"lockedItemIds", "dislikedItemIds"})

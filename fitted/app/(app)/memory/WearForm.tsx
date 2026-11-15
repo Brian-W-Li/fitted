@@ -10,11 +10,12 @@ export interface MemoryItem {
   changed: boolean; imageUrl?: string | null; role?: string;
 }
 export interface ExperienceView {
+  sourceStyleContext?: import("@/lib/styleContext").StyleSelection;
   experienceId: string; lifecycle: "active" | "retracted" | "erased"; currentRevision: number;
   state: { occurredOn: string; timezone: string; context: { rawOccasion: string; source: "user" | "suggestion"; confirmed: boolean }; outcome: "worked" | "change_next_time" | "unknown"; compositionStatus?: "as_shown" | "changed" };
   sourceAvailable: boolean; source: { snapshotId: string; candidateId: string } | null; items: MemoryItem[]; sourceItems?: MemoryItem[];
 }
-export interface SuggestionView { shownVariationAllowed?: boolean; snapshotId: string; candidateId: string; suggestionContext: string; weatherContext?: string | null; items: MemoryItem[]; styleMove?: { oneSentence?: string } | null }
+export interface SuggestionView { styleContext?: import("@/lib/styleContext").CapturedStyleContext; shownVariationAllowed?: boolean; snapshotId: string; candidateId: string; suggestionContext: string; weatherContext?: string | null; items: MemoryItem[]; styleMove?: { oneSentence?: string } | null }
 export interface ClosetChoice { id: string; name: string; clothingType?: string; layerRole?: string; isAvailable?: boolean }
 
 function localDate(timezone?: string) {

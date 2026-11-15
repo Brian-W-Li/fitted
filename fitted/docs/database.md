@@ -12,6 +12,7 @@ This is a navigation guide, not a second schema specification. Models and storag
 |---|---|---|
 | Identity, profile and plans | [User](../models/User.ts), [planning store](../lib/outfitPlanning/store.ts) | Plans are dated intent references, not reported wear. |
 | Saved style memory | [User](../models/User.ts), [style-memory store](../lib/styleMemory/store.ts), [erasure](../lib/styleMemory/erase.ts) | Embedded versioned Boards/Routines, receipts, tombstones and monotonic owner revision; archive retains source history, erase fences it. |
+| Explicit instructions | [Saved-set transitions](../lib/styleMemory/exclusions.ts), [captured policy](../lib/explicitExclusions.ts) | Version-scoped sets embedded in style memory; immutable request-bound policy/digest on shown-generation evidence. These are not reactions or taste labels. |
 | Current wardrobe | [WardrobeItem](../models/WardrobeItem.ts) | Owned garment facts, availability and image references. |
 | Owned images | [WardrobeImage](../models/WardrobeImage.ts) | Primary/supplemental images; captured source-photo retention is a separate lifecycle. |
 | Shown-generation evidence | [GenerationSnapshot](../models/GenerationSnapshot.ts) | Immutable inputs/funnel/shown identity, captured context and signed experimental decision provenance, with sanctioned redaction. |

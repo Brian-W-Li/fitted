@@ -37,6 +37,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Mapping, Optional, Protocol
 
+from fitted_core.exclusions import is_excluded
 from fitted_core.config import (
     BOLD_STYLE_TAGS,
     COLOR_FAMILIES,
@@ -615,11 +616,13 @@ def select_spread(
 def selection_pool(ranked: RankerResult, request: LensRequest) -> RankerResult:
     """Exclude only exact unordered garment membership, retaining the ranked trace."""
     excluded = frozenset(getattr(request, "excluded_outfit_item_ids", ()))
-    if not excluded:
+    policy = getattr(request, "explicit_exclusions", None)
+    if not excluded and policy is None:
         return ranked
     return replace(ranked, outfits=tuple(
         outfit for outfit in ranked.outfits
-        if frozenset(_filled_slot_ids(outfit.slot_map)) != excluded
+        if (not excluded or frozenset(_filled_slot_ids(outfit.slot_map)) != excluded)
+        and not is_excluded(policy, _filled_slot_ids(outfit.slot_map))
     ))
 
 

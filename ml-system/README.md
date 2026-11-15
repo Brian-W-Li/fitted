@@ -16,6 +16,12 @@ and [declared relationship features](fitted_core/preference_features.py). The
 abstention and evaluation. The frozen catalog head has no serving vote; synthetic
 engineering checks do not establish personal styling benefit.
 
+[exclusions.py](fitted_core/exclusions.py) owns the separate immutable hard-instruction
+policy. Its self-versioned optional envelope is independent of style-learning opt-in
+and legacy regenerate controls. Item intersections and exact complete membership are
+nonrelaxable through generation, ranking, layer reservations and response selection;
+raw attempts remain intact. Next resolves ownership/scope and verifies the echoed policy.
+
 Run `python -m pytest tests service/tests -q` from this directory. Tests use injected
 generators; they do not require paid model calls. The historical rule-based example
 is not the production engine.

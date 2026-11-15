@@ -36,6 +36,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Mapping, Optional, Sequence
 
+from fitted_core.exclusions import ExplicitExclusions, exclusion_reason, normalize_explicit_exclusions
 from fitted_core.config import (
     BASE_SCORE,
     BASEKEY_VARIANT_CAP,
@@ -197,8 +198,10 @@ class RankerContext:
     locked_item_ids: frozenset[str] = frozenset()  # regen lock filter
     reserved_full_signatures: frozenset[str] = frozenset()  # bounded practical choice
     preference_deltas: Mapping[str, float] = field(default_factory=dict)
+    explicit_exclusions: Optional[ExplicitExclusions] = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "explicit_exclusions", normalize_explicit_exclusions(self.explicit_exclusions))
         self._validate_generation_index()
         self._validate_k()
         self._normalize_collections()
@@ -369,12 +372,13 @@ def _apply_step4_filters(
 ) -> _Step4Result:
     """Apply the Step-4 per-request hard filters (§6 step 3, N3/N8).
 
-    Classify each candidate by **three independent predicates** (evaluation order is
+    Classify each candidate by independent predicates (evaluation order is
     irrelevant — the classification is set-based):
 
     - **lock** — its filled-slot ids ⊇ ``locked_item_ids`` (trivially true with no locks);
     - **contextual** — its filled-slot ids are disjoint from ``contextual_disliked_item_ids``
       (the *hard* dislike filter — distinct from the soft ``recent_disliked_item_ids`` of C3);
+    - **explicit exclusions** — no forbidden item and no exact forbidden composition;
     - **cooldown** — its ``base_key`` is not in ``recent_disliked_base_keys`` (BaseKey, §7 —
       filters a disliked silhouette across *all* its outer/shoe variants).
 
@@ -382,7 +386,7 @@ def _apply_step4_filters(
     (``_filled_slot_ids``). A candidate passing lock + contextual is a **survivor** when it
     also passes cooldown, else it is held in the cooldown-relax **reserve** (dropped *solely*
     by cooldown — re-admittable at the C5 ``cooldown_relaxed`` rung). A candidate failing lock
-    or contextual is a non-relaxable drop, reserved nowhere. ``locked_survivor_count`` counts
+    or contextual or explicit policy is a non-relaxable drop, reserved nowhere. ``locked_survivor_count`` counts
     candidates passing the lock filter **alone** (before contextual/cooldown); locks never
     silently drop — M3 only reports, M5 owns the constrained re-entry (N3).
 
@@ -404,10 +408,10 @@ def _apply_step4_filters(
 
         if passes_lock:
             locked_survivor_count += 1
-        if passes_lock and passes_contextual:
+        if passes_lock and passes_contextual and exclusion_reason(context.explicit_exclusions, filled) is None:
             # Solely-cooldown drops are relaxable (reserve); everything else here is a survivor.
             (survivors if passes_cooldown else cooldown_reserve).append(candidate)
-        # Failing lock or contextual → non-relaxable drop: reserved nowhere (N3).
+        # Lock, contextual and explicit-policy failures are never fallback reserves.
 
     insufficient_locked = bool(locked) and locked_survivor_count < context.k
     return _Step4Result(
@@ -712,7 +716,7 @@ def _select_fallback_pool(
 
     Strict order: normal → overuse_relaxed → variant_cap_relaxed → cooldown_relaxed →
     insufficient. Relaxation is cumulative: deeper rungs keep earlier relaxations. Validation,
-    locks, and contextual dislikes never relax; cooldown relaxation draws only from
+    locks, contextual dislikes and explicit exclusions never relax; cooldown relaxation draws only from
     ``step4.cooldown_reserve``.
     """
     step5_survivors = tuple(_score_candidate(candidate, context) for candidate in step4.survivors)
@@ -1009,6 +1013,9 @@ def _ranker_drop_reason(candidate: ValidatedCandidate, context: RankerContext) -
         return "ranker_lock_unsatisfied"
     if not filled.isdisjoint(context.contextual_disliked_item_ids):
         return "ranker_contextual_disliked"
+    explicit_reason = exclusion_reason(context.explicit_exclusions, filled)
+    if explicit_reason is not None:
+        return explicit_reason
     if candidate.base_key in set(context.recent_disliked_base_keys):
         return "ranker_cooldown_dropped"
     return "ranker_diversity_capped"

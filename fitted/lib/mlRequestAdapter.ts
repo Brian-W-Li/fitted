@@ -1,3 +1,4 @@
+import type { ExplicitExclusions } from "./explicitExclusions";
 import { normalizeGarmentDetail } from "@/lib/garmentDetails";
 import { normalizeLayerRole, type LayerRole } from "@/lib/layerRole";
 import { validWeatherSignals, type WeatherSignals } from "@/lib/weatherContext";
@@ -406,6 +407,7 @@ export interface BehavioralRowsWire {
 import type { CapturedStyleContext } from "@/lib/styleContext";
 
 export interface RenderBodyParts {
+  explicitExclusions?: ExplicitExclusions;
   styleContext?: CapturedStyleContext;
   preferenceRows?: unknown[];
   snapshotId: string;
@@ -446,6 +448,7 @@ export function buildRenderBody(parts: RenderBodyParts): RenderBody {
   }
   return {
     snapshotId: parts.snapshotId,
+    ...(parts.explicitExclusions ? { explicitExclusions: parts.explicitExclusions } : {}),
     ...(parts.styleContext ? { protocolVersion: 2 as const, styleContext: parts.styleContext, preferenceRows: parts.preferenceRows ?? [] } : {}),
     requestId: parts.requestId,
     sessionId: parts.sessionId,

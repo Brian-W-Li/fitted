@@ -156,9 +156,15 @@ it("retains independently admitted actual wear after style erasure and makes its
   const { StyleMemoryStore } = await import("@/lib/styleMemory/store");
   const f = await styleFixture();
   const wears = new ExperienceStore({ now }); await wears.create(f.owner, { ...f.input, candidateId: "c1" });
+  const before = await getExperience(f.owner, f.input.experienceId);
+  expect(before.sourceStyleContext).toEqual({ boardId: f.context.boardId, profileId: f.context.profileId, profileVersion: 1,
+    routineId: null, routineVersion: null, learningEnabled: false });
+  expect(before.sourceStyleContext).not.toHaveProperty("compiled");
+  expect(before.sourceStyleContext).not.toHaveProperty("boardLabel");
   const plans = new OutfitPlanningStore({ now }); await plans.create(f.owner, { planId: randomUUID(), snapshotId: String(f.snapshotId), candidateId: "c1", plannedFor: "2026-10-11", timezone: "UTC" });
   await new StyleMemoryStore().mutate(f.owner, { kind: "erase_board", operationId: randomUUID(), expectedRevision: 1, boardId: f.board.id });
   expect(await getExperience(f.owner, f.input.experienceId)).toMatchObject({ sourceAvailable: false, source: null, items: [{ name: "Green shirt" }] });
+  expect((await getExperience(f.owner, f.input.experienceId)).sourceStyleContext).toBeUndefined();
   const saved = await experienceCollection().findOne({ experienceId: f.input.experienceId });
   expect(JSON.stringify(saved)).not.toContain("Private style source");
   expect(JSON.stringify(saved)).not.toContain("Captured campus");

@@ -789,7 +789,7 @@ def test_canonical_render_body_fixture_matches_the_contract():
         required, optional = contract.BOUNDARIES[name]
         # The root fixture cannot carry the nonempty, lineage-only exploration control.
         conditional = {"controls": {"excludedOutfitItemIds"},
-                       "request": {"protocolVersion", "styleContext", "preferenceRows"},
+                       "request": {"protocolVersion", "styleContext", "preferenceRows", "explicitExclusions"},
                        "wardrobeItem": {"subtype"}}
         # Protocol-v2 and declared subtype are intentionally absent on the legacy fixture.
         # Full v2 request/captured-subtype behavior is exercised by test_style_preference_integration.

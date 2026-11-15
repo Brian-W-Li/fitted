@@ -165,6 +165,7 @@ function fakeService(opts: FakeOptions = {}) {
     }));
     const payload: Any = {
       // echo-through identity (what the real service authors from the request)
+      ...(body.explicitExclusions ? { explicitExclusions: body.explicitExclusions } : {}),
       sessionId: body.sessionId,
       requestId: body.requestId,
       parentSnapshotId: body.parentSnapshotId,
@@ -242,6 +243,7 @@ function fakeService(opts: FakeOptions = {}) {
       JSON.stringify({
         payload,
         shown,
+        ...(body.explicitExclusions ? { explicitExclusions: body.explicitExclusions } : {}),
         ...(body.styleContext ? { protocolVersion: 2, styleContext: body.styleContext } : {}),
         flags: {
           notEnoughItems: Boolean(rescueFlags.notEnoughItems ?? payload.diagnostics?.notEnoughItems),
@@ -2242,4 +2244,129 @@ describe("saved style direction generation", () => {
     expect(result.body.flags.reasonHint).toBe("contract_invalid");
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
   });
+});
+
+
+describe("explicit exclusions at recommendation admission", () => {
+  const once = (itemIds: string[] = [], outfitItemIds: string[][] = []) => ({ itemIds, outfitItemIds });
+  async function scope() {
+    const { StyleMemoryStore } = await import("@/lib/styleMemory/store");
+    const store = new StyleMemoryStore(), boardId = new mongoose.Types.ObjectId().toString(), profileId = new mongoose.Types.ObjectId().toString();
+    await store.mutate(userId, { kind: "create_board", operationId: uuid(), expectedRevision: 0, id: boardId, profileId,
+      label: "Explicit campus", rawSource: "relaxed", compiled: { aestheticKeywords: ["relaxed"], palette: [], patterns: [], fits: [] } });
+    const selection = { boardId, profileId, profileVersion: 1, routineId: null, routineVersion: null, learningEnabled: false };
+    const changed = await store.mutate(userId, { kind: "set_exclusions", operationId: uuid(), expectedRevision: 1, boardId, profileVersion: 1,
+      routineId: null, routineVersion: null, expectedSetRevision: 0, itemIds: [itemIds.shoes], outfitItemIds: [] });
+    const set = changed.state.boards[0].exclusionSets![0], ref = { id: set.id, revision: set.revision };
+    const clear = () => store.mutate(userId, { kind: "set_exclusions", operationId: uuid(), expectedRevision: changed.state.revision, boardId,
+      profileVersion: 1, routineId: null, routineVersion: null, expectedSetRevision: set.revision, itemIds: [], outfitItemIds: [] });
+    return { store, selection, set, ref, clear };
+  }
+  it("freezes one-request instructions through completed retry and rejects changed input under the same ID", async () => {
+    const service = jest.fn(fakeService()), deps = makeDeps({ callService: service });
+    const command = { requestId: uuid(), occasion: "class", requestExclusions: once([itemIds.shoes]) };
+    const first = await json(await mlRecommend(req(command), deps));
+    expect(first.body.bindable).toBe(true); expect(first.body.explicitExclusions.entries).toHaveLength(1);
+    expect(first.body.explicitExclusions.requestId).toBe(command.requestId);
+    const saved = await GenerationSnapshot.findOne({ user: userId, requestId: command.requestId }).lean() as Any;
+    expect(saved.explicitExclusions).toEqual(first.body.explicitExclusions); expect(saved.exclusionCommandKey).toMatch(/^[a-f0-9]{64}$/);
+    await WardrobeItem.deleteOne({ user: userId, _id: itemIds.shoes });
+    const replay = await json(await mlRecommend(req(command), deps));
+    expect(replay.body.explicitExclusions).toEqual(first.body.explicitExclusions); expect(service).toHaveBeenCalledTimes(1);
+    expect((await json(await mlRecommend(req({ ...command, requestExclusions: once([itemIds.b2]) }), deps))).status).toBe(409);
+    expect((await json(await mlRecommend(req({ ...command, requestId: uuid() }), deps))).status).toBe(400);
+    expect(service).toHaveBeenCalledTimes(1);
+  });
+  it("rejects foreign targets and an excluded rescue anchor before dispatch", async () => {
+    const service = jest.fn(fakeService()), deps = makeDeps({ callService: service });
+    const foreign = new mongoose.Types.ObjectId().toString();
+    expect((await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", requestExclusions: once([foreign]) }), deps))).status).toBe(400);
+    const conflict = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", forcedItemId: itemIds.top,
+      requestExclusions: once([itemIds.top]) }), deps));
+    expect(conflict.status).toBe(400); expect(conflict.body.error.code).toBe("exclusions_conflict"); expect(service).not.toHaveBeenCalled();
+  });
+  it("rejects a prohibited shown composition even when service policy echo is correct", async () => {
+    const service = jest.fn(fakeService()), deps = makeDeps({ callService: service });
+    const result = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", requestExclusions: once([], [[itemIds.top, itemIds.b1]]) }), deps));
+    expect(result.body.bindable).toBe(false); expect(result.body.flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0); expect(service).toHaveBeenCalledTimes(1);
+  });
+  it("allows a different complete membership containing the same excluded-combination members", async () => {
+    const service = jest.fn(fakeService()), deps = makeDeps({ callService: service });
+    const result = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", forcedItemId: itemIds.top,
+      requestExclusions: once([], [[itemIds.top, itemIds.b1, itemIds.shoes]]) }), deps));
+    expect(result.body.bindable).toBe(true); expect(result.body.shown[0].displayItems.map((item: Any) => item.itemId)).toEqual([itemIds.top, itemIds.b1]);
+    expect(service).toHaveBeenCalledTimes(1);
+  });
+  it("rejects a dropped or altered policy echo before snapshot admission", async () => {
+    const service = jest.fn(fakeService({ overridePayload: payload => { delete payload.explicitExclusions; } }));
+    const result = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", requestExclusions: once([itemIds.shoes]) }), makeDeps({ callService: service })));
+    expect(result.body.bindable).toBe(false); expect(result.body.flags.reasonHint).toBe("contract_invalid");
+    expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(0);
+  });
+  it("replays captured saved rules after undo, while fresh commands require the new acknowledged reference", async () => {
+    const { selection, ref, clear } = await scope();
+    const service = jest.fn(fakeService()), deps = makeDeps({ callService: service });
+    const command = { requestId: uuid(), occasion: "class", styleContext: selection, exclusionRef: ref };
+    const first = await json(await mlRecommend(req(command), deps)); expect(first.body.bindable).toBe(true);
+    const undone = await clear(); const current = undone.state.boards[0].exclusionSets![0];
+    const replay = await json(await mlRecommend(req(command), deps));
+    expect(replay.body.explicitExclusions).toEqual(first.body.explicitExclusions); expect(service).toHaveBeenCalledTimes(1);
+    const stale = await json(await mlRecommend(req({ ...command, requestId: uuid() }), deps));
+    expect(stale.status).toBe(409); expect(stale.body.error.code).toBe("exclusions_changed"); expect(service).toHaveBeenCalledTimes(1);
+    const fresh = await json(await mlRecommend(req({ ...command, requestId: uuid(), exclusionRef: { id: current.id, revision: current.revision } }), deps));
+    expect(fresh.body.bindable).toBe(true); expect(fresh.body.explicitExclusions.entries).toEqual([]); expect(service).toHaveBeenCalledTimes(2);
+  });
+  it("a mid-dispatch instruction edit yields one terminal superseded receipt retaining its policy", async () => {
+    const { selection, ref, clear } = await scope();
+    const service = jest.fn(async (body: RenderBody) => { const result = await fakeService()(body); await clear(); return result; });
+    const deps = makeDeps({ callService: service }), command = { requestId: uuid(), occasion: "class", styleContext: selection, exclusionRef: ref };
+    const first = await json(await mlRecommend(req(command), deps));
+    expect(first.body.commandStatus).toBe("superseded"); expect(first.body.shown).toEqual([]); expect(first.body.explicitExclusions.entries).toHaveLength(1);
+    const retry = await json(await mlRecommend(req(command), deps));
+    expect(retry.body.commandStatus).toBe("superseded"); expect(retry.body.explicitExclusions).toEqual(first.body.explicitExclusions); expect(service).toHaveBeenCalledTimes(1);
+    expect(await GenerationSnapshot.countDocuments({ user: userId, requestId: command.requestId })).toBe(1);
+  });
+  it("a new child does not inherit its parent's one-request instructions", async () => {
+    const service = jest.fn(fakeService()), deps = makeDeps({ callService: service });
+    const parent = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", requestExclusions: once([itemIds.shoes]) }), deps));
+    const child = await json(await mlRecommend(req({ requestId: uuid(), parentSnapshotId: parent.body.shown[0].snapshotId,
+      controls: { lockedItemIds: [], dislikedItemIds: [] } }), deps));
+    expect(child.body.bindable).toBe(true); expect(child.body.explicitExclusions).toBeUndefined();
+    expect(service.mock.calls[1][0].explicitExclusions).toBeUndefined();
+    expect(await OutfitInteraction.countDocuments({ user: userId })).toBe(0);
+  });
+  it("adaptation resolves only the null-Routine exclusion set and never unions its parent's situation rules", async () => {
+    const { store, selection, set } = await scope();
+    const routineId = new mongoose.Types.ObjectId().toString();
+    await store.mutate(userId, { kind: "create_routine", operationId: uuid(), expectedRevision: 2, id: routineId, label: "Class" });
+    const situated = await store.mutate(userId, { kind: "set_exclusions", operationId: uuid(), expectedRevision: 3,
+      boardId: selection.boardId, profileVersion: 1, routineId, routineVersion: 1, expectedSetRevision: 0, itemIds: [itemIds.shoes], outfitItemIds: [] });
+    const routineSet = situated.state.boards[0].exclusionSets!.find(row => row.routineId === routineId)!;
+    const changed = await store.mutate(userId, { kind: "set_exclusions", operationId: uuid(), expectedRevision: 4,
+      boardId: selection.boardId, profileVersion: 1, routineId: null, routineVersion: null, expectedSetRevision: set.revision,
+      itemIds: [itemIds.b2], outfitItemIds: [] });
+    const nullSet = changed.state.boards[0].exclusionSets!.find(row => row.routineId === null)!;
+    const service = jest.fn(async (body: RenderBody) => fakeService({ respectControls: !!body.parentSnapshotId, overridePayload: payload => {
+      if (body.parentSnapshotId) {
+        payload.candidateCacheKey = "b".repeat(64);
+        payload.candidates[1].shown = false; delete payload.candidates[1].shownPosition; payload.candidates[1].stageReached = "ranked";
+        payload.shownCandidateIds = ["c0"]; payload.shownFullSignatures = ["sig-0"]; payload.nSurfaced = 1;
+      }
+    } })(body));
+    const deps = makeDeps({ callService: service });
+    const parent = await json(await mlRecommend(req({ requestId: uuid(), occasion: "class", styleContext: { ...selection, routineId, routineVersion: 1 },
+      exclusionRef: { id: routineSet.id, revision: routineSet.revision } }), deps));
+    expect(parent.body.bindable).toBe(true);
+    const adaptation = { requestId: uuid(), parentSnapshotId: parent.body.shown[0].snapshotId,
+      variation: { sourceCandidateId: "c0", anchorItemId: itemIds.top, occasion: "Dinner" } };
+    const stale = await json(await mlRecommend(req({ ...adaptation, exclusionRef: { id: routineSet.id, revision: routineSet.revision } }), deps));
+    expect(stale.status).toBe(409); expect(service).toHaveBeenCalledTimes(1);
+    const adapted = await json(await mlRecommend(req({ ...adaptation, requestId: uuid(), exclusionRef: { id: nullSet.id, revision: nullSet.revision } }), deps));
+    expect(adapted.body.bindable).toBe(true); expect(adapted.body.styleContext.routineId).toBeNull();
+    expect(adapted.body.explicitExclusions.entries.map((entry: Any) => entry.itemIds)).toEqual([[itemIds.b2]]);
+    expect(service.mock.calls[1][0].explicitExclusions!.entries).toHaveLength(1);
+    expect(adapted.body.shown[0].displayItems.map((item: Any) => item.itemId)).toEqual([itemIds.top, itemIds.b1]);
+  });
+
 });

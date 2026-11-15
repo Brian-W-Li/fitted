@@ -134,3 +134,13 @@ export function verifyIsolatedTasteSignals(row) {
   for (const key of ["likedFullSignatures", "recentDislikedBaseKeys", "recentDislikedItemIds", "contextualDislikedItemIds"])
     assert.deepEqual(signals[key], [], `new profile cannot borrow ${key}`);
 }
+
+export function privateExclusionsFlag(args) {
+  const flags = args.filter(arg => arg === "--private-exclusions");
+  assert.ok(flags.length <= 1, "choose private exclusions mode only once");
+  if (!flags.length) return false;
+  const inputs = args.filter(arg => arg.startsWith("--private-replay="));
+  assert.ok(inputs.length === 1 && path.isAbsolute(inputs[0].slice("--private-replay=".length)), "private exclusions requires one explicit absolute private replay input");
+  assert.ok(!["--private-feedback", "--private-lifecycle", "--feedback-only", "--style-only"].some(flag => args.includes(flag)), "private exclusions is a separate focused journey");
+  return true;
+}

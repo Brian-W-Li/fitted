@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { privateFeedbackFlag, privateLifecycleFlag, verifyIsolatedTasteSignals, verifyIntactAttempts, verifyCapturedRender, collectedObservation, verifyProbeEvidence } from "../private-feedback-verification.mjs";
+import { privateFeedbackFlag, privateLifecycleFlag, privateExclusionsFlag, verifyIsolatedTasteSignals, verifyIntactAttempts, verifyCapturedRender, collectedObservation, verifyProbeEvidence } from "../private-feedback-verification.mjs";
 import { sha256, stableJson, expectedCollectedEvidence, expectedLifecycleEvidence } from "../private-feedback-contract.mjs";
 const id = number => number.toString(16).padStart(24, "0");
 function fixture() {
@@ -157,4 +157,13 @@ test("profile isolation accepts Mongo-minimized empty affinity but rejects missi
     r => { delete r.diagnostics.ranker.likedFullSignatures; }]) {
     const invalid = structuredClone(row); mutate(invalid); assert.throws(() => verifyIsolatedTasteSignals(invalid));
   }
+});
+
+test("private exclusions is a separate opt-in journey with an absolute private input", () => {
+  assert.equal(privateExclusionsFlag([]), false);
+  assert.equal(privateExclusionsFlag(["--private-replay=/private/input", "--private-exclusions"]), true);
+  for (const args of [["--private-exclusions"], ["--private-exclusions", "--private-replay=relative"],
+    ["--private-exclusions", "--private-replay=/x", "--private-feedback"], ["--private-exclusions", "--private-replay=/x", "--private-lifecycle"],
+    ["--private-exclusions", "--private-replay=/x", "--style-only"], ["--private-exclusions", "--private-replay=/x", "--private-exclusions"]])
+    assert.throws(() => privateExclusionsFlag(args), /private exclusions/);
 });

@@ -204,6 +204,7 @@ class GenerationSnapshotPayload:
     shown_full_signatures: tuple[str, ...]
     n_surfaced: int
     spread_collapsed: bool
+    explicit_exclusions: Optional[dict] = None
     layer_choice: Optional[dict] = None
     weather_signals: Optional[dict[str, bool]] = None
 
@@ -797,6 +798,7 @@ def build_snapshot_payload(
         seed_date=request.date,
         constraints=dict(constraints) if constraints else {},
         controls=_controls_dict(request),
+        explicit_exclusions=request.explicit_exclusions.to_wire() if request.explicit_exclusions is not None else None,
         fitted_core_version=fitted_core_version,
         generator=_generator_block(
             provider=generator_provider,
@@ -1012,7 +1014,8 @@ def build_degenerate_payload(
         wardrobe_version=request.wardrobe_version,
         seed_date=request.date,
         constraints=dict(constraints) if constraints else {},
-        controls=_controls_dict(request),  # present on EVERY write, incl. degenerate (§G.1 F6)
+        controls=_controls_dict(request),
+        explicit_exclusions=request.explicit_exclusions.to_wire() if request.explicit_exclusions is not None else None,  # present on EVERY write, incl. degenerate (§G.1 F6)
         fitted_core_version=fitted_core_version,
         generator=_generator_block(
             provider=generator_provider,

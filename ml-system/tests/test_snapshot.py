@@ -228,6 +228,9 @@ def test_real_payload_crosses_the_c4_serde():
     assert "outer_layer" in wire["diagnostics"]["samplerPerType"]  # ItemType key not mangled
     # full inverse round-trip (json-normalized so tuple↔list is not spurious).
     normalized = json.loads(json.dumps(dataclasses.asdict(payload)))
+    # Absent optional explicit policy preserves the legacy wire shape.
+    assert "explicitExclusions" not in wire
+    normalized.pop("explicit_exclusions", None)
     assert snapshot_serde.from_wire(json.loads(json.dumps(wire))) == normalized
 
 

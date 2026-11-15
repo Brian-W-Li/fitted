@@ -5,7 +5,7 @@ import { outfitItemOrder, displayRoleLabel } from "@/lib/outfitRoles";
 import { auth } from "@/lib/firebaseClient";
 import { signOut, onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense, type ReactNode } from "react";
 import { resolveImageSrc } from "@/lib/imageUrl";
 import { clearSessionCookie } from "@/lib/sessionCookie";
 import { MAX_OCCASION_CHARS } from "@/lib/mlRequestAdapter";
@@ -73,6 +73,7 @@ import { preferenceDecisionMessage, type PreferenceDecision } from "@/lib/styleP
 import { validateStyledRestore } from "@/lib/styleRestore";
 
 interface RenderResult {
+  explicitExclusions?: ExplicitExclusions;
   styleContext?: CapturedStyleContext;
   preference?: PreferenceDecision;
   commandStatus?: "superseded";
@@ -102,7 +103,10 @@ function expectedWeatherFromLens(lens?: LensSummary): ExpectedWeather {
 }
 
 import StyleDirectionPanel from "./StyleDirectionPanel";
-import type { StyleContextSelection, StyleMemoryState } from "@/lib/styleMemory/contract";
+import ApplicableExclusions from "./ApplicableExclusions";
+import { useExclusionPreview } from "@/lib/useExclusionPreview";
+import { emptyExclusionInput, normalizeExclusionInput, type ExclusionInput, type ExclusionRef, type ExplicitExclusions } from "@/lib/explicitExclusions";
+import { findExclusionSet, type StyleContextSelection, type StyleMemoryState } from "@/lib/styleMemory/contract";
 import type { CapturedStyleContext } from "@/lib/styleContext";
 
 interface LensSummary {
@@ -129,6 +133,8 @@ interface NormalizedControls {
 /** The durable pending-render envelope (§C.4 F10) — persisted BEFORE the fetch so `requestId`
  *  survives a reload/lost response, cleared only on hydrated success or explicit discard. */
 interface PendingEnvelope {
+  exclusionRef?: ExclusionRef | null;
+  requestExclusions?: ExclusionInput;
   requestId: string;
   intent: "daily" | "rescue_item";
   parentSnapshotId: string | null;
@@ -220,7 +226,10 @@ function RegenerateModal({
   isRegenerating,
   error,
   initialLockedItemIds,
+  exclusionPreview, requestBlocked,
 }: {
+  exclusionPreview?: ReactNode;
+  requestBlocked?: boolean;
   outfit: ShownOutfit;
   onClose: () => void;
   onRegenerate: (controls: NormalizedControls) => void;
@@ -324,6 +333,7 @@ function RegenerateModal({
             );
           })}
         </div>
+        {exclusionPreview && <div className="mx-6 mb-2">{exclusionPreview}</div>}
         {error && <div className="mx-6 mb-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
           <button onClick={onClose} disabled={isRegenerating} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50">
@@ -331,7 +341,7 @@ function RegenerateModal({
           </button>
           <button
             onClick={() => onRegenerate({ lockedItemIds: [...locked], dislikedItemIds: [...disliked] })}
-            disabled={isRegenerating}
+            disabled={isRegenerating || requestBlocked}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
           >
             {isRegenerating ? (
@@ -529,6 +539,9 @@ function DashboardInner() {
 
   const [occasion, setOccasion] = useState("");
   const [selectedStyleContext, setSelectedStyleContext] = useState<StyleContextSelection | null>(null);
+  const [exclusionManagementContext, setExclusionManagementContext] = useState<CapturedStyleContext | null>(null);
+  const [styleMemoryState, setStyleMemoryState] = useState<StyleMemoryState | null>(null);
+  const [oneRequestExclusions, setOneRequestExclusions] = useState<ExclusionInput>(emptyExclusionInput);
   const [styleContextPending, setStyleContextPending] = useState(false);
   const [styleMemoryRefreshGeneration, setStyleMemoryRefreshGeneration] = useState(0);
   const [expectedWeather, setExpectedWeather] = useState<ExpectedWeather>(EMPTY_EXPECTED_WEATHER);
@@ -553,7 +566,9 @@ function DashboardInner() {
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lon: number } | null>(null);
 
   const [feedbackModal, setFeedbackModal] = useState<{ outfit: ShownOutfit; index: number } | null>(null);
-  const [regenModal, setRegenModal] = useState<{ outfit: ShownOutfit; index: number } | null>(null);
+  const [regenModal, setRegenModal] = useState<{ outfit: ShownOutfit; index: number; context?: CapturedStyleContext } | null>(null);
+  const regenExclusionPreview = useExclusionPreview(firebaseUser, regenModal?.context, !!regenModal, styleMemoryRefreshGeneration);
+
 
   // H100 — the locks last submitted on this lineage's re-roll. The server stores controls on the
   // snapshot row but never returns them in the browser projection, so the client (the author of
@@ -684,6 +699,7 @@ function DashboardInner() {
     let cancelled = false;
     reactionGenerationsRef.current.clear();
     setResult(null); setOccasion(""); setExpectedWeather(EMPTY_EXPECTED_WEATHER);
+    setOneRequestExclusions(emptyExclusionInput()); setStyleMemoryState(null); setSelectedStyleContext(null); setExclusionManagementContext(null);
     setError(""); setInFlight(false); setFeedbackModal(null); setRegenModal(null);
     activeLensRef.current = null; activeLocksRef.current = [];
     setRescueItemId(null); setRescueItemName("");
@@ -855,7 +871,10 @@ function DashboardInner() {
           // as a React child and crash the page).
           const env = (data as { error?: { code?: string; message?: string } } | null) ?? {};
           const codeStr = env.error?.code ?? "";
-          if (codeStr === "forced_item_unavailable") {
+          if (codeStr === "exclusions_changed") {
+            setStyleContextPending(true); setStyleMemoryRefreshGeneration(generation => generation + 1);
+            setError("Saved exclusions changed. Review the refreshed rules before starting a new request.");
+          } else if (codeStr === "forced_item_unavailable") {
             setError("That item is no longer in your closet — pick another to rescue.");
             setRescueItemId(null);
           } else if (codeStr === "request_id_conflict") {
@@ -933,6 +952,8 @@ function DashboardInner() {
                 requestId: envelope.requestId,
                 parentSnapshotId: envelope.parentSnapshotId,
                 controls: envelope.normalizedControls,
+                ...(envelope.exclusionRef ? { exclusionRef: envelope.exclusionRef } : {}),
+                ...(envelope.requestExclusions ? { requestExclusions: envelope.requestExclusions } : {}),
               }
             : buildRootBody(envelope);
       void runRender(user, envelope, body, (r) => {
@@ -966,9 +987,11 @@ function DashboardInner() {
       setError("Describe the event or context to get recommendations.");
       return;
     }
-    if (inFlight || signingOut || styleContextPending) return; // Freeze only acknowledged settings.
+    if (inFlight || signingOut || styleContextPending || exclusionManagementContext) return; // Freeze only acknowledged settings.
 
     const requestId = newRequestId();
+    const savedExclusions = styleMemoryState && selectedStyleContext ? findExclusionSet(styleMemoryState, selectedStyleContext) : null;
+    const frozenExclusions = normalizeExclusionInput(oneRequestExclusions);
     const lensSummary: LensSummary = {
       occasion,
       ...(selectedStyleContext ? { styleContext: selectedStyleContext } : {}),
@@ -982,9 +1005,12 @@ function DashboardInner() {
       intent: rescueItemId ? "rescue_item" : "daily",
       parentSnapshotId: null,
       normalizedControls: { lockedItemIds: [], dislikedItemIds: [] },
+      ...(savedExclusions ? { exclusionRef: { id: savedExclusions.id, revision: savedExclusions.revision } } : {}),
+      ...(frozenExclusions.itemIds.length || frozenExclusions.outfitItemIds.length ? { requestExclusions: frozenExclusions } : {}),
       lensSummary,
     };
 
+    setOneRequestExclusions(emptyExclusionInput());
     setInFlight(true);
     setError("");
     if (!selectedStyleContext) setResult(null);
@@ -996,11 +1022,11 @@ function DashboardInner() {
     // Persist the envelope BEFORE the fetch (survives a reload/lost response).
     writeJSON(PENDING_KEY(uid), envelope);
     await runRender(firebaseUser, envelope, buildRootBody(envelope), (r) => { activeLensRef.current = lensSummary; setResult(r); });
-  }, [firebaseUser, uid, occasion, inFlight, rescueItemId, geoCoords, eventTimeBucket, customEventDateTime, expectedWeather, signingOut, selectedStyleContext, styleContextPending, runRender]);
+  }, [firebaseUser, uid, occasion, inFlight, rescueItemId, geoCoords, eventTimeBucket, customEventDateTime, expectedWeather, signingOut, selectedStyleContext, styleContextPending, styleMemoryState, oneRequestExclusions, exclusionManagementContext, runRender]);
 
   const submitRegenerate = useCallback(
     async (controls: NormalizedControls) => {
-      if (!firebaseUser || !uid || activeUserUidRef.current !== uid || !regenModal || inFlight || signingOut) return;
+      if (!firebaseUser || !uid || activeUserUidRef.current !== uid || !regenModal || inFlight || signingOut || styleContextPending || regenExclusionPreview.pending || regenExclusionPreview.error) return;
       const parentSnapshotId = regenModal.outfit.snapshotId;
       const requestId = newRequestId(); // a re-roll is a new Generate action → new requestId
       const envelope: PendingEnvelope = {
@@ -1008,15 +1034,19 @@ function DashboardInner() {
         intent: "daily", // real intent is derived server-side from the parent; unused on a re-roll
         parentSnapshotId,
         normalizedControls: controls,
+        ...(regenExclusionPreview.ref ? { exclusionRef: regenExclusionPreview.ref } : {}),
+        ...(oneRequestExclusions.itemIds.length || oneRequestExclusions.outfitItemIds.length ? { requestExclusions: normalizeExclusionInput(oneRequestExclusions) } : {}),
         lensSummary: activeLensRef.current ?? { occasion },
       };
+      setOneRequestExclusions(emptyExclusionInput());
       setInFlight(true);
       setError("");
       writeJSON(PENDING_KEY(uid), envelope);
       await runRender(
         firebaseUser,
         envelope,
-        { requestId, parentSnapshotId, controls },
+        { requestId, parentSnapshotId, controls, ...(envelope.exclusionRef ? { exclusionRef: envelope.exclusionRef } : {}),
+          ...(envelope.requestExclusions ? { requestExclusions: envelope.requestExclusions } : {}) },
         (r) => {
           // A degraded/empty re-roll (rate-limited, outage, nothing buildable under the locks)
           // must NOT wipe the outfits the user is looking at — keep the current result and show
@@ -1035,7 +1065,7 @@ function DashboardInner() {
         },
       );
     },
-    [firebaseUser, uid, regenModal, inFlight, signingOut, occasion, runRender],
+    [firebaseUser, uid, regenModal, inFlight, signingOut, occasion, runRender, styleContextPending, regenExclusionPreview, oneRequestExclusions],
   );
 
   // Primary reactions still use one tap. Their validated receipt is the exact
@@ -1144,6 +1174,7 @@ function DashboardInner() {
   const onStyleMemoryState = useCallback((memory: StyleMemoryState) => {
     const cached = resultRef.current;
     if (!uid || activeUserUidRef.current !== uid) return;
+    setStyleMemoryState(memory);
     const pending = pendingStyleRestoreRef.current;
     const currentPending = pending?.uid === uid && pending.ownerEpoch === activeUserEpochRef.current &&
       pending.restoreEpoch === restoreEpochRef.current ? pending : null;
@@ -1209,7 +1240,13 @@ function DashboardInner() {
         )}
 
         <div className="mt-4"><StyleDirectionPanel user={firebaseUser} disabled={inFlight || signingOut}
-          refreshGeneration={styleMemoryRefreshGeneration} onChange={setSelectedStyleContext} onPendingChange={setStyleContextPending} onStateChange={onStyleMemoryState} /></div>
+          refreshGeneration={styleMemoryRefreshGeneration} onChange={setSelectedStyleContext} onPendingChange={setStyleContextPending} onStateChange={onStyleMemoryState}
+          oneRequestExclusions={oneRequestExclusions} onOneRequestExclusionsChange={setOneRequestExclusions} exclusionContext={exclusionManagementContext} />
+          {exclusionManagementContext && <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
+            <p>Managing exclusions for {exclusionManagementContext.boardLabel}{exclusionManagementContext.routineLabel ? ` / ${exclusionManagementContext.routineLabel}` : ""}, saved direction version {exclusionManagementContext.profileVersion}. These affect that saved meaning only.</p>
+            <button type="button" disabled={styleContextPending || inFlight} className="mt-2 underline" onClick={() => setExclusionManagementContext(null)}>Done managing earlier exclusions</button>
+          </div>}
+        </div>
 
         {/* The rescue teaser presupposes they HAVE a piece they can't style — false premise at 0
             items, and it would compete with the signpost above. */}
@@ -1325,7 +1362,7 @@ function DashboardInner() {
 
           <button
             onClick={startGenerate}
-            disabled={inFlight || signingOut || styleContextPending}
+            disabled={inFlight || signingOut || styleContextPending || !!exclusionManagementContext}
             className="self-start px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed"
           >
             {inFlight ? "Generating…" : "Get Recommendations"}
@@ -1385,7 +1422,8 @@ function DashboardInner() {
                 onRetryEnrich={() => { if (outfit.reactionId) retryEnrich({ snapshotId: outfit.snapshotId, candidateId: outfit.candidateId, reactionId: outfit.reactionId }); }}
                 onRegenerate={() => {
                   setError("");
-                  setRegenModal({ outfit, index });
+                  if (inFlight || signingOut) return;
+                  setRegenModal({ outfit, index, ...(result.styleContext ? { context: structuredClone(result.styleContext) } : {}) });
                 }}
               />
             ))}
@@ -1434,6 +1472,11 @@ function DashboardInner() {
           onClose={() => !inFlight && setRegenModal(null)}
           onRegenerate={submitRegenerate}
           isRegenerating={inFlight}
+          requestBlocked={styleContextPending || regenExclusionPreview.pending || !!regenExclusionPreview.error}
+          exclusionPreview={<><ApplicableExclusions preview={regenExclusionPreview} />
+            {regenModal.context && <button type="button" disabled={inFlight || regenExclusionPreview.pending} className="mt-2 text-sm underline" onClick={() => {
+              setExclusionManagementContext(regenModal.context!); setRegenModal(null);
+            }}>Manage exclusions for this saved direction</button>}</>}
           error={error || undefined}
           // H100 — intersect with THIS outfit's items: the modal only renders toggles for what is
           // on screen, so a lock for an absent item would be invisible, un-clearable state. (Locks
@@ -1457,6 +1500,8 @@ function buildRootBody(envelope: PendingEnvelope): Record<string, unknown> {
   const l = envelope.lensSummary;
   return {
     requestId: envelope.requestId,
+    ...(envelope.exclusionRef ? { exclusionRef: envelope.exclusionRef } : {}),
+    ...(envelope.requestExclusions ? { requestExclusions: envelope.requestExclusions } : {}),
     ...(l.styleContext ? { styleContext: l.styleContext } : {}),
     occasion: l.occasion,
     ...(l.weatherSource === "manual" ? { weather: l.weather, weatherRaw: l.weatherRaw ?? null, weatherSource: "manual", ...(l.weatherSignals ? { weatherSignals: l.weatherSignals } : {}) } : {}),

@@ -1,3 +1,4 @@
+import { styleSelectionFromSnapshot } from "@/lib/styleContext";
 import { weatherSourceFromSnapshot, weatherSignalsFromSnapshot } from "@/lib/weatherContext";
 import { visibleSnapshots } from "@/lib/snapshotVisibility";
 import { Types } from "mongoose";
@@ -96,6 +97,7 @@ export async function experienceView(record: ExperienceRecord) {
   return {
     experienceId: record.experienceId, lifecycle: record.lifecycle, currentRevision: record.currentRevision,
     state, sourceAvailable: visible,
+    sourceStyleContext: visible ? styleSelectionFromSnapshot(source?.styleContext) ?? undefined : undefined,
     source: visible ? { snapshotId: record.snapshotId!.toHexString(), candidateId: record.candidateId } : null,
     items, sourceItems,
   };

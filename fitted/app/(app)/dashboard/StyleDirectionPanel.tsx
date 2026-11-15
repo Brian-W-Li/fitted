@@ -1,5 +1,7 @@
 "use client";
 
+import ExclusionControls from "./ExclusionControls";
+import type { ExclusionInput } from "@/lib/explicitExclusions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { selectedStyleContext, type Board, type CompiledStyleProfile, type Routine, type StyleContextSelection, type StyleMemoryCommand, type StyleMemoryState } from "@/lib/styleMemory/contract";
 import { styleMemoryRequest, StyleMemoryRequestError, type StyleMemoryUser } from "@/lib/styleMemory/client";
@@ -8,6 +10,9 @@ interface Props {
   user: StyleMemoryUser | null;
   disabled?: boolean;
   refreshGeneration?: number;
+  exclusionContext?: StyleContextSelection | null;
+  oneRequestExclusions?: ExclusionInput;
+  onOneRequestExclusionsChange?(input: ExclusionInput): void;
   onChange(context: StyleContextSelection | null): void;
   onPendingChange?(pending: boolean): void;
   onStateChange?(state: StyleMemoryState): void;
@@ -28,7 +33,7 @@ export default function StyleDirectionPanel(props: Props) {
   return props.user ? <OwnerPanel key={props.user.uid} {...props} user={props.user} /> : null;
 }
 
-function OwnerPanel({ user, disabled = false, refreshGeneration = 0, onChange, onPendingChange, onStateChange }: Omit<Props, "user"> & { user: StyleMemoryUser }) {
+function OwnerPanel({ user, disabled = false, refreshGeneration = 0, onChange, onPendingChange, onStateChange, oneRequestExclusions, onOneRequestExclusionsChange, exclusionContext }: Omit<Props, "user"> & { user: StyleMemoryUser }) {
   const [memory, setMemory] = useState<StyleMemoryState | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
@@ -262,6 +267,8 @@ function OwnerPanel({ user, disabled = false, refreshGeneration = 0, onChange, o
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonClass} disabled={locked} onClick={() => setErase(null)}>Keep this saved choice</button>
         <button type="button" className="rounded-lg bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-40" disabled={locked} onClick={() => mutate(erase.kind === "board" ? { kind: "erase_board", boardId: erase.id } : { kind: "erase_routine", routineId: erase.id })}>Erase permanently</button></div>
     </div>}
+    {memory && oneRequestExclusions && onOneRequestExclusionsChange && <ExclusionControls user={user} memory={memory} context={exclusionContext ?? context}
+      disabled={otherLocked} oneRequest={oneRequestExclusions} onOneRequestChange={onOneRequestExclusionsChange} onSave={mutate} />}
     {notice && <p role="status" className="text-sm text-slate-600">{notice}</p>}
     {error && <div role="alert" className="space-y-2 text-sm text-red-700"><p>{error}</p>
       {pending ? <><p>The change is still unconfirmed. Outfit requests wait until it is resolved.</p><button type="button" className={buttonClass} disabled={disabled || busy} onClick={() => void send(pending)}>Retry same change</button></> :

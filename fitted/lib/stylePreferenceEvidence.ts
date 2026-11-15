@@ -8,7 +8,7 @@ import { projectInteractionRow, projectSnapshotRow, type BehavioralRowsWire, typ
 import { visibleSnapshots, type SnapshotVisibility } from "@/lib/snapshotVisibility";
 import { readStyleMemoryOwner } from "@/lib/styleMemory/store";
 import { resolveOwnedStyleContext } from "@/lib/styleMemory/context";
-import type { StyleContextSelection } from "@/lib/styleMemory/contract";
+import { findExclusionSet, type SavedExclusionSet, type StyleContextSelection } from "@/lib/styleMemory/contract";
 import { validCapturedStyleContext, type CapturedStyleContext } from "@/lib/styleContext";
 import { initialLearningDisposition, type LearningDisposition } from "@/lib/styleLearningAmendments";
 
@@ -95,6 +95,7 @@ export function resolvePreferenceRows(ledger: PreferenceLedgerRow[], snapshots: 
 }
 
 export interface StylePreferenceEvidence {
+  exclusionSet: SavedExclusionSet | null;
   styleContext: CapturedStyleContext; behavioralRows: BehavioralRowsWire; interactionCountAtRequest: number;
   preferenceRows: PreferenceObservation[]; memoryRevision: number;
 }
@@ -130,6 +131,7 @@ export async function buildStylePreferenceEvidence(ownerId: string | Types.Objec
         .sort({ createdAt: -1, _id: -1 }).limit(50).toArray() as unknown as Array<SnapshotVisibility & { nSurfaced?: number; shownFullSignatures?: string[] }>;
       const visibleShown = await visibleSnapshots(owner, shown, { session, styleMemory: data });
       return {
+        exclusionSet: structuredClone(findExclusionSet(data, selection)),
         styleContext, memoryRevision: revision, interactionCountAtRequest: scopedVotes.length,
         behavioralRows: { interactionRows: scopedVotes.slice(0, 500).map(row => projectInteractionRow(row as InteractionLean)), recentSnapshots: visibleShown.map(projectSnapshotRow) },
         preferenceRows: resolvePreferenceRows(ledger, visibleSources, String(owner), styleContext),

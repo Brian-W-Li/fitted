@@ -6,6 +6,7 @@ only establishes a removable outer option; it does not establish protection.
 from typing import Callable, Collection, Mapping, Optional, Sequence, TYPE_CHECKING, TypeVar
 
 from fitted_core.models import ItemType, Role, SlotMap
+from fitted_core.exclusions import is_excluded
 
 if TYPE_CHECKING:
     from fitted_core.rescue import RenderRequest
@@ -69,7 +70,7 @@ def eligible_signatures(
     for candidate in candidates:
         slots = candidate.slot_map
         ids = _item_ids(slots)
-        if slots.outer in outers and locks <= ids and not avoids.intersection(ids) and ids != excluded:
+        if slots.outer in outers and locks <= ids and not avoids.intersection(ids) and ids != excluded and not is_excluded(getattr(request, "explicit_exclusions", None), ids):
             eligible.append(candidate.full_signature)
     return frozenset(eligible)
 

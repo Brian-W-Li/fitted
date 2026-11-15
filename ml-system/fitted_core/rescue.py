@@ -42,6 +42,7 @@ from fitted_core.config import (
 from fitted_core.generation import FinishStatus, GenerationPrompt, Generator
 from fitted_core.layer_policy import exclude_source_membership, needs_layer_choice, normalize_weather_signals
 from fitted_core.style_context import normalize_style_context, style_context_key, style_prompt_lines
+from fitted_core.exclusions import ExplicitExclusions, filter_candidates as filter_explicit_candidates, normalize_explicit_exclusions, validate_pins
 from fitted_core.models import IssueCode, ItemType, Role, SlotMap, Template, WardrobeItem
 from fitted_core.ranker import (
     FallbackStage,
@@ -111,11 +112,13 @@ class RescueRequest:
     excluded_outfit_item_ids: tuple[str, ...] = ()
     style_context: Optional[dict] = None
     preference_rows: tuple[dict, ...] = ()
+    explicit_exclusions: Optional[ExplicitExclusions] = None
     weather_summary: Optional[str] = None
     weather_signals: Optional[dict[str, bool]] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "weather_signals", normalize_weather_signals(self.weather_signals))
+        object.__setattr__(self, "explicit_exclusions", normalize_explicit_exclusions(self.explicit_exclusions))
         object.__setattr__(self, "style_context", normalize_style_context(self.style_context))
         if not isinstance(self.preference_rows, (list, tuple)) or len(self.preference_rows) > 2000 or not all(isinstance(row, dict) for row in self.preference_rows):
             raise ValueError("preference_rows must contain at most 2000 captured observations")
@@ -868,6 +871,13 @@ class RescueResult:
     fallback_stage: Optional[FallbackStage]
 
 
+def _exclusion_wardrobe(request):
+    policy = request.explicit_exclusions
+    if policy is None:
+        return request.wardrobe
+    return [item for item in request.wardrobe if item.id not in policy.excluded_item_ids]
+
+
 def _filled_slot_ids(slot_map: SlotMap) -> set[str]:
     """The non-``None`` item ids of a SlotMap (every filled slot, incl. optional outer/shoes)."""
     return {
@@ -980,6 +990,7 @@ def _build_ranker_context(
     from fitted_core.layer_policy import eligible_signatures
     kwargs = {
         "reserved_full_signatures": eligible_signatures(request, candidates),
+        "explicit_exclusions": request.explicit_exclusions,
         "session_id": request.session_id,
         "wardrobe_version": request.wardrobe_version,
         "occasion": request.occasion,
@@ -1087,6 +1098,7 @@ def rescue(
     # insufficient closet by returning not_enough_items. RescueRequest validates the numeric request
     # controls at construction time so the pre-GPT exit cannot mask an invalid budget/index either.
     reject_duplicate_ids(request.wardrobe)
+    validate_pins(request.explicit_exclusions, (*request.locked_item_ids, *((request.forced_item_id,) if request.forced_item_id else ())))
 
     # Step 1 — resolve the forced item (ValueError on a missing id: caller misuse, fail loud).
     forced_item = _resolve_forced_item(request.wardrobe, request.forced_item_id)
@@ -1094,7 +1106,7 @@ def rescue(
     # Step 2 — structural sufficiency (the H22 min-closet rule), on full counts, PRE-GPT. A
     # non-None hint ⇒ no valid template can be built around the forced item ⇒ return before any
     # GPT call (ranked=None, fallback_stage=None — rank() is never reached on this exit).
-    hint = _check_sufficiency(_partition_counts(request.wardrobe), forced_item.type)
+    hint = _check_sufficiency(_partition_counts(_exclusion_wardrobe(request)), forced_item.type)
     if hint is not None:
         return RescueResult(
             ranked=None,
@@ -1109,7 +1121,7 @@ def rescue(
     # Step 3 — cold-start candidate pool (the closed M1 sampler). Rescue ignores the sampler's
     # own general-flow candidate_requested/not_enough_items and recomputes both for rescue.
     sampler_result = build_candidate_pool(
-        request.wardrobe, _build_request_context(request), scorer
+        _exclusion_wardrobe(request), _build_request_context(request), scorer
     )
 
     # Step 4 — scope the pool to the forced item + R9 locks (the "pin"; duplicate-free by
@@ -1155,6 +1167,7 @@ def rescue(
     # Step 9 — rank (cold start: empty behavioral signals; dislikes → the Step-4 contextual hard
     # filter, §C.3). ``rank([])`` is valid (M2/M3 "empty is valid") and yields an empty,
     # insufficient RankerResult, so the parse-fail and all-dropped paths share this single exit.
+    survivors, _ = filter_explicit_candidates(request.explicit_exclusions, survivors)
     survivors, _ = exclude_source_membership(request, survivors)
     ranker_context, _ = _preference_ranker_context(request, behavioral_signals, survivors)
     ranked = rank(survivors, ranker_context)
@@ -1370,10 +1383,11 @@ def rescue_with_trace(
     # rescue(); the insufficient path would otherwise mask a duplicate-id misuse).
     # RescueRequest already guards the numeric request controls at construction time.
     reject_duplicate_ids(request.wardrobe)
+    validate_pins(request.explicit_exclusions, (*request.locked_item_ids, *((request.forced_item_id,) if request.forced_item_id else ())))
 
     # Steps 1–2 — resolve the forced item + the PRE-GPT structural sufficiency exit (no GPT call).
     forced_item = _resolve_forced_item(request.wardrobe, request.forced_item_id)
-    hint = _check_sufficiency(_partition_counts(request.wardrobe), forced_item.type)
+    hint = _check_sufficiency(_partition_counts(_exclusion_wardrobe(request)), forced_item.type)
     if hint is not None:
         result = RescueResult(
             ranked=None,
@@ -1408,7 +1422,7 @@ def rescue_with_trace(
 
     # Steps 3–6 — cold-start pool, scope to the forced item + R9 locks, build the prompt.
     sampler_result = build_candidate_pool(
-        request.wardrobe, _build_request_context(request), scorer
+        _exclusion_wardrobe(request), _build_request_context(request), scorer
     )
     scoped = _scope_pool_to_pins(sampler_result.pool, _resolve_pins(request, forced_item))
     prompt_pool = tuple(_flatten_pool(scoped))  # the exact items the engine conditioned on (§8.2-D)
@@ -1467,6 +1481,8 @@ def rescue_with_trace(
         rescue_drops = forced_drops + lock_drops
 
     # Step 9 — rank, capturing the full scored funnel (scored-but-unshown breakdowns).
+    survivors, explicit_drops = filter_explicit_candidates(request.explicit_exclusions, survivors)
+    rescue_drops += tuple(RescueDrop(candidate, reason, "render") for candidate, reason in explicit_drops)
     survivors, source_drops = exclude_source_membership(request, survivors)
     rescue_drops += tuple(RescueDrop(candidate, "source_membership_excluded", "render") for candidate in source_drops)
     ranker_context, preference_metadata = _preference_ranker_context(request, behavioral_signals, survivors)
@@ -1569,8 +1585,9 @@ def _render_daily(
     _ensure_intent(request, "daily")
     scorer = _default_signal_scorer(signal_scorer)
     reject_duplicate_ids(request.wardrobe)
+    validate_pins(request.explicit_exclusions, (*request.locked_item_ids, *((request.forced_item_id,) if request.forced_item_id else ())))
 
-    sampler_result = build_candidate_pool(request.wardrobe, _build_request_context(request), scorer)
+    sampler_result = build_candidate_pool(_exclusion_wardrobe(request), _build_request_context(request), scorer)
     if sampler_result.not_enough_items:
         return _not_enough_daily_result()
 
@@ -1596,6 +1613,7 @@ def _render_daily(
             _drop_missing_style_move(validation.candidates), request.locked_item_ids
         )
 
+    survivors, _ = filter_explicit_candidates(request.explicit_exclusions, survivors)
     survivors, _ = exclude_source_membership(request, survivors)
     ranker_context, _ = _preference_ranker_context(request, behavioral_signals, survivors)
     ranked = rank(survivors, ranker_context)
@@ -1623,8 +1641,9 @@ def _render_daily_with_trace(
     _ensure_intent(request, "daily")
     scorer = _default_signal_scorer(signal_scorer)
     reject_duplicate_ids(request.wardrobe)
+    validate_pins(request.explicit_exclusions, (*request.locked_item_ids, *((request.forced_item_id,) if request.forced_item_id else ())))
 
-    sampler_result = build_candidate_pool(request.wardrobe, _build_request_context(request), scorer)
+    sampler_result = build_candidate_pool(_exclusion_wardrobe(request), _build_request_context(request), scorer)
     prompt_pool = tuple(_flatten_pool(sampler_result.pool))
     if sampler_result.not_enough_items:
         return RenderTrace(
@@ -1687,6 +1706,8 @@ def _render_daily_with_trace(
         )
         rescue_drops = style_drops + lock_drops
 
+    survivors, explicit_drops = filter_explicit_candidates(request.explicit_exclusions, survivors)
+    rescue_drops += tuple(RescueDrop(candidate, reason, "render") for candidate, reason in explicit_drops)
     survivors, source_drops = exclude_source_membership(request, survivors)
     rescue_drops += tuple(RescueDrop(candidate, "source_membership_excluded", "render") for candidate in source_drops)
     ranker_context, preference_metadata = _preference_ranker_context(request, behavioral_signals, survivors)

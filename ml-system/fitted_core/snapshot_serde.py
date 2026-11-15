@@ -49,6 +49,8 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from fitted_core.exclusions import normalize_explicit_exclusions
+
 # engineVisible snake↔camel field map (spec §15.1, plan §8.2-D / C4). Listed in FULL — not
 # only the three tags — so this is the single authoritative shape of the projection.
 # ``type`` → ``clothingType`` and ``image_url`` → ``imageUrl`` are the load-bearing renames a
@@ -269,9 +271,19 @@ def _convert(
                 )
                 for v in value
             ]
+    if not opaque and key_context in {"explicit_exclusions", "explicitExclusions"}:
+        if value is None:
+            raise ValueError("explicitExclusions cannot be null")
+        return normalize_explicit_exclusions(value).to_wire()
     if isinstance(value, bool):
         return value
     if isinstance(value, Mapping):
+        # A full snapshot's policy must bind its own request, not another command.
+        for policy_key in ("explicit_exclusions", "explicitExclusions"):
+            if not opaque and value.get(policy_key) is not None:
+                request_id = value.get("request_id", value.get("requestId"))
+                if request_id is not None:
+                    normalize_explicit_exclusions(value[policy_key], request_id)
         result: dict[str, Any] = {}
         for raw_key, raw_val in value.items():
             # Keys must be str even inside opaque blobs: json.dumps would silently coerce
@@ -282,6 +294,8 @@ def _convert(
                     f"mapping key under {key_context!r} must be str, "
                     f"got {type(raw_key).__name__}: {raw_key!r}"
                 )
+            if not opaque and to_wire and raw_key == "explicit_exclusions" and raw_val is None:
+                continue
             if opaque:
                 # data/blob keys are preserved byte-for-byte; values stay opaque too
                 result[raw_key] = _convert(

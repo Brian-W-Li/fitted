@@ -261,6 +261,7 @@
     },
     "request": {
       "optional": [
+        "explicitExclusions",
         "preferenceRows",
         "protocolVersion",
         "styleContext"

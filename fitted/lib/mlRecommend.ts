@@ -1,3 +1,5 @@
+import { normalizeExclusionInput, normalizeExclusionRef, canonicalExclusionJson, violatesExplicitExclusions, ExplicitExclusionError, type ExplicitExclusions } from "@/lib/explicitExclusions";
+import { exclusionCommandKey, buildExplicitExclusions, verifiedExplicitExclusions } from "@/lib/resolveExplicitExclusions";
 import { normalizeLayerRole } from "@/lib/layerRole";
 import { finishImageLeases, mongoImageId, localImageId, withImageConcurrency, type ImageRetentionModels } from "@/lib/imageRetention";
 import { snapshotVisible } from "@/lib/snapshotVisibility";
@@ -409,6 +411,10 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       return respondError(400, "contract_invalid", "requestId must be a UUIDv4 or ULID (<=64 chars)");
     }
     const requestId = canonicalRequestId(rawRequestId);
+    const requestExclusions = normalizeExclusionInput(body.requestExclusions);
+    const requestedExclusionRef = normalizeExclusionRef(body.exclusionRef);
+    const instructionCommandKey = exclusionCommandKey(requestedExclusionRef, requestExclusions);
+
 
     const { GenerationSnapshot, WardrobeItem, WardrobeImage, OutfitInteraction, User } = deps.models;
     if (body.weatherSignals !== undefined && (body.parentSnapshotId != null || body.variation != null || body.actualVariation != null))
@@ -424,10 +430,15 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     // Read before automatic weather resolution, but replay only after all lineage,
     // ownership, visibility and command checks below. Historical rows have no digest.
     const existing = await GenerationSnapshot.findOne({ user: userObjectId, requestId }).lean();
+    let resolvedExclusions: ExplicitExclusions | undefined = existing?.explicitExclusions;
+    if (resolvedExclusions && !verifiedExplicitExclusions(resolvedExclusions, requestId)) return respondDegraded("contract_invalid");
     let weatherCommandHash: string | undefined;
     const suppliedStyle = body.styleContext == null ? null : parseStyleSelection(body.styleContext);
     if (body.styleContext != null && !suppliedStyle) return respondError(400, "style_context_invalid", "Choose a saved style direction and situation.");
     let commandStyle: StyleSelection | null = suppliedStyle;
+    if (requestedExclusionRef && !suppliedStyle && !body.parentSnapshotId && !body.actualVariation)
+      return respondError(400, "exclusions_invalid", "Saved exclusions require their named direction and situation.");
+
     let inheritedStyle = false;
     let capturedStyle: CapturedStyleContext | undefined;
 
@@ -686,7 +697,9 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       // The winning snapshot is authoritative; legacy rows retain the old bucket check.
       const comparison = weatherCommandHash && winner.weatherCommandHash === weatherCommandHash && body.weather == null
         ? { ...incomingIdentity, weather: winner.weather } : incomingIdentity;
-      return identityMatches(comparison, identityFromDoc(winner)) && sameFrozenWeather(winner);
+      return identityMatches(comparison, identityFromDoc(winner)) && sameFrozenWeather(winner) &&
+        (winner.exclusionCommandKey ?? null) === instructionCommandKey &&
+        (winner.explicitExclusions?.digest ?? null) === (resolvedExclusions?.digest ?? null);
     };
 
     // 5. §C.4 early read-check: a completed-render retry replays the winner; a reused requestId for a
@@ -708,6 +721,8 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       capturedStyle = styledEvidence.styleContext;
     }
 
+    resolvedExclusions = buildExplicitExclusions(requestId, styledEvidence?.exclusionSet ?? null, requestExclusions, requestedExclusionRef);
+
     // 5.5 Per-user render ceiling — AFTER the §C.4 replay (an idempotent replay is one Mongo read
     // and zero service spend, so a rate-limited F10 resume must still return its already-paid
     // render), BEFORE the wardrobe fetch and everything that leads to the service call. Degraded
@@ -725,6 +740,14 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     if (intent === "rescue_item" && lens.forcedItemId && !wardrobeIds.has(lens.forcedItemId)) {
       return respondError(409, "forced_item_unavailable", "the item to rescue is no longer in your closet");
     }
+    const onceTargets = [...new Set([...requestExclusions.itemIds, ...requestExclusions.outfitItemIds.flat()])];
+    if (onceTargets.length) {
+      const ownedTargets = await WardrobeItem.find({ user: userObjectId, _id: { $in: onceTargets.map(id => new mongoose.Types.ObjectId(id)) } }).lean();
+      if (ownedTargets.length !== onceTargets.length) return respondError(400, "exclusions_invalid", "Choose only pieces that belong to your wardrobe.");
+    }
+    const excludedItems = new Set(resolvedExclusions?.entries.filter(entry => entry.kind === "item").flatMap(entry => entry.itemIds));
+    if ([...controls.lockedItemIds, ...(lens.forcedItemId ? [lens.forcedItemId] : [])].some(id => excludedItems.has(id)))
+      return respondError(400, "exclusions_conflict", "A kept piece is also excluded. Remove that exclusion or choose another piece before requesting outfits.");
     // Cheap request-decidable preflight mirrors (§C.3 / §I) → stable 400 before service spend.
     const dislikedSet = new Set(controls.dislikedItemIds);
     if (controls.lockedItemIds.some((id) => dislikedSet.has(id))) {
@@ -830,6 +853,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         wardrobeVersion: 0,
         interactionCountAtRequest,
         behavioralRows,
+        ...(resolvedExclusions ? { explicitExclusions: resolvedExclusions } : {}),
         ...(capturedStyle ? { styleContext: capturedStyle, preferenceRows: styledEvidence!.preferenceRows } : {}),
       });
       const bounded = boundStylePreferencePayload(renderBody);
@@ -846,6 +870,11 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     if (!result.ok) return respondDegraded(result.reasonHint);
 
     const { payload, shown, flags } = result.response;
+    const expectedPolicy = canonicalExclusionJson(resolvedExclusions ?? null);
+    if (canonicalExclusionJson(result.response.explicitExclusions ?? null) !== expectedPolicy ||
+        canonicalExclusionJson(result.response.payload.explicitExclusions ?? null) !== expectedPolicy)
+      return respondDegraded("contract_invalid");
+
     if (capturedStyle && (result.response.protocolVersion !== 2 ||
         !sameCapturedStyleContext(result.response.styleContext, capturedStyle))) {
       return respondDegraded("contract_invalid");
@@ -903,6 +932,11 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         weatherSignals: lens.weatherSignals,
         weatherCommandHash,
       });
+      if (resolvedExclusions) doc.explicitExclusions = resolvedExclusions;
+      if (instructionCommandKey) doc.exclusionCommandKey = instructionCommandKey;
+      if ((doc.candidates as Any[]).some(candidate => candidate.shown &&
+        violatesExplicitExclusions(resolvedExclusions, candidate.items.map((item: Any) => String(item.itemId)))))
+        return respondDegraded("contract_invalid");
       if (capturedStyle) {
         doc.schemaVersion = 2;
         doc.styleContext = capturedStyle;
@@ -1026,7 +1060,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     // out every outfit" state rides notEnoughItems), and the census's fix-a-mislabel/add-a-piece
     // remedy would be a false diagnosis there — the census defends FIRST-render walls, which never
     // carry controls.
-    const hasControls = controls.lockedItemIds.length > 0 || controls.dislikedItemIds.length > 0 || !!controls.excludedOutfitItemIds?.length;
+    const hasControls = controls.lockedItemIds.length > 0 || controls.dislikedItemIds.length > 0 || !!controls.excludedOutfitItemIds?.length || !!resolvedExclusions?.entries.length;
     const slotCensus = Object.fromEntries(
       CLOTHING_TYPES.map((t) => [t, 0]),
     ) as Record<ClothingType, number>;
@@ -1040,6 +1074,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
     };
     return NextResponse.json(projectBrowserResponse(doc, snapshotId, wireFlags));
   } catch (error) {
+    if (error instanceof ExplicitExclusionError) return respondError(error.status, error.code, error.message);
     if (error instanceof StyleMemoryError) return respondError(error.status, error.code, error.message);
     // An input-contract violation from any pre-service/validation helper (e.g. malformed `controls`
     // → normalizeControls, or a service-mangled controls in crossCheckAuthorship) is the §A

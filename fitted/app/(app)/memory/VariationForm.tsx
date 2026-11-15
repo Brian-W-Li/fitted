@@ -1,5 +1,8 @@
 "use client";
 
+import ApplicableExclusions from "../dashboard/ApplicableExclusions";
+import { useExclusionPreview } from "@/lib/useExclusionPreview";
+import type { ExclusionRef } from "@/lib/explicitExclusions";
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { suggestionLink } from "@/lib/suggestionLink";
@@ -19,6 +22,7 @@ interface VariationResult {
   flags?: { notEnoughItems?: boolean; insufficientAfterGeneration?: boolean; reasonHint?: string | null };
 }
 interface PendingVariation {
+  exclusionRef?: ExclusionRef;
   requestId: string;
   parentSnapshotId?: string;
   variation?: { mode?: "explore"; sourceCandidateId: string; anchorItemId: string; leaveOutItemId?: string; occasion: string };
@@ -26,6 +30,8 @@ interface PendingVariation {
 }
 
 function failureMessage(code: string, status: number): string {
+  if (code === "exclusions_changed") return "Saved exclusions changed. Review the refreshed rules before starting another request.";
+  if (code === "exclusions_conflict") return "A piece you chose to keep is excluded. Update that exclusion or choose another piece.";
   if (code === "forced_item_unavailable") return "The piece you chose to keep is no longer available. Update your closet or choose another piece.";
   if (code === "control_item_unavailable") return "The piece you chose to leave out is no longer available. Choose another current piece to change.";
   if (code === "experience_revision_conflict") return "This wear report changed. Reload your memory before making another proposal.";
@@ -52,6 +58,12 @@ export default function VariationForm({ user, experience, suggestion, initialPla
   const [leaveOutId, setLeaveOutId] = useState("");
   const [occasion, setOccasion] = useState("");
   const [explore, setExplore] = useState(false);
+  const [exclusionRefresh, setExclusionRefresh] = useState(0);
+  const sourceContext = suggestion?.styleContext ?? experience?.sourceStyleContext;
+  const exclusionContext = sourceContext ? explore && !changed ? sourceContext
+    : { ...sourceContext, routineId: null, routineVersion: null } : null;
+  const exclusionPreview = useExclusionPreview(user, exclusionContext, open, exclusionRefresh);
+
   const [pending, setPending] = useState<PendingVariation | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -102,7 +114,7 @@ export default function VariationForm({ user, experience, suggestion, initialPla
   </p>;
   if (experience && ((!changed && (!source || !experience.sourceAvailable)) || experience.lifecycle !== "active")) return null;
   async function submit() {
-    if (busyRef.current || (!changed && !source)) return;
+    if (busyRef.current || (!changed && !source) || (!pending && (exclusionPreview.pending || exclusionPreview.error))) return;
     if (!pending && (!anchorId || !occasion.trim())) {
       setError("Choose a piece to keep and a new situation.");
       return;
@@ -113,7 +125,7 @@ export default function VariationForm({ user, experience, suggestion, initialPla
       setError(suggestion ? "Describe a different situation from the original proposal." : "Describe a different situation from the one you reported wearing this for.");
       return;
     }
-    const command: PendingVariation = pending ?? { requestId: crypto.randomUUID(), ...(changed
+    const command: PendingVariation = pending ?? { requestId: crypto.randomUUID(), ...(exclusionPreview.ref ? { exclusionRef: exclusionPreview.ref } : {}), ...(changed
       ? { actualVariation: { experienceId: experienceId!, expectedRevision: currentRevision!, anchorItemId: anchorId, ...(leaveOutId ? { leaveOutItemId: leaveOutId } : {}), occasion: occasion.trim() } }
       : { parentSnapshotId: source!.snapshotId, variation: { ...(explore ? { mode: "explore" as const } : {}), sourceCandidateId: source!.candidateId, anchorItemId: anchorId, ...(leaveOutId ? { leaveOutItemId: leaveOutId } : {}), occasion: explore ? occasion : occasion.trim() } }) };
     const submittedKey = storageKey;
@@ -130,6 +142,7 @@ export default function VariationForm({ user, experience, suggestion, initialPla
       const data = await response.json().catch(() => ({})) as VariationResult & { error?: { code?: string } };
       if (!live.current || currentKey.current !== submittedKey) return;
       if (!response.ok) {
+        if (data.error?.code === "exclusions_changed") setExclusionRefresh(value => value + 1);
         setError(failureMessage(data.error?.code ?? "", response.status));
         if (response.status < 500 && response.status !== 429) {
           clearPending();
@@ -172,9 +185,10 @@ export default function VariationForm({ user, experience, suggestion, initialPla
         <label className="block">{explore ? "Saved situation" : "New situation"} <input aria-label={explore ? "Saved situation" : "New situation"} value={occasion} maxLength={500}
           disabled={!!pending || busy || explore} onChange={event => { setOccasion(event.target.value); setResult(null); }} placeholder="e.g. Relaxed dinner with friends"
           className="mt-1 block w-full min-w-0 rounded border p-2" /></label>
-        {pending && <p className="text-amber-800">A previous request may have finished. Retry keeps the same request and choices.</p>}
+        {!pending && <ApplicableExclusions preview={exclusionPreview} />}
+        {pending && <p className="text-amber-800">A previous request may have finished. Retry keeps the same request, choices and submitted exclusions. New saved changes apply to a new request.</p>}
         {error && <p role="alert" className="text-red-700">{error}</p>}
-        <div className="flex gap-3"><button type="button" disabled={busy || (!pending && !occasion.trim())} onClick={() => void submit()}
+        <div className="flex gap-3"><button type="button" disabled={busy || (!pending && (!occasion.trim() || exclusionPreview.pending || !!exclusionPreview.error))} onClick={() => void submit()}
           className="rounded bg-slate-900 px-3 py-2 text-white disabled:opacity-50">{busy ? "Finding an option…" : pending ? "Retry same request" : explore ? "Find another combination" : "Find an outfit"}</button>
           {pending && <button type="button" disabled={busy} onClick={() => { clearPending(); setError(""); }}
             className="text-slate-700 underline">Discard pending request</button>}</div>
