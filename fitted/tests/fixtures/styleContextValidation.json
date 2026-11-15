@@ -1,0 +1,183 @@
+{
+  "base": {
+    "boardId": "aaaaaaaaaaaaaaaaaaaaaaaa",
+    "profileId": "bbbbbbbbbbbbbbbbbbbbbbbb",
+    "profileVersion": 1,
+    "routineId": "cccccccccccccccccccccccc",
+    "routineVersion": 1,
+    "learningEnabled": true,
+    "boardLabel": "Campus",
+    "routineLabel": "Class",
+    "memoryRevision": 3,
+    "compiled": {
+      "aestheticKeywords": [
+        "relaxed"
+      ],
+      "palette": [],
+      "patterns": [],
+      "fits": []
+    },
+    "weather": "unspecified"
+  },
+  "cases": [
+    {
+      "name": "valid cold weather",
+      "patch": {
+        "weather": "cold"
+      },
+      "valid": true
+    },
+    {
+      "name": "valid mild weather",
+      "patch": {
+        "weather": "mild"
+      },
+      "valid": true
+    },
+    {
+      "name": "valid hot weather",
+      "patch": {
+        "weather": "hot"
+      },
+      "valid": true
+    },
+    {
+      "name": "valid unspecified weather",
+      "patch": {
+        "weather": "unspecified"
+      },
+      "valid": true
+    },
+    {
+      "name": "valid no saved situation",
+      "patch": {
+        "routineId": null,
+        "routineVersion": null,
+        "routineLabel": null,
+        "learningEnabled": false
+      },
+      "valid": true
+    },
+    {
+      "name": "initial memory revision zero is valid",
+      "patch": {
+        "memoryRevision": 0
+      },
+      "valid": true
+    },
+    {
+      "name": "maximum safe routine version is valid",
+      "patch": {
+        "routineVersion": 9007199254740991
+      },
+      "valid": true
+    },
+    {
+      "name": "weather array is not a string",
+      "patch": {
+        "weather": [
+          "mild"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "weather object is not a string",
+      "patch": {
+        "weather": {
+          "value": "mild"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "weather null is not unspecified",
+      "patch": {
+        "weather": null
+      },
+      "valid": false
+    },
+    {
+      "name": "a selected situation needs its label",
+      "patch": {
+        "routineLabel": null
+      },
+      "valid": false
+    },
+    {
+      "name": "situation label must not be blank",
+      "patch": {
+        "routineLabel": "   "
+      },
+      "valid": false
+    },
+    {
+      "name": "no situation cannot have a label",
+      "patch": {
+        "routineId": null,
+        "routineVersion": null,
+        "routineLabel": "Class",
+        "learningEnabled": false
+      },
+      "valid": false
+    },
+    {
+      "name": "captured context cannot add undeclared fields",
+      "patch": {
+        "guessedStyle": "formal"
+      },
+      "valid": false
+    },
+    {
+      "name": "compiled context cannot add undeclared fields",
+      "patch": {
+        "compiled": {
+          "aestheticKeywords": [
+            "relaxed"
+          ],
+          "palette": [],
+          "patterns": [],
+          "fits": [],
+          "guessedScore": 1
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "labels must be valid Unicode",
+      "patch": {
+        "boardLabel": "bad\ud800"
+      },
+      "valid": false
+    },
+    {
+      "name": "compiled phrases must be valid Unicode",
+      "patch": {
+        "compiled": {
+          "aestheticKeywords": [
+            "bad\ud800"
+          ],
+          "palette": [],
+          "patterns": [],
+          "fits": []
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "routine version must be a safe integer",
+      "patch": {
+        "routineVersion": 9007199254740992
+      },
+      "valid": false
+    },
+    {
+      "name": "required routine label key is explicit",
+      "patch": {},
+      "remove": [
+        "routineLabel"
+      ],
+      "valid": false
+    }
+  ]
+}

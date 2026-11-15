@@ -111,6 +111,9 @@ it("requires owned new rule targets while retained deleted references stay inert
     itemIds: [f.members[0]], outfitItemIds: [[f.members[0], f.members[1]]] }))).rejects.toMatchObject({ code: "exclusion_item_unavailable" });
   await store.mutate(f.owner, command(f, { expectedRevision: 4, expectedSetRevision: 4 }));
   expect((await saved(f)).entries).toEqual([]);
+  await expect(store.mutate(f.owner, command(f, { expectedRevision: 5, expectedSetRevision: 5, itemIds: [f.members[0]] })))
+    .rejects.toMatchObject({ status: 400, code: "exclusion_item_unavailable" });
+  expect(await revision(f.owner)).toBe(5); expect((await saved(f)).entries).toEqual([]);
   await expect(store.mutate(other.owner, command(f, { expectedRevision: 2 }))).rejects.toMatchObject({ code: "board_unavailable" });
 });
 

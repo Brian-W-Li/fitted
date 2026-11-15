@@ -58,6 +58,7 @@ import { validateSnapshotPayload, PayloadContractError } from "@/lib/mlSnapshotV
 import { OwnerWriteUnavailable, StyleMemoryRevisionChanged } from "@/lib/ownerWriteFence";
 import { parseStyleSelection, styleSelectionFromSnapshot, sameCapturedStyleContext, type CapturedStyleContext, type StyleSelection } from "@/lib/styleContext";
 import { StyleMemoryError } from "@/lib/styleMemory/validation";
+import { readStyleMemoryOwner } from "@/lib/styleMemory/store";
 import { buildStylePreferenceEvidence } from "@/lib/stylePreferenceEvidence";
 import { writeSupersededStyleRender } from "@/lib/styleRenderAdmission";
 import { writeSnapshotWithIdempotency } from "@/lib/mlSnapshotWrite";
@@ -343,6 +344,7 @@ interface ShownVariation {
   occasion: string;
 }
 interface ActualVariation {
+  independentSource?: true;
   experienceId: string;
   expectedRevision: number;
   anchorItemId: string;
@@ -352,7 +354,8 @@ interface ActualVariation {
 function parseActualVariation(raw: unknown): ActualVariation | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const value = raw as Record<string, unknown>;
-  if (!["anchorItemId,expectedRevision,experienceId,leaveOutItemId,occasion", "anchorItemId,expectedRevision,experienceId,occasion"].includes(Object.keys(value).sort().join(",")) ||
+  if (("independentSource" in value && value.independentSource !== true) ||
+    !["anchorItemId,expectedRevision,experienceId,leaveOutItemId,occasion", "anchorItemId,expectedRevision,experienceId,occasion"].includes(Object.keys(value).filter(key => key !== "independentSource").sort().join(",")) ||
     typeof value.experienceId !== "string" || value.experienceId.length > 64 || !isValidRequestId(value.experienceId) ||
     !Number.isInteger(value.expectedRevision) || (value.expectedRevision as number) < 1 || (value.expectedRevision as number) > 32 ||
     typeof value.occasion !== "string" || !value.occasion.trim() || value.occasion.length > 500 ||
@@ -360,6 +363,16 @@ function parseActualVariation(raw: unknown): ActualVariation | null {
     ("leaveOutItemId" in value && (typeof value.leaveOutItemId !== "string" || !/^[a-f0-9]{24}$/i.test(value.leaveOutItemId)))) return null;
   return { ...value, experienceId: canonicalRequestId(value.experienceId) } as unknown as ActualVariation;
 }
+/** Fresh children require the complete original named context active, even when adaptation
+ * deliberately clears Routine membership. Completed replay uses its own captured contract. */
+async function assertFreshSourceStyleActive(owner: mongoose.Types.ObjectId, selection: StyleSelection | null) {
+  if (!selection) return;
+  const { data } = await readStyleMemoryOwner(owner);
+  if (data.boards.find(row => row.id === selection.boardId)?.status === "archived" ||
+    data.routines.find(row => row.id === selection.routineId)?.status === "archived")
+    throw new StyleMemoryError(409, "context_archived", "Restore this direction or situation before making another outfit.");
+}
+
 function parseShownVariation(raw: unknown): ShownVariation | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const value = raw as Record<string, unknown>;
@@ -440,6 +453,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       return respondError(400, "exclusions_invalid", "Saved exclusions require their named direction and situation.");
 
     let inheritedStyle = false;
+    let requiredActiveSource: StyleSelection | undefined;
     let capturedStyle: CapturedStyleContext | undefined;
 
     // 3. §C.1 lineage gate FIRST, then intent — a re-roll carries only {requestId, parentSnapshotId,
@@ -493,7 +507,53 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       }
     }
     const rawParent: unknown = actualExperience?.snapshotId?.toString() ?? body.parentSnapshotId;
-    if (rawParent != null && rawParent !== "") {
+    if (actualVariation) {
+      if (suppliedStyle) return respondError(400, "style_context_invalid", "A refinement keeps its saved style direction.");
+      const parent = typeof rawParent === "string" && mongoose.isValidObjectId(rawParent)
+        ? await GenerationSnapshot.findOne({ _id: rawParent, user: userObjectId }).lean() : null;
+      if (existing) {
+        // Completed commands keep their captured meaning/lineage even if the shown source was
+        // subsequently hidden or cleaned up. The winner's own visibility is checked below.
+        commandStyle = styleSelectionFromSnapshot(existing.styleContext);
+        if (existing.styleContext && !commandStyle) return respondError(404, "context_unavailable", "That styling context is unavailable.");
+        parentSnapshotId = existing.parentSnapshotId?.toString() ?? null;
+        generationIndex = existing.generationIndex ?? 0;
+      } else {
+        const visible = !!parent && await snapshotVisible(userObjectId, parent);
+        if (!visible && !actualVariation.independentSource) return respondError(404, "parent_not_found", "Start a new adaptation from the current wear report.");
+        if (visible) {
+          const selection = styleSelectionFromSnapshot(parent.styleContext);
+          if (parent.styleContext && !selection) return respondError(404, "context_unavailable", "That styling context is unavailable.");
+          await assertFreshSourceStyleActive(userObjectId, selection);
+          requiredActiveSource = selection ?? undefined;
+          if (actualVariation.independentSource) return respondError(409, "experience_source_changed", "Reload the wear report before starting another adaptation.");
+          commandStyle = selection ? { ...selection, routineId: null, routineVersion: null, learningEnabled: false } : null;
+        } else commandStyle = null;
+        if (typeof rawParent !== "string" || !mongoose.isValidObjectId(rawParent))
+          return respondError(404, "experience_source_unavailable", "That wear report has no usable source identity.");
+        parentSnapshotId = new mongoose.Types.ObjectId(rawParent).toString();
+        // Keep/avoid uses the service's child lineage contract. The independent report retains
+        // its content-free source ID, but hidden source metadata never controls the new index.
+        generationIndex = visible ? (parent.generationIndex ?? 0) + 1 : 1;
+      }
+      inheritedStyle = !!commandStyle;
+      if (actualVariation.independentSource && requestedExclusionRef) return respondError(400, "exclusions_invalid", "An independent wear adaptation has no saved styling exclusions.");
+      intent = "rescue_item";
+      seedDate = existing?.seedDate ?? deps.today();
+      const anchorId = actualVariation.anchorItemId.toLowerCase();
+      const leaveOutId = actualVariation.leaveOutItemId?.toLowerCase() ?? null;
+      controls = { lockedItemIds: [], dislikedItemIds: leaveOutId ? [leaveOutId] : [] };
+      const resolved = existing ?? await deps.resolveWeather({ occasion: actualVariation.occasion });
+      weatherSource = weatherSourceFromSnapshot(resolved.weatherSource);
+      lensInput = {
+        occasion: actualVariation.occasion, weather: resolved.weather, weatherRaw: resolved.weatherRaw, weatherSignals: weatherSignalsFromSnapshot(resolved.weatherSignals),
+        location: null, forcedItemId: anchorId, seedDate, constraints: {},
+      };
+      variationSourceExperienceId = actualVariation.experienceId;
+      variationSourceRevision = actualVariation.expectedRevision;
+      variationAnchorId = anchorId;
+      variationLeaveOutId = leaveOutId;
+    } else if (rawParent != null && rawParent !== "") {
       if (typeof rawParent !== "string" || !mongoose.isValidObjectId(rawParent)) {
         return respondError(404, "parent_not_found", "parentSnapshotId is not a valid id");
       }
@@ -503,6 +563,10 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       commandStyle = styleSelectionFromSnapshot(parent.styleContext);
       if (parent.styleContext && !commandStyle) return respondError(404, "context_unavailable", "That styling context is unavailable.");
       inheritedStyle = !!commandStyle;
+      if (!existing) {
+        await assertFreshSourceStyleActive(userObjectId, commandStyle);
+        requiredActiveSource = commandStyle ?? undefined;
+      }
       // A changed situation deliberately has no inferred routine membership.
       if (commandStyle && (actualVariation || (body.variation && body.variation.mode !== "explore"))) {
         commandStyle = { ...commandStyle, routineId: null, routineVersion: null, learningEnabled: false };
@@ -519,23 +583,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       // retry's identity compare (step 5) mismatch and wrongly 409 instead of replaying the winner.
       parentSnapshotId = new mongoose.Types.ObjectId(rawParent).toString();
       generationIndex = (parent.generationIndex ?? 0) + 1;
-      if (actualVariation) {
-        intent = "rescue_item";
-        seedDate = deps.today();
-        const anchorId = actualVariation.anchorItemId.toLowerCase();
-        const leaveOutId = actualVariation.leaveOutItemId?.toLowerCase() ?? null;
-        controls = { lockedItemIds: [], dislikedItemIds: leaveOutId ? [leaveOutId] : [] };
-        const resolved = await deps.resolveWeather({ occasion: actualVariation.occasion });
-        weatherSource = weatherSourceFromSnapshot(resolved.weatherSource);
-        lensInput = {
-          occasion: actualVariation.occasion, weather: resolved.weather, weatherRaw: resolved.weatherRaw, weatherSignals: weatherSignalsFromSnapshot(resolved.weatherSignals),
-          location: null, forcedItemId: anchorId, seedDate, constraints: {},
-        };
-        variationSourceExperienceId = actualVariation.experienceId;
-        variationSourceRevision = actualVariation.expectedRevision;
-        variationAnchorId = anchorId;
-        variationLeaveOutId = leaveOutId;
-      } else if (body.variation != null) {
+      if (body.variation != null) {
         const variation = parseShownVariation(body.variation);
         if (!variation || body.controls != null || body.forcedItemId != null || body.occasion != null || parent.redacted) {
           return respondError(400, "variation_invalid", "Choose a shown outfit, a garment to keep, an optional different garment to leave out, and a new situation");
@@ -689,6 +737,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       variationSourceCandidateId,
       variationSourceExperienceId,
       variationSourceRevision,
+      variationIndependentSource: actualVariation?.independentSource,
     });
 
     const matchesWinner = (winner: Any) => {
@@ -717,7 +766,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
       const weatherScope = weatherSource === "unknown" || !["cold", "mild", "hot"].includes(lens.weather)
         ? "unspecified" : lens.weather as "cold" | "mild" | "hot";
       styledEvidence = await buildStylePreferenceEvidence(userObjectId.toString(), commandStyle, weatherScope,
-        { allowHistoricalVersions: inheritedStyle });
+        { allowHistoricalVersions: inheritedStyle, requiredActiveSource });
       capturedStyle = styledEvidence.styleContext;
     }
 
@@ -965,6 +1014,7 @@ export async function mlRecommend(request: NextRequest, deps: MlRecommendDeps): 
         if (variationSourceExperienceId) {
           doc.variationSourceExperienceId = variationSourceExperienceId;
           doc.variationSourceRevision = variationSourceRevision;
+          if (actualVariation?.independentSource) doc.variationIndependentSource = true;
         }
       }
     } catch (err) {
@@ -1108,5 +1158,6 @@ function identityFromDoc(doc: Any): ReturnType<typeof makeRenderIdentity> {
     variationSourceCandidateId: doc.variationSourceCandidateId,
     variationSourceExperienceId: doc.variationSourceExperienceId,
     variationSourceRevision: doc.variationSourceRevision,
+    variationIndependentSource: doc.variationIndependentSource,
   });
 }

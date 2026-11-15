@@ -1,8 +1,7 @@
 # Personal styling loop — implementation specification
 
-Status: critical specification review complete; local implementation and
-combined application verification in progress. The roadmap records checked behavior
-and remaining work; this specification is not a completion claim.
+Acceptance below defines the required behavior and evidence; it does not report
+completion or authorize additional work. Follow the roadmap's current scope.
 This document owns this bounded implementation contract. The [canonical spec](../Fitted_Spec_v2.md)
 owns product ambition and existing contracts; the [roadmap](../ROADMAP.md) owns progress,
 the verified code baseline, checks, blockers and release status. Nothing here claims
@@ -26,12 +25,10 @@ boards, automatic style detection, calendar integration, a new standalone site, 
 participant study, activation of the frozen catalog head, or a guarantee of improved
 human preference accuracy. Those are outside this deliverable.
 
-## 2. Source index and original inspection boundary
+## 2. Source index
 
-Before implementation, a read-only live walkthrough inspected wardrobe, feedback,
-garment recall, proposals, exploration, planning and wear forms. That historical
-inspection made no generation calls or content writes and does not verify current
-hosted write behavior or fresh model quality. The maintained source index follows.
+Source and executable contracts establish implementation behavior. This index does
+not verify hosted write behavior or fresh styling quality; the roadmap owns evidence.
 
 | Existing owner | What it establishes / extension seam |
 |---|---|
@@ -41,7 +38,7 @@ hosted write behavior or fresh model quality. The maintained source index follow
 | `fitted/lib/mlRequestAdapter.ts` | Typed cross-runtime lens/garment mapping. Nonempty constraints are currently rejected; new style fields must be explicit. |
 | `fitted/models/GenerationSnapshot.ts` | Immutable inputs/candidates/shown identities, captured style context and experimental decision provenance. |
 | `fitted/lib/interactions.ts`, `feedbackAmendments.ts`, `feedbackEvidence.cjs`, `latestFeedbackState.ts` | Snapshot-bound reactions, latest state, correctable reasons and removal. Free prose is provenance; typed concerns and learning dispositions affect eligibility. |
-| `fitted/lib/mlBehavioralRows.ts` | Bounded owner history projection. Projects existing item/signature/exposure signals; named-context learning evidence has a separate owner below. |
+| `fitted/lib/mlBehavioralRows.ts` | Bounded owner history projection. Projects legacy unscoped item/signature taste and owner-wide exposure; named-context evidence has a separate owner below. |
 | `ml-system/service/app.py`, `service/contract_fields.json` | Validated HTTP boundary, behavioral reducers and traced engine dispatch. |
 | `ml-system/fitted_core/rescue.py`, `sampler.py`, `generation.py`, `validator.py` | Bounded generation and structural authority; the model call is isolated in generation. |
 | `ml-system/fitted_core/ranker.py`, `response.py` | Filtering, score/diversity/truncation and final surfaced selection. The existing experimental selection-score override has no production caller. |
@@ -134,8 +131,10 @@ mean daily/rescue. No new graph database, calendar or visual-board compiler is r
 
 Named partitions use only matching scoped reactions for both existing item/combo
 preference terms and the learner. Legacy unscoped feedback remains on the existing
-unscoped path and is never silently assigned to a profile. Exposure/repetition may
-remain owner-wide, identified as exposure rather than taste. This keeps cross-direction
+unscoped path and is never silently assigned to a profile. Conversely, a named-context
+reaction does not become generic taste when no direction is selected: unscoped requests
+consume only legacy unscoped taste. Exposure/repetition may remain owner-wide,
+identified as exposure rather than taste. This keeps cross-direction
 rotation separate from cross-direction preference transfer.
 
 Home shows learning off, collecting eligible feedback (including current unique like/
@@ -168,9 +167,22 @@ both orderings of erasure versus generation/feedback admission.
   conflict. Exact completed retry replays the immutable result without another model call.
   Existing weather replay and parent ownership rules still apply.
   Completed replay resolves captured identity before any active-version requirement:
-  archive permits exact replay; erase denies visibility. Uncompleted commands and
-  every regenerate/Explore/adapt child require active source context. A duplicate
-  winning snapshot is replayed even if the current memory revision has advanced.
+  archive permits exact replay; erase denies visibility. Fresh descendants of a
+  visible named source require its original Board/Routine active, even when adapting
+  to a new situation. Check that original scope within the same owner snapshot read
+  used to capture the new request, so an intervening archive cannot slip through.
+  A duplicate winner retains its captured meaning even if memory later advances.
+- Independent changed-wear adaptation follows canonical §16. New UI commands whose
+  shown source is unavailable freeze `actualVariation.independentSource: true` and
+  no saved exclusion reference. The Next-authored `variationIndependentSource` flag
+  participates in stored command identity; it is not a provider protocol field.
+  Keep/avoid retains the service's child lineage, using the report-held source ID
+  and index 1 without inheriting a hidden parent's index or semantic context.
+  Visible sources cannot use this marker to bypass archive or style rules. Hidden
+  sources contribute no style/Routine meaning, and missing-source unmarked retries
+  fail before dispatch. Completed independent winners retain exact lineage/replay;
+  report revision and ownership checks still apply. Uncertain pending bodies are
+  retried unchanged, never automatically upgraded to independent commands.
 - Regenerate and same-situation Explore inherit the captured profile/Routine/version
   and weather. New-situation adaptation preserves the profile by default and requires
   an explicit Routine selection (or none). A deliberate profile change starts a new
@@ -256,7 +268,9 @@ same instruction keeps its semantic ID and advances its revision. This supports 
 edit/removal without an unbounded rule tombstone log. A combination may contain one
 piece (a dress) through five unique members. Newly saved targets must be owned, checked
 inside the owner transaction, but availability is not required. Existing references to
-later-deleted or unavailable garments remain inert and removable. Routine erasure removes
+later-deleted or unavailable garments remain inert and removable. Undo can restore
+only still-owned members; owned but unavailable pieces remain eligible, while the UI
+explains why a rule containing a deleted piece cannot be restored. Routine erasure removes
 its sets across Boards; Board/account erasure removes its embedded instructions.
 
 Fresh requests freeze an explicit saved-set reference (or null) and canonical one-request
@@ -545,26 +559,7 @@ same synthetic candidates. Synthetic success proves mechanisms, not human benefi
 Preserved personal sessions are development material and remain unchanged; no repeated
 questionnaire or population study is a prerequisite for this development deliverable.
 
-Before feature implementation: save a verified app-only baseline on GitHub and resolve
-independent reviews of product fit, cross-runtime architecture/lifecycle, ML evidence
-and baseline/publication safety. The roadmap records outstanding findings.
-
 Development is local and experimental. Hosted model influence, deployment, provider
 spending and new participant collection require their separate explicit authorization.
 Fresh generation quality and repeated human usefulness remain unverified until observed;
 engineering pass counts must not be presented as taste improvement.
-
-## 9. Critical review disposition
-
-Three independent reviewers read this specification against source and ambition:
-
-| Review focus | Critical changes made after challenge |
-|---|---|
-| Product and ambition | Reachable unspecified-weather use, visible support state, canonical Board/profile identity, small deterministic setup, honest order/no-change outcomes, and a faithful wardrobe walkthrough beyond synthetic proof. |
-| Architecture and lifecycle | Terminal superseded-command replay, atomic revision admission, explicit archive branches, immediate tombstone fencing plus content erasure, bounded instruction scopes and paired protocol compatibility. |
-| ML and evidence | Typed learning dispositions, latest composition before eligibility across snapshots, complete bounded history, finite features and shared missingness rules, numerical budget/solver, and an actual competition for a displayed slot. |
-
-Raised critical findings are resolved for the specification stage after bounded
-follow-up review. This is not implementation approval or a learning-benefit result.
-Candidate supply, numerical runtime, correction/erasure races and complete-app
-usefulness remain the acceptance work specified above.

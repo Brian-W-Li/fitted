@@ -820,14 +820,157 @@ describe("R4 actual-outfit variation", () => {
     expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
   });
 
+  async function reportedStyledChangeWithBan(withRoutine = false) {
+    const { StyleMemoryStore } = await import("@/lib/styleMemory/store");
+    const styling = new StyleMemoryStore(), boardId = new mongoose.Types.ObjectId().toString(), profileId = new mongoose.Types.ObjectId().toString();
+    await styling.mutate(userId, { kind: "create_board", operationId: uuid(), expectedRevision: 0, id: boardId, profileId, label: "Private styled source",
+      rawSource: "relaxed", compiled: { aestheticKeywords: ["relaxed"], palette: [], patterns: [], fits: [] } });
+    const routineId = withRoutine ? new mongoose.Types.ObjectId().toString() : null;
+    if (routineId) await styling.mutate(userId, { kind: "create_routine", operationId: uuid(), expectedRevision: 1, id: routineId, label: "Original situation" });
+    const selection = { boardId, profileId, profileVersion: 1, routineId, routineVersion: routineId ? 1 : null, learningEnabled: false };
+    const rootId = uuid();
+    const root = await mlRecommend(req({ requestId: rootId, occasion: "Class", forcedItemId: itemIds.top, styleContext: selection }),
+      makeDeps({ callService: fakeService({ respectControls: true }) }));
+    expect(root.status).toBe(200);
+    const source = (await GenerationSnapshot.findOne({ user: userId, requestId: rootId }).lean()) as Any;
+    const experienceId = uuid();
+    await store.create(userId, { experienceId, operationId: uuid(), snapshotId: source._id.toString(), candidateId: "c0",
+      occurredOn: "2026-07-07", timezone: "UTC", context: { kind: "user", text: "Class" }, outcome: "unknown",
+      compositionStatus: "changed", memberItemIds: [itemIds.top, itemIds.b2] });
+    const state = await styling.list(userId);
+    const banned = await styling.mutate(userId, { kind: "set_exclusions", operationId: uuid(), expectedRevision: state.revision,
+      boardId, profileVersion: 1, routineId: null, routineVersion: null, expectedSetRevision: 0, itemIds: [itemIds.shoes], outfitItemIds: [] });
+    const set = banned.state.boards[0].exclusionSets![0];
+    return { styling, selection, experienceId, sourceId: source._id.toString(), ref: { id: set.id, revision: set.revision } };
+  }
+
+  it("adapts independently captured changed wear without inheriting a redacted source's hidden style or saved bans", async () => {
+    const f = await reportedStyledChangeWithBan();
+    await GenerationSnapshot.updateOne({ _id: f.sourceId }, { $set: { redacted: true, redactionReason: "source report corrected" } });
+    const view = await getExperience(userId, f.experienceId) as Any;
+    expect(view.sourceAvailable).toBe(false); expect(view.sourceStyleContext).toBeUndefined();
+    const service = jest.fn(fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }));
+    const body = { requestId: uuid(), actualVariation: { ...actualVariation(f.experienceId, itemIds.top, itemIds.b2), independentSource: true } };
+    const result = await mlRecommend(req(body), makeDeps({ callService: service }));
+    expect(result.status).toBe(200);
+    const data = await result.json(); expect(data.bindable).toBe(true); expect(data.styleContext).toBeUndefined(); expect(data.explicitExclusions).toBeUndefined();
+    expect(service).toHaveBeenCalledTimes(1); expect(service.mock.calls[0][0].styleContext).toBeUndefined();
+    expect(service.mock.calls[0][0].explicitExclusions).toBeUndefined();
+    // Keep/avoid requires child lineage even when the shown source is gone. Its stable ID
+    // comes from the independent report; no hidden parent index/style may be inherited.
+    expect(service.mock.calls[0][0]).toMatchObject({ generationIndex: 1, parentSnapshotId: f.sourceId });
+    const winner = await GenerationSnapshot.findOne({ user: userId, requestId: body.requestId }).lean() as Any;
+    expect(winner).toMatchObject({ generationIndex: 1,
+      variationSourceExperienceId: f.experienceId, variationSourceRevision: 1, variationIndependentSource: true });
+    expect(String(winner.parentSnapshotId)).toBe(f.sourceId);
+    const replay = await mlRecommend(req(body), makeDeps({ callService: service }));
+    expect(replay.status).toBe(200); expect(await replay.json()).toEqual(data); expect(service).toHaveBeenCalledTimes(1);
+    expect((await mlRecommend(req({ ...body, actualVariation: actualVariation(f.experienceId, itemIds.top, itemIds.b2) }), makeDeps({ callService: service }))).status).toBe(409);
+  });
+
+  it("keeps visible-source saved bans and archive gates, while a completed styled actual-wear command replays after source redaction", async () => {
+    const f = await reportedStyledChangeWithBan();
+    const service = jest.fn(fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } })), deps = makeDeps({ callService: service });
+    const command = { requestId: uuid(), exclusionRef: f.ref, actualVariation: actualVariation(f.experienceId, itemIds.top, itemIds.b2) };
+    expect((await mlRecommend(req({ ...command, exclusionRef: undefined }), deps)).status).toBe(409);
+    const result = await mlRecommend(req(command), deps); expect(result.status).toBe(200);
+    const captured = await result.json(); expect(captured.styleContext.boardId).toBe(f.selection.boardId); expect(captured.explicitExclusions.savedRef).toEqual(f.ref);
+    await GenerationSnapshot.updateOne({ _id: f.sourceId }, { $set: { redacted: true, redactionReason: "source report corrected" } });
+    const replay = await mlRecommend(req(command), deps); expect(replay.status).toBe(200); expect(await replay.json()).toEqual(captured); expect(service).toHaveBeenCalledTimes(1);
+    await GenerationSnapshot.updateOne({ _id: f.sourceId }, { $set: { redacted: false } });
+    const state = await f.styling.list(userId);
+    await f.styling.mutate(userId, { kind: "archive_board", boardId: f.selection.boardId, operationId: uuid(), expectedRevision: state.revision });
+    const archived = await mlRecommend(req({ ...command, requestId: uuid() }), deps); expect(archived.status).toBe(409);
+    expect((await archived.json()).error.code).toBe("context_archived"); expect(service).toHaveBeenCalledTimes(1);
+    const historical = await mlRecommend(req(command), deps); expect(historical.status).toBe(200); expect(await historical.json()).toEqual(captured);
+  });
+
+  it("rejects saved exclusions on a marked independent adaptation before dispatch", async () => {
+    const f = await reportedStyledChangeWithBan();
+    await GenerationSnapshot.updateOne({ _id: f.sourceId }, { $set: { redacted: true } });
+    const service = jest.fn(fakeService({ respectControls: true }));
+    const result = await mlRecommend(req({ requestId: uuid(), exclusionRef: f.ref,
+      actualVariation: { ...actualVariation(f.experienceId, itemIds.top, itemIds.b2), independentSource: true } }), makeDeps({ callService: service }));
+    expect(result.status).toBe(400); expect((await result.json()).error.code).toBe("exclusions_invalid");
+    expect(service).not.toHaveBeenCalled(); expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
+  it("admits new independent wear after erasure cleanup, retains its replay, and denies erased unmarked styled commands", async () => {
+    const f = await reportedStyledChangeWithBan();
+    const service = jest.fn(fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } })), deps = makeDeps({ callService: service });
+    const old = { requestId: uuid(), exclusionRef: f.ref, actualVariation: actualVariation(f.experienceId, itemIds.top, itemIds.b2) };
+    expect((await mlRecommend(req(old), deps)).status).toBe(200);
+    await GenerationSnapshot.updateOne({ _id: f.sourceId }, { $set: { redacted: true } });
+    const independent = { requestId: uuid(), actualVariation: { ...actualVariation(f.experienceId, itemIds.top, itemIds.b2), independentSource: true } };
+    const before = await mlRecommend(req(independent), deps); expect(before.status).toBe(200); const captured = await before.json();
+    const state = await f.styling.list(userId);
+    await f.styling.mutate(userId, { kind: "erase_board", boardId: f.selection.boardId, operationId: uuid(), expectedRevision: state.revision });
+    expect(await GenerationSnapshot.exists({ _id: f.sourceId })).toBeNull();
+    expect(await GenerationSnapshot.exists({ user: userId, requestId: old.requestId })).toBeNull();
+    const oldRetry = await mlRecommend(req(old), deps); expect(oldRetry.status).toBe(404);
+    expect((await oldRetry.json()).error.code).toBe("parent_not_found");
+    const replay = await mlRecommend(req(independent), deps); expect(replay.status).toBe(200); expect(await replay.json()).toEqual(captured);
+    expect(service).toHaveBeenCalledTimes(2);
+    const fresh = await mlRecommend(req({ ...independent, requestId: uuid() }), deps); expect(fresh.status).toBe(200);
+    expect((await fresh.json()).styleContext).toBeUndefined(); expect(service).toHaveBeenCalledTimes(3);
+    await store.revise(userId, f.experienceId, { operationId: uuid(), expectedPreviousRevision: 1,
+      occurredOn: "2026-07-07", timezone: "UTC", context: { kind: "user", text: "Class" }, outcome: "unknown",
+      compositionStatus: "changed", memberItemIds: [itemIds.top, itemIds.b2] });
+    const stale = await mlRecommend(req(independent), deps); expect(stale.status).toBe(409);
+    expect((await stale.json()).error.code).toBe("experience_revision_conflict"); expect(service).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects malformed independent markers and prevents using them to bypass a visible archived source", async () => {
+    const f = await reportedStyledChangeWithBan(true);
+    const service = jest.fn(fakeService({ respectControls: true })), deps = makeDeps({ callService: service });
+    for (const independentSource of [false, "true", null, {}, 1]) {
+      const invalid = await mlRecommend(req({ requestId: uuid(), actualVariation: { ...actualVariation(f.experienceId, itemIds.top, itemIds.b2), independentSource } }), deps);
+      expect(invalid.status).toBe(400); expect((await invalid.json()).error.code).toBe("variation_invalid");
+    }
+    const marker = { requestId: uuid(), actualVariation: { ...actualVariation(f.experienceId, itemIds.top, itemIds.b2), independentSource: true } };
+    expect((await mlRecommend(req(marker), deps)).status).toBe(409);
+    const state = await f.styling.list(userId);
+    await f.styling.mutate(userId, { kind: "archive_routine", routineId: f.selection.routineId!, operationId: uuid(), expectedRevision: state.revision });
+    const archived = await mlRecommend(req(marker), deps); expect(archived.status).toBe(409);
+    expect((await archived.json()).error.code).toBe("context_archived"); expect(service).not.toHaveBeenCalled();
+  });
+
+  it("requires the original Routine active for a fresh shown adaptation but preserves its completed replay", async () => {
+    const f = await reportedStyledChangeWithBan(true);
+    const service = jest.fn(fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } })), deps = makeDeps({ callService: service });
+    const command = { requestId: uuid(), parentSnapshotId: f.sourceId, exclusionRef: f.ref,
+      variation: { sourceCandidateId: "c0", anchorItemId: itemIds.top, leaveOutItemId: itemIds.b1, occasion: "Dinner" } };
+    const result = await mlRecommend(req(command), deps); expect(result.status).toBe(200); const captured = await result.json();
+    const state = await f.styling.list(userId);
+    await f.styling.mutate(userId, { kind: "archive_routine", routineId: f.selection.routineId!, operationId: uuid(), expectedRevision: state.revision });
+    const replay = await mlRecommend(req(command), deps); expect(replay.status).toBe(200); expect(await replay.json()).toEqual(captured);
+    const fresh = await mlRecommend(req({ ...command, requestId: uuid() }), deps); expect(fresh.status).toBe(409);
+    expect((await fresh.json()).error.code).toBe("context_archived"); expect(service).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["actual", "shown"] as const)("rejects a fresh %s adaptation when its original Routine archives during weather resolution", async kind => {
+    const f = await reportedStyledChangeWithBan(true);
+    const service = jest.fn(fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }));
+    const deps = makeDeps({ callService: service, resolveWeather: async () => {
+      const state = await f.styling.list(userId);
+      await f.styling.mutate(userId, { kind: "archive_routine", routineId: f.selection.routineId!, operationId: uuid(), expectedRevision: state.revision });
+      return makeDeps().resolveWeather({ occasion: "Dinner" });
+    } });
+    const source = kind === "actual" ? { actualVariation: actualVariation(f.experienceId, itemIds.top, itemIds.b2) }
+      : { parentSnapshotId: f.sourceId, variation: { sourceCandidateId: "c0", anchorItemId: itemIds.top, leaveOutItemId: itemIds.b1, occasion: "Dinner" } };
+    const result = await mlRecommend(req({ requestId: uuid(), exclusionRef: f.ref, ...source }), deps);
+    expect(result.status).toBe(409); expect((await result.json()).error.code).toBe("context_archived");
+    expect(service).not.toHaveBeenCalled(); expect(await GenerationSnapshot.countDocuments({ user: userId })).toBe(1);
+  });
+
   it("uses changed-wear facts after shown-source redaction but rejects an in-flight correction", async () => {
     const { experienceId, sourceId } = await reportedChange();
     await GenerationSnapshot.collection.updateOne({ _id: new mongoose.Types.ObjectId(sourceId) },
       { $set: { redacted: true, redactedAt: new Date(), redactionReason: "test" } });
-    const good = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }),
+    const good = await mlRecommend(req({ requestId: uuid(), actualVariation: { ...actualVariation(experienceId, itemIds.top, itemIds.b2), independentSource: true } }),
       makeDeps({ callService: fakeService({ respectControls: true, overridePayload: p => { p.candidateCacheKey = "b".repeat(64); } }) }));
     expect(good.status).toBe(200);
-    const raced = await mlRecommend(req({ requestId: uuid(), actualVariation: actualVariation(experienceId, itemIds.top, itemIds.b2) }),
+    const raced = await mlRecommend(req({ requestId: uuid(), actualVariation: { ...actualVariation(experienceId, itemIds.top, itemIds.b2), independentSource: true } }),
       makeDeps({ callService: async body => {
         await store.revise(userId, experienceId, { operationId: uuid(), expectedPreviousRevision: 1,
           occurredOn: "2026-07-07", timezone: "UTC", context: { kind: "user", text: "Class" }, outcome: "worked",

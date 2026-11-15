@@ -61,15 +61,22 @@ export function sameStyleSelection(left: unknown, right: unknown): boolean {
   return styleSelectionKey(left) === styleSelectionKey(right);
 }
 
+const CAPTURED_FIELDS = ["boardId", "profileId", "profileVersion", "routineId", "routineVersion", "learningEnabled",
+  "boardLabel", "routineLabel", "compiled", "memoryRevision", "weather"];
+const COMPILED_FIELDS = ["aestheticKeywords", "palette", "patterns", "fits"];
+const exactKeys = (value: Record<string, unknown>, keys: string[]) =>
+  Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+const validLabel = (value: unknown): value is string => typeof value === "string" && !!value.trim() && value.length <= 60 && value.isWellFormed();
+
 export function validCapturedStyleContext(value: unknown): value is CapturedStyleContext {
-  if (!object(value) || !styleSelectionFromSnapshot(value) || !object(value.compiled) ||
-    typeof value.boardLabel !== "string" || !value.boardLabel.trim() || value.boardLabel.length > 60 ||
-    (value.routineLabel !== null && (typeof value.routineLabel !== "string" || value.routineLabel.length > 60)) ||
+  if (!object(value) || !exactKeys(value, CAPTURED_FIELDS) || !styleSelectionFromSnapshot(value) ||
+    !object(value.compiled) || !exactKeys(value.compiled, COMPILED_FIELDS) || !validLabel(value.boardLabel) ||
+    (value.routineId === null ? value.routineLabel !== null : !validLabel(value.routineLabel)) ||
     !Number.isSafeInteger(value.memoryRevision) || Number(value.memoryRevision) < 0 ||
-    !["cold", "mild", "hot", "unspecified"].includes(String(value.weather))) return false;
-  return ["aestheticKeywords", "palette", "patterns", "fits"].every(key => {
+    typeof value.weather !== "string" || !["cold", "mild", "hot", "unspecified"].includes(value.weather)) return false;
+  return COMPILED_FIELDS.every(key => {
     const list = (value.compiled as Record<string, unknown>)[key];
-    return Array.isArray(list) && list.length <= 12 && list.every(term => typeof term === "string" && term.trim() && term.length <= 60);
+    return Array.isArray(list) && list.length <= 12 && list.every(validLabel);
   });
 }
 

@@ -357,6 +357,8 @@ const GenerationSnapshotSchema = new Schema(
     // exact revision used; erasure/correction redacts derivatives before they can be reused.
     variationSourceExperienceId: { type: String, maxlength: 64 },
     variationSourceRevision: { type: Number, min: 1, max: 32 },
+    // Next-owned identity: a new adaptation explicitly uses independent wear after source loss.
+    variationIndependentSource: { type: Boolean, default: undefined },
     baseOutfitItemIds: { type: [String] },
     routineId: { type: Schema.Types.ObjectId },
     lens: { type: LensSchema },

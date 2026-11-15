@@ -26,10 +26,12 @@ interface PendingVariation {
   requestId: string;
   parentSnapshotId?: string;
   variation?: { mode?: "explore"; sourceCandidateId: string; anchorItemId: string; leaveOutItemId?: string; occasion: string };
-  actualVariation?: { experienceId: string; expectedRevision: number; anchorItemId: string; leaveOutItemId?: string; occasion: string };
+  actualVariation?: { independentSource?: true; experienceId: string; expectedRevision: number; anchorItemId: string; leaveOutItemId?: string; occasion: string };
 }
 
 function failureMessage(code: string, status: number): string {
+  if (code === "experience_source_changed") return "Reload this wear report before starting another adaptation.";
+  if (code === "context_archived") return "Restore the saved direction or situation before making another outfit.";
   if (code === "exclusions_changed") return "Saved exclusions changed. Review the refreshed rules before starting another request.";
   if (code === "exclusions_conflict") return "A piece you chose to keep is excluded. Update that exclusion or choose another piece.";
   if (code === "forced_item_unavailable") return "The piece you chose to keep is no longer available. Update your closet or choose another piece.";
@@ -126,7 +128,7 @@ export default function VariationForm({ user, experience, suggestion, initialPla
       return;
     }
     const command: PendingVariation = pending ?? { requestId: crypto.randomUUID(), ...(exclusionPreview.ref ? { exclusionRef: exclusionPreview.ref } : {}), ...(changed
-      ? { actualVariation: { experienceId: experienceId!, expectedRevision: currentRevision!, anchorItemId: anchorId, ...(leaveOutId ? { leaveOutItemId: leaveOutId } : {}), occasion: occasion.trim() } }
+      ? { actualVariation: { ...(!experience?.sourceAvailable ? { independentSource: true as const } : {}), experienceId: experienceId!, expectedRevision: currentRevision!, anchorItemId: anchorId, ...(leaveOutId ? { leaveOutItemId: leaveOutId } : {}), occasion: occasion.trim() } }
       : { parentSnapshotId: source!.snapshotId, variation: { ...(explore ? { mode: "explore" as const } : {}), sourceCandidateId: source!.candidateId, anchorItemId: anchorId, ...(leaveOutId ? { leaveOutItemId: leaveOutId } : {}), occasion: explore ? occasion : occasion.trim() } }) };
     const submittedKey = storageKey;
     setPending(command);

@@ -7,7 +7,8 @@ import { isNewer, pickLatestPerCandidate } from "@/lib/latestFeedbackState";
 import { projectInteractionRow, projectSnapshotRow, type BehavioralRowsWire, type InteractionLean } from "@/lib/mlBehavioralRows";
 import { visibleSnapshots, type SnapshotVisibility } from "@/lib/snapshotVisibility";
 import { readStyleMemoryOwner } from "@/lib/styleMemory/store";
-import { resolveOwnedStyleContext } from "@/lib/styleMemory/context";
+import { contextIsVisible, resolveOwnedStyleContext } from "@/lib/styleMemory/context";
+import { StyleMemoryError } from "@/lib/styleMemory/validation";
 import { findExclusionSet, type SavedExclusionSet, type StyleContextSelection } from "@/lib/styleMemory/contract";
 import { validCapturedStyleContext, type CapturedStyleContext } from "@/lib/styleContext";
 import { initialLearningDisposition, type LearningDisposition } from "@/lib/styleLearningAmendments";
@@ -102,7 +103,7 @@ export interface StylePreferenceEvidence {
 
 /** One snapshot read transaction captures owner revision, all admitted feedback, source visibility and frozen facts. */
 export async function buildStylePreferenceEvidence(ownerId: string | Types.ObjectId, selection: StyleContextSelection,
-  weatherScope: CapturedStyleContext["weather"], options: { allowHistoricalVersions?: boolean; afterOwnerRead?: () => Promise<void> } = {}): Promise<StylePreferenceEvidence> {
+  weatherScope: CapturedStyleContext["weather"], options: { allowHistoricalVersions?: boolean; requiredActiveSource?: StyleContextSelection; afterOwnerRead?: () => Promise<void> } = {}): Promise<StylePreferenceEvidence> {
   if (!["cold", "mild", "hot", "unspecified"].includes(weatherScope)) throw new Error("Unsupported style weather scope");
   const owner = new Types.ObjectId(String(ownerId));
   const session = await User.db.startSession();
@@ -110,6 +111,16 @@ export async function buildStylePreferenceEvidence(ownerId: string | Types.Objec
     return await session.withTransaction(async () => {
       const { data, revision } = await readStyleMemoryOwner(owner, session);
       await options.afterOwnerRead?.();
+      // Adaptation may clear Routine/learning on the target; the original named source must
+      // still be visible and active in this SAME captured owner revision. Its old opt-in is
+      // irrelevant to the new situation, so do not resolve its learning setting here.
+      const source = options.requiredActiveSource;
+      if (source) {
+        if (!contextIsVisible(data, source)) throw new StyleMemoryError(404, "context_unavailable", "That saved styling context is no longer available.");
+        if (data.boards.find(row => row.id === source.boardId)?.status !== "active" ||
+          (source.routineId !== null && data.routines.find(row => row.id === source.routineId)?.status !== "active"))
+          throw new StyleMemoryError(409, "context_archived", "Restore this direction or situation before making another outfit.");
+      }
       const resolved = resolveOwnedStyleContext(data, revision, selection, { allowHistoricalVersions: options.allowHistoricalVersions });
       const styleContext: CapturedStyleContext = { ...resolved, weather: weatherScope };
       const ledger = await OutfitInteraction.collection.find({ user: owner }, { session, maxTimeMS: 5_000 }).sort({ createdAt: -1, _id: -1 }).limit(FEEDBACK_ACCOUNT_ROW_LIMIT + 1).toArray() as unknown as PreferenceLedgerRow[];

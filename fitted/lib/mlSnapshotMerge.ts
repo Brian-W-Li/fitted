@@ -128,6 +128,7 @@ export interface RenderIdentity {
   variationSourceCandidateId: string | null;
   variationSourceExperienceId: string | null;
   variationSourceRevision: number | null;
+  variationIndependentSource: boolean;
 }
 
 /** Build the comparable identity from raw fields (used for BOTH the incoming request and a stored
@@ -148,6 +149,7 @@ export function makeRenderIdentity(f: {
   variationSourceCandidateId?: unknown;
   variationSourceExperienceId?: unknown;
   variationSourceRevision?: unknown;
+  variationIndependentSource?: unknown;
 }): RenderIdentity {
   const controls = normalizeControls(f.controls);
   return {
@@ -167,6 +169,7 @@ export function makeRenderIdentity(f: {
     variationSourceCandidateId: s(f.variationSourceCandidateId),
     variationSourceExperienceId: s(f.variationSourceExperienceId),
     variationSourceRevision: f.variationSourceRevision == null ? null : Number(f.variationSourceRevision),
+    variationIndependentSource: f.variationIndependentSource === true,
   };
 }
 
@@ -191,7 +194,8 @@ export function identityMatches(a: RenderIdentity, b: RenderIdentity): boolean {
     arraysEqual(a.excludedOutfitItemIds, b.excludedOutfitItemIds) &&
     a.variationSourceCandidateId === b.variationSourceCandidateId &&
     a.variationSourceExperienceId === b.variationSourceExperienceId &&
-    a.variationSourceRevision === b.variationSourceRevision
+    a.variationSourceRevision === b.variationSourceRevision &&
+    a.variationIndependentSource === b.variationIndependentSource
   );
 }
 

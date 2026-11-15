@@ -967,7 +967,13 @@ async function run() {
   assert.equal(changedReport.revisions.at(-1).state.memberItems.find(item => item.itemId === oldPiece).photo.imageRef, `mongo:${refreshedImageId}`);
   assert.equal(changedReport.revisions[0].state.memberItems.find(item => item.itemId === oldPiece).photo.imageRef, `mongo:${substituteImageId}`);
   assert.ok((await db.collection("wardrobeimages").findOne({ _id: substituteImageId })).wearReferences.includes(changedReport.experienceId), "older retained revision protects its photo");
+  // Author the hidden-source fixture without changing the independently captured wear.
+  // Restore it after this check so the existing shown-composition correction is also exercised.
+  const independentSourceBefore = await db.collection("generationsnapshots").findOne({ _id: changedReport.snapshotId });
+  assert.ok(independentSourceBefore, "synthetic independent-wear setup has its shown source");
+  await db.collection("generationsnapshots").updateOne({ _id: changedReport.snapshotId }, { $set: { redacted: true } });
   await page.reload();
+  await wearPhotoCard.getByText("Original suggestion is no longer available.").waitFor();
   await wearPhotoCard.locator(`img[src="/api/images/${refreshedImageId}"]`).waitFor();
   // R4: the new proposal starts from the corrected actual composition, which contains oldPiece
   // and excludes the suggestion's otherBottom. The explicit choice keeps the shirt and leaves
@@ -985,6 +991,7 @@ async function run() {
   assert.equal(actualVariationResponse.status(), 200, JSON.stringify(actualVariation));
   assert.ok(actualVariation.shown.length > 0, "actual-outfit variation surfaces a proposal");
   const actualRequest = actualVariationResponse.request().postDataJSON();
+  assert.equal(actualRequest.actualVariation.independentSource, true, "the compiled UI freezes the fresh independent command");
   assert.equal(actualRequest.actualVariation.experienceId, changedReport.experienceId);
   assert.equal(actualRequest.actualVariation.expectedRevision, changedReport.currentRevision);
   assert.equal(actualRequest.actualVariation.leaveOutItemId, oldPiece);
@@ -995,6 +1002,13 @@ async function run() {
     assert.ok(!members.includes(oldPiece), "actual-wear variation excludes the chosen worn piece");
   }
   const actualRow = await db.collection("generationsnapshots").findOne({ user: new ObjectId(owner.userId), requestId: actualRequest.requestId });
+  assert.equal(actualRow.variationIndependentSource, true);
+  assert.equal(actualRow.generationIndex, 1, "independent keep/avoid preserves the service child contract");
+  assert.equal(String(actualRow.parentSnapshotId), String(changedReport.snapshotId), "only the report-held source identity is retained");
+  assert.equal(actualRow.styleContext, undefined, "independent wear never inherits hidden style meaning");
+  assert.equal(actualRow.explicitExclusions, undefined, "independent wear never inherits hidden saved rules");
+  await db.collection("generationsnapshots").updateOne({ _id: changedReport.snapshotId },
+    Object.hasOwn(independentSourceBefore, "redacted") ? { $set: { redacted: independentSourceBefore.redacted } } : { $unset: { redacted: "" } });
   assert.equal(actualRow.variationSourceExperienceId, changedReport.experienceId);
   assert.equal(actualRow.variationSourceRevision, changedReport.currentRevision);
   assert.equal((await db.collection("outfitexperiences").findOne({ experienceId: changedReport.experienceId })).currentRevision, changedReport.currentRevision,

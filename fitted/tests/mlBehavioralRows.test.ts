@@ -16,6 +16,7 @@ import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
 import { Types } from "mongoose";
+import User from "@/models/User";
 import OutfitInteraction from "@/models/OutfitInteraction";
 import GenerationSnapshot from "@/models/GenerationSnapshot";
 import {
@@ -25,6 +26,8 @@ import {
   type BehavioralRowsWire,
 } from "@/lib/mlBehavioralRows";
 import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
+import { namedOwner, styledSnapshot } from "./helpers/styleLearningFixture";
+import { makeSnapshot } from "./helpers/interactionFixture";
 
 const ML_SYSTEM = path.join(__dirname, "../../ml-system");
 const CONTRACT = JSON.parse(
@@ -33,7 +36,7 @@ const CONTRACT = JSON.parse(
 
 let harness: MongoHarness;
 beforeAll(async () => {
-  harness = await startMemoryMongo([OutfitInteraction, GenerationSnapshot]);
+  harness = await startMemoryMongo([User, OutfitInteraction, GenerationSnapshot]);
 }, 120_000);
 afterAll(async () => await harness.stop());
 afterEach(async () => await harness.clear());
@@ -241,6 +244,44 @@ describe("real Mongo fetch — sort, tie-break, bound, serialization", () => {
 
 // ---------------------------------------------------------------------------
 describe("cross-runtime — projected rows drive the REAL Python reducers", () => {
+  it("keeps named taste out of unscoped requests while preserving true legacy taste and owner-wide exposure", async () => {
+    const f = await namedOwner(), user = new Types.ObjectId(f.owner);
+    const named = await styledSnapshot(f.owner, f.context), legacy = await makeSnapshot(f.owner);
+    const namedSnapshot = await GenerationSnapshot.collection.findOne({ _id: new Types.ObjectId(named.snapshotId) });
+    const legacySnapshot = await GenerationSnapshot.collection.findOne({ _id: new Types.ObjectId(legacy.snapshotId) });
+    const namedSignature = namedSnapshot!.shownFullSignatures[0], legacySignature = legacySnapshot!.shownFullSignatures[0];
+    const missingLegacyItem = oid();
+    const namedBinding = { snapshotId: new Types.ObjectId(named.snapshotId), candidateId: named.candidateId,
+      items: [new Types.ObjectId(named.topId), new Types.ObjectId(named.bottomId)], baseKey: "named-campus", fullSignature: namedSignature };
+    const legacyBinding = { snapshotId: new Types.ObjectId(legacy.snapshotId), candidateId: legacy.candidateId,
+      items: [new Types.ObjectId(legacy.topId), new Types.ObjectId(legacy.bottomId)], baseKey: "legacy", fullSignature: legacySignature };
+    await OutfitInteraction.collection.insertMany([
+      // The immutable source is authoritative even if a row has lost its copied context.
+      { user, ...namedBinding, action: "accepted", styleContext: f.context, createdAt: new Date("2026-07-01T00:00:00Z") },
+      { user, ...namedBinding, action: "rejected", createdAt: new Date("2026-07-02T00:00:00Z") },
+      // Conversely, copied named context cannot turn global merely because its source
+      // is missing or has no context. Never silently relabel these rows as legacy.
+      { user, ...legacyBinding, action: "accepted", styleContext: f.context, createdAt: new Date("2026-07-03T00:00:00Z") },
+      { user, snapshotId: oid(), candidateId: "missing-named", items: [oid()], baseKey: "missing-named",
+        fullSignature: "missing-named", action: "accepted", styleContext: f.context, createdAt: new Date("2026-07-04T00:00:00Z") },
+      { user, ...legacyBinding, action: "accepted", createdAt: new Date("2026-07-05T00:00:00Z") },
+      // Missing snapshots retain the pre-existing true-legacy reducer treatment.
+      { user, snapshotId: oid(), candidateId: "missing-legacy", items: [missingLegacyItem], baseKey: "missing-legacy",
+        fullSignature: "missing-legacy", action: "rejected", styleContext: null,
+        perItemFeedback: [{ itemId: missingLegacyItem, disliked: true }], createdAt: new Date("2026-07-06T00:00:00Z") },
+    ]);
+    const rows = await buildBehavioralRows(user, { OutfitInteraction, GenerationSnapshot });
+    expect(rows.interactionRows.map(row => row.fullSignature)).toEqual(["missing-legacy", legacySignature]);
+    expect(rows.recentSnapshots.flatMap(row => row.shownFullSignatures).sort()).toEqual([namedSignature, legacySignature].sort());
+
+    const signals = reduceViaPython(rows);
+    expect(signals.item_affinity).toEqual({ [legacy.topId]: 1, [legacy.bottomId]: 1 });
+    expect(signals.liked_full_signatures).toEqual([legacySignature]);
+    expect(signals.recent_disliked_base_keys).toEqual(["missing-legacy"]);
+    expect(signals.recent_disliked_item_ids).toEqual([String(missingLegacyItem)]);
+    expect(signals.shown_full_signatures.sort()).toEqual([namedSignature, legacySignature].sort());
+  });
+
   it("an accepted row boosts affinity + likes the signature; a rejected row cools + dislikes", async () => {
     const user = oid();
     const liked1 = oid();

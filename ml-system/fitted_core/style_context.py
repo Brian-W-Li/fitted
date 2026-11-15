@@ -31,7 +31,7 @@ def normalize_style_context(value: Any) -> dict | None:
         if value["routineVersion"] is not None or value["routineLabel"] is not None:
             raise ValueError("styleContext routine fields disagree")
     elif (not isinstance(value["routineId"], str) or not _ID.fullmatch(value["routineId"]) or
-          type(value["routineVersion"]) is not int or value["routineVersion"] < 1 or value["routineLabel"] is None):
+          type(value["routineVersion"]) is not int or not 1 <= value["routineVersion"] <= 2**53 - 1 or value["routineLabel"] is None):
         raise ValueError("styleContext routine fields are invalid")
     if type(value["learningEnabled"]) is not bool or (value["learningEnabled"] and value["routineId"] is None):
         raise ValueError("styleContext learning setting is invalid")

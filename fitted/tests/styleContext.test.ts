@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { parseStyleSelection, styleSelectionKey, validCapturedStyleContext, sameCapturedStyleContext } from "@/lib/styleContext";
 import { preferenceDecisionMessage, projectPreferenceDecision } from "@/lib/stylePreferenceDecision";
 
@@ -35,4 +37,16 @@ it("shows honest unchanged-set feedback and strips decision internals from brows
   expect(preferenceDecisionMessage({ ...safe, selectionChanged: true }, true)).toMatch(/helped choose this set/);
   expect(preferenceDecisionMessage(undefined, false)).toMatch(/off/);
   expect(projectPreferenceDecision({ ...raw, support: -1 })).toBeUndefined();
+});
+
+
+// Literal shared cases pin the boundary's meaning, independent of either validator.
+const validationCases = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/styleContextValidation.json"), "utf8")) as {
+  base: Record<string, unknown>; cases: { name: string; patch: Record<string, unknown>; remove?: string[]; valid: boolean }[];
+};
+it.each(validationCases.cases)("captured context contract: $name", ({ patch, remove, valid }) => {
+  const value = { ...validationCases.base, ...patch };
+  for (const key of remove ?? []) delete value[key];
+  expect(validCapturedStyleContext(value)).toBe(valid);
+  if (valid) expect(sameCapturedStyleContext(value, JSON.parse(JSON.stringify(value)))).toBe(true);
 });

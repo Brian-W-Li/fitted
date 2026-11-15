@@ -86,7 +86,8 @@ function OwnerControls(props: Props) {
     if (apply(scope, applicable(scope).filter(entry => key(entry) !== key(rule)))) setUndo({ scope, contextKey: currentKey, rule });
   }
   const undoApplicable = undo && (undo.scope === "request" || undo.contextKey === currentKey);
-  const undoReady = undoApplicable && !applicable(undo.scope).some(entry => key(entry) === key(undo.rule));
+  const undoOwned = !!pieces && !!undo && undo.rule.itemIds.every(id => pieces.some(piece => piece.id === id));
+  const undoReady = undoApplicable && undoOwned && !applicable(undo.scope).some(entry => key(entry) === key(undo.rule));
   return <div className="mt-3 min-w-0">
     <details onToggle={event => setOpen(event.currentTarget.open)}>
       <summary className="cursor-pointer text-sm font-medium">Leave pieces or an exact outfit out</summary>
@@ -104,6 +105,7 @@ function OwnerControls(props: Props) {
         {undoApplicable && <button type="button" className={button} disabled={disabled || !undoReady} onClick={() => {
           if (undo && !disabled && undoReady && apply(undo.scope, [...applicable(undo.scope), undo.rule])) setUndo(null);
         }}>Undo last removal</button>}
+        {undoApplicable && pieces && !undoOwned && <p>This exclusion cannot be restored because a piece was removed from your wardrobe.</p>}
         {actionError && <p role="alert">{actionError}</p>}
       </div>
     </details>

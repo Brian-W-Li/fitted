@@ -134,3 +134,17 @@ it("inherits the original situation meaning after a semantic edit instead of usi
   expect(inherited.styleContext.routineLabel).toBe("Class");
   await expect(buildStylePreferenceEvidence(f.owner, f.selection, "mild")).rejects.toMatchObject({ code: "version_conflict" });
 });
+
+
+it("checks original source visibility/activity in the captured revision without imposing its former learning opt-in", async () => {
+  const f = await namedOwner();
+  const target = { ...f.selection, routineId: null, routineVersion: null, learningEnabled: false };
+  await User.updateOne({ _id: f.owner }, { $set: { "styleMemory.boards.0.learningOptIns": [], styleMemoryRevision: 1 } });
+  const result = await buildStylePreferenceEvidence(f.owner, target, "mild", { requiredActiveSource: f.selection });
+  expect(result.memoryRevision).toBe(1); expect(result.styleContext).toMatchObject({ routineId: null, learningEnabled: false });
+  await expect(buildStylePreferenceEvidence(f.owner, target, "mild", { requiredActiveSource: { ...f.selection, profileId: oid() } }))
+    .rejects.toMatchObject({ status: 404, code: "context_unavailable" });
+  await User.updateOne({ _id: f.owner }, { $set: { "styleMemory.routines.0.status": "archived", styleMemoryRevision: 2 } });
+  await expect(buildStylePreferenceEvidence(f.owner, target, "mild", { requiredActiveSource: f.selection }))
+    .rejects.toMatchObject({ status: 409, code: "context_archived" });
+});

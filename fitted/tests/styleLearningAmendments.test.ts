@@ -9,6 +9,7 @@ import GenerationSnapshot from "@/models/GenerationSnapshot";
 import OutfitInteraction from "@/models/OutfitInteraction";
 import { __resetInteractionRateLimit, deleteInteraction, getInteractions, postInteraction } from "@/lib/interactions";
 import { buildBehavioralRows } from "@/lib/mlBehavioralRows";
+import { buildStylePreferenceEvidence } from "@/lib/stylePreferenceEvidence";
 import { voteEvidenceFilter } from "@/lib/feedbackEvidence.cjs";
 import { gate } from "./helpers/experienceFixture";
 import { deps, namedOwner, oid, react, request, styledSnapshot } from "./helpers/styleLearningFixture";
@@ -33,17 +34,24 @@ it("records captured opt-in plain votes as normal and never counts eligibility a
   expect((await history(f.owner))).toHaveLength(1);
   expect((await history(f.owner))[0]).toMatchObject({ id: reactionId, action: "accepted", learningDisposition: "exception", dispositionRevision: 1 });
   expect(await revision(f.owner)).toBe(2);
-  expect((await buildBehavioralRows(f.owner, { OutfitInteraction, GenerationSnapshot })).interactionRows).toHaveLength(1);
+  expect((await buildBehavioralRows(f.owner, { OutfitInteraction, GenerationSnapshot })).interactionRows).toHaveLength(0);
+  const scoped = await buildStylePreferenceEvidence(f.owner, f.selection, "mild");
+  expect(scoped.behavioralRows.interactionRows).toHaveLength(1);
+  expect(scoped.preferenceRows).toHaveLength(0);
 });
 
 it("atomically marks a scoped reservation exceptional without changing accepted-item affinity; clear stays exceptional", async () => {
   const f = await namedOwner(), source = await styledSnapshot(f.owner, f.context), reactionId = await react(f.owner, source);
-  const before = await buildBehavioralRows(f.owner, { OutfitInteraction, GenerationSnapshot });
+  const before = await buildStylePreferenceEvidence(f.owner, f.selection, "mild");
+  expect(before.behavioralRows.interactionRows).toHaveLength(1);
+  expect(before.preferenceRows).toHaveLength(1);
   const note = { kind: "reason_amendment", reactionId, operationId: randomUUID(), feedbackReason: { scope: "item", concern: "fit", itemId: source.topId, rawText: "Sleeves bother me" } };
   expect((await postInteraction(request(note), deps(f.owner))).status).toBe(200);
   expect(await OutfitInteraction.countDocuments({ user: f.owner })).toBe(3);
   expect(await revision(f.owner)).toBe(2);
-  expect(await buildBehavioralRows(f.owner, { OutfitInteraction, GenerationSnapshot })).toEqual(before);
+  const after = await buildStylePreferenceEvidence(f.owner, f.selection, "mild");
+  expect(after.behavioralRows).toEqual(before.behavioralRows);
+  expect(after.preferenceRows).toHaveLength(0);
   expect((await history(f.owner))[0]).toMatchObject({ action: "accepted", learningDisposition: "exception", dispositionRevision: 1 });
   expect((await postInteraction(request(note), deps(f.owner))).status).toBe(200);
   expect(await revision(f.owner)).toBe(2);

@@ -1046,6 +1046,14 @@ contains `accepted` and `rejected`: preference proxies, not proof of actual wear
   evidence is not reconstructed. No migration or photo byte copying is implied.
 - **Saved proposals and dated plans:** saving/planning expresses intent, never reported wear or satisfaction. Plans retain exact owner-bound source references, named-zone calendar days, atomic versions and content-free removal markers. Hydration rechecks source visibility and current garment availability; admission does not guarantee future usability. Planning hints never prefill actual wear.
 - **Adaptation and exploration:** new-situation adaptation keeps one available source member and optionally excludes one exact different member. Omitting exclusion permits the same combination. The stylist receives anchor and situation, not the full source as a style reference; wording guides generation while exact controls are enforced. A changed-wear source remains revision-bound. Saved/shown same-situation exploration excludes the immediate source garment set, promising different membership from that source only, not pairwise/global novelty. A bounded render may find no alternative. These actions create suggestions without changing original intent, wear or reactions.
+- **Independent actual-wear adaptation:** a changed-wear report with captured actual
+  members remains usable when its shown source is unavailable. A fresh explicitly
+  independent command uses those owned actual pieces without inheriting hidden or
+  erased style meaning or saved exclusions. An old pending command is never silently
+  converted into that new meaning. Exact completed retries retain their own captured
+  lineage and still require the active exact report revision. A visible archived style
+  source must be restored before creating descendants; it cannot be bypassed by
+  requesting independent mode.
 - **Learning boundary:** existing like/dislike reducers retain their semantics. Experience records,
   corrections and missing outcomes do not feed those reducers or alter ranking. Any future learning
   use needs its own evidence and contract; historical accepted rows must never become wear outcomes.

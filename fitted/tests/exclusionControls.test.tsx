@@ -100,7 +100,7 @@ it("keeps saved scope unavailable without context and never reassigns a draft af
   expect(p.onOneRequestChange).not.toHaveBeenCalled(); expect(p.onSave).not.toHaveBeenCalled();
 });
 
-it("removes deleted references and undoes the same saved set only after the acknowledged removal", async () => {
+it("removes deleted references without promising an ownership-invalid Undo", async () => {
   const p = props(), missing = id(99); p.memory = memory([rule(missing)]);
   const { rerender } = render(<ExclusionControls {...p} />); await open(); await screen.findByRole("radio", { name: "Authored shirt" });
   const list = screen.getByRole("list", { name: "Saved exclusions" }); expect(within(list).getByText("One piece: Unavailable piece")).toBeInTheDocument();
@@ -110,9 +110,24 @@ it("removes deleted references and undoes the same saved set only after the ackn
   expect(screen.getByRole("button", { name: "Undo last removal" })).toBeDisabled();
   const acknowledged = memory(); acknowledged.boards[0].exclusionSets = [{ id: id(4), revision: 8, profileVersion: 1, routineId: context.routineId, routineVersion: 1, entries: [] }];
   rerender(<ExclusionControls {...p} memory={acknowledged} />);
+  expect(screen.getByRole("button", { name: "Undo last removal" })).toBeDisabled();
+  expect(screen.getByText("This exclusion cannot be restored because a piece was removed from your wardrobe.")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Undo last removal" }));
-  expect(p.onSave).toHaveBeenLastCalledWith({ kind: "set_exclusions", boardId: context.boardId, profileVersion: 1, routineId: context.routineId, routineVersion: 1,
-    expectedSetRevision: 8, itemIds: [missing], outfitItemIds: [] });
+  expect(p.onSave).toHaveBeenCalledTimes(1);
+});
+
+it("allows Undo for an unavailable piece that is still owned", async () => {
+  const p = props(); p.memory = memory([rule(id(11))]);
+  fetchMock.mockResolvedValue(response([{ id: id(11), name: "Owned unavailable shirt", isAvailable: false }]));
+  const { rerender } = render(<ExclusionControls {...p} />); await open();
+  await screen.findByRole("radio", { name: "Owned unavailable shirt (currently unavailable)" });
+  await userEvent.click(within(screen.getByRole("list", { name: "Saved exclusions" })).getByRole("button", { name: /Remove piece:/ }));
+  const acknowledged = memory(); acknowledged.boards[0].exclusionSets = [{ id: id(4), revision: 8, profileVersion: 1, routineId: context.routineId, routineVersion: 1, entries: [] }];
+  rerender(<ExclusionControls {...p} memory={acknowledged} />);
+  expect(screen.getByRole("button", { name: "Undo last removal" })).toBeEnabled();
+  await userEvent.click(screen.getByRole("button", { name: "Undo last removal" }));
+  expect(p.onSave).toHaveBeenLastCalledWith(expect.objectContaining({ expectedSetRevision: 8, itemIds: [id(11)] }));
+  expect(screen.queryByText(/cannot be restored/)).not.toBeInTheDocument();
 });
 
 it.each([

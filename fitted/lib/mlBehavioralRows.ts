@@ -71,6 +71,8 @@ export interface InteractionLean {
   candidateId?: string | null;
   baseKey?: string | null;
   fullSignature?: string | null;
+  /** Any non-null capture belongs to the named path, even if its source was removed. */
+  styleContext?: unknown;
   items?: Stringable[];
   perItemFeedback?: Array<{ itemId?: Stringable; disliked?: boolean }> | null;
 }
@@ -159,15 +161,16 @@ export async function buildBehavioralRows(
     reactionId: { $in: interactions.map(row => row._id) },
   }).sort({ createdAt: -1, _id: -1 }).limit(FEEDBACK_ACCOUNT_ROW_LIMIT).lean() : [];
   const evidence = resolveFeedbackEvidence(interactions, amendments);
-  // Existing reactions to a later-redacted proposal cannot keep teaching the reducer.
-  // Preserve the bounded scan; missing snapshots retain their historical treatment.
+  // Existing reactions to hidden proposals cannot keep teaching the reducer. Named
+  // source evidence stays on its own partition, even if the row lost its copied context.
+  // Preserve the bounded scan; genuinely unscoped missing sources retain legacy treatment.
   const bound = await models.GenerationSnapshot.find({ user: userId,
     _id: { $in: interactions.map((row) => row.snapshotId) } })
     .select({ _id: 1, redacted: 1, variationSourceExperienceId: 1, variationSourceRevision: 1, styleContext: 1 }).lean();
   const visible = new Set(await visibleSnapshots(userId, bound));
-  const redactedIds = new Set(bound.filter(row => !visible.has(row)).map(row => hex(row._id)));
+  const excludedIds = new Set(bound.filter(row => !visible.has(row) || row.styleContext != null).map(row => hex(row._id)));
   return {
-    interactionRows: evidence.filter((row) => !redactedIds.has(String(row.snapshotId))).map(projectInteractionRow),
+    interactionRows: evidence.filter((row) => row.styleContext == null && !excludedIds.has(String(row.snapshotId))).map(projectInteractionRow),
     recentSnapshots: (await visibleSnapshots(userId, snapshots)).map(projectSnapshotRow),
   };
 }

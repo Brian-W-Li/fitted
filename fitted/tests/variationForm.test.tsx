@@ -84,7 +84,7 @@ it("adapts a changed report from actual pieces, including one absent from the su
   fireEvent.click(screen.getByRole("button", { name: "Find an outfit" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ requestId: "11111111-1111-4111-8111-111111111111",
-    actualVariation: { experienceId: "wear-1", expectedRevision: 1, anchorItemId: actual.items[0].itemId,
+    actualVariation: { independentSource: true, experienceId: "wear-1", expectedRevision: 1, anchorItemId: actual.items[0].itemId,
       leaveOutItemId: "650000000000000000000006", occasion: "Dinner" } });
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("parentSnapshotId");
   expect(screen.getByText(/original suggestion is recorded separately/)).toBeInTheDocument();
@@ -277,4 +277,42 @@ it("adapts an unchanged wear back to the source occasion using its corrected rep
   fireEvent.click(screen.getByRole("button", { name: "Find an outfit" }));
   await screen.findByText("New proposal for Class");
   expect(JSON.parse(fetchMock.mock.calls[0][1].body).variation.occasion).toBe("Class");
+});
+
+
+it.each([true, false])("freezes independent source mode %s through a lost response and a changed source view", async independent => {
+  const actual = { ...experience, state: { ...experience.state, compositionStatus: "changed" as const }, sourceAvailable: !independent,
+    source: independent ? null : source, sourceItems: [] };
+  const fetchMock = jest.fn().mockRejectedValueOnce(new Error("lost acknowledgement"))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ shown: [] }) });
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: fetchMock });
+  const first = render(<VariationForm user={user} experience={actual} />);
+  fireEvent.click(screen.getByRole("button", { name: "Make another outfit" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "New situation" }), { target: { value: "Dinner" } });
+  fireEvent.click(screen.getByRole("button", { name: "Find an outfit" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Retry with the same request");
+  const original = fetchMock.mock.calls[0][1].body;
+  expect(JSON.parse(original).actualVariation.independentSource).toBe(independent ? true : undefined);
+  first.unmount();
+  render(<VariationForm user={user} experience={{ ...actual, sourceAvailable: independent, source: independent ? source : null }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Retry same request" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(fetchMock.mock.calls[1][1].body).toBe(original);
+});
+
+
+it.each([
+  ["experience_source_changed", "Reload this wear report before starting another adaptation."],
+  ["context_archived", "Restore the saved direction or situation before making another outfit."],
+])("explains %s without offering an invalid same-command retry", async (code, message) => {
+  const actual = { ...experience, state: { ...experience.state, compositionStatus: "changed" as const }, sourceAvailable: false, source: null };
+  const fetchMock = jest.fn().mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: { code } }) });
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: fetchMock });
+  render(<VariationForm user={user} experience={actual} />);
+  fireEvent.click(screen.getByRole("button", { name: "Make another outfit" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "New situation" }), { target: { value: "Dinner" } });
+  fireEvent.click(screen.getByRole("button", { name: "Find an outfit" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  expect(screen.queryByRole("button", { name: "Retry same request" })).not.toBeInTheDocument();
+  expect(sessionStorage.length).toBe(0);
 });
