@@ -2,10 +2,11 @@
 
 ## Review and solidification — November 15, 2026
 
-Brian replaced feature expansion with a review of the delivered checkpoint. Review
-repairs are implemented and locally checked; hosted verification and the final saved
-handoff are the remaining review actions. Home redesign and broader feature acceptance
-are not being resumed. Starting public baseline was `7120bdfc`, code `5981061d`.
+Brian replaced feature expansion with a review of the delivered checkpoint. This
+review is complete at the requested stopping point; feature work remains on hold.
+Starting public baseline was `7120bdfc`, code `5981061d`. Reviewed repair code
+`98af165bf7da72156946ea5f22f0cebde28bff4d` is saved on `codex/style-memory-baseline`.
+The larger product is incomplete; this review does not resume its feature backlog.
 
 | Separate check | Finding and resolution | Evidence / limit |
 |---|---|---|
@@ -21,26 +22,32 @@ contracts pass. The compiled production app passed including temporary synthetic
 redaction, retained-wear adaptation, final membership, correction, plans, learning and
 deletion. That local browser run preceded only the final legacy-projection refinement,
 which has real-Mongo→Python and full web coverage. Hosted checks on the exact final
-source remain pending. No paid calls, personal sign-in, merge or deployment occurred.
+source both passed: [conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43776584936)
+and [whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43776584934).
+These hosted checks cover the final legacy projection as well. The documentation-only
+closeout retains those exact code/test bytes. Ten existing skips are the explicitly
+gated live-corpus and paid-provider smoke suites; neither was enabled. All local/hosted
+handles are terminal and owned local ports are closed. No paid calls, personal sign-in,
+merge or deployment occurred.
 
 No known confirmed defect remains in the reviewed fixes. This is not a bug-free
 certificate or whole-product completion. The remaining faithful private correction /
 availability / navigation walkthrough, Home fast entry / 390px use and observed human
 styling benefit remain distinct product/evidence gaps, outside this review phase.
 
-Next 1–3 review actions:
+No review action or user input remains pending. The reviewed checkpoint, exact
+hosted checks and restricted handoff are saved. Stop here; do not resume feature work
+automatically. If Brian later resumes development, the next bounded product work is
+the faithful private journey, then Home/390px usability, with a separate milestone
+review. Provider spend and deployment retain their separate authorization boundary.
 
-1. Save the reviewed code/contracts and verify both exact hosted workflows.
-2. Record final hashes, workspace state, checks and any remaining blockers here.
-3. Stop at the reviewed checkpoint; do not resume feature expansion automatically.
-
-No user input is currently required. Coordinator remains
+No blocker was found remaining in the reviewed fixes. Coordinator remains
 `/Users/Brian/.codex/worktrees/s3-outfit-correction/fitted`, branch
 `codex/s3-outfit-learner`, original HEAD `7a542d46`; preserve all 198 dirty entries
 and private ancestry. Public export remains `/private/tmp/fitted-style-memory-baseline`;
 119 selected source/test/tooling/spec paths match the reviewed source. Receipt:
 `/private/tmp/fitted-solidification-export.json`. Restricted review logs and full dirty
-inventory will be retained under `.private/app-verification/solidification-2026-11-15/`
+inventory are retained under `.private/app-verification/solidification-2026-11-15/`
 in the historical root. Canonical documentation has private history in the coordinator;
 reviewed public paragraphs are edited independently, never whole-document copied.
 
