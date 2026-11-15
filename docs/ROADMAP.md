@@ -1,63 +1,58 @@
 # Current direction and work
 
-## Explicit exclusions checkpoint — November 15, 2026
+## Current checkpoint — November 15, 2026
 
-The actual app now supports explicit saved item and exact complete-outfit exclusions,
-request-only exclusions, removal and Undo. Scope is the exact profile/Routine semantic
-version, independent of weather and learning opt-in. Earlier retained meanings remain
-editable from their shown outfit; fresh requests wait while that separate scope is
-managed. New semantic versions do not inherit rules, and adaptation resolves only its
-new null-Routine scope. Notes, votes, plans and wear never become instructions.
+The larger actual-app styling goal remains active and incomplete. Editable saved
+intentions, bounded context-scoped learning, correctable feedback and explicit
+saved/request-only exclusions are implemented. Private app rehearsals have demonstrated
+ordinary feedback collection, correction/profile isolation and instruction enforcement
+using original captured photos and preserved drafts. These are operator-authored
+engineering checks, not evidence of improved owner taste or fresh styling quality.
 
-Saved writes validate new target ownership inside the owner transaction and preserve
-inert deleted/unavailable references. Commands freeze acknowledged set references and
-one-request input; retries replay their captured policy after later rule edits. Stale
-fresh references fail before provider dispatch, and in-flight edits retain terminal
-superseded receipts. Item bans and complete unordered membership bans are nonrelaxable
-through generation, pre-learning filtering, ranking, cooldown fallback, layer reservations
-and final admission. All snapshot outcomes retain the independently versioned policy.
-A kept/banned piece conflict stops before generation. Both runtimes must ship together;
-older strict services reject this new optional envelope before spending.
+The latest bounded repair prevents an unrelated wardrobe edit from rewriting other
+facts. The UI now submits only changed editable metadata. Fit/pattern correction and
+undo preserve type, warmth, untouched unknowns, all colours and photos. Real taxonomy
+changes still rederive type/warmth; name changes intentionally retain H47 warmth
+derivation. The durable contract lives in canonical spec §18 and the source index in
+[the implementation specification](plans/personal-styling-loop.md).
 
-Independent reviews caught enum coercion across runtimes, a modal that could preview a
-new result's context while retaining an older source, and current rules being displayed
-as a pending command's frozen rules. Those were repaired. Real-Mongo admission cases
-cover replay after Undo, new stale refs, ownership/conflicts, missing/wrong echo, rejected
-shown membership, superseded retry, child omission and null-Routine adaptation. Five
-client integration cases cover consumption, exact remount recovery, acknowledgement,
-stale refresh, captured-source preview and editing retained-version rules. Wear adaptation
-receives only a live visible source's minimal scope identity, never copied profile meaning;
-focused erasure/adaptation checks pass after that final privacy refinement.
+Three mounted-client regressions failed before the repair. Four client cases now
+cover fit/undo, rename, explicit clears/season changes and photo-only saves; two
+real-Mongo cases verify stored facts and genuine taxonomy derivation. An independent
+review found no blocking defect. An isolated dropped-clear mutation was caught by two
+cases against a passing baseline. The compiled app verifies corrected facts reaching
+a fresh generation, then undo with both old/new snapshots unchanged, within its
+broader rescue/exploration/learning/plan/wear/correction/deletion journey.
 
-The full local public web regression passed (1,821 tests / ten existing skips) before
-final focused privacy/test refinements; the final focused checks pass (nine admission,
-five client integration and 27 visibility/variation cases). Full Python core/service
-regression passes 1,317; TypeScript, lint (zero errors; 35 warnings) and 27 synthetic Node
-contracts pass. Two isolated non-equivalent mutations (subset-based combo matching and
-bypassed pre-learning filtering) were caught against passing baselines. The compiled
-private journey passed six normal renders: initial plus five instruction probes,
-using original captured photos and intact preserved drafts with zero feedback writes.
-Saved item/combo constraints, semantic-ID/revision-preserving Undo and one-request
-consumption were verified on actual displayed members. The following request actually
-showed the previously avoided piece again. Python independently checked all five signed
-policies and 15 displayed outfits. Private supply did not show every allowed top/superset;
-focused Python integration/negative tests establish that full exact-set distinction.
+Local checks pass: web 1,829 tests / ten existing skips; TypeScript; lint (zero errors,
+35 warnings); 27 Node fixture contracts; production build and full compiled browser;
+seven focused documentation
+guards in each checkout. Python production code is unchanged. Code checkpoint
+`5981061d679456e553a923639f8293611005501b` is pushed on `codex/style-memory-baseline`.
+Exact hosted [conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43771653029)
+and [whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43771652914)
+both passed on that code. All local/hosted handles are terminal; local ports are
+closed. The documentation-only closeout retains those verified code/test bytes. No paid calls, personal sign-in, merge or
+deployment occurred.
 
-Original wardrobe, first snapshot, all source/photo/input hashes and 111 raw draft
-objects remain unchanged. This is operator-authored control evidence, not owner taste,
-fresh generation or personal benefit. The compiled exclusion run preceded the minimal
-live wear-scope DTO refinement, which has separate focused coverage above. Code checkpoint `97b8560b1a73e529023fec6f34b1445dcdf25db1` is pushed on
-`codex/style-memory-baseline`. Exact hosted
-[conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43768878556) and
-[whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43768878586)
-both passed on the final source, including that refinement. All local and hosted handles
-are terminal. The documentation-only closeout retains those code/test bytes. No paid calls, personal sign-in, merge or
-deployment occurred. The larger goal remains active and incomplete.
+Next 1–3 actions:
 
-Next: finish faithful private factual/availability correction and undo, remaining
-request controls and plan/wear navigation; then simplify Home and verify 390px use.
-The screenshot still shows setup dominating before outfits. No user input is currently
-needed. Preserve unrelated coordinator work and private ancestry when exporting.
+1. Complete faithful private factual/availability correction and undo, remaining
+   request controls and plan/wear navigation through actual UI acknowledgements.
+2. Simplify Home and verify 390px use. Keep management state mounted so collapsing
+   controls preserves pending writes/retries; retain visible scope/rule summaries.
+3. Independently review the complete acceptance against the original objective.
+   Engineering checks do not establish personal styling benefit.
+
+No user input is currently needed. Coordinator remains
+`/Users/Brian/.codex/worktrees/s3-outfit-correction/fitted`, branch
+`codex/s3-outfit-learner`, original HEAD `7a542d46`; preserve all 193 dirty entries
+and private ancestry. Public export remains `/private/tmp/fitted-style-memory-baseline`;
+114 selected source/test/tooling/spec paths match the saved code. Its receipt is
+`/private/tmp/fitted-metadata-export.json`. Restricted logs, selected hashes and full
+dirty inventory are in `.private/app-verification/garment-edit-2026-11-15/` under the
+historical root. Canonical documentation retains private history in the coordinator;
+edit reviewed public paragraphs independently rather than copying entire documents.
 
 ## Correction and isolation checkpoint — November 15, 2026
 
