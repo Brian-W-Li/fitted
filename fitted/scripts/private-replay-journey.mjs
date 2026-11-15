@@ -15,7 +15,7 @@ export async function annotatePrivateReplay(page, subsetCount) {
     document.body.prepend(note);
   }, subsetCount);
 }
-export async function runPrivateReplayJourney({ db, page, owner, origin, loaded, run, paceRender, privateFeedback = false }) {
+export async function runPrivateReplayJourney({ db, page, owner, origin, loaded, run, paceRender, privateFeedback = false, privateLifecycle = false }) {
   const report = { version: "private-walkthrough-report.v1", status: "running", checkpoint: "captured-photos-first-request",
     inputSha256: loaded.inputDigest, provenance: loaded.input.provenance, operatorFeedback: [], newProviderCalls: 0,
     annotation: { kind: "harness-only", partOfProductionUI: false, purpose: "Screenshot provenance label inserted by local verification tooling" },
@@ -102,6 +102,6 @@ export async function runPrivateReplayJourney({ db, page, owner, origin, loaded,
     sourceSelections: audit, screenshots: ["01-captured-wardrobe.png", "02-first-replayed-outfits.png"] });
   await writePrivateReplayReport(run, report);
   if (privateFeedback) return runPrivateFeedbackJourney({ db, page, owner, origin, loaded, run, paceRender, report,
-    first: { result, request, row }, annotate: () => annotatePrivateReplay(page, loaded.input.wardrobe.length) });
+    first: { result, request, row }, privateLifecycle, annotate: () => annotatePrivateReplay(page, loaded.input.wardrobe.length) });
   return report;
 }

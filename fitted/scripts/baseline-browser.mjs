@@ -12,7 +12,7 @@ import { chromium } from "@playwright/test";
 import { createServer } from "node:net";
 import { loadPrivateReplayInput, createPrivateReplayRun, materializePrivateWardrobe, writePrivateReplayReport } from "./private-replay-input.mjs";
 import { runPrivateReplayJourney } from "./private-replay-journey.mjs";
-import { privateFeedbackFlag } from "./private-feedback-verification.mjs";
+import { privateFeedbackFlag, privateLifecycleFlag } from "./private-feedback-verification.mjs";
 
 const fitted = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = path.resolve(fitted, "..");
@@ -21,6 +21,7 @@ const production = process.argv.includes("--production");
 const feedbackOnly = process.argv.includes("--feedback-only");
 const styleOnly = process.argv.includes("--style-only");
 const privateFeedback = privateFeedbackFlag(process.argv.slice(2));
+const privateLifecycle = privateLifecycleFlag(process.argv.slice(2));
 const privateArguments = process.argv.slice(2).filter(arg => arg.startsWith("--private-replay="));
 assert.ok(privateArguments.length <= 1, "choose one explicit private replay input");
 const privateReplayPath = privateArguments[0]?.slice("--private-replay=".length);
@@ -28,7 +29,7 @@ const privateForbiddenRoots = process.argv.slice(2).filter(arg => arg.startsWith
 assert.ok(!privateForbiddenRoots.length || privateArguments.length === 1, "private forbidden roots require explicit private replay mode");
 assert.ok(privateForbiddenRoots.every(root => path.isAbsolute(root)), "private forbidden roots must be absolute paths");
 assert.ok(Number(feedbackOnly) + Number(styleOnly) + Number(privateArguments.length > 0) <= 1, "choose one focused browser journey");
-assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only", "--style-only", "--private-feedback"].includes(arg) || arg.startsWith("--private-replay=") || arg.startsWith("--private-forbid-root=")), "unknown baseline argument");
+assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only", "--style-only", "--private-feedback", "--private-lifecycle"].includes(arg) || arg.startsWith("--private-replay=") || arg.startsWith("--private-forbid-root=")), "unknown baseline argument");
 const origin = "http://127.0.0.1:3107";
 const authOrigin = "http://127.0.0.1:9099";
 const serviceOrigin = "http://127.0.0.1:8097";
@@ -656,11 +657,12 @@ async function run() {
     await page.goto(`${origin}/signin`);
     await page.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function", undefined, { timeout: 30_000 });
     await boundedBrowserStep(page.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), owner), "private replay owner emulator sign-in");
-    const privateReport = await runPrivateReplayJourney({ db, page, owner, origin, loaded: privateReplay, run: privateRun, paceRender, privateFeedback });
+    const privateReport = await runPrivateReplayJourney({ db, page, owner, origin, loaded: privateReplay, run: privateRun, paceRender, privateFeedback, privateLifecycle });
     await context.close();
     if (privateFeedback) {
-      console.log(`${privateReport.collection.complete ? "PASS" : "INCOMPLETE"} private ordinary operator feedback collection; private report: ${privateRun.reportPath}. Not owner preferences or a benefit claim.`);
-      if (!privateReport.collection.complete) process.exitCode = 2;
+      const complete = privateReport.collection.complete && (!privateLifecycle || privateReport.lifecycle?.complete === true);
+      console.log(`${complete ? "PASS" : "INCOMPLETE"} private ordinary operator feedback ${privateLifecycle ? "and correction/isolation lifecycle" : "collection"}; private report: ${privateRun.reportPath}. Not owner preferences or a benefit claim.`);
+      if (!complete) process.exitCode = 2;
     }
     else console.log(`PASS private captured-photo first-request checkpoint; private report: ${privateRun.reportPath}. Feedback/undo/profile/controls remain pending review.`);
     return;

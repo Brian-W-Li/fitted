@@ -1,7 +1,7 @@
 /** Local replay assertions only; no generated candidates or personal labels are created here. */
 import assert from "node:assert/strict";
 import path from "node:path";
-import { stableJson, sha256, compositionKey, expectedCollectedEvidence } from "./private-feedback-contract.mjs";
+import { stableJson, sha256, compositionKey, expectedCollectedEvidence, expectedLifecycleEvidence } from "./private-feedback-contract.mjs";
 
 export function privateFeedbackFlag(args) {
   const flags = args.filter(arg => arg === "--private-feedback");
@@ -96,10 +96,41 @@ export function collectedObservation(vote, row, expectedAction) {
 export function verifyProbeEvidence(row, observations) {
   assert.match(row.preference.featureVersion, /^app-traits\.v1$/);
   const expected = expectedCollectedEvidence(observations, row.preference.featureVersion, row.preference.schemaDigest);
+  return verifyExpectedProbe(row, expected);
+}
+function verifyExpectedProbe(row, expected) {
   for (const key of ["support", "likes", "dislikes", "evidenceDigest", "evidenceCutoff"]) assert.equal(row.preference[key], expected[key], `probe ${key} matches independently reconstructed ordinary evidence`);
   if (row.preference.status === "abstained") {
     assert.ok(row.candidates.every(candidate => (candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) === 0), "honest abstention has zero preference terms everywhere");
     assert.deepEqual(row.shownFullSignatures, row.preference.baselineShownFullSignatures, "abstention serves the complete current same-pool baseline");
   } else assert.equal(row.preference.status, "fitted_experimental");
   return expected;
+}
+
+export function verifyLifecycleProbe(row, observations, dispositions = new Map()) {
+  assert.equal(row.preference.featureVersion, "app-traits.v1");
+  const context = { ownerId: String(row.user), profileId: row.styleContext.profileId, profileVersion: row.styleContext.profileVersion,
+    routineId: row.styleContext.routineId, routineVersion: row.styleContext.routineVersion, weather: row.styleContext.weather };
+  const expected = expectedLifecycleEvidence(observations, context, dispositions, row.preference.featureVersion, row.preference.schemaDigest);
+  return verifyExpectedProbe(row, expected);
+}
+export function privateLifecycleFlag(args) {
+  const flags = args.filter(arg => arg === "--private-lifecycle");
+  assert.ok(flags.length <= 1, "choose private lifecycle mode only once");
+  if (!flags.length) return false;
+  assert.ok(privateFeedbackFlag(args), "private lifecycle requires ordinary private feedback collection");
+  return true;
+}
+
+export function verifyIsolatedTasteSignals(row) {
+  assert.equal(row.interactionCountAtRequest, 0, "new profile cannot borrow ordinary feedback counts");
+  const signals = row.diagnostics?.ranker;
+  assert.ok(signals && typeof signals.reducerConfigVersion === "string" && signals.reducerConfigVersion.length > 0,
+    "isolated request captures its actual reducer diagnostics");
+  // Mongoose's default minimize removes empty Mixed objects when saving the
+  // snapshot. An absent affinity map here represents the serialized empty map;
+  // nonempty and null maps must still fail. The reducer marker/arrays are required.
+  assert.deepEqual(signals.itemAffinity === undefined ? {} : signals.itemAffinity, {}, "new profile cannot borrow item affinity");
+  for (const key of ["likedFullSignatures", "recentDislikedBaseKeys", "recentDislikedItemIds", "contextualDislikedItemIds"])
+    assert.deepEqual(signals[key], [], `new profile cannot borrow ${key}`);
 }

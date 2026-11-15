@@ -78,7 +78,9 @@ experimental feature banks and human answers are not production feature sources.
    Learning must reach final selection. A declared reachable fixture must change
    surfaced garment membership; elsewhere policy may change order only or leave the
    set unchanged. Report those outcomes separately; do not force change by raising weights.
-6. Feedback can be flipped, excluded from learning or removed in History. The next
+6. History can add a scoped concern to an existing bound reaction, edit or clear its
+   details, flip the vote, exclude it from learning or remove it. Adding or clearing
+   a concern never changes the vote; clearing does not silently re-enroll it. The next
    decision is rebuilt from current resolved evidence. Plan and wear remain existing
    optional actions, without being converted to training evidence.
 
@@ -447,6 +449,23 @@ The final decision may honestly abstain or keep the same selection. Incomplete s
 is reported with exit code 2, distinct from passing the six-reaction checkpoint; an
 assertion failure is a failed check. This verifies collection, not owner taste,
 transfer, fresh inference quality or the later correction/profile/navigation slices.
+
+Add `--private-lifecycle` together with `--private-feedback` to continue a completed
+ordinary collection through `private-feedback-lifecycle.mjs`. This separate phase
+permits exactly five fresh visible probes (at most eleven renders including collection):
+add an explicitly operator-authored hypothetical item concern, clear it without
+re-enrollment, explicitly include it, switch to an opted-in second direction with the
+same declared traits/situation/weather, then return to the original direction. All six
+original votes remain unchanged; only two reason and three disposition amendments are
+admitted, each owner/source-bound, with an owner revision increment per acknowledged
+correction. Independently reconstructed eligible evidence must change 6→5→5→6→0→6;
+clear preserves the excluded digest and explicit inclusion restores the original digest
+and vote-age cutoff. Isolation includes existing scoped taste signals, while owner-wide
+exposure can remain. Every probe retains original source audits, decoded photos and
+actual card membership checks. The six-render collection budget remains unchanged in
+collection-only mode. Incomplete collection skips this phase and exits 2; lifecycle
+assertion failures exit 1 and cannot report success. This adds correction/isolation
+mechanism evidence, not personal benefit, fresh generation or exclusion-feature proof.
 
 Tests start with focused pure feature/learner and real-Mongo lifecycle checks, then
 one web/Python integrated regression, TypeScript/lint/build, and the compiled synthetic

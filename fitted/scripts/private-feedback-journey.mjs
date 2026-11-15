@@ -6,21 +6,22 @@ import { ObjectId } from "mongodb";
 import { writePrivateReplayReport } from "./private-replay-input.mjs";
 import { TARGET_FEEDBACK, MAX_RENDER_REQUESTS, OPERATOR_LABELS, collectionState, reserveRender,
   displayedUnrated, acknowledgeOperatorReaction, chooseSupplyAnchor, compositionKey } from "./private-feedback-contract.mjs";
+import { runPrivateFeedbackLifecycle } from "./private-feedback-lifecycle.mjs";
 import { verifyCapturedRender, collectedObservation, verifyProbeEvidence } from "./private-feedback-verification.mjs";
 
 const cardsOn = page => page.locator(".p-5.border.rounded-xl").filter({ has: page.getByRole("button", { name: "Regenerate", exact: true }) });
-export async function runPrivateFeedbackJourney({ db, page, owner, origin, loaded, run, paceRender, report, first, annotate }) {
+export async function runPrivateFeedbackJourney({ db, page, owner, origin, loaded, run, paceRender, report, first, annotate, privateLifecycle = false }) {
   const user = new ObjectId(owner.userId), state = collectionState(), renders = [], observations = [], sources = new Map();
   const context = first.row.styleContext;
-  let auditOffset = 0;
+  let auditOffset = 0, lifecycleRenderRequests = 0;
   report.checkpoint = "ordinary-operator-feedback";
   report.status = "collecting-operator-test-feedback";
   report.collection = { labelProvenance: "Fixed predeclared alternating operator test labels; not the owner's preferences", labels: OPERATOR_LABELS,
     target: TARGET_FEEDBACK, maximumRenderRequests: MAX_RENDER_REQUESTS, renders, observations, complete: false };
   const audit = async () => (await readFile(run.auditPath, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
-  async function inspect(render, kind) {
+  async function inspect(render, kind, expectedContext = context) {
     const events = await audit();
-    verifyCapturedRender({ ...render, loaded, context, ownerId: owner.userId, events: events.slice(auditOffset) });
+    verifyCapturedRender({ ...render, loaded, context: expectedContext, ownerId: owner.userId, events: events.slice(auditOffset) });
     auditOffset = events.length;
     assert.ok(!sources.has(String(render.row._id)), "each visible generation has a fresh snapshot");
     sources.set(String(render.row._id), render.row);
@@ -70,8 +71,12 @@ export async function runPrivateFeedbackJourney({ db, page, owner, origin, loade
     }
     return added;
   }
-  async function generate(kind, anchor) {
-    reserveRender(state, kind);
+  async function generate(kind, anchor, expectedContext = context, lifecycle = false) {
+    if (!lifecycle) reserveRender(state, kind);
+    else {
+      assert.ok(lifecycleRenderRequests < 5, "lifecycle phase permits at most five explicit probes");
+      lifecycleRenderRequests++;
+    }
     if (anchor) {
       await page.goto(`${origin}/wardrobe`);
       await page.locator(`a[href^="/dashboard?rescue=${anchor.item.id}&"]`).click();
@@ -92,7 +97,7 @@ export async function runPrivateFeedbackJourney({ db, page, owner, origin, loade
     assert.equal(response.status(), 200, "bounded local collection request must succeed");
     const row = await db.collection("generationsnapshots").findOne({ user, requestId: request.requestId });
     assert.ok(row && result.bindable && result.shown?.length, "collection request must have a complete ordinary shown snapshot");
-    const render = await inspect({ row, result, request }, kind);
+    const render = await inspect({ row, result, request }, kind, expectedContext);
     if (anchor) {
       assert.ok(result.shown.every(outfit => outfit.displayItems.some(item => item.itemId === anchor.item.id)), "real rescue control retains its supply-only anchor");
       renders.at(-1).supplyAnchor = { itemId: anchor.item.id, remainingDistinctSupply: anchor.remainingDistinctSupply, selection: "unseen label-independent preserved supply" };
@@ -120,7 +125,7 @@ export async function runPrivateFeedbackJourney({ db, page, owner, origin, loade
     assert.equal(await db.collection("generationsnapshots").countDocuments({ user }), renders.length, "every owned snapshot originated in a recorded recommend response");
     assert.equal(renders.length, state.renderRequests); assert.ok(state.renderRequests <= MAX_RENDER_REQUESTS);
     report.sourceSelections = await audit();
-    report.collection = { ...report.collection, renderRequests: state.renderRequests, distinctAcknowledgedCompositions: state.seen.size,
+    report.collection = { ...report.collection, renders: [...renders], renderRequests: state.renderRequests, distinctAcknowledgedCompositions: state.seen.size,
       complete: state.feedback.length === TARGET_FEEDBACK, expectedEvidence: expected, probe: renders.at(-1), activationRequired: false };
     if (report.collection.complete) {
       assert.deepEqual([expected.support, expected.likes, expected.dislikes], [6, 3, 3]);
@@ -133,6 +138,14 @@ export async function runPrivateFeedbackJourney({ db, page, owner, origin, loade
     await annotate();
     await page.screenshot({ path: path.join(run.runDirectory, "03-ordinary-feedback-probe.png"), fullPage: true });
     report.screenshots.push("03-ordinary-feedback-probe.png");
+    if (privateLifecycle && report.collection.complete) {
+      await runPrivateFeedbackLifecycle({ db, page, owner, origin, loaded, run, report, context, observations: retained, annotate,
+        generate: (kind, expectedContext) => generate(kind, null, expectedContext, true) });
+      assert.equal(await db.collection("generationsnapshots").countDocuments({ user }), renders.length, "all lifecycle snapshots also originate in recorded recommend responses");
+      assert.equal(lifecycleRenderRequests, 5, "complete lifecycle has exactly five probes");
+      report.totalRenderRequests = renders.length;
+      report.sourceSelections = await audit();
+    }
     report.completedAt = new Date().toISOString();
     await writePrivateReplayReport(run, report);
     return report;

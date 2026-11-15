@@ -75,3 +75,17 @@ export function expectedCollectedEvidence(observations, featureVersion, schemaDi
   return { support: states.length, likes: states.filter(row => row.action === "accepted").length, dislikes: states.filter(row => row.action === "rejected").length,
     evidenceDigest: sha256(pythonJson([featureVersion, schemaDigest, provenance])), evidenceCutoff: states[0]?.createdAt ?? null };
 }
+
+/** Narrow lifecycle oracle: distinct immutable original votes, explicit disposition
+ * overrides and context switches. The web adapter resolves suppressors before it
+ * sends eligible normal observations to Python; its digest describes that input. */
+export function expectedLifecycleEvidence(observations, context, dispositions, featureVersion, schemaDigest) {
+  expectedCollectedEvidence(observations, featureVersion, schemaDigest);
+  const originals = new Set(observations.map(row => row.id));
+  assert.equal(originals.size, observations.length, "original reaction IDs must be unique");
+  assert.ok(dispositions instanceof Map, "explicit disposition overrides required");
+  for (const [id, value] of dispositions) assert.ok(originals.has(id) && ["normal", "exception"].includes(value), "override must target an original normal vote");
+  const keys = ["ownerId", "profileId", "profileVersion", "routineId", "routineVersion", "weather"];
+  const eligible = observations.filter(row => keys.every(key => row.context[key] === context[key]) && dispositions.get(row.id) !== "exception");
+  return expectedCollectedEvidence(eligible, featureVersion, schemaDigest);
+}

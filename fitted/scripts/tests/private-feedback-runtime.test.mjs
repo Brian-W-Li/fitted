@@ -3,8 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { privateFeedbackFlag, verifyIntactAttempts, verifyCapturedRender, collectedObservation, verifyProbeEvidence } from "../private-feedback-verification.mjs";
-import { sha256, stableJson, expectedCollectedEvidence } from "../private-feedback-contract.mjs";
+import { privateFeedbackFlag, privateLifecycleFlag, verifyIsolatedTasteSignals, verifyIntactAttempts, verifyCapturedRender, collectedObservation, verifyProbeEvidence } from "../private-feedback-verification.mjs";
+import { sha256, stableJson, expectedCollectedEvidence, expectedLifecycleEvidence } from "../private-feedback-contract.mjs";
 const id = number => number.toString(16).padStart(24, "0");
 function fixture() {
   const context = { boardId: id(10), profileId: id(11), profileVersion: 1, routineId: id(12), routineVersion: 1,
@@ -111,4 +111,50 @@ test("probe verifies independent counts/digest/cutoff and honest current baselin
   assert.throws(() => verifyProbeEvidence(nonzero, [observation]), /zero preference/);
   const different = structuredClone(f.row); different.preference.baselineShownFullSignatures = ["old-not-current-baseline"];
   assert.throws(() => verifyProbeEvidence(different, [observation]), /current same-pool baseline/);
+});
+
+test("private lifecycle requires unique explicit feedback opt-in before any service starts", () => {
+  assert.equal(privateLifecycleFlag([]), false);
+  assert.equal(privateLifecycleFlag(["--private-replay=/x", "--private-feedback"]), false);
+  assert.equal(privateLifecycleFlag(["--private-replay=/x", "--private-feedback", "--private-lifecycle"]), true);
+  for (const args of [["--private-lifecycle"], ["--private-lifecycle", "--private-replay=/x"],
+    ["--private-lifecycle", "--private-replay=/x", "--private-feedback", "--private-lifecycle"]]) {
+    assert.throws(() => privateLifecycleFlag(args), /private lifecycle/);
+  }
+});
+test("lifecycle oracle removes a known exception without renewing vote time and isolates every captured axis", () => {
+  const f = fixture(), original = collectedObservation(f.vote, f.row, "accepted");
+  const observations = Array.from({ length: 6 }, (_, index) => ({ ...structuredClone(original), id: id(30 + index),
+    snapshotId: id(50 + index), candidateId: `candidate-${index}`, createdAt: `2026-11-15T12:00:0${index}.000Z`,
+    action: index % 2 ? "rejected" : "accepted", items: original.items.map((item, slot) => ({ ...item, id: id(100 + index * 2 + slot) })) }));
+  const digest = "c".repeat(64), context = original.context;
+  const before = expectedLifecycleEvidence(observations, context, new Map(), "app-traits.v1", digest);
+  assert.deepEqual([before.support, before.likes, before.dislikes], [6, 3, 3]);
+  const corrected = expectedLifecycleEvidence(observations, context, new Map([[observations[0].id, "exception"]]), "app-traits.v1", digest);
+  assert.deepEqual([corrected.support, corrected.likes, corrected.dislikes], [5, 2, 3]);
+  assert.equal(corrected.evidenceCutoff, "2026-11-15T12:00:05.000Z");
+  assert.notEqual(corrected.evidenceDigest, before.evidenceDigest);
+  assert.deepEqual(corrected, expectedCollectedEvidence(observations.slice(1), "app-traits.v1", digest), "Python receives only eligible observations after web resolution");
+  assert.deepEqual(expectedLifecycleEvidence(observations, context, new Map([[observations[0].id, "normal"]]), "app-traits.v1", digest), before);
+  for (const key of ["ownerId", "profileId", "profileVersion", "routineId", "routineVersion", "weather"]) {
+    const changed = { ...context, [key]: typeof context[key] === "number" ? context[key] + 1 : "different" };
+    const isolated = expectedLifecycleEvidence(observations, changed, new Map(), "app-traits.v1", digest);
+    assert.deepEqual([isolated.support, isolated.likes, isolated.dislikes, isolated.evidenceCutoff], [0, 0, 0, null]);
+    assert.equal(isolated.evidenceDigest, expectedCollectedEvidence([], "app-traits.v1", digest).evidenceDigest);
+  }
+  assert.throws(() => expectedLifecycleEvidence(observations, context, new Map([[id(999), "exception"]]), "app-traits.v1", digest));
+  assert.throws(() => expectedLifecycleEvidence(observations, context, new Map([[observations[0].id, "bogus"]]), "app-traits.v1", digest));
+});
+
+test("profile isolation accepts Mongo-minimized empty affinity but rejects missing provenance and borrowed taste", () => {
+  const row = { interactionCountAtRequest: 0, diagnostics: { ranker: { reducerConfigVersion: "authored-v1", itemAffinity: {},
+    likedFullSignatures: [], recentDislikedBaseKeys: [], recentDislikedItemIds: [], contextualDislikedItemIds: [], shownFullSignatures: ["owner-wide-exposure"] } } };
+  verifyIsolatedTasteSignals(row);
+  const minimized = structuredClone(row); delete minimized.diagnostics.ranker.itemAffinity; verifyIsolatedTasteSignals(minimized);
+  for (const mutate of [r => { r.interactionCountAtRequest = 1; }, r => { delete r.diagnostics.ranker.reducerConfigVersion; },
+    r => { r.diagnostics.ranker.itemAffinity = { borrowed: 1 }; }, r => { r.diagnostics.ranker.itemAffinity = null; },
+    ...["likedFullSignatures", "recentDislikedBaseKeys", "recentDislikedItemIds", "contextualDislikedItemIds"].map(key => r => { r.diagnostics.ranker[key] = ["borrowed"]; }),
+    r => { delete r.diagnostics.ranker.likedFullSignatures; }]) {
+    const invalid = structuredClone(row); mutate(invalid); assert.throws(() => verifyIsolatedTasteSignals(invalid));
+  }
 });

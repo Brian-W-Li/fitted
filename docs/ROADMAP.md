@@ -1,6 +1,44 @@
 # Current direction and work
 
-## Current continuation — November 15, 2026
+## Correction and isolation checkpoint — November 15, 2026
+
+History now offers “Something’s off” for a bound plain reaction, so a concern can be
+added after leaving Home. Existing details editing, uncertain-write handling and
+learning correction remain on their existing paths. Focused accepted/rejected cases
+failed before this change and pass afterward; unbound reactions have no editor, and
+an unconfirmed learning correction disables it.
+
+The opt-in private lifecycle journey passed in the compiled actual app, starting from
+six distinct normal UI reactions. Five further visible probes verified concern → clear
+without re-enrollment → explicit inclusion → a second opted-in profile with identical
+declared traits and the same Routine/weather → return. Support was 6→5→5→6→0→6;
+the original digest/cutoff returned, all six raw votes stayed unchanged, and only the
+five expected source-bound amendments were added. Each correction advanced owner memory
+once. Both the learner and existing scoped taste signals were isolated; owner-wide
+exposure remains allowed. Every probe checked original draft audits, garment membership
+and decoded private photos. Nine total render requests were used, with separate
+collection (at most six) and lifecycle (exactly five) limits. No new provider calls.
+
+Local verification: full web regression 1,764 passed / ten existing skips; TypeScript,
+application lint (zero errors, 34 existing warnings), 26 Node contracts, seven focused
+documentation guards, production build and compiled private lifecycle passed. Two
+isolated non-equivalent mutations (ignored exception and ignored profile identity)
+were caught, with an unmodified passing baseline. Independent review examined UI,
+evidence and compatibility. The broad hygiene command reached its suite-count check
+but could not run its Python floor because this export has no local `.venv`; the
+focused documentation gate passed. No Python production code changed.
+
+This verifies correction/isolation mechanics with operator-authored test judgments and
+preserved candidates, not owner preferences, fresh styling or human benefit. The
+screenshot still shows setup competing with outfit cards. Saved scoped item/composition
+exclusions, the private request-control/factual/availability/plan/wear checks and 390px
+usability remain open. Next: build scoped exclusions with focused tests and independent
+review, then finish the remaining faithful journey and simplify Home. No user input
+is currently required; no personal sign-in, paid calls, merge or deployment occurred.
+Publication and exact hosted checks for this new candidate are pending; its starting
+saved public checkpoint is `855a8975`. The larger goal remains active and incomplete.
+
+## Ordinary collection checkpoint — November 15, 2026
 
 The larger actual-app goal is active again. Its next bounded proof gap is now closed:
 ordinary generated-history collection under one captured direction/situation, through
@@ -37,8 +75,8 @@ photos and reports outside public source/workflow artifacts. Exact hosted
 both passed on that checkpoint. All local/hosted handles are terminal; owned test
 services are closed. This documentation-only follow-up preserves its verified code.
 
-The six-reaction collector is implemented now; concern/clear/explicit inclusion,
-profile isolation, existing request controls, factual/availability correction and undo,
+The six-reaction collector and correction/isolation checks above are implemented now;
+existing request controls, factual/availability correction and undo,
 plan/wear navigation and 390px usability still require their bounded private checks.
 Explicit saved scoped item/composition exclusions remain unimplemented. The full goal
 is incomplete. No paid calls, personal sign-in, merge or deployment occurred.

@@ -440,7 +440,7 @@ export default function HistoryPage() {
 
                   {curatable && (detailStatus === "saving" ? <p className="text-xs text-slate-500">Saving details…</p>
                     : detailStatus === "failed" ? <button onClick={() => retryEnrich(target)} className="text-xs text-amber-700 underline">Couldn&apos;t save the details — retry</button>
-                    : hasFeedbackDetails(card) ? <button disabled={busy} onClick={() => setEditCard(card)} className="text-xs text-slate-600 underline disabled:opacity-50">Edit details</button> : null)}
+                    : <button disabled={busy} onClick={() => setEditCard(card)} className="text-xs text-slate-600 underline disabled:opacity-50">{hasFeedbackDetails(card) ? "Edit details" : "Something’s off"}</button>)}
 
                   {/* Curation controls (D-1). Hidden for the (Track-2-nonexistent) unbound legacy row. */}
                   {curatable && (

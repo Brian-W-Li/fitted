@@ -198,3 +198,58 @@ it("shows a board-only captured direction without inventing a saved situation or
   expect(within(context).queryByRole("button")).not.toBeInTheDocument();
   expect(screen.queryByText("Situation version")).not.toBeInTheDocument();
 });
+
+
+it.each(["accepted", "rejected"])("can add a delayed scoped concern to a plain %s reaction without replacing the vote", async action => {
+  const reactionId = "650000000000000000000041";
+  const card = { ...seedCards()[0], id: reactionId, action, learningAvailable: true,
+    learningDisposition: "normal", dispositionRevision: 0, feedbackReason: undefined as Record<string, unknown> | undefined };
+  Object.defineProperty(crypto, "randomUUID", { configurable: true, value: () => "11111111-1111-4111-8111-111111111141" });
+  global.fetch = jest.fn(async (url, opts) => {
+    const method = opts?.method ?? "GET";
+    calls.push({ url: String(url), method, body: opts?.body as string | undefined });
+    if (method === "GET") return { ok: true, status: 200, json: async () => ({ interactions: [card] }) } as Response;
+    const command = JSON.parse(String(opts?.body));
+    card.feedbackReason = command.feedbackReason; card.learningDisposition = "exception"; card.dispositionRevision = 1;
+    return { ok: true, status: 200, json: async () => ({ success: true, amendment: { id: "650000000000000000000042", reactionId } }) } as Response;
+  });
+  render(<HistoryPage />);
+  if (action === "rejected") await userEvent.click(await screen.findByRole("button", { name: /Disliked/i }));
+  await userEvent.click(await screen.findByRole("button", { name: "Something’s off" }));
+  await userEvent.click(screen.getByRole("button", { name: "Fit" }));
+  await userEvent.selectOptions(screen.getByLabelText("Which item?"), "t1");
+  await userEvent.type(screen.getByLabelText("A quick note (optional)"), "Sleeves felt too long today");
+  await userEvent.click(screen.getByRole("button", { name: "Save details" }));
+  expect(await screen.findByText("Sleeves felt too long today")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Also reflects my taste here" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: action === "accepted" ? "Change to dislike" : "Change to like" })).toBeInTheDocument();
+  const commands = calls.filter(call => call.method === "POST").map(call => JSON.parse(call.body!));
+  expect(commands).toEqual([{ kind: "reason_amendment", reactionId, operationId: "11111111-1111-4111-8111-111111111141",
+    feedbackReason: { codes: [], scope: "item", itemId: "t1", concern: "fit", rawText: "Sleeves felt too long today" }, perItemFeedback: [] }]);
+});
+
+it("offers no delayed concern editor for an unbound legacy reaction", async () => {
+  global.fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ interactions: [{ ...seedCards()[0], snapshotId: null, candidateId: null }] }) }) as Response);
+  render(<HistoryPage />);
+  await screen.findByText("White Tee");
+  expect(screen.queryByRole("button", { name: "Something’s off" })).not.toBeInTheDocument();
+});
+
+
+it("disables the delayed concern editor while a learning correction is unconfirmed", async () => {
+  const reactionId = "650000000000000000000051";
+  let finish!: (response: Response) => void;
+  global.fetch = jest.fn(async (_url, opts) => {
+    if (opts?.method === "POST") return await new Promise<Response>(resolve => { finish = resolve; });
+    return { ok: true, status: 200, json: async () => ({ interactions: [{ ...seedCards()[0], id: reactionId,
+      learningAvailable: true, learningDisposition: "normal", dispositionRevision: 0 }] }) } as Response;
+  });
+  render(<HistoryPage />);
+  await userEvent.click(await screen.findByRole("button", { name: "Exclude from taste learning" }));
+  await waitFor(() => expect(finish).toBeDefined());
+  expect(screen.getByRole("button", { name: "Something’s off" })).toBeDisabled();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  await act(async () => finish({ ok: false, status: 503, json: async () => ({}) } as Response));
+  expect(screen.getByRole("button", { name: "Something’s off" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Retry learning change" })).toBeInTheDocument();
+});
