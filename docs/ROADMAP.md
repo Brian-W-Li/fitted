@@ -30,9 +30,12 @@ semantics. Corrections strengthened per-reaction stored-action checks, independe
 fixture contexts, declared unknown-token handling and complete surfaced counts.
 All 23 synthetic Node fixture contracts pass; scoped lint and seven documentation
 guards pass. The production build and compiled private journey passed. Generic
-verification tooling is being saved separately from actual private inputs/photos/
-reports, which remain outside public source and workflow artifacts. Exact hosted
-verification of the new code checkpoint remains pending publication.
+verification tooling is saved as `eef874b2`, separate from actual private inputs,
+photos and reports outside public source/workflow artifacts. Exact hosted
+[conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43759564762) and the
+[complete browser regression](https://github.com/Brian-W-Li/fitted/actions/runs/43759564752)
+both passed on that checkpoint. All local/hosted handles are terminal; owned test
+services are closed. This documentation-only follow-up preserves its verified code.
 
 The six-reaction collector is implemented now; concern/clear/explicit inclusion,
 profile isolation, existing request controls, factual/availability correction and undo,
