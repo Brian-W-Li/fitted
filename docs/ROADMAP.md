@@ -46,8 +46,12 @@ focused Python integration/negative tests establish that full exact-set distinct
 Original wardrobe, first snapshot, all source/photo/input hashes and 111 raw draft
 objects remain unchanged. This is operator-authored control evidence, not owner taste,
 fresh generation or personal benefit. The compiled exclusion run preceded the minimal
-live wear-scope DTO refinement, which has separate focused coverage above. Hosted checks
-for the new saved candidate are pending. No paid calls, personal sign-in, merge or
+live wear-scope DTO refinement, which has separate focused coverage above. Code checkpoint `97b8560b1a73e529023fec6f34b1445dcdf25db1` is pushed on
+`codex/style-memory-baseline`. Exact hosted
+[conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43768878556) and
+[whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43768878586)
+both passed on the final source, including that refinement. All local and hosted handles
+are terminal. The documentation-only closeout retains those code/test bytes. No paid calls, personal sign-in, merge or
 deployment occurred. The larger goal remains active and incomplete.
 
 Next: finish faithful private factual/availability correction and undo, remaining
