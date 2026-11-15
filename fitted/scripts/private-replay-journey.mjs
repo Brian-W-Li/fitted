@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ObjectId } from "mongodb";
 import { writePrivateReplayReport } from "./private-replay-input.mjs";
+import { runPrivateFeedbackJourney } from "./private-feedback-journey.mjs";
 
 export async function annotatePrivateReplay(page, subsetCount) {
   await page.evaluate(count => {
@@ -14,7 +15,7 @@ export async function annotatePrivateReplay(page, subsetCount) {
     document.body.prepend(note);
   }, subsetCount);
 }
-export async function runPrivateReplayJourney({ db, page, owner, origin, loaded, run, paceRender }) {
+export async function runPrivateReplayJourney({ db, page, owner, origin, loaded, run, paceRender, privateFeedback = false }) {
   const report = { version: "private-walkthrough-report.v1", status: "running", checkpoint: "captured-photos-first-request",
     inputSha256: loaded.inputDigest, provenance: loaded.input.provenance, operatorFeedback: [], newProviderCalls: 0,
     annotation: { kind: "harness-only", partOfProductionUI: false, purpose: "Screenshot provenance label inserted by local verification tooling" },
@@ -53,6 +54,10 @@ export async function runPrivateReplayJourney({ db, page, owner, origin, loaded,
   assert.equal(await optIn.isChecked(), true, "controlled opt-in reflects its acknowledged state");
   await page.locator("textarea").fill("Preserved class-day candidates · operator replay, not fresh styling");
   await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
+  if (privateFeedback) {
+    assert.equal(await db.collection("generationsnapshots").countDocuments({ user: new ObjectId(owner.userId) }), 0, "private collection never seeds generation history");
+    assert.equal(await db.collection("outfitinteractions").countDocuments({ user: new ObjectId(owner.userId) }), 0, "private collection never imports reactions");
+  }
   await paceRender();
   const [response] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
@@ -96,5 +101,7 @@ export async function runPrivateReplayJourney({ db, page, owner, origin, loaded,
       shownGarmentIds: result.shown.map(outfit => outfit.displayItems.map(item => item.itemId)), preference: row.preference },
     sourceSelections: audit, screenshots: ["01-captured-wardrobe.png", "02-first-replayed-outfits.png"] });
   await writePrivateReplayReport(run, report);
+  if (privateFeedback) return runPrivateFeedbackJourney({ db, page, owner, origin, loaded, run, paceRender, report,
+    first: { result, request, row }, annotate: () => annotatePrivateReplay(page, loaded.input.wardrobe.length) });
   return report;
 }

@@ -1,6 +1,46 @@
 # Current direction and work
 
-## Selected work — review and solidify
+## Current continuation — November 15, 2026
+
+The larger actual-app goal is active again. Its next bounded proof gap is now closed:
+ordinary generated-history collection under one captured direction/situation, through
+the actual compiled app with preserved private clothing photos and candidate records.
+The previous review findings below remain evidence for their original checkpoint.
+
+A new opt-in `--private-feedback` test mode preserves the default first-request path.
+In an isolated empty test account, the compiled journey created its context, opted in,
+and recorded six distinct shown two-piece combinations through real UI reactions with
+exact acknowledged stored actions (fixed operator-authored three likes/three dislikes).
+It used four render requests: first ordinary, another ordinary, an existing rescue
+control with a label-independent supply anchor, and a final ordinary probe. No generation
+history or preference labels were preseeded. Every generation attempt retained its
+pinned original draft/prose; all shown garment photos decoded; captured full color sets,
+subtype and unknown fit were checked against the immutable source snapshots.
+
+The probe reports support six / likes three / dislikes three, matching independently
+reconstructed counts, digest and cutoff. It fitted seven supported channels; actual
+shown garment membership differs from the captured current same-pool zero-learner
+baseline. Both the response memberships and actual DOM/photo cards were checked.
+This establishes ordinary collection plus an engineering selection effect for these
+authored test inputs. It is not owner preference evidence, fresh model quality,
+disjoint-garment transfer or personal benefit.
+
+Two independent reviewers checked privacy/default-mode/ownership and learning-proof
+semantics. Corrections strengthened per-reaction stored-action checks, independent
+fixture contexts, declared unknown-token handling and complete surfaced counts.
+All 23 synthetic Node fixture contracts pass; scoped lint and seven documentation
+guards pass. The production build and compiled private journey passed. Generic
+verification tooling is being saved separately from actual private inputs/photos/
+reports, which remain outside public source and workflow artifacts. Exact hosted
+verification of the new code checkpoint remains pending publication.
+
+The six-reaction collector is implemented now; concern/clear/explicit inclusion,
+profile isolation, existing request controls, factual/availability correction and undo,
+plan/wear navigation and 390px usability still require their bounded private checks.
+Explicit saved scoped item/composition exclusions remain unimplemented. The full goal
+is incomplete. No paid calls, personal sign-in, merge or deployment occurred.
+
+## Completed review checkpoint — November 9, 2026
 
 Brian replaced feature building with a review of the existing checkpoint. Keep separate
 conclusions for correctness, integration with surrounding journeys, test quality and
@@ -107,7 +147,7 @@ personal styling benefit remain distinct; targeted mutations are not an exhausti
 proof of bug absence. The review checkpoint is complete with the explicitly open
 product/verification boundaries below.
 
-## Remaining build work and release boundary
+## Build gaps recorded at the November 9 review
 
 The larger build goal remains incomplete. Explicit saved scoped item/composition
 exclusions, ordinary complete-history feedback accumulation, the remaining faithful
@@ -121,5 +161,5 @@ used a declared subset and a preserved candidate bank, not fresh styling or veri
 current whole-closet parity. Its input, preparation receipt, reports and photographs
 stay private. Owner preferences and operator-authored test labels remain distinct.
 
-Finish the review checkpoint and its verification before selecting more feature work.
+The review checkpoint was completed; the current continuation above records later verification.
 No paid calls, participant collection, merge or deployment is part of this checkpoint.

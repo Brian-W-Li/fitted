@@ -431,6 +431,23 @@ label-independent intact-draft selection. Synthetic loader contracts run with
 and repeat `--private-forbid-root=/absolute/export-checkout` for additional publication
 roots. This mode requires explicit private input; CI runs only synthetic fixtures.
 
+Add `--private-feedback` only with an explicit private replay input to exercise the
+bounded ordinary-history slice in `private-feedback-journey.mjs`; the default private
+mode still stops after its first request. The reviewed policy in
+`private-feedback-contract.mjs` allows at most six render requests total, including the first
+and a reserved final probe, and six distinct shown two-piece compositions with a
+predeclared alternating operator Like/Dislike sequence. Reactions must use normal UI
+controls, exact acknowledged bindings and stored actions; no generation-history or
+reaction seeding is permitted. Existing rescue controls may select an anchor from
+unseen preserved supply without consulting labels or changing bank order/caps.
+`private-feedback-verification.mjs` checks every original attempt/audit, immutable
+captured facts and partition, and independently reconstructed normal-cohort counts,
+digest and cutoff. Unknown declared optional tokens remain unknown, never inferred.
+The final decision may honestly abstain or keep the same selection. Incomplete supply
+is reported with exit code 2, distinct from passing the six-reaction checkpoint; an
+assertion failure is a failed check. This verifies collection, not owner taste,
+transfer, fresh inference quality or the later correction/profile/navigation slices.
+
 Tests start with focused pure feature/learner and real-Mongo lifecycle checks, then
 one web/Python integrated regression, TypeScript/lint/build, and the compiled synthetic
 browser journey. The browser must inspect displayed garments, not only score badges.
