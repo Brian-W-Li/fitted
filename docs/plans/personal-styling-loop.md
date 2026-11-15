@@ -45,6 +45,7 @@ hosted write behavior or fresh model quality. The maintained source index follow
 | `ml-system/service/app.py`, `service/contract_fields.json` | Validated HTTP boundary, behavioral reducers and traced engine dispatch. |
 | `ml-system/fitted_core/rescue.py`, `sampler.py`, `generation.py`, `validator.py` | Bounded generation and structural authority; the model call is isolated in generation. |
 | `ml-system/fitted_core/ranker.py`, `response.py` | Filtering, score/diversity/truncation and final surfaced selection. The existing experimental selection-score override has no production caller. |
+| `fitted/app/(app)/wardrobe/WardrobeClient.tsx`, `fitted/lib/wardrobeEditPatch.ts`, `fitted/app/api/wardrobe/[id]/route.ts` | Current garment corrections use sparse metadata writes; the server retains ownership and derivation authority. Immutable generation captures remain separate. |
 | `fitted/lib/outfitExperience/`, `outfitPlanning/`, `snapshotVisibility.ts` | Suggestions, plans, actual wear, corrected report derivatives and visibility stay distinct. |
 | `fitted/lib/ownerWriteFence.ts`, `fitted/models/User.ts`, `userErasure.ts` | Admission fence and owned-data deletion; new storage must participate. |
 | `fitted/lib/styleMemory/`, `stylePreferenceEvidence.ts`, `styleLearningAmendments.ts` | Versioned intentions, owner-fenced captured partitions and correctable resolved evidence. |
@@ -451,6 +452,11 @@ Acceptance requires the complete local application, not a new preview website:
 5. Exercise daily/rescue, sticky keeps, same-situation Explore, adaptation, saved plans,
    changed wear, report correction, unavailable garments, source redaction and account
    deletion through existing contracts, including concurrent mutation/admission cases.
+
+For garment correction/undo, apply the ordinary-edit preservation contract in
+canonical spec §18. Inspect actual UI command bodies and persisted rows; distinguish
+changed-field normalization from unintended changes to unrelated facts. Preserve all
+earlier generation snapshots, and do not write corrections directly into the database.
 
 Also demonstrate the complete local app with faithful existing-wardrobe photos/facts
 and preserved generated candidates: initial outfit choice, actual alternatives,

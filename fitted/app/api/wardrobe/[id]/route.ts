@@ -105,11 +105,9 @@ export async function PATCH(
     // clothingType (the W-track correction path; pinned by the edit-ingestion test). An explicit
     // VALID clothingType in the body still wins outright (an invalid one was deleted above, so
     // it falls through to this re-derivation instead of being coerced).
-    // ⚠ Scope of that guarantee: the trigger is key-PRESENCE, and the UI edit modal sends the
-    // taxonomy fields on every save — so every modal edit re-derives, and the no-clobber promise
-    // protects API-shaped renames only. Benign while nothing sets an explicit divergent type; the
-    // future W-track correction form MUST echo clothingType or its correction is silently lost on
-    // the next modal edit (§23-H52 records that obligation).
+    // The wardrobe UI sends only changed editable fields: an unrelated fit/photo edit must
+    // not resubmit taxonomy and clobber this value. A future explicit role-correction form
+    // still needs user/derived provenance and explicit override handling (§23-H52).
     const typeDrivingFieldsChanged = ["category", "subCategory", "layerRole"].some(
       (f) => f in update,
     );

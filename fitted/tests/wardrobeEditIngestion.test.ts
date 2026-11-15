@@ -16,6 +16,7 @@ import { startMemoryMongo, type MongoHarness } from "./helpers/mongoHarness";
 import User from "@/models/User";
 import WardrobeItem from "@/models/WardrobeItem";
 import { deriveWarmth } from "@/lib/deriveWarmth";
+import { wardrobeEditPatch } from "@/lib/wardrobeEditPatch";
 
 jest.mock("@/lib/db", () => ({ initDatabase: jest.fn() }));
 jest.mock("@/lib/firebaseAdmin", () => ({ adminAuth: { verifyIdToken: jest.fn() } }));
@@ -83,7 +84,68 @@ async function readItem(id: string) {
   return WardrobeItem.findById(id).lean<Any>();
 }
 
+/** The real modal presents missing optional strings as blank choices. */
+function editFormFor(item: Any): Record<string, unknown> {
+  return {
+    name: item.name, category: item.category, subCategory: item.subCategory ?? "",
+    pattern: item.pattern ?? "", colors: [...item.colors], layerRole: item.layerRole ?? "",
+    fit: item.fit ?? "", size: item.size ?? "", seasons: [...item.seasons],
+    occasions: [...item.occasions], notes: item.notes ?? "", isAvailable: item.isAvailable ?? true,
+  };
+}
+function withoutUpdateTime(item: Any) {
+  const result = { ...item };
+  delete result.updatedAt;
+  return result;
+}
+
 describe("PATCH /api/wardrobe/[id] — M4 ingestion edit round-trip (behavioral, real Mongo)", () => {
+  it("a modal fit edit and undo preserve independent stored facts, unknowns, all colors and photo references", async () => {
+    const id = await seedItem({
+      clothingType: "dress", warmth: 9, subCategory: null, pattern: null, fit: "", size: null,
+      notes: null, colors: ["navy", "#123456", "cream"], seasons: ["summer", "winter"],
+      occasions: ["class", "dinner"], imagePath: "mongo:aaaaaaaaaaaaaaaaaaaaaaaa",
+      imageUrl: "mongo:bbbbbbbbbbbbbbbbbbbbbbbb",
+      supplementalImages: ["mongo:cccccccccccccccccccccccc"],
+    });
+    const initial = await readItem(id);
+    expect(initial).not.toHaveProperty("layerRole");
+    expect(initial.pattern).toBeNull();
+    // The divergent type/warmth are intentional human/CV corrections, not values
+    // the unchanged taxonomy/name would derive if the full form were resent.
+    expect(initial.clothingType).toBe("dress"); expect(initial.warmth).toBe(9);
+    const command = wardrobeEditPatch(initial, { ...editFormFor(initial), fit: "Relaxed" });
+    expect(command).toEqual({ fit: "Relaxed" });
+    const response = await patch(id, command);
+    expect(response.status).toBe(200);
+    const changed = await readItem(id);
+    expect(withoutUpdateTime(changed)).toEqual({ ...withoutUpdateTime(initial), fit: "Relaxed" });
+    expect((await response.json()).item).toMatchObject({ fit: "Relaxed", clothingType: "dress", warmth: 9,
+      colors: ["navy", "#123456", "cream"], imagePath: initial.imagePath, supplementalImages: initial.supplementalImages });
+
+    const undo = wardrobeEditPatch(changed, { ...editFormFor(changed), fit: initial.fit });
+    expect(undo).toEqual({ fit: "" });
+    const undoneResponse = await patch(id, undo);
+    expect(undoneResponse.status).toBe(200);
+    const undone = await readItem(id);
+    expect(withoutUpdateTime(undone)).toEqual(withoutUpdateTime(initial));
+    expect(undone.pattern).toBeNull(); expect(undone).not.toHaveProperty("layerRole");
+  });
+
+  it("a real modal taxonomy change still reaches the route's type and warmth derivation", async () => {
+    const id = await seedItem({ clothingType: "bottom", warmth: 9, subCategory: "jeans", fit: "Relaxed",
+      colors: ["blue", "white"], imagePath: "mongo:aaaaaaaaaaaaaaaaaaaaaaaa" });
+    const initial = await readItem(id);
+    const command = wardrobeEditPatch(initial, { ...editFormFor(initial), subCategory: "t-shirt" });
+    expect(command).toEqual({ subCategory: "t-shirt" });
+    const response = await patch(id, command);
+    expect(response.status).toBe(200);
+    const changed = await readItem(id);
+    expect(changed.clothingType).toBe("top");
+    expect(changed.warmth).toBe(2); // Cotton Tee / t-shirt: independent, fixed expectation.
+    expect(withoutUpdateTime(changed)).toEqual({ ...withoutUpdateTime(initial), subCategory: "t-shirt", clothingType: "top", warmth: 2 });
+  });
+
   it.each(["dress", "outer_layer", "shoes"] as const)(
     "persists an explicit clothingType=%s without coercing it back to top/bottom",
     async (type) => {

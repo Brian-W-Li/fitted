@@ -16,7 +16,7 @@ jest.mock("firebase/auth", () => ({
 import WardrobePage from "@/app/(app)/wardrobe/page";
 
 type Item = { id: string; name: string; category: string; colors: string[]; fit: string; size: string; seasons: string[]; occasions: string[];
-  imagePath?: string; imageUrl?: string; supplementalImages: string[] };
+  imagePath?: string; imageUrl?: string; supplementalImages: string[]; pattern?: string; layerRole?: string };
 const base: Item = { id: "garment", name: "Green shirt", category: "top", colors: ["green"], fit: "", size: "", seasons: [], occasions: [],
   imagePath: "mongo:main", supplementalImages: [] };
 const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(body)) }) as Response;
@@ -300,4 +300,60 @@ it("keeps other current views inspectable after one supplemental image fails to 
   expect(within(region()).getByText("Photo unavailable")).toBeInTheDocument();
   await userEvent.click(within(region()).getByRole("button", { name: "Select additional view 2" }));
   expect(within(region()).getByRole("img")).toHaveAttribute("src", "/api/images/back");
+});
+
+
+describe("wardrobe metadata edits preserve untouched facts", () => {
+  const metadataRequests = () => (global.fetch as jest.Mock).mock.calls
+    .filter(([url, init]) => url === "/api/wardrobe/garment" && init?.method === "PATCH")
+    .map(([, init]) => JSON.parse(String(init.body)));
+
+  it("sends only a changed fit and an explicit clear on undo, without resubmitting taxonomy or unknowns", async () => {
+    const server = api();
+    render(<WardrobePage />);
+    await edit();
+    await userEvent.selectOptions(screen.getByLabelText("Fit"), "Relaxed");
+    await save();
+    expect(metadataRequests()).toEqual([{ fit: "Relaxed" }]);
+    expect(server.current()?.fit).toBe("Relaxed");
+    await edit();
+    await userEvent.selectOptions(screen.getByLabelText("Fit"), "");
+    await save();
+    expect(metadataRequests()).toEqual([{ fit: "Relaxed" }, { fit: "" }]);
+    expect(server.current()?.fit).toBe("");
+    expect(photoRequests()).toHaveLength(0);
+  });
+
+  it("renames without resubmitting taxonomy, optional unknowns or stale availability", async () => {
+    api();
+    render(<WardrobePage />);
+    await edit();
+    const input = screen.getByPlaceholderText(/blue denim jacket/i);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed shirt");
+    await save();
+    expect(metadataRequests()).toEqual([{ name: "Renamed shirt" }]);
+    expect(within(region()).getByRole("heading", { name: "Renamed shirt" })).toBeInTheDocument();
+  });
+
+  it("keeps deliberate optional clears and season changes in the patch", async () => {
+    api({ initial: { ...base, pattern: "striped", layerRole: "base", seasons: ["Winter"] } });
+    render(<WardrobePage />);
+    await edit();
+    await userEvent.selectOptions(screen.getByLabelText("Pattern"), "");
+    await userEvent.selectOptions(screen.getByLabelText("Layer role"), "");
+    await userEvent.click(screen.getByRole("button", { name: "Winter" }));
+    await save();
+    expect(metadataRequests()).toEqual([{ pattern: "", layerRole: "", seasons: [] }]);
+  });
+
+  it("does not resubmit garment facts when only a supplemental photo changes", async () => {
+    api();
+    render(<WardrobePage />);
+    await edit();
+    await chooseExtra(1);
+    await save();
+    expect(metadataRequests()).toEqual([{}]);
+    expect(photoRequests()).toHaveLength(1);
+  });
 });

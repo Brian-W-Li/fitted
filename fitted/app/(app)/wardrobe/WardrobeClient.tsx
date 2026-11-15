@@ -8,6 +8,7 @@ import { auth } from "@/lib/firebaseClient";
 import { cvResponseToFormValues, type CVInferResponse } from "@/lib/cvToWardrobeForm";
 import { AddItemUploadStepActions } from "@/lib/addItemUploadStepActions";
 import { validateWardrobeForm, normalizeColor } from "@/lib/wardrobeValidation";
+import { wardrobeEditPatch } from "@/lib/wardrobeEditPatch";
 import { deriveClothingType, type ClothingType } from "@/lib/clothingType";
 import { applyWardrobePipeline } from "@/lib/wardrobeDisplayPipeline";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
@@ -2151,7 +2152,7 @@ function WardrobeContent() {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`,
                   },
-                  body: JSON.stringify(data),
+                  body: JSON.stringify(wardrobeEditPatch(editingItem, data)),
                 });
                 const respData = await res.json().catch(() => ({}));
                 if (authOwnerRef.current !== firebaseUser.uid) return "The signed-in account changed.";

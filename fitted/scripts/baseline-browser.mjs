@@ -1183,6 +1183,8 @@ async function run() {
   page.off("request", observeInspection);
   // R17: attach a synthetic detail view through the existing Edit flow, then inspect
   // it as current evidence without changing the photo captured by the saved proposal.
+  const beforeMetadataEdit = await db.collection("wardrobeitems").findOne({ _id: ids[0] });
+  const unchangedMetadata = row => Object.fromEntries(Object.entries(row).filter(([key]) => !["pattern", "fit", "supplementalImages", "updatedAt"].includes(key)));
   const primaryBytes = await db.collection("wardrobeimages").findOne({ _id: imageId });
   await currentGarment.getByRole("button", { name: "Edit this garment", exact: true }).click();
   await page.getByText("More details (optional)", { exact: true }).click();
@@ -1191,9 +1193,16 @@ async function run() {
   await page.getByLabel("Additional view 1", { exact: true }).setInputFiles({
     name: "detail.png", mimeType: "image/png", buffer: Buffer.from(primaryBytes.base64, "base64"),
   });
-  await page.getByRole("button", { name: "Save item", exact: true }).click();
+  const [metadataEditResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith(`/api/wardrobe/${ids[0]}`) && response.request().method() === "PATCH"),
+    page.getByRole("button", { name: "Save item", exact: true }).click(),
+  ]);
+  assert.equal(metadataEditResponse.status(), 200);
+  assert.deepEqual(metadataEditResponse.request().postDataJSON(), { pattern: "solid", fit: "Relaxed" }, "edit submits only deliberate changes");
+  await metadataEditResponse.json();
   await page.getByRole("button", { name: "Select additional view 1", exact: true }).first().waitFor();
   const withDetail = await db.collection("wardrobeitems").findOne({ _id: ids[0] });
+  assert.deepEqual(unchangedMetadata(withDetail), unchangedMetadata(beforeMetadataEdit), "fit/pattern/photo edits preserve all unrelated stored facts and unknowns");
   assert.equal(withDetail.pattern, "solid");
   assert.equal(withDetail.fit, "Relaxed");
   assert.equal(withDetail.size, "M", "detail edit retains the hidden size");
@@ -1223,6 +1232,7 @@ async function run() {
   await page.getByRole("button", { name: "Save item", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('[aria-label="Select additional view 1"]'));
   const withoutDetail = await db.collection("wardrobeitems").findOne({ _id: ids[0] });
+  assert.deepEqual(unchangedMetadata(withoutDetail), unchangedMetadata(beforeMetadataEdit));
   assert.deepEqual(withoutDetail.supplementalImages, [], "remove clears only the selected view");
   assert.equal(withoutDetail.imagePath, `mongo:${imageId}`, "remove preserves primary");
   assert.equal(await db.collection("wardrobeimages").countDocuments({ _id: new ObjectId(detailId) }), 0, "unreferenced detail bytes reclaimed");
@@ -1324,6 +1334,26 @@ async function run() {
   assert.equal(await db.collection("outfitexperiences").countDocuments({ user: new ObjectId(owner.userId) }), wearsBeforeVariation);
   assert.equal(await db.collection("outfitinteractions").countDocuments({ user: new ObjectId(owner.userId) }), reactionsBeforeVariation);
   await page.setViewportSize(desktopViewport);
+  // Undo only after the fresh adaptation has proved it captured the corrected facts.
+  await page.goto(`${origin}/wardrobe?itemId=${ids[0]}`);
+  await page.getByRole("region", { name: "Current garment", exact: true }).getByRole("button", { name: "Edit this garment", exact: true }).click();
+  await page.getByText("More details (optional)", { exact: true }).click();
+  await page.getByLabel("Pattern", { exact: true }).selectOption("striped");
+  await page.getByLabel("Fit", { exact: true }).selectOption("Regular");
+  const [metadataUndoResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith(`/api/wardrobe/${ids[0]}`) && response.request().method() === "PATCH"),
+    page.getByRole("button", { name: "Save item", exact: true }).click(),
+  ]);
+  assert.equal(metadataUndoResponse.status(), 200);
+  assert.deepEqual(metadataUndoResponse.request().postDataJSON(), { pattern: "striped", fit: "Regular" });
+  await metadataUndoResponse.json();
+  await page.getByRole("button", { name: "Save item", exact: true }).waitFor({ state: "detached" });
+  const undoneMetadata = await db.collection("wardrobeitems").findOne({ _id: ids[0] });
+  assert.deepEqual(unchangedMetadata(undoneMetadata), unchangedMetadata(beforeMetadataEdit));
+  assert.equal(undoneMetadata.pattern, beforeMetadataEdit.pattern, "explicit undo restores original pattern");
+  assert.equal(undoneMetadata.fit, beforeMetadataEdit.fit, "explicit undo restores original cut");
+  assert.deepEqual(await db.collection("generationsnapshots").findOne({ _id: adaptedRow._id }), adaptedRow, "undo never rewrites the corrected generation capture");
+  assert.deepEqual(await db.collection("generationsnapshots").findOne({ _id: originalDetailCapture._id }), originalDetailCapture, "correction and undo preserve the original generation capture");
   await page.goto(`${origin}/dashboard`);
   await page.getByRole("button", { name: "Like", exact: true }).first().click();
   await page.getByRole("link", { name: "History" }).click();

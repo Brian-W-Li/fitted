@@ -1238,6 +1238,14 @@ across three milestones:
 - **Dedicated review surface** = CV-correction form = manual-entry form: chips/suggestions, **named colors
   not hex codes**, review only low-confidence fields. (M4 ships the data-path defaults in the existing
   upload form; the dedicated review surface lands here.)
+- **Ordinary edits preserve unrelated facts.** The wardrobe edit form sends only changed
+  editable metadata, preserving untouched unknowns, full colours, photos and stored
+  derived values. Clearing a previously supplied field sends an explicit empty value;
+  an unchanged blank placeholder does not clear a missing fact. Name/taxonomy/season
+  changes still follow the server derivation rules in H47/H52; a name change can
+  rederive warmth. This does not introduce user/derived override provenance or a new
+  role-correction interface. Photo-only saves retain the existing ownership checks
+  and photo lifecycle without rewriting garment metadata.
 - **Taxonomy legibility (H52 rung-2).** Today the UI speaks `category`/`subCategory` (the display/CV
   vocabulary — "what is it called") while the engine partitions on the derived, invisible, uncorrectable
   `clothingType` (the outfit-slot vocabulary — "what slot does it fill"). Keeping both is correct (two
