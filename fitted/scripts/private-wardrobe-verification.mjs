@@ -4,8 +4,9 @@ import { expectedDetail } from "./private-feedback-verification.mjs";
 import { sha256 } from "./private-feedback-contract.mjs";
 
 export function privateWardrobeFlag(args) {
-  if (!args.includes("--private-wardrobe")) return false;
-  assert.equal(args.filter(arg => arg === "--private-wardrobe").length, 1, "private wardrobe mode is selected once");
+  const selected = args.filter(arg => ["--private-wardrobe", "--private-wardrobe-full"].includes(arg));
+  if (!selected.length) return false;
+  assert.equal(selected.length, 1, "private wardrobe mode is selected once");
   const inputs = args.filter(arg => arg.startsWith("--private-replay="));
   assert.ok(inputs.length === 1 && path.isAbsolute(inputs[0].slice(17)), "private wardrobe requires one absolute private replay input");
   assert.ok(!["--private-feedback", "--private-lifecycle", "--private-exclusions", "--feedback-only", "--style-only"].some(flag => args.includes(flag)), "private wardrobe is a separate focused journey");

@@ -2,14 +2,35 @@
 
 ## Review and solidification — November 15, 2026
 
-Current user scope: resume the remaining faithful wardrobe walkthrough in small
-stages, with tests and independent review between them. Stop at a saved checkpoint
-before any Home change. Baseline is reviewed code `98af165b`, documentation `316e46f4`.
-Stage one passed: hypothetical operator Fit edit/undo and availability off/restore
-through actual UI writes and three fresh renders. All 35 Node contracts and scopedlint
-pass; independent receipt/source review confirmed all four attempt audits / 30 preserved
-selections and 12 original photo hashes. Earlier snapshots and feedback stayed unchanged
-during the run. Controls and plan/wear are the next reviewed stage. No paid calls, deployment or owner-preference claims.
+Current stopping boundary: the remaining faithful wardrobe walkthrough passed in
+the compiled local app; stop before any Home change. Stage one is saved at `15856f17`.
+Its four renders plus the four-render continuation verify original photos/facts,
+Fit correction/clear, availability off/restore, Keep/Avoid and sticky/reset controls,
+Explore with changed membership, plan create/reschedule/remove/replan, simulated
+changed wear, correction, revision-bound adaptation and Undo invalidation. All writes
+used the mounted UI and isolated test account. Entire earlier snapshots, closet facts,
+photo bytes, plan ledger and zero-feedback boundary are checked. No production code
+changed in this continuation. No paid calls, personal sign-in, merge or deployment.
+
+All 36 Node contracts, scoped lint and focused documentation guards pass locally.
+Independent source review corrected a plan-acknowledgement race, fallback-weather
+expectation and full wear-state invariants. The first complete run exposed an unused
+rejected-response body read hanging in the harness; removing it and bounding the
+specific 404/unavailable-message check produced a terminal passing rerun. The normal
+hosted regression for the saved final tooling remains pending at this commit.
+
+Limits: these are original private photos with preserved draft replay and explicitly
+simulated plans/wear with unknown outcome, not fresh styling or owner benefit evidence.
+The only shoe appears in every preserved draft, so Keep proves command persistence
+and shown consistency rather than a counterfactual omission. Raw Fit clears to empty
+while engine unknown returns to null. Restricted reports/audits/screenshots live at
+`.private/app-verification/wardrobe-walkthrough-2026-11-15/` in the historical root;
+they are excluded from public source and CI. The selected contract §8 owns acceptance.
+
+Next actions after this checkpoint: (1) choose a bounded Home/390px interaction task
+with Brian; (2) review its intention before implementation; (3) keep actual personal
+styling/learning benefit evaluation separate. No sign-in, new clothing or product
+decision is needed to finish this checkpoint. Home work requires the next direction.
 
 Brian replaced feature expansion with a review of the delivered checkpoint. This
 review was completed at its saved stopping point; the new scope above governs this continuation.
@@ -40,9 +61,8 @@ handles are terminal and owned local ports are closed. No paid calls, personal s
 merge or deployment occurred.
 
 No known confirmed defect remains in the reviewed fixes. This is not a bug-free
-certificate or whole-product completion. The remaining faithful private correction /
-availability / navigation walkthrough, Home fast entry / 390px use and observed human
-styling benefit remain distinct product/evidence gaps, outside this review phase.
+certificate or whole-product completion. The faithful private wardrobe walkthrough is now the bounded continuation above.
+Home fast entry / 390px use and observed human styling benefit remain separate gaps.
 
 The prior review has no remaining action. Its reviewed checkpoint, hosted checks
 and restricted handoff are saved. The explicitly resumed wardrobe scope above is
@@ -51,10 +71,12 @@ their separate authorization boundary.
 
 No blocker was found remaining in the reviewed fixes. Coordinator remains
 `/Users/Brian/.codex/worktrees/s3-outfit-correction/fitted`, branch
-`codex/s3-outfit-learner`, original HEAD `7a542d46`; preserve all 198 dirty entries
+`codex/s3-outfit-learner`, original HEAD `7a542d46`; preserve all preexisting changes
 and private ancestry. Public export remains `/private/tmp/fitted-style-memory-baseline`;
-119 selected source/test/tooling/spec paths match the reviewed source. Receipt:
-`/private/tmp/fitted-solidification-export.json`. Restricted review logs and full dirty
+123 selected source/test/tooling paths match the reviewed source and wardrobe
+continuation. Receipt: `/private/tmp/fitted-wardrobe-export.json`. Current coordinator
+inventory has 168 Git status entries (including untracked directories); its full
+list is saved with the private wardrobe evidence. Restricted review logs and full dirty
 inventory are retained under `.private/app-verification/solidification-2026-11-15/`
 in the historical root. Canonical documentation has private history in the coordinator;
 reviewed public paragraphs are edited independently, never whole-document copied.

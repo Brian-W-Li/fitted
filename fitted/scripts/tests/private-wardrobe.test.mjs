@@ -14,6 +14,9 @@ function fixture() {
 }
 test("private wardrobe is explicit, separate and requires an absolute private fixture", () => {
   assert.equal(privateWardrobeFlag([]),false); assert.equal(privateWardrobeFlag(["--private-wardrobe","--private-replay=/private/input"]),true);
+  assert.equal(privateWardrobeFlag(["--private-wardrobe-full","--private-replay=/private/input"]),true);
+  assert.throws(()=>privateWardrobeFlag(["--private-wardrobe-full","--private-wardrobe","--private-replay=/private/input"]));
+  assert.throws(()=>privateWardrobeFlag(["--private-wardrobe-full"]));
   for(const args of [["--private-wardrobe"],["--private-wardrobe","--private-replay=relative"],["--private-wardrobe","--private-wardrobe","--private-replay=/x"],...["--private-feedback","--private-lifecycle","--private-exclusions","--style-only","--feedback-only"].map(flag=>["--private-wardrobe","--private-replay=/x",flag])]) assert.throws(()=>privateWardrobeFlag(args));
 });
 test("authored overlays cannot mutate original colors or accept undeclared corrections", () => {

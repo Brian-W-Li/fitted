@@ -1,3 +1,4 @@
+import { runPrivateWardrobeContinuation } from "./private-wardrobe-continuation.mjs";
 /** Opt-in faithful wardrobe correction stage. Writes only through the actual local UI. */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -8,7 +9,7 @@ import { stableJson } from "./private-feedback-contract.mjs";
 import { verifyCapturedRender, verifyIntactAttempts } from "./private-feedback-verification.mjs";
 import { wardrobeExpectation, verifyStoredWardrobe, verifyFaithfulCapture, verifyOriginalPhoto, verifyWardrobeAck } from "./private-wardrobe-verification.mjs";
 
-export async function runPrivateWardrobeJourney({ db, page, owner, origin, loaded, run, report, first, paceRender, annotate }) {
+export async function runPrivateWardrobeJourney({ db, page, owner, origin, loaded, run, report, first, paceRender, annotate, privateWardrobeFull = false }) {
   const user = new ObjectId(owner.userId), frozenInput = stableJson(loaded.input);
   const readWardrobe = () => db.collection("wardrobeitems").find({ user }).sort({ _id: 1 }).toArray();
   const initial = await readWardrobe(), snapshots = [first.row];
@@ -126,10 +127,12 @@ export async function runPrivateWardrobeJourney({ db, page, owner, origin, loade
   await preserved(); await persist();
   await editFit("Relaxed", "Relaxed"); await render("corrected-fit-rescue", "Relaxed", true, true);
   await editFit("", null); await availability(false); await render("unavailable-daily", null, false, false);
-  await availability(true); await render("restored-rescue", null, true, true);
+  await availability(true); const last = await render("restored-rescue", null, true, true);
   phase.complete = true; phase.status = "facts-and-availability-passed"; report.status = "private-wardrobe-stage-one-passed";
   phase.limits = ["Operator hypothetical cut correction, not owner truth", "Raw Fit cleared to empty; engine unknown restored to null", "Controls and plan/wear navigation remain the next stage", "Home unchanged"];
   report.sourceSelections = await audit();
   report.pending = ["request controls and plan/wear navigation", "Home/390px outside this walkthrough"];
-  await persist(); return report;
+  await persist();
+  if (privateWardrobeFull) return runPrivateWardrobeContinuation({ db, page, owner, origin, loaded, run, report, first, last, targetId, paceRender, annotate, verifyVisible, preserved, readWardrobe });
+  return report;
 }

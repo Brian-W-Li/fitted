@@ -25,6 +25,7 @@ const privateFeedback = privateFeedbackFlag(process.argv.slice(2));
 const privateLifecycle = privateLifecycleFlag(process.argv.slice(2));
 const privateExclusions = privateExclusionsFlag(process.argv.slice(2));
 const privateWardrobe = privateWardrobeFlag(process.argv.slice(2));
+const privateWardrobeFull = process.argv.includes("--private-wardrobe-full");
 const privateArguments = process.argv.slice(2).filter(arg => arg.startsWith("--private-replay="));
 assert.ok(privateArguments.length <= 1, "choose one explicit private replay input");
 const privateReplayPath = privateArguments[0]?.slice("--private-replay=".length);
@@ -32,7 +33,7 @@ const privateForbiddenRoots = process.argv.slice(2).filter(arg => arg.startsWith
 assert.ok(!privateForbiddenRoots.length || privateArguments.length === 1, "private forbidden roots require explicit private replay mode");
 assert.ok(privateForbiddenRoots.every(root => path.isAbsolute(root)), "private forbidden roots must be absolute paths");
 assert.ok(Number(feedbackOnly) + Number(styleOnly) + Number(privateArguments.length > 0) <= 1, "choose one focused browser journey");
-assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only", "--style-only", "--private-feedback", "--private-lifecycle", "--private-exclusions", "--private-wardrobe"].includes(arg) || arg.startsWith("--private-replay=") || arg.startsWith("--private-forbid-root=")), "unknown baseline argument");
+assert.ok(process.argv.slice(2).every(arg => ["--production", "--feedback-only", "--style-only", "--private-feedback", "--private-lifecycle", "--private-exclusions", "--private-wardrobe", "--private-wardrobe-full"].includes(arg) || arg.startsWith("--private-replay=") || arg.startsWith("--private-forbid-root=")), "unknown baseline argument");
 const origin = "http://127.0.0.1:3107";
 const authOrigin = "http://127.0.0.1:9099";
 const serviceOrigin = "http://127.0.0.1:8097";
@@ -660,11 +661,11 @@ async function run() {
     await page.goto(`${origin}/signin`);
     await page.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function", undefined, { timeout: 30_000 });
     await boundedBrowserStep(page.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), owner), "private replay owner emulator sign-in");
-    const privateReport = await runPrivateReplayJourney({ db, page, owner, origin, loaded: privateReplay, run: privateRun, paceRender, privateFeedback, privateLifecycle, privateExclusions, privateWardrobe });
+    const privateReport = await runPrivateReplayJourney({ db, page, owner, origin, loaded: privateReplay, run: privateRun, paceRender, privateFeedback, privateLifecycle, privateExclusions, privateWardrobe, privateWardrobeFull });
     await context.close();
     if (privateWardrobe) {
-      const complete = privateReport.wardrobe?.complete === true;
-      console.log(`${complete ? "PASS" : "INCOMPLETE"} private wardrobe correction/availability stage; private report: ${privateRun.reportPath}. Operator checks, not owner fit claims.`);
+      const complete = privateReport.wardrobe?.complete === true && (!privateWardrobeFull || privateReport.continuation?.complete === true);
+      console.log(`${complete ? "PASS" : "INCOMPLETE"} private wardrobe ${privateWardrobeFull ? "full controls/plan/wear walkthrough" : "correction/availability stage"}; private report: ${privateRun.reportPath}. Operator checks, not owner fit claims.`);
       if (!complete) process.exitCode = 2;
     } else if (privateExclusions) {
       const complete = privateReport.exclusions?.complete === true;

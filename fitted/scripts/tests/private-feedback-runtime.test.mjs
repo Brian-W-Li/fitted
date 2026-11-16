@@ -167,3 +167,11 @@ test("private exclusions is a separate opt-in journey with an absolute private i
     ["--private-exclusions", "--private-replay=/x", "--style-only"], ["--private-exclusions", "--private-replay=/x", "--private-exclusions"]])
     assert.throws(() => privateExclusionsFlag(args), /private exclusions/);
 });
+
+test("captured verification accepts an explicitly authored adaptation context but never silently changes the expected partition", () => {
+  const f=fixture();
+  const adapted={...f.context,routineId:null,routineVersion:null,routineLabel:null,learningEnabled:false,weather:"unspecified"};
+  f.row.styleContext=structuredClone(adapted);f.result.styleContext=structuredClone(adapted);
+  verifyCapturedRender({...f,context:adapted});
+  assert.throws(()=>verifyCapturedRender({...f,context:f.context}));
+});

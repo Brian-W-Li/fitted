@@ -504,6 +504,27 @@ all unrelated stored facts, complete captured prompt-pool facts, original photo 
 and actual name/photo pairs. Earlier snapshots and reactions remain unchanged. This
 stage must pass tests and independent review before adding controls or plan/wear steps.
 
+The opt-in `--private-wardrobe-full` continuation adds four renders only after that
+stage passes: explicit nonforced Keep plus Avoid, untouched sticky Keep with Avoid
+reset, Explore from the exact saved proposal, and adaptation from corrected actual
+membership. Preserved supply must support each step; otherwise report incomplete
+instead of fabricating drafts. A single shoe in every preserved draft limits Keep
+evidence to command persistence and observed membership, not a shoe-drop counterfactual.
+Explore retains saved situation/weather/profile/Routine; changed-wear adaptation
+keeps the profile, clears Routine and learning opt-in, and resolves new weather
+normally (the authored neutral case uses the mild fallback, not inherited weather).
+
+Planning creates, reschedules, removes and separately replans the exact proposal
+without new renders, votes or wear. Simulated changed wear substitutes a supplied
+owned bottom, records an explicitly simulated situation and unknown outcome, then
+corrects only the situation. Adaptation keeps the added actual bottom and binds
+revision two. Situation undo appends revision three and invalidates that derivative;
+it preserves all older revisions and restores the entire original reported state.
+The complete plan ledger, closet, photos and earlier snapshots remain unchanged.
+HTTP receipts and mounted saved-state acknowledgement precede navigation. All
+records remain isolated operator checks; none establish owner taste, actual wear
+or fresh styling benefit. Home and narrow-screen redesign require a later task.
+
 The local harness entry is `fitted/scripts/baseline-browser.mjs`; its private input
 and first-request assertions live in `private-replay-input.mjs` and
 `private-replay-journey.mjs` alongside it. `ml-system/service/private_replay.py` owns

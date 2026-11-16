@@ -46,7 +46,7 @@ export function verifyCapturedRender({ row, result, request, loaded, context, ev
   assert.equal(row.nSurfaced, result.shown.length, "captured surfaced count matches the actual shown response");
   assert.deepEqual(capturedPartition(row.styleContext), capturedPartition(context), "direction/versions/meaning/weather/opt-in stay fixed");
   assert.deepEqual(capturedPartition(result.styleContext), capturedPartition(context));
-  assert.equal(row.styleContext.learningEnabled, true); assert.equal(row.styleContext.weather, "mild");
+  assert.equal(row.styleContext.learningEnabled, context.learningEnabled); assert.equal(row.styleContext.weather, context.weather);
   assert.deepEqual(row.shownCandidateIds, result.shown.map(outfit => outfit.candidateId));
   assert.deepEqual(row.preference.shownFullSignatures, row.shownFullSignatures);
   verifyIntactAttempts(row, events, loaded);

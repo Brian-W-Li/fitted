@@ -1,4 +1,4 @@
-/** First checkpoint only: private captured photos -> actual app request -> intact replay evidence. */
+/** Default first-request checkpoint; explicit flags continue bounded private UI journeys. */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -17,7 +17,7 @@ export async function annotatePrivateReplay(page, subsetCount) {
     document.body.prepend(note);
   }, subsetCount);
 }
-export async function runPrivateReplayJourney({ db, page, owner, origin, loaded, run, paceRender, privateFeedback = false, privateLifecycle = false, privateExclusions = false, privateWardrobe = false }) {
+export async function runPrivateReplayJourney({ db, page, owner, origin, loaded, run, paceRender, privateFeedback = false, privateLifecycle = false, privateExclusions = false, privateWardrobe = false, privateWardrobeFull = false }) {
   const report = { version: "private-walkthrough-report.v1", status: "running", checkpoint: "captured-photos-first-request",
     inputSha256: loaded.inputDigest, provenance: loaded.input.provenance, operatorFeedback: [], newProviderCalls: 0,
     annotation: { kind: "harness-only", partOfProductionUI: false, purpose: "Screenshot provenance label inserted by local verification tooling" },
@@ -104,7 +104,7 @@ export async function runPrivateReplayJourney({ db, page, owner, origin, loaded,
       shownGarmentIds: result.shown.map(outfit => outfit.displayItems.map(item => item.itemId)), preference: row.preference },
     sourceSelections: audit, screenshots: ["01-captured-wardrobe.png", "02-first-replayed-outfits.png"] });
   await writePrivateReplayReport(run, report);
-  if (privateWardrobe) return runPrivateWardrobeJourney({ db, page, owner, origin, loaded, run, report, first: { row, request, result }, paceRender, annotate: () => annotatePrivateReplay(page, loaded.input.wardrobe.length) });
+  if (privateWardrobe) return runPrivateWardrobeJourney({ db, page, owner, origin, loaded, run, report, first: { row, request, result }, paceRender, privateWardrobeFull, annotate: () => annotatePrivateReplay(page, loaded.input.wardrobe.length) });
   if (privateExclusions) return runPrivateExclusionsJourney({ db, page, owner, origin, loaded, run, report, first: { row, request, result }, paceRender,
     annotate: () => annotatePrivateReplay(page, loaded.input.wardrobe.length) });
   if (privateFeedback) return runPrivateFeedbackJourney({ db, page, owner, origin, loaded, run, paceRender, report,
