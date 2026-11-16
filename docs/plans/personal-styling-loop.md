@@ -88,6 +88,66 @@ An item-fit note does not itself ban an item. Offer an explicit action such as
 "Leave this piece out next time" with its scope visible; only accepting that action
 creates an instruction. Free prose never becomes a hidden exclusion or model label.
 
+### 3.1 Home completion: quick entry and visible style memory
+
+The resumed goal keeps the full personal-styling loop above. Home work makes that
+loop usable; it does not replace contextual learning with a simpler utility or claim
+that engineering checks establish personal benefit. The first slice changes request
+presentation only, followed by review before result presentation changes.
+
+**H1 — Reach a request with its meaning visible.** Keep the existing daily request
+and wardrobe rescue paths. Present the event input early, with an associated visible
+label. A returning person sees the acknowledged direction and saved situation before
+submission; a new person can request without creating either. Keep those selectors
+and the explicit experimental-learning choice accessible. Put creation/management
+and optional weather detail behind clearly named disclosure controls, with a compact
+visible summary of the current settings. Do not put unresolved writes, refresh failures,
+retry controls or effective exclusions solely inside a closed disclosure. Expanding
+or collapsing presentation must neither submit a command nor change selected context,
+learning opt-in, weather, rescue anchor or request-only exclusions. The compact
+closed direction view shows acknowledged direction/situation and learning off/on-for-
+collection, with an explicit Change control to reach selectors and opt-in. It must
+not claim the learner is active from opt-in alone. Exclusion summary shows scope and
+separate saved/next-request counts, with a named review action revealing exact pieces
+and complete-outfit membership; full lists need not occupy the default surface.
+
+Do not unmount the style-memory owner when collapsing its presentation: pending
+operation IDs, refresh barriers, editor drafts and acknowledgements must survive.
+Preserve mounted exclusion/editor children as well as the owner: do not conditionally
+remove or re-key them when a disclosure closes. Keep saved-context meaning distinct from the current event text, and learning enabled
+for collection distinct from a learned decision actually being active. Manual-weather
+summary must include all selected temperature/rain/wind values; automatic weather must
+identify location use or fallback honestly. Existing controls still author exactly the
+same request envelopes. A location prompt remains an explicit user action unless a
+previous browser grant permits the existing resume behavior.
+
+**H2 — Compare outfits without repeating setup.** After H1 is implemented and
+reviewed, make returned/restored outfit cards easy to reach, with their captured
+context and learning status. Current draft edits must never relabel old cards. Keep
+errors, empty results, pending/retry requests and regeneration visible and actionable.
+Do not auto-scroll on every background state update or discard unfinished input.
+Specify the exact result-navigation interaction after inspecting the H1 browser result.
+
+**Evidence before calling Home complete.** Capture the existing layout and the changed
+layout in the compiled app at 390×844 and desktop widths, with the same synthetic
+account/wardrobe and direction state. Check first use, returning selected context,
+rescue, empty closet, long names, manual weather, unresolved context write, and a
+restored result. Record the event-input and submit-button positions and the number of
+explicit disclosure actions needed; use rendered geometry, not class-name assertions.
+For settled stocked-closet first-use and returning short-label fixtures at 390×844,
+the entire event input and submit button must lie within the initial viewport with
+management closed. Optional detail selection may require opening its named disclosure.
+Long-label, empty-closet and recovery states may scroll normally; all states must avoid
+horizontal page overflow and clipped controls. Do not hide context or shrink text to
+meet the viewport bound. The ordinary request path requires no management action. Use actual keyboard/tab navigation and
+visible labels for new disclosures. Test preservation of authored wire values across
+open/close and retries, including a delayed acknowledgement. Test both no-direction
+and selected-direction requests. Add focused cases where the existing suites do not
+already cover these boundaries; then run the web checks and compiled journey once
+for the reviewed change. Private original-wardrobe evidence remains separate from
+synthetic layout tests. Human ease-of-use and taste benefit remain explicitly unproven
+until observed; screenshots alone are not those outcomes.
+
 ## 4. Profile, situation and version contracts
 
 Use the canonical vocabulary: a text **Board** is the user-facing saved style direction;
@@ -523,7 +583,7 @@ it preserves all older revisions and restores the entire original reported state
 The complete plan ledger, closet, photos and earlier snapshots remain unchanged.
 HTTP receipts and mounted saved-state acknowledgement precede navigation. All
 records remain isolated operator checks; none establish owner taste, actual wear
-or fresh styling benefit. Home and narrow-screen redesign require a later task.
+or fresh styling benefit. This wardrobe rehearsal does not verify Home or narrow-screen usability.
 
 The local harness entry is `fitted/scripts/baseline-browser.mjs`; its private input
 and first-request assertions live in `private-replay-input.mjs` and

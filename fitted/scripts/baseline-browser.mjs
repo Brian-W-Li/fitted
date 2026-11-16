@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -298,6 +298,30 @@ async function checkFeedbackJourney(db, page, owner, memoryHeaders) {
 
 }
 
+/** Opt-in measurements of the real synthetic Home surface, before/after presentation edits. */
+async function captureHomeLayout(page, stage) {
+  const directory = process.env.FITTED_HOME_LAYOUT_DIR;
+  if (!directory) return;
+  assert.ok(path.isAbsolute(directory), "Home evidence directory must be absolute");
+  await mkdir(directory, { recursive: true });
+  const originalViewport = page.viewportSize();
+  try {
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+      await page.setViewportSize(viewport); await page.evaluate(() => window.scrollTo(0, 0));
+      const metrics = await page.evaluate(() => {
+        const bounds = element => { if (!element) return null; const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+        const submit = [...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Get Recommendations");
+        return { viewport: { width: innerWidth, height: innerHeight }, pageWidth: document.documentElement.scrollWidth,
+          event: bounds(document.querySelector("textarea")), submit: bounds(submit),
+          direction: bounds(document.querySelector('[aria-label="Saved style direction"]')) };
+      });
+      const stem = `${stage}-${viewport.width}`;
+      await writeFile(path.join(directory, `${stem}.json`), JSON.stringify(metrics, null, 2) + "\n");
+      await page.screenshot({ path: path.join(directory, `${stem}.png`), fullPage: true });
+    }
+  } finally { await page.setViewportSize(originalViewport); }
+}
+
 /** One real app journey over authored synthetic wardrobe/feedback. No human-benefit claim. */
 async function checkStyleDirectionJourney(db, page, owner) {
   const boardLabel = "Synthetic campus direction";
@@ -316,6 +340,8 @@ async function checkStyleDirectionJourney(db, page, owner) {
     assert.ok(body.state && body.operation?.id, "saved styling returns an acknowledged state");
     return body.state;
   }
+  await panel.getByRole("button", { name: "New direction", exact: true }).waitFor();
+  await captureHomeLayout(page, "first-use");
   await panel.getByRole("button", { name: "New direction", exact: true }).click();
   await panel.getByLabel("Saved choice name", { exact: true }).fill(boardLabel);
   await panel.getByLabel("Style word or phrase", { exact: true }).fill("relaxed");
@@ -343,6 +369,7 @@ async function checkStyleDirectionJourney(db, page, owner) {
   assert.equal(await optIn.isChecked(), true, "acknowledged context/opt-in survive reload");
   await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
   await page.locator("textarea").fill(occasion);
+  await captureHomeLayout(page, "returning-direction");
   const capturedLabel = `${boardLabel} · ${routineLabel}`;
   async function generate(expectedSupport) {
     await paceRender();

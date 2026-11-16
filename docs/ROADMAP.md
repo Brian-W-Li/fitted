@@ -1,5 +1,38 @@
 # Current direction and work
 
+## Active Home completion — November 16, 2026
+
+Brian explicitly resumed the full personal-styling goal after the wardrobe checkpoint.
+Root remains coordinator in `/Users/Brian/.codex/worktrees/s3-outfit-correction/fitted`;
+the sanitized integration export remains `/private/tmp/fitted-style-memory-baseline`,
+branch `codex/style-memory-baseline`, saved baseline `a36b0aec` (tested tooling
+`08d4aed6`). Preserve unrelated dirty coordinator files and private ancestry.
+
+The implementation contract §3.1 now defines H1 request entry, then H2 result access.
+H1 keeps visible acknowledged direction/situation and optional learning while moving
+management and detailed weather behind explicit disclosures. Pending writes, retries,
+exclusions and authored request values remain visible/correct. H2 is reviewed after H1.
+The larger goal includes meaningful contextual learning; layout work does not establish
+human benefit or replace the model evidence requirement.
+
+Pre-implementation source/design review is complete with two independent reviewers.
+Their required refinements are in §3.1: explicit first-viewport success bounds,
+compact scoped exclusion summaries, and preservation of mounted owner/editor children.
+The existing compiled styling journey passed with before captures at 390×844 and
+1280×900. At 390px, first-use event starts at y=956 and submit at y=1507; returning
+selected direction event starts at y=1068 and submit at y=1715.5. Page width is390 in
+both cases. Thus existing behavior works, but ordinary request entry misses the
+first viewport. Screenshots and metrics are retained under
+`.private/app-verification/home-2026-11-16/before/` in the historical root.
+All36 Node fixture contracts and scoped harness lint pass. The browser harness has an opt-in
+`FITTED_HOME_LAYOUT_DIR=/absolute/evidence-directory` measurement hook; normal CI
+continues without exported screenshots. No application code has changed in this design
+checkpoint. No paid calls, deployment, merge, personal sign-in or participant collection.
+
+Next actions: (1) implement H1 from the reviewed §3.1; (2) test disclosure wire/async
+state and compare rendered layout; (3) independently review and run the integrated
+regression before deciding H2's exact interaction. The goal is active, not complete.
+
 ## Review and solidification — November 15, 2026
 
 Current stopping boundary: the remaining faithful wardrobe walkthrough passed in
@@ -23,7 +56,7 @@ and [whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/437833
 both passed. These hosted workflows use synthetic inputs; the private faithful
 walkthrough is separate local evidence. The closeout changes documentation only.
 The sanitized public checkout is clean at the saved closeout; all owned local services
-are closed. The larger goal remains paused before Home.
+are closed. That checkpoint stopped before Home; the November 16 scope above resumes it.
 
 Limits: these are original private photos with preserved draft replay and explicitly
 simulated plans/wear with unknown outcome, not fresh styling or owner benefit evidence.
@@ -71,8 +104,7 @@ certificate or whole-product completion. The faithful private wardrobe walkthrou
 Home fast entry / 390px use and observed human styling benefit remain separate gaps.
 
 The prior review has no remaining action. Its reviewed checkpoint, hosted checks
-and restricted handoff are saved. The explicitly resumed wardrobe scope above is
-active; Home/390px changes remain outside it. Provider spend and deployment retain
+and restricted handoff are saved. The wardrobe scope is complete; the November 16 Home scope above is active. Provider spend and deployment retain
 their separate authorization boundary.
 
 No blocker was found remaining in the reviewed fixes. Coordinator remains
