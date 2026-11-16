@@ -495,6 +495,15 @@ new snapshots/reactions, be identified separately from owner preferences, and be
 counted by distinct eligible composition. Missing support or no changed selection
 is reported honestly. This rehearsal does not complete persistent-exclusion acceptance.
 
+The separate `--private-wardrobe` mode begins with a bounded facts/availability stage:
+three fresh renders after the initial choice. A hypothetical operator Fit edit is
+rescued, cleared, made unavailable for a daily request, then restored and rescued.
+Raw Fit null-to-empty clearing is distinct from engine unknown-to-null restoration.
+Author expectations before each write; verify sparse commands, visible acknowledgement,
+all unrelated stored facts, complete captured prompt-pool facts, original photo bytes
+and actual name/photo pairs. Earlier snapshots and reactions remain unchanged. This
+stage must pass tests and independent review before adding controls or plan/wear steps.
+
 The local harness entry is `fitted/scripts/baseline-browser.mjs`; its private input
 and first-request assertions live in `private-replay-input.mjs` and
 `private-replay-journey.mjs` alongside it. `ml-system/service/private_replay.py` owns

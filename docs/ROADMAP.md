@@ -2,8 +2,17 @@
 
 ## Review and solidification — November 15, 2026
 
+Current user scope: resume the remaining faithful wardrobe walkthrough in small
+stages, with tests and independent review between them. Stop at a saved checkpoint
+before any Home change. Baseline is reviewed code `98af165b`, documentation `316e46f4`.
+Stage one passed: hypothetical operator Fit edit/undo and availability off/restore
+through actual UI writes and three fresh renders. All 35 Node contracts and scopedlint
+pass; independent receipt/source review confirmed all four attempt audits / 30 preserved
+selections and 12 original photo hashes. Earlier snapshots and feedback stayed unchanged
+during the run. Controls and plan/wear are the next reviewed stage. No paid calls, deployment or owner-preference claims.
+
 Brian replaced feature expansion with a review of the delivered checkpoint. This
-review is complete at the requested stopping point; feature work remains on hold.
+review was completed at its saved stopping point; the new scope above governs this continuation.
 Starting public baseline was `7120bdfc`, code `5981061d`. Reviewed repair code
 `98af165bf7da72156946ea5f22f0cebde28bff4d` is saved on `codex/style-memory-baseline`.
 The larger product is incomplete; this review does not resume its feature backlog.
@@ -35,11 +44,10 @@ certificate or whole-product completion. The remaining faithful private correcti
 availability / navigation walkthrough, Home fast entry / 390px use and observed human
 styling benefit remain distinct product/evidence gaps, outside this review phase.
 
-No review action or user input remains pending. The reviewed checkpoint, exact
-hosted checks and restricted handoff are saved. Stop here; do not resume feature work
-automatically. If Brian later resumes development, the next bounded product work is
-the faithful private journey, then Home/390px usability, with a separate milestone
-review. Provider spend and deployment retain their separate authorization boundary.
+The prior review has no remaining action. Its reviewed checkpoint, hosted checks
+and restricted handoff are saved. The explicitly resumed wardrobe scope above is
+active; Home/390px changes remain outside it. Provider spend and deployment retain
+their separate authorization boundary.
 
 No blocker was found remaining in the reviewed fixes. Coordinator remains
 `/Users/Brian/.codex/worktrees/s3-outfit-correction/fitted`, branch

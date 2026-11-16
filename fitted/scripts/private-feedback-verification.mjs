@@ -38,7 +38,7 @@ export function verifyIntactAttempts(row, events, loaded) {
 // Independent expected contract: declared unknown sentinels are absence, never
 // inferred facts. Known pattern/fit values retain their exact trimmed spelling.
 const UNKNOWN_DETAILS = new Set(["0", "unknown", "unspecified", "not specified", "none", "n/a", "not applicable"]);
-const expectedDetail = value => value == null || UNKNOWN_DETAILS.has(value.trim().toLowerCase()) ? null : value.trim();
+export const expectedDetail = value => value == null || !value.trim() || UNKNOWN_DETAILS.has(value.trim().toLowerCase()) ? null : value.trim();
 export function verifyCapturedRender({ row, result, request, loaded, context, events, ownerId }) {
   assert.equal(row.schemaVersion, 2); assert.equal(String(row.user), ownerId);
   assert.ok(!row.redacted && result.bindable && result.shown?.length > 0, "complete normal bound snapshot required");
