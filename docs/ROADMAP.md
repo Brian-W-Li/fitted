@@ -16,8 +16,14 @@ All 36 Node contracts, scoped lint and focused documentation guards pass locally
 Independent source review corrected a plan-acknowledgement race, fallback-weather
 expectation and full wear-state invariants. The first complete run exposed an unused
 rejected-response body read hanging in the harness; removing it and bounding the
-specific 404/unavailable-message check produced a terminal passing rerun. The normal
-hosted regression for the saved final tooling remains pending at this commit.
+specific 404/unavailable-message check produced a terminal passing rerun. The reviewed final tooling is saved at
+`08d4aed6dad1bcfc83a8655f090e70d0f4812546` on `codex/style-memory-baseline`.
+Exact-source hosted [conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43783367334)
+and [whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43783367202)
+both passed. These hosted workflows use synthetic inputs; the private faithful
+walkthrough is separate local evidence. The closeout changes documentation only.
+The sanitized public checkout is clean at the saved closeout; all owned local services
+are closed. The larger goal remains paused before Home.
 
 Limits: these are original private photos with preserved draft replay and explicitly
 simulated plans/wear with unknown outcome, not fresh styling or owner benefit evidence.
