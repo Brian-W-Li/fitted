@@ -1,21 +1,24 @@
 # Current direction and work
 
-## Active Home completion — November 16, 2026
+## Home checkpoint — stopped November 16, 2026
 
 Brian resumed the full personal-styling goal after the wardrobe checkpoint. Root is
 coordinator in `/Users/Brian/.codex/worktrees/s3-outfit-correction/fitted`, branch
 `codex/s3-outfit-learner`, original HEAD `7a542d46`. Preserve its unrelated dirty files
 and private ancestry. Sanitized integration is `/private/tmp/fitted-style-memory-baseline`,
-branch `codex/style-memory-baseline`. GitHub-saved source `d7221c3d` has passing
-[conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43985575845) and
-[whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43985575755).
-H1 edge tooling/reviewed H2 contract is committed locally at `6170acc4`.
+branch `codex/style-memory-baseline`. Reviewed Home source is saved on GitHub at
+`f1f1af21ec99a94429aedb9424449d7d2bed038d`; H1 edge tooling/contract is `6170acc4`.
+Brian requested a stopping point; work is paused after this documented checkpoint.
+No further feature work is selected. The prior `d7221c3d` conformance/browser checks
+passed; fresh exact-source [conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43987197009)
+and [whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43987196768)
+were still running at handoff. Their outcome remains unverified here.
 
 The selected contract §3.1 owns Home acceptance. H1 puts event entry before compact
 acknowledged direction/situation/learning summaries; management remains mounted behind
 Change/Close and time/weather is a native disclosure. Pending writes, retries and
-exclusions remain accessible. At390×844 ordinary first-use and returning fixtures moved
-event entry from y956/1068 to y440, and submit from y1507/1715.5 to y757.5 (bottom797.5).
+exclusions remain accessible. At 390×844 ordinary first-use and returning fixtures moved
+event entry from y=956/1068 to y=440, and submit from y=1507/1715.5 to y=757.5 (bottom=797.5).
 Long names, manual weather, delayed receipt after a real save, exact restored proposal
 identities, rescue and empty closet passed compiled phone checks without extra generation.
 
@@ -28,28 +31,32 @@ scroll/focus, form collapse or new live announcement is introduced. Erasure and 
 results remove navigation through the existing admitted-result boundary.
 
 Two independent reviews found no remaining blocker in this bounded slice. Focused
-Home tests pass23 cases. Three deliberate mutations (draft-caption leakage, fixed
+Home tests pass 23 cases. Three deliberate mutations (draft-caption leakage, fixed
 count and generic-error labeling) fail the intended assertions; source was restored.
 The compiled native-link walkthrough passed heading focus/visibility and retained
-draft/proposal identities. It predates the final request-label repair; the final
-compiled rerun is pending. The sequential full web regression passes1875 tests with
-ten existing skips; all38 Node contracts and focused documentation guards pass.
-Independent TypeScript passes; lint has zero errors and35 existing warnings. H1's initial51101af6 build failure
+draft/proposal identities. The final saved-source compiled rerun passed, including
+request-label repair, phone edges, activated synthetic membership change and support
+removal. The sequential full web regression passes 1,875 tests with
+ten existing skips; all 38 Node contracts and focused documentation guards pass.
+Independent TypeScript passes; lint has zero errors and 35 existing warnings. H1's initial `51101af6` build failure
 was caused by test-helper types masked by a combined shell status; d7221c3d repaired
 those, with independent terminal type-check and hosted evidence above.
 
-Current uncommitted scope is Home page, three Dashboard test files, the Home edge
-harness and owning documentation; preserve all other coordinator changes. Restricted
+The sanitized checkout is clean after the documentation closeout. Its selected source
+and tests match the coordinator; the private receipt records hashes and the full dirty
+coordinator inventory. Preserve all those unrelated changes. Owned local services are
+closed; no local check remains running. Restricted
 screenshots, geometry and logs live under historical-root
 `.private/app-verification/home-2026-11-16/`; public source contains only generic tooling.
 These are local compiled/synthetic mechanism checks, separate from hosted CI and human
 benefit. Full keyboard Tab-order, hosted OAuth and real personal styling benefit are
 not established. No paid calls, deployment, merge, personal sign-in or collection.
 
-Next actions: (1) finish final local and exact-source hosted checks and save this Home
-checkpoint; (2) review the overall goal against the completed wardrobe/Home journey;
-(3) decide the next bounded evidence task for actual styling and contextual learning
-benefit. Home validation is closing; the larger goal remains active and incomplete.
+On resume: (1) inspect the two hosted runs above; (2) review the overall goal against
+the completed wardrobe/Home journey; (3) choose a bounded task to establish actual
+styling and contextual learning benefit. Local Home acceptance is complete; hosted
+confirmation is pending and the larger goal remains incomplete. No sign-in, new
+clothing or immediate decision is needed from Brian to preserve this checkpoint.
 
 ## Review and solidification — November 15, 2026
 
