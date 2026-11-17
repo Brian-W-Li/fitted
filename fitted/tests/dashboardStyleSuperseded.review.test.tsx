@@ -29,7 +29,7 @@ const response = (body: unknown, status = 200) => ({ ok: status >= 200 && status
 async function openSavedDirection() {
   const panel = within(await screen.findByRole("region", { name: "Saved style direction" }));
   await userEvent.click(panel.getByRole("button", { name: "Change direction" }));
-  await panel.findByRole("button", { name: "New direction", exact: true });
+  await panel.findByRole("button", { name: "New direction" });
 }
 function displayedResult() {
   const result = screen.getByText("Previously shown green shirt").closest(".mt-6.space-y-4");
