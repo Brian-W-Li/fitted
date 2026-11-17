@@ -538,6 +538,7 @@ function DashboardInner() {
   const activeLensRef = useRef<LensSummary | null>(null);
 
   const [occasion, setOccasion] = useState("");
+  const requestDraftEditedRef = useRef(false);
   const [selectedStyleContext, setSelectedStyleContext] = useState<StyleContextSelection | null>(null);
   const [exclusionManagementContext, setExclusionManagementContext] = useState<CapturedStyleContext | null>(null);
   const [styleMemoryState, setStyleMemoryState] = useState<StyleMemoryState | null>(null);
@@ -700,7 +701,9 @@ function DashboardInner() {
     const controller = new AbortController();
     let cancelled = false;
     reactionGenerationsRef.current.clear();
+    requestDraftEditedRef.current = false;
     setResult(null); setOccasion(""); setExpectedWeather(EMPTY_EXPECTED_WEATHER);
+    setEventTimeBucket("now"); setCustomEventDateTime("");
     setOneRequestExclusions(emptyExclusionInput()); setStyleMemoryState(null); setSelectedStyleContext(null); setExclusionManagementContext(null);
     setError(""); setInFlight(false); setHasNewerRequest(false); setFeedbackModal(null); setRegenModal(null);
     activeLensRef.current = null; activeLocksRef.current = [];
@@ -714,20 +717,38 @@ function DashboardInner() {
     const saved = readJSON<PersistedDashboard>(DASHBOARD_KEY(uid));
     const restored = saved?.result ? { ...saved.result, shown: saved.result.shown.map(outfit => ({ ...outfit, reactionId: undefined, feedbackReason: undefined, perItemFeedback: undefined })) } : null;
     const pending = readJSON<PendingEnvelope>(PENDING_KEY(uid));
+    // Restore absolute captured time, never reinterpret yesterday's "tomorrow".
+    const restoreTime = (lens?: LensSummary) => {
+      const date = new Date(lens?.eventTimeISO ?? "");
+      const valid = Number.isFinite(date.getTime());
+      setEventTimeBucket(valid ? "custom" : "now");
+      setCustomEventDateTime(valid ? localDateTimeValue(date) : "");
+    };
+    const resumeWithVisibleSettings = () => {
+      if (!pending) return;
+      if (!requestDraftEditedRef.current) {
+        setOccasion(pending.lensSummary.occasion);
+        setExpectedWeather(expectedWeatherFromLens(pending.lensSummary));
+        restoreTime(pending.lensSummary);
+      }
+      resumePending(uid, pending);
+    };
     const publish = () => {
       if (!current()) return;
       if (restored && saved) {
         setResult(restored);
-        setOccasion(saved.occasion ?? "");
         activeLensRef.current = saved.lensSummary ?? { occasion: saved.occasion ?? "" };
-        setExpectedWeather(expectedWeatherFromLens(saved.lensSummary));
+        // Visibility validation may finish after the person starts a new draft.
+        // Restore the captured cards, but never replace that authored form.
+        if (!requestDraftEditedRef.current) {
+          setOccasion(saved.occasion ?? "");
+          setExpectedWeather(expectedWeatherFromLens(saved.lensSummary));
+          restoreTime(saved.lensSummary);
+        }
         activeLocksRef.current = saved.activeLockedItemIds ?? [];
       }
-      if (pending) {
-        setOccasion(pending.lensSummary.occasion);
-        setExpectedWeather(expectedWeatherFromLens(pending.lensSummary));
-        resumePending(uid, pending);
-      } else if (restored && firebaseUser) void reconcileFeedbackFromServer(firebaseUser, restored, saved?.occasion ?? "");
+      if (pending) resumeWithVisibleSettings();
+      else if (restored && firebaseUser) void reconcileFeedbackFromServer(firebaseUser, restored, saved?.occasion ?? "");
     };
     if (restored?.styleContext && firebaseUser) {
       const user = firebaseUser;
@@ -749,7 +770,7 @@ function DashboardInner() {
         else {
           if (state === "unavailable") removeKey(DASHBOARD_KEY(uid));
           setError(state === "unavailable" ? "Those saved outfits are no longer available. You can request a new set." : "Couldn't verify your saved outfits. Reload to try again.");
-          if (pending) resumePending(uid, pending);
+          if (pending) resumeWithVisibleSettings();
         }
       })();
     } else publish();
@@ -972,7 +993,7 @@ function DashboardInner() {
         // The arriving render is FOR the envelope's frozen occasion — fill the input when it's
         // empty (a root resume has no saved dashboard to restore it from, and later feedback marks
         // persist the state occasion). Never clobber text the user typed during the resume window.
-        setOccasion((prev) => prev || envelope.lensSummary.occasion);
+        setOccasion((prev) => requestDraftEditedRef.current ? prev : prev || envelope.lensSummary.occasion);
         // H100 — a resumed re-roll carries the lineage's locks in its envelope; a root resume
         // starts a fresh lineage. Before setResult, so runRender's persist sees the fresh value.
         activeLocksRef.current =
@@ -1273,7 +1294,7 @@ function DashboardInner() {
             <textarea
               id="home-event"
               value={occasion}
-              onChange={(e) => setOccasion(e.target.value)}
+              onChange={(e) => { requestDraftEditedRef.current = true; setOccasion(e.target.value); }}
               rows={2}
               maxLength={MAX_OCCASION_CHARS}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 placeholder:text-slate-400"
@@ -1313,7 +1334,7 @@ function DashboardInner() {
               ] as { value: EventTimeBucket; label: string }[]).map(({ value, label }) => (
                 <button
                   key={value}
-                  onClick={() => setEventTimeBucket(value)}
+                  onClick={() => { requestDraftEditedRef.current = true; setEventTimeBucket(value); }}
                   className={`px-4 py-2 text-sm font-medium rounded-lg ${eventTimeBucket === value ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
                 >
                   {label}
@@ -1323,8 +1344,9 @@ function DashboardInner() {
             {eventTimeBucket === "custom" && (
               <input
                 type="datetime-local"
+                aria-label="Event date and time"
                 value={customEventDateTime}
-                onChange={(e) => setCustomEventDateTime(e.target.value)}
+                onChange={(e) => { requestDraftEditedRef.current = true; setCustomEventDateTime(e.target.value); }}
                 min={localDateTimeValue(new Date())}
                 max={localDateTimeValue(new Date(Date.now() + 6 * 24 * 60 * 60 * 1000))}
                 className="mt-2 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
@@ -1337,18 +1359,18 @@ function DashboardInner() {
             <p id="expected-weather-help" className="text-xs text-slate-500">Choose what you expect without sharing your location. Manual conditions override location weather for a new request. Unspecified rain or wind stays unknown.</p>
             <div className="flex flex-wrap gap-3">
               <label className="text-sm text-slate-700">Temperature
-                <select aria-describedby="expected-weather-help" value={expectedWeather.temperature} onChange={e => setExpectedWeather({ ...EMPTY_EXPECTED_WEATHER, temperature: e.target.value as ExpectedTemperature })} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
+                <select aria-describedby="expected-weather-help" value={expectedWeather.temperature} onChange={e => { requestDraftEditedRef.current = true; setExpectedWeather({ ...EMPTY_EXPECTED_WEATHER, temperature: e.target.value as ExpectedTemperature }); }} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
                   <option value="">Automatic / unknown</option><option value="cold">Cold</option><option value="mild">Mild</option><option value="hot">Hot</option>
                 </select>
               </label>
               {expectedWeather.temperature && <>
                 <label className="text-sm text-slate-700">Rain
-                  <select value={expectedWeather.rain} onChange={e => setExpectedWeather(prev => ({ ...prev, rain: e.target.value as ExpectedWeather["rain"] }))} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
+                  <select value={expectedWeather.rain} onChange={e => { requestDraftEditedRef.current = true; setExpectedWeather(prev => ({ ...prev, rain: e.target.value as ExpectedWeather["rain"] })); }} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
                     <option value="">Not specified</option><option value="dry">Dry expected</option><option value="rain">Rain expected</option>
                   </select>
                 </label>
                 <label className="text-sm text-slate-700">Wind
-                  <select value={expectedWeather.wind} onChange={e => setExpectedWeather(prev => ({ ...prev, wind: e.target.value as ExpectedWeather["wind"] }))} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
+                  <select value={expectedWeather.wind} onChange={e => { requestDraftEditedRef.current = true; setExpectedWeather(prev => ({ ...prev, wind: e.target.value as ExpectedWeather["wind"] })); }} className="ml-2 rounded-lg border border-slate-300 px-2 py-2">
                     <option value="">Not specified</option><option value="calm">Calm expected</option><option value="windy">Windy</option>
                   </select>
                 </label>

@@ -164,7 +164,7 @@ it("defers an explicit memory refresh while a write is uncertain and retains its
 });
 
 
-it("keeps captured outfits reachable while a different request draft is pending and fails", async () => {
+it.each([409, 503])("keeps captured outfits reachable while a different request draft is pending and fails (%s)", async status => {
   installScenario();
   const readApi = global.fetch;
   let finish!: (response: Response) => void;
@@ -188,12 +188,15 @@ it("keeps captured outfits reachable while a different request draft is pending 
   expect(await screen.findByRole("link", { name: "View 1 previous outfit" })).toHaveAttribute("href", "#home-outfits");
   expect(screen.getByRole("heading", { name: "Previous outfits" })).toBeInTheDocument();
   expect(displayedResult().getByText("Captured campus · Captured class")).toBeInTheDocument();
-  await act(async () => { finish(response({}, 503)); await pending; });
-  await screen.findByText(/went wrong on our side/i);
+  await act(async () => { finish(response({ error: { code: "request_id_conflict" } }, status)); await pending; });
+  await screen.findByText(status === 503 ? /went wrong on our side/i : /already used for a different outfit/i);
   expect(screen.getByRole("link", { name: "View 1 previous outfit" })).toBeInTheDocument();
   expect(displayedResult().getByText("Requested for: class")).toBeInTheDocument();
   expect(input).toHaveValue("Dinner draft");
-  expect(JSON.parse(sessionStorage.getItem("fitted_pending_render:superseded-owner")!).lensSummary.occasion).toBe("Dinner draft");
+  const pendingEnvelope = sessionStorage.getItem("fitted_pending_render:superseded-owner");
+  if (status === 503) expect(JSON.parse(pendingEnvelope!).lensSummary.occasion).toBe("Dinner draft");
+  else expect(pendingEnvelope).toBeNull();
+  expect((global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url) === "/api/recommend")).toHaveLength(1);
 });
 
 
@@ -213,4 +216,30 @@ it("does not label current outfits previous after failed feedback or invalid req
   await screen.findByText("Describe the event or context to get recommendations.");
   expect(screen.getByRole("link", { name: "View 1 shown outfit" })).toBeInTheDocument();
   expect((global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url) === "/api/recommend")).toHaveLength(0);
+});
+
+
+it("keeps the captured occasion after a successful reaction persists a result beneath a different draft", async () => {
+  installScenario(); const readApi = global.fetch;
+  global.fetch = jest.fn((url: RequestInfo | URL, init?: RequestInit) =>
+    String(url) === "/api/interactions" && init?.method === "POST"
+      ? Promise.resolve(response({ interaction: { id: "1".repeat(24), action: "accepted" } })) : readApi(url, init)) as typeof fetch;
+  const view = render(<Dashboard />); await screen.findByText("Previously shown green shirt");
+  const originalLink = screen.getByRole("link", { name: "Open proposal / plan an outfit" }).getAttribute("href");
+  const input = screen.getByRole("textbox", { name: "Event description" });
+  await userEvent.clear(input); await userEvent.type(input, "Dinner draft");
+  await userEvent.click(screen.getByRole("button", { name: "Like" }));
+  await waitFor(() => {
+    const saved = JSON.parse(sessionStorage.getItem("fitted_dashboard_v2:superseded-owner")!);
+    expect(saved.result.shown[0].reactionId).toBe("1".repeat(24));
+    expect(saved.occasion).toBe("class"); expect(saved.lensSummary.occasion).toBe("class");
+  });
+  expect(input).toHaveValue("Dinner draft");
+  const reactions = (global.fetch as jest.Mock).mock.calls.filter(([url, init]) => String(url) === "/api/interactions" && init?.method === "POST");
+  expect(reactions).toHaveLength(1);
+  expect(JSON.parse(reactions[0][1].body)).toEqual({ snapshotId: oldOutfit.snapshotId, candidateId: oldOutfit.candidateId, action: "accepted" });
+  view.unmount(); render(<Dashboard />); await screen.findByText("Previously shown green shirt");
+  expect(displayedResult().getByText("Requested for: class")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open proposal / plan an outfit" })).toHaveAttribute("href", originalLink);
+  expect(screen.getByRole("link", { name: "View 1 shown outfit" })).toBeInTheDocument();
 });

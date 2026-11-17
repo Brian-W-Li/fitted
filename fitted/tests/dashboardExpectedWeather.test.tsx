@@ -254,3 +254,144 @@ it("collapses optional weather without changing the authored request or promptin
   expect(screen.getByLabelText("Rain")).toHaveValue("rain");
   expect(screen.getByLabelText("Wind")).toHaveValue("windy");
 });
+
+// Exhaust legal manual weather tuples; fuzz disclosure timing, text and daily/rescue
+// entry with reproducible seeds. Expectations do not call production wire helpers.
+const weatherCases = ["cold", "mild", "hot"].flatMap(temperature =>
+  ["", "dry", "rain"].flatMap(rain => ["", "calm", "windy"].map(wind => ({ temperature, rain, wind }))))
+  .concat([{ temperature: "", rain: "", wind: "" }])
+  .map((weather, index) => ({ ...weather, seed: 0x51a000 + index }));
+it.each(weatherCases)("preserves weather and request identity through seeded disclosure actions $seed ($temperature/$rain/$wind)", async ({ temperature, rain, wind, seed }) => {
+  let state = seed;
+  const random = () => { state ^= state << 13; state ^= state >>> 17; state ^= state << 5; return state >>> 0; };
+  const rescue = (random() & 1) === 1;
+  mockParams = rescue ? "rescue=i1&name=Green%20shirt" : "";
+  const bodies = serve(); render(<Dashboard />);
+  const input = await screen.findByRole("textbox", { name: "Event description" });
+  const alphabet = ["campus ", "café ", "雨 ", "🧥 ", "a".repeat(35), "& < > "];
+  const occasion = Array.from({ length: 5 }, () => alphabet[random() % alphabet.length]).join("").slice(0, 200);
+  fireEvent.change(input, { target: { value: occasion } });
+  const summary = screen.getByLabelText("Time and weather");
+  fireEvent.click(summary);
+  fireEvent.change(screen.getByLabelText("Temperature"), { target: { value: temperature } });
+  if (temperature) {
+    fireEvent.change(screen.getByLabelText("Rain"), { target: { value: rain } });
+    fireEvent.change(screen.getByLabelText("Wind"), { target: { value: wind } });
+  }
+  const toggles = 1 + 2 * (random() % 4);
+  for (let i = 0; i < toggles; i++) fireEvent.click(summary);
+  expect(summary.closest("details")).not.toHaveAttribute("open");
+  expect(bodies).toHaveLength(0);
+  expect(input).toHaveValue(occasion);
+  const rainText = rain === "rain" ? "rain expected" : rain === "dry" ? "dry expected" : "rain unknown";
+  const windText = wind === "windy" ? "windy" : wind === "calm" ? "calm expected" : "wind unknown";
+  expect(summary).toHaveAccessibleDescription(temperature ? `Now · ${temperature}, ${rainText}, ${windText}` : "Now · Event description / mild fallback");
+  fireEvent.click(screen.getByRole("button", { name: "Get Recommendations" }));
+  await screen.findAllByText("Green shirt");
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toMatchObject({ occasion });
+  if (rescue) expect(bodies[0]).toHaveProperty("forcedItemId", "i1");
+  else expect(bodies[0]).not.toHaveProperty("forcedItemId");
+  if (temperature) {
+    expect(bodies[0]).toMatchObject({ weather: temperature, weatherSource: "manual", weatherSignals: { rain: rain === "rain", wind: wind === "windy" } });
+    expect(JSON.parse(sessionStorage.getItem("fitted_dashboard_v2:u1")!).lensSummary.expectedWeather).toEqual({ temperature, rain, wind });
+  } else {
+    expect(bodies[0]).not.toHaveProperty("weatherSource");
+    expect(bodies[0]).not.toHaveProperty("weatherSignals");
+  }
+  expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
+  fireEvent.click(summary);
+  expect(screen.getByLabelText("Temperature")).toHaveValue(temperature);
+  if (temperature) {
+    expect(screen.getByLabelText("Rain")).toHaveValue(rain);
+    expect(screen.getByLabelText("Wind")).toHaveValue(wind);
+  }
+});
+
+
+async function chooseFutureTime() {
+  await userEvent.click(screen.getByLabelText("Time and weather"));
+  await userEvent.click(screen.getByRole("button", { name: "Pick date/time" }));
+  const date = new Date(); date.setDate(date.getDate() + 2); date.setHours(12, 30, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const local = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T12:30`;
+  fireEvent.change(screen.getByLabelText("Event date and time"), { target: { value: local } });
+  await userEvent.click(screen.getByLabelText("Time and weather"));
+  return { local, iso: date.toISOString() };
+}
+
+it("resets a prior owner's custom event time before the next owner requests an outfit", async () => {
+  const bodies = serve(); render(<Dashboard />);
+  const future = await chooseFutureTime();
+  expect(screen.getByLabelText("Time and weather")).toHaveAccessibleDescription(`${future.local} · Event description / mild fallback`);
+  await act(async () => { mockUser = user("u2"); mockAuthCallback(mockUser); });
+  expect(screen.getByLabelText("Time and weather")).toHaveAccessibleDescription("Now · Event description / mild fallback");
+  fireEvent.change(screen.getByRole("textbox", { name: "Event description" }), { target: { value: "New owner's class" } });
+  await userEvent.click(screen.getByRole("button", { name: "Get Recommendations" }));
+  await screen.findAllByText("Green shirt");
+  expect(bodies).toHaveLength(1); expect(bodies[0]).not.toHaveProperty("eventTimeISO");
+});
+
+it.each(["saved", "pending"])("restores the exact %s request time in the collapsed summary without moving it forward", async kind => {
+  const bodies = serve(() => kind === "pending" ? response({}, 503) : response(RENDER));
+  const view = render(<Dashboard />); const future = await chooseFutureTime();
+  fireEvent.change(screen.getByRole("textbox", { name: "Event description" }), { target: { value: "Future class" } });
+  await userEvent.click(screen.getByRole("button", { name: "Get Recommendations" }));
+  if (kind === "pending") await screen.findByText(/went wrong on our side/i); else await screen.findAllByText("Green shirt");
+  expect(bodies[0]).toHaveProperty("eventTimeISO", future.iso);
+  view.unmount(); const resumed = serve(); render(<Dashboard />);
+  await screen.findAllByText("Green shirt");
+  expect(screen.getByLabelText("Time and weather")).toHaveAccessibleDescription(`${future.local} · Event description / mild fallback`);
+  if (kind === "pending") expect(resumed).toEqual(bodies); else expect(resumed).toHaveLength(0);
+  await userEvent.click(screen.getByRole("button", { name: "Get Recommendations" }));
+  await waitFor(() => expect(resumed).toHaveLength(kind === "pending" ? 2 : 1));
+  expect(resumed.at(-1)).toHaveProperty("eventTimeISO", future.iso);
+});
+
+
+it("clears prior-request status when a different owner restores their own shown outfits", async () => {
+  serve(() => response({}, 503)); render(<Dashboard />); await fillWeather();
+  await userEvent.click(screen.getByRole("button", { name: "Get Recommendations" }));
+  await screen.findByText(/went wrong on our side/i);
+  sessionStorage.setItem("fitted_dashboard_v2:u2", JSON.stringify({ occasion: "Other owner's event", lensSummary: { occasion: "Other owner's event" },
+    result: { ...RENDER, shown: [{ ...RENDER.shown[0], snapshotId: "650000000000000000000002", displayItems: [{ itemId: "i2", name: "Other owner's blue shirt", clothingType: "top" }] }] } }));
+  await act(async () => { mockUser = user("u2"); mockAuthCallback(mockUser); });
+  await screen.findByText("Other owner's blue shirt");
+  expect(screen.getByRole("link", { name: "View 1 shown outfit" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Previous outfits" })).not.toBeInTheDocument();
+  expect(screen.getByText("Requested for: Other owner's event")).toBeInTheDocument();
+  expect(screen.queryByText("Requested for: Class tomorrow")).not.toBeInTheDocument();
+});
+
+it("clears all manual conditions when returning to automatic weather through the disclosure", async () => {
+  const bodies = serve(); render(<Dashboard />); await fillWeather();
+  fireEvent.change(screen.getByLabelText("Temperature"), { target: { value: "" } });
+  await userEvent.click(screen.getByLabelText("Time and weather"));
+  expect(screen.getByLabelText("Time and weather")).toHaveAccessibleDescription("Now · Event description / mild fallback");
+  await userEvent.click(screen.getByRole("button", { name: "Get Recommendations" })); await screen.findAllByText("Green shirt");
+  expect(bodies).toHaveLength(1);
+  for (const key of ["weather", "weatherRaw", "weatherSource", "weatherSignals"]) expect(bodies[0]).not.toHaveProperty(key);
+  expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByLabelText("Time and weather"));
+  expect(screen.getByLabelText("Temperature")).toHaveValue("");
+  expect(screen.queryByLabelText("Rain")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Wind")).not.toBeInTheDocument();
+});
+
+
+it("keeps an explicitly cleared occasion while a frozen pending request finishes", async () => {
+  const original = serve(() => response({}, 503));
+  const view = render(<Dashboard />); await fillWeather();
+  await userEvent.click(screen.getByRole("button", { name: "Get Recommendations" })); await screen.findByText(/went wrong on our side/i);
+  view.unmount(); let finish!: (response: Response) => void;
+  const pending = new Promise<Response>(resolve => { finish = resolve; });
+  const resumed = serve(() => pending); render(<Dashboard />);
+  await waitFor(() => expect(resumed).toEqual(original));
+  const input = screen.getByRole("textbox", { name: "Event description" });
+  fireEvent.change(input, { target: { value: "" } });
+  await act(async () => { finish(response(RENDER)); await pending; });
+  await screen.findAllByText("Green shirt");
+  expect(input).toHaveValue("");
+  expect(screen.getByText("Requested for: Class tomorrow")).toBeInTheDocument();
+  expect(resumed).toEqual(original);
+});

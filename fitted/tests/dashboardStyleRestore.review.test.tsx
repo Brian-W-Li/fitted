@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { randomUUID } from "crypto";
 import type { User } from "firebase/auth";
@@ -242,4 +242,85 @@ it("clears a retained unverified cache when its direction is erased after a temp
   expect(screen.queryByRole("link", { name: "Back to request" })).not.toBeInTheDocument();
   expect(screen.queryByText("Erased campus direction")).not.toBeInTheDocument();
   expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url) === "/api/recommend")).toBe(false);
+});
+
+it.each(["event", "cleared event", "weather", "time", "custom time"])("does not overwrite a started request draft (%s) when delayed styled-source validation completes", async field => {
+  saveCache();
+  let finish!: (response: Response) => void;
+  const validation = new Promise<Response>(resolve => { finish = resolve; });
+  mockApi(() => validation, { boards: [retainedBoard()] });
+  render(<Dashboard />);
+  await waitFor(() => expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url).startsWith("/api/experiences/suggestion?"))).toBe(true));
+  const input = screen.getByRole("textbox", { name: "Event description" });
+  if (field.includes("event")) {
+    fireEvent.change(input, { target: { value: "New dinner draft" } });
+    if (field === "cleared event") fireEvent.change(input, { target: { value: "" } });
+  } else {
+    fireEvent.click(screen.getByLabelText("Time and weather"));
+    if (field === "weather") {
+      fireEvent.change(screen.getByLabelText("Temperature"), { target: { value: "hot" } });
+      fireEvent.change(screen.getByLabelText("Rain"), { target: { value: "dry" } });
+    } else if (field === "time") fireEvent.click(screen.getByRole("button", { name: "Tomorrow" }));
+    else {
+      fireEvent.click(screen.getByRole("button", { name: "Pick date/time" }));
+      fireEvent.change(screen.getByLabelText("Event date and time"), { target: { value: "2026-11-18T12:30" } });
+    }
+    fireEvent.click(screen.getByLabelText("Time and weather"));
+  }
+  const authoredSummary = screen.getByLabelText("Time and weather").textContent;
+  await act(async () => { finish(visibleSuggestion()); await validation; });
+  await screen.findByText("Erased-source green shirt");
+  expect(input).toHaveValue(field === "event" ? "New dinner draft" : "");
+  expect(screen.getByLabelText("Time and weather").textContent).toBe(authoredSummary);
+  expect(screen.getByText("Requested for: class")).toBeInTheDocument();
+  expect(screen.getByText("Erased campus direction")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "View 1 shown outfit" })).toBeInTheDocument();
+});
+
+
+it.each([404, 503])("shows frozen pending time even when the previous styled source cannot be restored (%s)", async status => {
+  saveCache();
+  const iso = "2026-11-18T20:30:00.000Z";
+  sessionStorage.setItem("fitted_pending_render:restore-owner", JSON.stringify({ requestId: "frozen-time-request", intent: "daily", parentSnapshotId: null,
+    normalizedControls: { lockedItemIds: [], dislikedItemIds: [] }, lensSummary: { occasion: "Pending future event", eventTimeISO: iso } }));
+  let finish!: (response: Response) => void;
+  const pending = new Promise<Response>(resolve => { finish = resolve; });
+  mockApi(() => response({}, status), { boards: [retainedBoard()], recommend: () => pending });
+  render(<Dashboard />);
+  await waitFor(() => expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url) === "/api/recommend")).toBe(true));
+  const [url, init] = (global.fetch as jest.Mock).mock.calls.find(([url]) => String(url) === "/api/recommend")!;
+  expect(url).toBe("/api/recommend"); expect(JSON.parse(init.body)).toMatchObject({ requestId: "frozen-time-request", occasion: "Pending future event", eventTimeISO: iso });
+  const date = new Date(iso), pad = (n: number) => String(n).padStart(2, "0");
+  const local = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  expect(screen.getByLabelText("Time and weather")).toHaveAccessibleDescription(`${local} · Event description / mild fallback`);
+  expect(screen.getByRole("textbox", { name: "Event description" })).toHaveValue("Pending future event");
+  await act(async () => { finish(response({ shown: [], flags: {}, bindable: false })); await pending; });
+});
+
+it("preserves a new draft when delayed source verification resumes an older pending request", async () => {
+  saveCache();
+  const frozen = { requestId: "frozen-draft-request", intent: "daily", parentSnapshotId: null,
+    normalizedControls: { lockedItemIds: [], dislikedItemIds: [] }, lensSummary: { occasion: "Frozen pending event", eventTimeISO: "2026-11-18T20:30:00.000Z" } };
+  sessionStorage.setItem("fitted_pending_render:restore-owner", JSON.stringify(frozen));
+  let verify!: (response: Response) => void, finish!: (response: Response) => void;
+  const validation = new Promise<Response>(resolve => { verify = resolve; });
+  const pending = new Promise<Response>(resolve => { finish = resolve; });
+  mockApi(() => validation, { boards: [retainedBoard()], recommend: () => pending });
+  render(<Dashboard />);
+  await waitFor(() => expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url).startsWith("/api/experiences/suggestion?"))).toBe(true));
+  const input = screen.getByRole("textbox", { name: "Event description" });
+  fireEvent.change(input, { target: { value: "My new draft" } });
+  fireEvent.click(screen.getByLabelText("Time and weather"));
+  fireEvent.click(screen.getByRole("button", { name: "Tomorrow" }));
+  fireEvent.click(screen.getByLabelText("Time and weather"));
+  await act(async () => { verify(visibleSuggestion()); await validation; });
+  await waitFor(() => expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url) === "/api/recommend")).toBe(true));
+  expect(input).toHaveValue("My new draft");
+  expect(screen.getByLabelText("Time and weather")).toHaveAccessibleDescription("Tomorrow · Event description / mild fallback");
+  expect(screen.getByText("Requested for: class")).toBeInTheDocument();
+  const calls = (global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url) === "/api/recommend");
+  expect(calls).toHaveLength(1);
+  expect(JSON.parse(calls[0][1].body)).toMatchObject({ requestId: frozen.requestId, occasion: frozen.lensSummary.occasion, eventTimeISO: frozen.lensSummary.eventTimeISO });
+  await act(async () => { finish(response({ shown: [], flags: {}, bindable: false })); await pending; });
+  expect(input).toHaveValue("My new draft");
 });

@@ -44,7 +44,28 @@ export async function checkHomeEdges({ page, origin, ids, outputDirectory }) {
     const draftOccasion = "An unfinished different occasion";
     await eventInput.fill(draftOccasion);
     const jump = page.getByRole("link", { name: `View ${originalBindings.length} shown outfit${originalBindings.length === 1 ? "" : "s"}`, exact: true });
-    await jump.focus(); await jump.press("Enter");
+    // Natural Tab traversal from the edited event field: closed settings must not
+    // strand focus in invisible controls, and opening each disclosure must expose it.
+    const focused = locator => locator.evaluate(element => element === document.activeElement);
+    await page.keyboard.press("Tab");
+    assert.ok(await focused(panel.getByRole("button", { name: "Change direction", exact: true })));
+    await page.keyboard.press("Enter"); await page.keyboard.press("Tab");
+    assert.ok(await focused(panel.getByRole("combobox", { name: "Style direction", exact: true })));
+    await page.keyboard.press("Shift+Tab");
+    assert.ok(await focused(panel.getByRole("button", { name: "Close direction", exact: true })));
+    await page.keyboard.press("Enter"); await page.keyboard.press("Tab");
+    assert.ok(await focused(panel.locator("summary").filter({ hasText: "Leave pieces or an exact outfit out" })));
+    await page.keyboard.press("Tab");
+    const weatherToggle = page.locator('summary[aria-label="Time and weather"]');
+    assert.ok(await focused(weatherToggle));
+    await page.keyboard.press("Enter"); await page.keyboard.press("Tab");
+    assert.ok(await focused(page.getByRole("button", { name: "Now", exact: true })));
+    await page.keyboard.press("Shift+Tab");
+    assert.ok(await focused(weatherToggle));
+    await page.keyboard.press("Enter"); await page.keyboard.press("Tab");
+    assert.ok(await focused(submit));
+    await page.keyboard.press("Tab"); assert.ok(await focused(jump));
+    await page.keyboard.press("Enter");
     await page.waitForFunction(() => document.activeElement?.id === "home-outfits");
     const heading = await page.locator("#home-outfits").boundingBox();
     assert.ok(heading && heading.y >= 0 && heading.y + heading.height <= 844, "explicit navigation brings the result heading into view");
@@ -52,7 +73,8 @@ export async function checkHomeEdges({ page, origin, ids, outputDirectory }) {
     const resultRegion = page.getByRole("region", { name: "Shown outfits", exact: true });
     assert.equal(await resultRegion.getByText(`Requested for: ${originalOccasion}`, { exact: true }).count(), 1);
     assert.equal((await resultRegion.innerText()).includes(draftOccasion), false);
-    await page.getByRole("link", { name: "Back to request", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    assert.ok(await focused(page.getByRole("link", { name: "Back to request", exact: true })));
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => document.activeElement?.id === "home-request");
     assert.equal(await eventInput.inputValue(), draftOccasion, "round-trip navigation retains the unfinished request");

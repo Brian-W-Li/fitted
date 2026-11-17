@@ -91,10 +91,10 @@ creates an instruction. Free prose never becomes a hidden exclusion or model lab
 
 ### 3.1 Home completion: quick entry and visible style memory
 
-The resumed goal keeps the full personal-styling loop above. Home work makes that
-loop usable; it does not replace contextual learning with a simpler utility or claim
-that engineering checks establish personal benefit. The first slice changes request
-presentation only, followed by review before result presentation changes.
+Home supports the full personal-styling loop above; it does not replace contextual
+learning with a simpler utility or claim that engineering checks establish personal
+benefit. Request entry and result access share the captured-context and ownership
+boundaries below.
 
 **H1 — Reach a request with its meaning visible.** Keep the existing daily request
 and wardrobe rescue paths. Present the event input early, with an associated visible
@@ -122,14 +122,20 @@ identify location use or fallback honestly. Existing controls still author exact
 same request envelopes. A location prompt remains an explicit user action unless a
 previous browser grant permits the existing resume behavior.
 
-**H2 — Compare outfits without repeating setup.** After H1 is implemented and
-reviewed, make returned/restored outfit cards easy to reach, with their captured
-context and learning status. Current draft edits must never relabel old cards. Keep
+Event time belongs to the signed-in owner. A different owner starts at Now with no
+custom date. Restoring visible saved outfits or resuming a pending request shows its captured timestamp
+as an absolute local date/time at the picker's precision, rather than moving a relative
+Tomorrow forward. Pending retries still send the original frozen timestamp and request ID.
+Once a person edits or explicitly clears the event, time or manual weather during a
+late restore, preserve the authored request form as a unit. The verified old cards and
+their captured context may still appear; they must not overwrite that new draft.
+
+**H2 — Compare outfits without repeating setup.** Make returned/restored outfit cards
+easy to reach, with their captured context and learning status. Current draft edits must never relabel old cards. Keep
 errors, empty results, pending/retry requests and regeneration visible and actionable.
 Do not auto-scroll on every background state update or discard unfinished input.
-Specify the exact result-navigation interaction after inspecting the H1 browser result.
 
-The next reviewed H2 interaction is explicit in-page navigation. When admitted
+Result access uses explicit in-page navigation. When admitted
 `shown` cards exist, offer a link near the request controls to their named heading,
 using the actual shown count. Keep a Back to request link at the results heading.
 Anchor targets are focusable headings (`tabIndex=-1`), not text inputs, so returning
@@ -144,8 +150,7 @@ nonempty shown cards. Restore, feedback edits, background refresh and unaccepted
 responses must not announce new outfits. Test user-initiated keyboard navigation and
 return, retained drafts/controls, pending and failed-new-request cases, restored cards,
 empty results and source erasure. Geometry and actual heading focus are browser checks;
-request identities and source-visibility admission remain the existing owners. Complete
-and review H1 edge evidence before implementing this H2 contract.
+request identities and source-visibility admission remain the existing owners.
 
 **Evidence before calling Home complete.** Capture the existing layout and the changed
 layout in the compiled app at 390×844 and desktop widths, with the same synthetic
