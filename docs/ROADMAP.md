@@ -1,6 +1,6 @@
 # Current direction and work
 
-## Home review and solidification — November 16, 2026
+## Home review complete — November 16, 2026
 
 Brian selected a bounded review of Home correctness, surrounding integration, tests
 and documentation. This is not feature expansion. Root remains coordinator in
@@ -29,22 +29,33 @@ timed out. It now dispatches deterministic form actions; real Tab/Enter behavior
 checked separately in the compiled browser. The failed preliminary run is retained
 as failure evidence, not counted as a pass.
 
-Final sequential regression and compiled Home validation are pending. The browser
-harness now traverses from the event field with Tab/Shift+Tab through collapsed/open
+Reviewed source is saved on GitHub at `7da28a60`. Final sequential web regression
+passes 1,919 tests with ten existing skips. Independent TypeScript, lint (zero errors,
+35 existing warnings), all 38 Node fixture contracts and focused documentation guards
+pass. The compiled production Home journey passes with phone geometry, natural
+keyboard traversal, captured context, synthetic activation and support removal.
+The browser harness traverses from the event field with Tab/Shift+Tab through collapsed/open
 settings and result links, then verifies Enter focus and retained draft/bindings.
 The original Home layout acceptance and synthetic learning/correction checks remain.
 No Python/model, database schema, paid provider, deployed app or private record changed.
 
-Current review changes are limited to the Home page, three Dashboard test files,
+The reviewed changes are limited to the Home page, three Dashboard test files,
 Home edge harness and owning documentation. Source/tests are mirrored to the coordinator;
 restricted logs, mutation recipe/results and source receipts belong under historical-root
 `.private/app-verification/home-2026-11-16/review/`. No credentials or private wardrobe
 records belong in the public export.
 
-Next actions: finish final checks, save the reviewed source and verify hosted CI, then
-close this review. The larger product goal remains incomplete: actual styling usefulness
-and contextual learning benefit require separate evidence and scope. No sign-in or
-new clothing is needed for this review; no paid calls, merge or deployment is authorized.
+Exact-source hosted [conformance](https://github.com/Brian-W-Li/fitted/actions/runs/43991824217)
+and [whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/43991824256)
+both passed on the exact reviewed source. Local services and checks are closed.
+The sanitized public checkout is clean after this documentation closeout; the
+coordinator retains its unrelated dirty files.
+
+The bounded review has no remaining feature work or known confirmed defect in its
+reviewed scope. This is not a bug-free guarantee. The next
+product discussion remains actual styling usefulness and contextual learning benefit;
+those need separate evidence and scope. No sign-in, new clothing or immediate product
+decision is needed from Brian. No paid calls, merge or deployment occurred.
 
 ## Review and solidification — November 15, 2026
 
