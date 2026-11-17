@@ -47,6 +47,8 @@ function resultFor(body: Body, number: number) {
     flags: { notEnoughItems: false, insufficientAfterGeneration: false, spreadCollapsed: false, reasonHint: null } };
 }
 async function ready() {
+  const panel = within(await screen.findByRole("region", { name: "Saved style direction" }));
+  await userEvent.click(panel.getByRole("button", { name: "Change direction" }));
   await screen.findByRole("button", { name: "New direction" });
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Style direction" })).toHaveValue(id(1)));
   await waitFor(() => expect(screen.getByRole("button", { name: "Get Recommendations" })).toBeEnabled());

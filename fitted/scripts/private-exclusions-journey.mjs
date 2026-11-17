@@ -6,6 +6,7 @@ import { ObjectId } from "mongodb";
 import { stableJson, sha256 } from "./private-feedback-contract.mjs";
 import { verifyCapturedRender, verifyIntactAttempts, capturedPartition } from "./private-feedback-verification.mjs";
 import { writePrivateReplayReport } from "./private-replay-input.mjs";
+import { openStyleDirection, openTimeAndWeather } from "./home-browser-controls.mjs";
 
 const sorted = values => [...values].sort();
 const membership = values => sorted(values).join("|");
@@ -49,6 +50,7 @@ export async function runPrivateExclusionsJourney({ db, page, owner, origin, loa
   let auditOffset = initialAudit.length;
   const requestIds = new Set([first.request.requestId]), snapshotIds = new Set([String(first.row._id)]);
   const panel = page.getByRole("region", { name: "Saved style direction", exact: true });
+  await openStyleDirection(page);
   const controls = panel.locator("details").filter({ has: page.locator("summary").filter({ hasText: "Leave pieces or an exact outfit out" }) });
   const saveButton = () => controls.getByRole("button", { name: "Save exclusion for this direction and situation", exact: true });
   async function enabled(locator) {
@@ -146,6 +148,7 @@ export async function runPrivateExclusionsJourney({ db, page, owner, origin, loa
     assert.ok(phase.renderRequests < 5, "explicit exclusions acceptance permits only five new visible requests");
     const before = await readState();
     await page.locator("textarea").fill(first.request.occasion);
+    await openTimeAndWeather(page);
     await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
     await paceRender();
     await enabled(page.getByRole("button", { name: "Get Recommendations", exact: true }));

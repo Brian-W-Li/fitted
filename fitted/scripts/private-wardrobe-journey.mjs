@@ -8,6 +8,7 @@ import { writePrivateReplayReport } from "./private-replay-input.mjs";
 import { stableJson } from "./private-feedback-contract.mjs";
 import { verifyCapturedRender, verifyIntactAttempts } from "./private-feedback-verification.mjs";
 import { wardrobeExpectation, verifyStoredWardrobe, verifyFaithfulCapture, verifyOriginalPhoto, verifyWardrobeAck } from "./private-wardrobe-verification.mjs";
+import { openTimeAndWeather } from "./home-browser-controls.mjs";
 
 export async function runPrivateWardrobeJourney({ db, page, owner, origin, loaded, run, report, first, paceRender, annotate, privateWardrobeFull = false }) {
   const user = new ObjectId(owner.userId), frozenInput = stableJson(loaded.input);
@@ -102,6 +103,7 @@ export async function runPrivateWardrobeJourney({ db, page, owner, origin, loade
     else await page.getByRole("link", { name: "Home", exact: true }).click();
     const expected = wardrobeExpectation(loaded.input, targetId, { fit: semanticFit, isAvailable });
     await page.locator("textarea").fill(first.request.occasion);
+    await openTimeAndWeather(page);
     await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
     const button = page.getByRole("button", { name: "Get Recommendations", exact: true }); await button.waitFor();
     await paceRender(); phase.renderRequests++;

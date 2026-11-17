@@ -80,6 +80,7 @@ describe("dashboard — an EXISTING grant resumes without re-asking (#5)", () =>
       okCb({ coords: { latitude: 34.4, longitude: -119.8 } }),
     );
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     expect(await screen.findByText(/using your location to look up weather/i)).toBeInTheDocument();
   });
 
@@ -87,6 +88,7 @@ describe("dashboard — an EXISTING grant resumes without re-asking (#5)", () =>
     mockWardrobe(5);
     mockPermissions("prompt");
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     expect(await screen.findByRole("button", { name: /use my location/i })).toBeInTheDocument();
     expect(getCurrentPosition).not.toHaveBeenCalled();
   });
@@ -95,6 +97,7 @@ describe("dashboard — an EXISTING grant resumes without re-asking (#5)", () =>
     mockWardrobe(5);
     mockPermissions(undefined);
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     expect(await screen.findByRole("button", { name: /use my location/i })).toBeInTheDocument();
     expect(getCurrentPosition).not.toHaveBeenCalled();
   });
@@ -105,6 +108,7 @@ describe("dashboard — location is primed, not sprung (#5)", () => {
     mockWardrobe(5);
     mockPermissions("prompt");
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     // The in-app explanation stands in place of a cold native prompt.
     expect(await screen.findByRole("button", { name: /use my location/i })).toBeInTheDocument();
     expect(getCurrentPosition).not.toHaveBeenCalled();
@@ -116,6 +120,7 @@ describe("dashboard — location is primed, not sprung (#5)", () => {
       ok({ coords: { latitude: 34.4, longitude: -119.8 } }),
     );
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     await userEvent.click(await screen.findByRole("button", { name: /use my location/i }));
     expect(getCurrentPosition).toHaveBeenCalledTimes(1);
     expect(await screen.findByText(/using your location to look up weather/i)).toBeInTheDocument();
@@ -125,6 +130,7 @@ describe("dashboard — location is primed, not sprung (#5)", () => {
     mockWardrobe(5);
     getCurrentPosition.mockImplementation((_ok: unknown, fail: () => void) => fail());
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     await userEvent.click(await screen.findByRole("button", { name: /use my location/i }));
     expect(await screen.findByText(/no location shared. choose expected weather above/i)).toBeInTheDocument();
     // Generate stays available — declining location must never block the product.
@@ -139,6 +145,7 @@ describe("dashboard — location is primed, not sprung (#5)", () => {
     mockWardrobe(5);
     getCurrentPosition.mockImplementation(() => {});
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     await userEvent.click(await screen.findByRole("button", { name: /use my location/i }));
     const opts = getCurrentPosition.mock.calls[0][2];
     expect(typeof opts?.timeout).toBe("number");
@@ -170,6 +177,7 @@ describe("dashboard — the signpost re-checks when the page is shown again (#6)
   it("drops the signpost on `pageshow` once the closet is no longer empty (bfcache Back)", async () => {
     serve([0, 3]); // first load: empty. after the friend adds clothes: 3 items.
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     expect(await screen.findByText(/first: add a few clothes/i)).toBeInTheDocument();
 
     await act(async () => {
@@ -183,6 +191,7 @@ describe("dashboard — the signpost re-checks when the page is shown again (#6)
   it("drops it on `visibilitychange` too (tab return, no bfcache)", async () => {
     serve([0, 3]);
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     expect(await screen.findByText(/first: add a few clothes/i)).toBeInTheDocument();
 
     await act(async () => {
@@ -198,15 +207,17 @@ describe("dashboard — empty-closet signpost (#6)", () => {
   it("at 0 items: points at the wardrobe and drops the rescue teaser (false premise)", async () => {
     mockWardrobe(0);
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     expect(await screen.findByText(/first: add a few clothes/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /add your clothes/i })).toHaveAttribute("href", "/wardrobe");
-    expect(screen.queryByText(/never quite know how to wear/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/have a hard-to-style piece/i)).not.toBeInTheDocument();
   });
 
   it("with items: no signpost, rescue teaser restored", async () => {
     mockWardrobe(12);
     render(<Dashboard />);
-    expect(await screen.findByText(/never quite know how to wear/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Time and weather"));
+    expect(await screen.findByText(/have a hard-to-style piece/i)).toBeInTheDocument();
     expect(screen.queryByText(/first: add a few clothes/i)).not.toBeInTheDocument();
   });
 
@@ -215,6 +226,7 @@ describe("dashboard — empty-closet signpost (#6)", () => {
     // friend seeing "add your clothes first" would read as their closet having been wiped.
     global.fetch = jest.fn(async () => ({ ok: false, json: async () => ({}) }) as Response) as unknown as typeof fetch;
     render(<Dashboard />);
+    await userEvent.click(screen.getByText("Time and weather"));
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     expect(screen.queryByText(/first: add a few clothes/i)).not.toBeInTheDocument();
   });

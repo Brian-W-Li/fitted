@@ -7,6 +7,7 @@ import { writePrivateReplayReport } from "./private-replay-input.mjs";
 import { runPrivateWardrobeJourney } from "./private-wardrobe-journey.mjs";
 import { runPrivateExclusionsJourney } from "./private-exclusions-journey.mjs";
 import { runPrivateFeedbackJourney } from "./private-feedback-journey.mjs";
+import { openStyleDirection, openTimeAndWeather } from "./home-browser-controls.mjs";
 
 export async function annotatePrivateReplay(page, subsetCount) {
   await page.evaluate(count => {
@@ -37,6 +38,7 @@ export async function runPrivateReplayJourney({ db, page, owner, origin, loaded,
     const body = await response.json(); assert.equal(response.status(), 200, "local style context must acknowledge the visible action"); return body.state;
   }
   const boardLabel = "Private replay · operator check", routineLabel = "Preserved class-day replay";
+  await openStyleDirection(page, { keyboard: true });
   await panel.getByRole("button", { name: "New direction", exact: true }).click();
   await panel.getByLabel("Saved choice name", { exact: true }).fill(boardLabel);
   await panel.getByLabel("Style word or phrase", { exact: true }).fill("operator replay verification");
@@ -56,6 +58,7 @@ export async function runPrivateReplayJourney({ db, page, owner, origin, loaded,
   await page.waitForFunction(() => document.querySelector('section[aria-label="Saved style direction"] input[type="checkbox"]')?.checked === true);
   assert.equal(await optIn.isChecked(), true, "controlled opt-in reflects its acknowledged state");
   await page.locator("textarea").fill("Preserved class-day candidates · operator replay, not fresh styling");
+  await openTimeAndWeather(page, { keyboard: true });
   await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
   if (privateFeedback) {
     assert.equal(await db.collection("generationsnapshots").countDocuments({ user: new ObjectId(owner.userId) }), 0, "private collection never seeds generation history");

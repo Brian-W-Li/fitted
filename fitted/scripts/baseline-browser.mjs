@@ -14,6 +14,7 @@ import { loadPrivateReplayInput, createPrivateReplayRun, materializePrivateWardr
 import { runPrivateReplayJourney } from "./private-replay-journey.mjs";
 import { privateWardrobeFlag } from "./private-wardrobe-verification.mjs";
 import { privateFeedbackFlag, privateLifecycleFlag, privateExclusionsFlag } from "./private-feedback-verification.mjs";
+import { openStyleDirection, closeStyleDirection, openTimeAndWeather, closeTimeAndWeather, assertHomeLayout } from "./home-browser-controls.mjs";
 
 const fitted = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = path.resolve(fitted, "..");
@@ -301,9 +302,12 @@ async function checkFeedbackJourney(db, page, owner, memoryHeaders) {
 /** Opt-in measurements of the real synthetic Home surface, before/after presentation edits. */
 async function captureHomeLayout(page, stage) {
   const directory = process.env.FITTED_HOME_LAYOUT_DIR;
-  if (!directory) return;
-  assert.ok(path.isAbsolute(directory), "Home evidence directory must be absolute");
-  await mkdir(directory, { recursive: true });
+  const enforce = process.env.FITTED_HOME_LAYOUT_ASSERT === "1";
+  if (!directory && !enforce) return;
+  if (directory) {
+    assert.ok(path.isAbsolute(directory), "Home evidence directory must be absolute");
+    await mkdir(directory, { recursive: true });
+  }
   const originalViewport = page.viewportSize();
   try {
     for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }]) {
@@ -311,13 +315,20 @@ async function captureHomeLayout(page, stage) {
       const metrics = await page.evaluate(() => {
         const bounds = element => { if (!element) return null; const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
         const submit = [...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Get Recommendations");
+        const weather = document.querySelector('summary[aria-label="Time and weather"]')?.parentElement;
+        const directionToggle = document.querySelector('[aria-label="Saved style direction"] button[aria-controls]');
         return { viewport: { width: innerWidth, height: innerHeight }, pageWidth: document.documentElement.scrollWidth,
           event: bounds(document.querySelector("textarea")), submit: bounds(submit),
-          direction: bounds(document.querySelector('[aria-label="Saved style direction"]')) };
+          direction: bounds(document.querySelector('[aria-label="Saved style direction"]')),
+          weatherOpen: weather ? weather.open : null,
+          directionOpen: directionToggle ? directionToggle.getAttribute("aria-expanded") === "true" : null };
       });
       const stem = `${stage}-${viewport.width}`;
-      await writeFile(path.join(directory, `${stem}.json`), JSON.stringify(metrics, null, 2) + "\n");
-      await page.screenshot({ path: path.join(directory, `${stem}.png`), fullPage: true });
+      if (directory) {
+        await writeFile(path.join(directory, `${stem}.json`), JSON.stringify(metrics, null, 2) + "\n");
+        await page.screenshot({ path: path.join(directory, `${stem}.png`), fullPage: true });
+      }
+      if (enforce) assertHomeLayout(metrics);
     }
   } finally { await page.setViewportSize(originalViewport); }
 }
@@ -340,8 +351,9 @@ async function checkStyleDirectionJourney(db, page, owner) {
     assert.ok(body.state && body.operation?.id, "saved styling returns an acknowledged state");
     return body.state;
   }
-  await panel.getByRole("button", { name: "New direction", exact: true }).waitFor();
+  await panel.getByRole("button", { name: "New direction", exact: true, includeHidden: true }).waitFor({ state: "attached" });
   await captureHomeLayout(page, "first-use");
+  await openStyleDirection(page, { keyboard: true });
   await panel.getByRole("button", { name: "New direction", exact: true }).click();
   await panel.getByLabel("Saved choice name", { exact: true }).fill(boardLabel);
   await panel.getByLabel("Style word or phrase", { exact: true }).fill("relaxed");
@@ -363,14 +375,22 @@ async function checkStyleDirectionJourney(db, page, owner) {
   await mutate("set_learning", () => optIn.click());
   await panel.locator('input[type="checkbox"]:checked').waitFor();
   await page.reload();
+  await openStyleDirection(page);
   await panel.getByRole("combobox", { name: "Style direction", exact: true }).waitFor();
   assert.equal(await panel.getByRole("combobox", { name: "Style direction", exact: true }).inputValue(), board.id);
   assert.equal(await panel.getByRole("combobox", { name: "Saved situation", exact: true }).inputValue(), routine.id);
   assert.equal(await optIn.isChecked(), true, "acknowledged context/opt-in survive reload");
+  await openTimeAndWeather(page, { keyboard: true });
   await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
   await page.locator("textarea").fill(occasion);
+  await closeTimeAndWeather(page, { keyboard: true });
+  await closeStyleDirection(page, { keyboard: true });
   await captureHomeLayout(page, "returning-direction");
   const capturedLabel = `${boardLabel} · ${routineLabel}`;
+  async function capturedResultLabel() {
+    const label = page.locator("p.font-medium.text-slate-800").filter({ hasText: capturedLabel });
+    await label.waitFor(); assert.equal(await label.innerText(), capturedLabel, "the displayed result retains its captured context");
+  }
   async function generate(expectedSupport) {
     await paceRender();
     const [response] = await Promise.all([
@@ -388,7 +408,7 @@ async function checkStyleDirectionJourney(db, page, owner) {
     assert.equal(body.styleContext?.learningEnabled, true);
     assert.equal(body.preference?.support, expectedSupport, "next decision uses current resolved scoped evidence");
     assert.equal(body.preference?.status, "abstained", "tiny authored fixture is not claimed to establish learned taste");
-    await page.getByText(capturedLabel, { exact: true }).waitFor();
+    await capturedResultLabel();
     // The response can precede React's commit, especially when card counts stay equal.
     await page.waitForFunction(snapshotId => Array.from(document.querySelectorAll("a")).some(link =>
       link.getAttribute("href")?.includes(`snapshotId=${snapshotId}`)), body.shown[0].snapshotId);
@@ -420,7 +440,7 @@ async function checkStyleDirectionJourney(db, page, owner) {
   assert.equal(reaction.learningDisposition, "normal");
   assert.equal(reaction.snapshotId.toString(), initial.shown[0].snapshotId);
   await generate(1);
-  await page.reload(); await page.getByText(capturedLabel, { exact: true }).waitFor();
+  await page.reload(); await capturedResultLabel();
   // Saved proposal displays captured labels without rebuilding them from today's selections.
   await page.getByRole("link", { name: "Open proposal / plan an outfit", exact: true }).first().click();
   await page.getByText(`Direction: ${capturedLabel}`, { exact: true }).waitFor();
@@ -455,6 +475,7 @@ async function checkStyleDirectionJourney(db, page, owner) {
 /** Authored XOR mechanism fixture. Captures/labels are synthetic and never participant evidence. */
 async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
   await page.goto(`${origin}/dashboard`);
+  await openStyleDirection(page);
   const panel = page.getByRole("region", { name: "Saved style direction", exact: true });
   const prior = await json(`${origin}/api/style-memory`, { headers: memoryHeaders });
   const originalBoard = prior.boards.find(row => row.id === prior.selectedBoardId);
@@ -540,6 +561,7 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
   await db.collection("wardrobeitems").updateMany({ user }, { $set: { isAvailable: false } });
   await db.collection("wardrobeitems").insertMany(queryItems);
   await page.locator("textarea").fill("Authored synthetic fit-contrast class");
+  await openTimeAndWeather(page);
   await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
   async function request() {
     await paceRender();
@@ -781,6 +803,7 @@ async function run() {
   await page.getByText("Building an outfit around").waitFor();
   await page.locator("textarea").fill("Weekend casual lunch");
   // Manual conditions drive the real selection pipeline and survive saved return.
+  await openTimeAndWeather(page, { keyboard: true });
   await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("cold");
   await page.getByRole("combobox", { name: "Rain", exact: true }).selectOption("rain");
   await page.getByRole("combobox", { name: "Wind", exact: true }).selectOption("windy");

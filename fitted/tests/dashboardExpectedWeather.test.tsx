@@ -29,6 +29,8 @@ function serve(recommend: (body: Record<string, unknown>) => Promise<Response> |
   return bodies;
 }
 async function fillWeather() {
+  const disclosure = screen.getByText("Time and weather").closest("details")!;
+  if (!disclosure.open) await userEvent.click(screen.getByText("Time and weather"));
   fireEvent.change(await screen.findByLabelText("Temperature"), { target: { value: "cold" } });
   fireEvent.change(screen.getByLabelText("Rain"), { target: { value: "rain" } });
   fireEvent.change(screen.getByLabelText("Wind"), { target: { value: "windy" } });
@@ -65,6 +67,7 @@ it("keeps an automatic request optional and explains manual precedence after a l
   (navigator.geolocation.getCurrentPosition as jest.Mock).mockImplementation(ok => ok({ coords: { latitude: 34, longitude: -119 } }));
   render(<Dashboard />);
   expect(screen.queryByLabelText("Rain")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByText("Time and weather"));
   await userEvent.click(await screen.findByRole("button", { name: "Use my location" }));
   fireEvent.change(screen.getByPlaceholderText(/outdoor brunch/i), { target: { value: "Class" } });
   await userEvent.click(screen.getByRole("button", { name: "Get Recommendations" })); await screen.findAllByText("Green shirt");
@@ -228,4 +231,26 @@ it("keeps layer-choice explanation on result reload", async () => {
   expect(await screen.findByText(note)).toBeInTheDocument();
   view.unmount(); const bodies = serve(); render(<Dashboard />);
   expect(await screen.findByText(note)).toBeInTheDocument(); expect(bodies).toHaveLength(0);
+});
+
+
+it("collapses optional weather without changing the authored request or prompting for location", async () => {
+  const bodies = serve(); render(<Dashboard />);
+  const toggle = screen.getByText("Time and weather");
+  expect(toggle.closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByRole("textbox", { name: "Event description" })).toBeVisible();
+  await fillWeather();
+  await userEvent.click(toggle);
+  expect(toggle.closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByLabelText("Time and weather")).toHaveTextContent("cold, rain expected, windy");
+  expect(screen.getByLabelText("Time and weather")).toHaveAccessibleDescription("Now · cold, rain expected, windy");
+  await userEvent.click(screen.getByRole("button", { name: "Get Recommendations" }));
+  await screen.findAllByText("Green shirt");
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toMatchObject({ ...manual, occasion: "Class tomorrow" });
+  expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
+  await userEvent.click(toggle);
+  expect(screen.getByLabelText("Temperature")).toHaveValue("cold");
+  expect(screen.getByLabelText("Rain")).toHaveValue("rain");
+  expect(screen.getByLabelText("Wind")).toHaveValue("windy");
 });

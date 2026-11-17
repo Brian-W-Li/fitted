@@ -1209,7 +1209,7 @@ function DashboardInner() {
         </button>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-6">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
         <p className="mt-1 text-sm text-slate-600">
           The stylist uses your wardrobe, the occasion, and the weather to suggest outfits.
@@ -1239,26 +1239,9 @@ function DashboardInner() {
           </div>
         )}
 
-        <div className="mt-4"><StyleDirectionPanel user={firebaseUser} disabled={inFlight || signingOut}
-          refreshGeneration={styleMemoryRefreshGeneration} onChange={setSelectedStyleContext} onPendingChange={setStyleContextPending} onStateChange={onStyleMemoryState}
-          oneRequestExclusions={oneRequestExclusions} onOneRequestExclusionsChange={setOneRequestExclusions} exclusionContext={exclusionManagementContext} />
-          {exclusionManagementContext && <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
-            <p>Managing exclusions for {exclusionManagementContext.boardLabel}{exclusionManagementContext.routineLabel ? ` / ${exclusionManagementContext.routineLabel}` : ""}, saved direction version {exclusionManagementContext.profileVersion}. These affect that saved meaning only.</p>
-            <button type="button" disabled={styleContextPending || inFlight} className="mt-2 underline" onClick={() => setExclusionManagementContext(null)}>Done managing earlier exclusions</button>
-          </div>}
-        </div>
-
-        {/* The rescue teaser presupposes they HAVE a piece they can't style — false premise at 0
-            items, and it would compete with the signpost above. */}
-        {!rescueItemId && closetCount !== 0 && (
-          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            Got a piece you never quite know how to wear?{" "}
-            <a href="/wardrobe" className="font-medium underline hover:text-amber-900">
-              Pick it from your wardrobe
-            </a>{" "}
-            and the stylist will build every outfit around it.
-          </div>
-        )}
+        {!rescueItemId && closetCount !== 0 && <p className="mt-2 text-sm text-amber-800">
+          Have a hard-to-style piece? <a href="/wardrobe" className="font-medium underline">Pick it from your wardrobe</a>.
+        </p>}
 
         {rescueItemId && (
           <div className="mt-4 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
@@ -1277,23 +1260,41 @@ function DashboardInner() {
           </div>
         )}
 
-        <div className="mt-4 flex flex-col gap-4">
+        <div className="mt-3 flex flex-col gap-3">
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Event description</label>
+            <label htmlFor="home-event" className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Event description</label>
             <textarea
+              id="home-event"
               value={occasion}
               onChange={(e) => setOccasion(e.target.value)}
-              rows={3}
+              rows={2}
               maxLength={MAX_OCCASION_CHARS}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 placeholder:text-slate-400"
               placeholder="e.g. Outdoor brunch with friends in early spring, smart casual but comfortable. Might get windy."
             />
             <div className="mt-1 flex justify-between text-[11px] text-slate-500">
-              <span>Tell the stylist the event, the vibe, and any constraints (e.g. it might rain, no heels, keep it warm).</span>
+              <span>Occasion, style, and anything to keep in mind.</span>
               <span>{occasion.length}/{MAX_OCCASION_CHARS}</span>
             </div>
           </div>
 
+        <div className="mt-4"><StyleDirectionPanel compact user={firebaseUser} disabled={inFlight || signingOut}
+          refreshGeneration={styleMemoryRefreshGeneration} onChange={setSelectedStyleContext} onPendingChange={setStyleContextPending} onStateChange={onStyleMemoryState}
+          oneRequestExclusions={oneRequestExclusions} onOneRequestExclusionsChange={setOneRequestExclusions} exclusionContext={exclusionManagementContext} />
+          {exclusionManagementContext && <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
+            <p>Managing exclusions for {exclusionManagementContext.boardLabel}{exclusionManagementContext.routineLabel ? ` / ${exclusionManagementContext.routineLabel}` : ""}, saved direction version {exclusionManagementContext.profileVersion}. These affect that saved meaning only.</p>
+            <button type="button" disabled={styleContextPending || inFlight} className="mt-2 underline" onClick={() => setExclusionManagementContext(null)}>Done managing earlier exclusions</button>
+          </div>}
+        </div>
+
+          <details className="rounded-lg border border-slate-200 p-3">
+            <summary aria-label="Time and weather" aria-describedby="home-weather-summary" className="cursor-pointer text-sm text-slate-700">
+              <span className="font-medium">Time and weather</span>{" · "}
+              <span id="home-weather-summary">{eventTimeBucket === "custom" ? customEventDateTime || "Choose date/time" : eventTimeBucket === "later_today" ? "Later today" : eventTimeBucket === "tomorrow" ? "Tomorrow" : "Now"}
+              {" · "}{expectedWeather.temperature ? [expectedWeather.temperature, expectedWeather.rain === "rain" ? "rain expected" : expectedWeather.rain === "dry" ? "dry expected" : "rain unknown", expectedWeather.wind === "windy" ? "windy" : expectedWeather.wind === "calm" ? "calm expected" : "wind unknown"].join(", ")
+                : geoStatus === "granted" ? "Location weather; event/default fallback" : "Event description / mild fallback"}</span>
+            </summary>
+            <div className="mt-3 space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">When is the event?</label>
             <div className="flex gap-2 flex-wrap">
@@ -1359,6 +1360,9 @@ function DashboardInner() {
                   </button>. Your browser will ask first; location is only used to look up weather.
                 </span>}
           </div>
+
+            </div>
+          </details>
 
           <button
             onClick={startGenerate}
@@ -1458,7 +1462,7 @@ function DashboardInner() {
         {!result && !inFlight && !error && (
           <div className="mt-6 mx-auto w-full max-w-3xl p-6 bg-slate-50 rounded-lg text-center">
             <p className="text-slate-600">Click &quot;Get Recommendations&quot; to see outfit suggestions.</p>
-            <p className="mt-2 text-sm text-slate-500">The more you like/dislike, the more the recommendations adjust to you.</p>
+            <p className="mt-2 text-sm text-slate-500">React to an outfit to record your taste. Learning uses eligible feedback in the direction and situation you choose.</p>
           </div>
         )}
       </div>

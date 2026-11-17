@@ -1,5 +1,6 @@
 /** Private operator-only lifecycle checks. All mutations use the existing visible app controls. */
 import assert from "node:assert/strict";
+import { openStyleDirection } from "./home-browser-controls.mjs";
 import path from "node:path";
 import { ObjectId } from "mongodb";
 import { capturedPartition, verifyLifecycleProbe, verifyIsolatedTasteSignals } from "./private-feedback-verification.mjs";
@@ -190,6 +191,7 @@ export async function runPrivateFeedbackLifecycle({ db, page, owner, origin, loa
     lifecycle.steps.push({ kind: "explicit-inclusion", correction: included, state: includedState, probe: inclusionProbe.record }); await persist();
 
     const panel = page.getByRole("region", { name: "Saved style direction", exact: true });
+    await openStyleDirection(page);
     await panel.getByRole("button", { name: "New direction", exact: true }).click();
     const secondLabel = "Private replay · isolation check";
     await panel.getByLabel("Saved choice name", { exact: true }).fill(secondLabel);
@@ -219,6 +221,7 @@ export async function runPrivateFeedbackLifecycle({ db, page, owner, origin, loa
     // shownFullSignatures may retain owner-wide exposure; that is not preference transfer.
     lifecycle.steps.push({ kind: "new-direction-isolation", created, enabled, probe: isolated.record }); await persist();
 
+    await openStyleDirection(page);
     const returnedBoard = await styleMutation("select_context", () => panel.getByRole("combobox", { name: "Style direction", exact: true }).selectOption(context.boardId));
     assert.equal(returnedBoard.receipt.state.selectedBoardId, context.boardId);
     const returnedRoutine = await styleMutation("select_context", () => panel.getByRole("combobox", { name: "Saved situation", exact: true }).selectOption(context.routineId));

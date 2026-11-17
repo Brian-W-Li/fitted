@@ -8,6 +8,7 @@ import { TARGET_FEEDBACK, MAX_RENDER_REQUESTS, OPERATOR_LABELS, collectionState,
   displayedUnrated, acknowledgeOperatorReaction, chooseSupplyAnchor, compositionKey } from "./private-feedback-contract.mjs";
 import { runPrivateFeedbackLifecycle } from "./private-feedback-lifecycle.mjs";
 import { verifyCapturedRender, collectedObservation, verifyProbeEvidence } from "./private-feedback-verification.mjs";
+import { openTimeAndWeather } from "./home-browser-controls.mjs";
 
 const cardsOn = page => page.locator(".p-5.border.rounded-xl").filter({ has: page.getByRole("button", { name: "Regenerate", exact: true }) });
 export async function runPrivateFeedbackJourney({ db, page, owner, origin, loaded, run, paceRender, report, first, annotate, privateLifecycle = false }) {
@@ -87,6 +88,7 @@ export async function runPrivateFeedbackJourney({ db, page, owner, origin, loade
       if (await clear.count()) await clear.click();
     }
     await page.locator("textarea").fill(first.request.occasion);
+    await openTimeAndWeather(page);
     await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
     await paceRender();
     const [response] = await Promise.all([

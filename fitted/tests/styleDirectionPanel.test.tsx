@@ -180,3 +180,122 @@ it("creates successive directions with distinct server-valid Board, profile and 
   expect(new Set(posts.map(command => command.operationId)).size).toBe(2);
   expect(screen.getByRole("combobox", { name: "Style direction" })).toHaveValue("");
 });
+
+
+it("compact disclosure keeps acknowledged meaning visible and preserves its mounted editor draft without writing", async () => {
+  fetchMock.mockResolvedValue(response(selected()));
+  const change = jest.fn();
+  const { container } = render(<StyleDirectionPanel compact user={user} onChange={change}
+    oneRequestExclusions={{ itemIds: [], outfitItemIds: [] }} onOneRequestExclusionsChange={jest.fn()} />);
+  const summary = await screen.findByLabelText("Acknowledged saved settings");
+  await within(summary).findByText("Campus · Class");
+  expect(within(summary).getByText("Learning off")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Change direction" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("combobox", { name: "Style direction" })).not.toBeInTheDocument();
+  expect(screen.getByText("Leave pieces or an exact outfit out")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Change direction" }));
+  const selectedControl = screen.getByRole("combobox", { name: "Style direction" });
+  await userEvent.click(screen.getByRole("button", { name: "New direction" }));
+  const draft = screen.getByRole("textbox", { name: "Saved choice name" });
+  await userEvent.type(draft, "Unsubmitted direction");
+  await userEvent.type(screen.getByRole("textbox", { name: "Style word or phrase" }), "unfinished phrase");
+  const beforeClose = change.mock.calls.length;
+  await userEvent.click(screen.getByRole("button", { name: "Close direction" }));
+  expect(draft).toBeInTheDocument(); expect(draft).not.toBeVisible();
+  expect(container.querySelector('select[aria-label="Style direction"]')).toBe(selectedControl);
+  expect(within(summary).getByText("Campus · Class")).toBeVisible();
+  expect(within(summary).queryByText("Unsubmitted direction")).not.toBeInTheDocument();
+  expect(screen.getByText("Leave pieces or an exact outfit out")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Change direction" }));
+  expect(screen.getByRole("textbox", { name: "Saved choice name" })).toBe(draft);
+  expect(draft).toHaveValue("Unsubmitted direction");
+  expect(screen.getByRole("textbox", { name: "Style word or phrase" })).toHaveValue("unfinished phrase");
+  expect(fetchMock).toHaveBeenCalledTimes(1); expect(change).toHaveBeenCalledTimes(beforeClose);
+});
+
+it("compact close keeps uncertain retries visible and freezes the same command until its delayed acknowledgement", async () => {
+  let rejectFirst!: (reason: Error) => void, finishRetry!: (value: Response) => void;
+  fetchMock.mockResolvedValueOnce(response(available()))
+    .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }))
+    .mockImplementationOnce(() => new Promise(resolve => { finishRetry = resolve; }));
+  const change = jest.fn(), pending = jest.fn();
+  render(<StyleDirectionPanel compact user={user} onChange={change} onPendingChange={pending} />);
+  await within(screen.getByLabelText("Acknowledged saved settings")).findByText(/No saved direction/);
+  await userEvent.click(screen.getByRole("button", { name: "Change direction" }));
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Style direction" }), boardId);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  const original = commandAt(1);
+  await userEvent.click(screen.getByRole("button", { name: "Close direction" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Outfit requests wait for confirmation");
+  expect(screen.getByLabelText("Acknowledged saved settings")).toHaveTextContent("No saved direction");
+  await act(async () => { rejectFirst(new Error("lost acknowledgement")); });
+  expect(await screen.findByRole("button", { name: "Retry same change" })).toBeVisible();
+  expect(screen.getByRole("alert")).toHaveTextContent("The change is still unconfirmed");
+  expect(pending).toHaveBeenLastCalledWith(true); expect(change).toHaveBeenLastCalledWith(null);
+  await userEvent.click(screen.getByRole("button", { name: "Retry same change" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  expect(commandAt(2)).toEqual(original);
+  expect(screen.getByLabelText("Acknowledged saved settings")).toHaveTextContent("No saved direction");
+  await act(async () => { finishRetry(receipt({ ...selected(), revision: 4 }, original)); });
+  expect(screen.getByLabelText("Acknowledged saved settings")).toHaveTextContent("Campus · Class");
+  expect(screen.getByRole("button", { name: "Change direction" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("status")).toHaveTextContent("Saved changes.");
+  expect(pending).toHaveBeenLastCalledWith(false);
+  expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ boardId, routineId, learningEnabled: false }));
+});
+
+it("compact learning summary reflects only the acknowledged setting and never calls opt-in an active learner", async () => {
+  const enabled = selected(); enabled.boards = [{ ...board, learningOptIns: [{ profileVersion: 1, routineId, routineVersion: 1, enabled: true }] }];
+  let finish!: (value: Response) => void;
+  fetchMock.mockResolvedValueOnce(response(enabled)).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  render(<StyleDirectionPanel compact user={user} onChange={jest.fn()} />);
+  const summary = screen.getByLabelText("Acknowledged saved settings");
+  await within(summary).findByText("Experimental learning on for collection");
+  expect(summary).not.toHaveTextContent(/active/i);
+  await userEvent.click(screen.getByRole("button", { name: "Change direction" }));
+  await userEvent.click(screen.getByRole("checkbox", { name: /Use experimental taste learning/ }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await userEvent.click(screen.getByRole("button", { name: "Close direction" }));
+  expect(summary).toHaveTextContent("Experimental learning on for collection");
+  await act(async () => { finish(receipt({ ...selected(), revision: 4 }, commandAt(1))); });
+  expect(summary).toHaveTextContent("Learning off");
+});
+
+it("compact refresh errors and manual read retry stay visible while acknowledged choices remain collapsed", async () => {
+  fetchMock.mockResolvedValueOnce(response(selected())).mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValueOnce(response({ ...available(), revision: 9 }));
+  const pending = jest.fn(), change = jest.fn();
+  const { rerender } = render(<StyleDirectionPanel compact user={user} onChange={change} onPendingChange={pending} refreshGeneration={0} />);
+  await within(screen.getByLabelText("Acknowledged saved settings")).findByText("Campus · Class");
+  rerender(<StyleDirectionPanel compact user={user} onChange={change} onPendingChange={pending} refreshGeneration={1} />);
+  expect(await screen.findByRole("button", { name: "Retry saved directions" })).toBeVisible();
+  expect(screen.getByLabelText("Acknowledged saved settings")).toHaveTextContent("Campus · Class");
+  expect(screen.getByRole("alert")).toHaveTextContent("Outfit requests wait until saved directions are refreshed");
+  expect(pending).toHaveBeenLastCalledWith(true);
+  await userEvent.click(screen.getByRole("button", { name: "Retry saved directions" }));
+  await waitFor(() => expect(pending).toHaveBeenLastCalledWith(false));
+  expect(screen.getByLabelText("Acknowledged saved settings")).toHaveTextContent("No saved direction");
+  expect(screen.queryByRole("combobox", { name: "Style direction" })).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+it("compact owner change discards an expanded draft and fences an old owner's delayed mutation summary", async () => {
+  let finishOld!: (value: Response) => void;
+  fetchMock.mockResolvedValueOnce(response(available())).mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+    .mockResolvedValueOnce(response(empty()));
+  const change = jest.fn();
+  const { rerender, container } = render(<StyleDirectionPanel compact user={user} onChange={change} />);
+  await within(screen.getByLabelText("Acknowledged saved settings")).findByText(/No saved direction/);
+  await userEvent.click(screen.getByRole("button", { name: "Change direction" }));
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Style direction" }), boardId);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  const original = commandAt(1), callsBeforeOwnerChange = change.mock.calls.length;
+  rerender(<StyleDirectionPanel compact user={{ uid: "compact-owner-b", getIdToken: async () => "token-b" }} onChange={change} />);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  await within(screen.getByLabelText("Acknowledged saved settings")).findByText(/No saved direction/);
+  await act(async () => { finishOld(receipt({ ...selected(), revision: 4 }, original)); });
+  expect(screen.getByRole("button", { name: "Change direction" })).toHaveAttribute("aria-expanded", "false");
+  expect(container.textContent).not.toContain("Campus");
+  expect(change.mock.calls.slice(callsBeforeOwnerChange).every(([context]) => context === null)).toBe(true);
+  expect(fetchMock.mock.calls[2][1].headers.Authorization).toBe("Bearer token-b");
+});

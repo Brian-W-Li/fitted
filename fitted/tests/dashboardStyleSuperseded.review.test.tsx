@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { randomUUID } from "crypto";
 import type { User } from "firebase/auth";
@@ -26,6 +26,16 @@ const refreshedMemory: StyleMemoryState = { ...initialMemory, revision: 7,
 const flags = { notEnoughItems: false, insufficientAfterGeneration: false, spreadCollapsed: false, reasonHint: null };
 const oldOutfit = { snapshotId: "d".repeat(24), candidateId: "c0", displayItems: [{ itemId: "e".repeat(24), name: "Previously shown green shirt", clothingType: "top" }], styleMove: null };
 const response = (body: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body } as Response);
+async function openSavedDirection() {
+  const panel = within(await screen.findByRole("region", { name: "Saved style direction" }));
+  await userEvent.click(panel.getByRole("button", { name: "Change direction" }));
+  await panel.findByRole("button", { name: "New direction", exact: true });
+}
+function displayedResult() {
+  const result = screen.getByText("Previously shown green shirt").closest(".mt-6.space-y-4");
+  if (!result) throw new Error("Expected the retained outfit and its captured context together");
+  return within(result as HTMLElement);
+}
 
 beforeEach(() => {
   sessionStorage.clear(); localStorage.clear();
@@ -69,11 +79,12 @@ it("refreshes superseded saved meaning before an explicit new request while pres
   await waitFor(() => expect(generate).toBeEnabled());
   await userEvent.click(generate);
   await screen.findByText(/styling memory changed while these outfits were being prepared/i);
+  await openSavedDirection();
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Style direction" })).toHaveDisplayValue("Revised direction"));
   expect(screen.getByRole("combobox", { name: "Saved situation" })).toHaveDisplayValue("Revised situation");
   expect(screen.getByRole("checkbox", { name: /Use experimental taste learning/ })).not.toBeChecked();
   expect(screen.getByText("Previously shown green shirt")).toBeInTheDocument();
-  expect(screen.getByText("Captured campus · Captured class")).toBeInTheDocument();
+  expect(displayedResult().getByText("Captured campus · Captured class")).toBeInTheDocument();
   expect(commands).toHaveLength(1); // Refresh is read-only, never an automatic render retry.
   expect(sessionStorage.getItem("fitted_pending_render:superseded-owner")).toBeNull();
   expect(commands[0].styleContext).toMatchObject({ profileVersion: 1, routineVersion: 1, learningEnabled: true });
@@ -96,9 +107,10 @@ it("blocks stale generation after a failed superseded refresh until an explicit 
   const retry = await screen.findByRole("button", { name: "Retry saved directions" });
   expect(screen.getByText("Refresh is temporarily unavailable")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /get recommendations/i })).toBeDisabled();
+  await openSavedDirection();
   expect(screen.getByRole("combobox", { name: "Style direction" })).toHaveDisplayValue("Captured campus");
   expect(screen.getByText("Previously shown green shirt")).toBeInTheDocument();
-  expect(screen.getByText("Captured campus · Captured class")).toBeInTheDocument();
+  expect(displayedResult().getByText("Captured campus · Captured class")).toBeInTheDocument();
   expect(sessionStorage.getItem("fitted_pending_render:superseded-owner")).toBeNull();
   await act(async () => { await Promise.resolve(); });
   expect(scenario.commands).toHaveLength(1);
@@ -108,7 +120,7 @@ it("blocks stale generation after a failed superseded refresh until an explicit 
   await waitFor(() => expect(screen.getByRole("button", { name: /get recommendations/i })).toBeEnabled());
   expect(scenario.reads()).toBe(3);
   expect(scenario.commands).toHaveLength(1);
-  expect(screen.getByText("Captured campus · Captured class")).toBeInTheDocument();
+  expect(displayedResult().getByText("Captured campus · Captured class")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /get recommendations/i }));
   await screen.findByText("Fresh expressive shirt");
   expect(scenario.commands[1].styleContext).toMatchObject({ profileVersion: 2, routineVersion: 2, learningEnabled: false });

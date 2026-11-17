@@ -26,12 +26,32 @@ first viewport. Screenshots and metrics are retained under
 `.private/app-verification/home-2026-11-16/before/` in the historical root.
 All36 Node fixture contracts and scoped harness lint pass. The browser harness has an opt-in
 `FITTED_HOME_LAYOUT_DIR=/absolute/evidence-directory` measurement hook; normal CI
-continues without exported screenshots. No application code has changed in this design
-checkpoint. No paid calls, deployment, merge, personal sign-in or participant collection.
+continues without exported screenshots. Application changes are limited to the reviewed H1 slice below. No paid calls, deployment, merge, personal sign-in or participant collection.
 
-Next actions: (1) implement H1 from the reviewed §3.1; (2) test disclosure wire/async
-state and compare rendered layout; (3) independently review and run the integrated
-regression before deciding H2's exact interaction. The goal is active, not complete.
+H1 request presentation is implemented and independently reviewed. Event input now
+precedes compact acknowledged direction/situation/learning summaries; creation and
+management remain mounted behind Change/Close. Time/weather uses a keyboard-operated
+native disclosure with all selected values visible and accessible when closed. Pending
+writes, failures/retries and exclusion controls remain outside the closed direction body.
+Ordinary first-use and returning 390×844 captures have event y=440, submit y=757.5
+(bottom797.5), page width390. The compiled styling journey passed including ordinary
+feedback, activated controlled membership change and support removal. This is synthetic
+mechanism and layout evidence, not human benefit.
+
+The sequential full web regression passed1872 tests/10 existing skips; focused tests
+cover close/reopen values, delayed acknowledgements, owner changes and recovery.
+An earlier accidentally parallel full run overlapped other checks and timed out; its
+failures are not counted as passes. A subsequent accessibility-description/copy cleanup
+has focused coverage. Final local types/lint and saved-source hosted CI are tracked at
+this checkpoint; no deployment is authorized. Detailed evidence lives alongside the
+before capture under `home-2026-11-16/after/`. Source changes remain limited to Home
+presentation, supporting tests and harness interactions.
+
+Next actions: (1) verify final saved-source checks and add narrow-screen evidence for
+long labels, rescue/empty closet, pending-write recovery and restored results; (2) review
+that H1 evidence; (3) specify then implement H2 result access. H1 ordinary-path geometry
+passes; full Home acceptance and the larger goal remain active and incomplete.
+
 
 ## Review and solidification — November 15, 2026
 

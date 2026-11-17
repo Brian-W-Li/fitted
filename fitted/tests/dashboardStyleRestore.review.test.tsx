@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { randomUUID } from "crypto";
 import type { User } from "firebase/auth";
@@ -13,6 +13,11 @@ const dashboardKey = "fitted_dashboard_v2:restore-owner";
 const context = { boardId: "a".repeat(24), profileId: "b".repeat(24), profileVersion: 1, routineId: null, routineVersion: null,
   learningEnabled: false, boardLabel: "Erased campus direction", routineLabel: null, compiled: { aestheticKeywords: ["relaxed"], palette: [], patterns: [], fits: [] }, memoryRevision: 1, weather: "unspecified" };
 const response = (body: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body } as Response);
+async function openSavedDirection() {
+  const panel = within(await screen.findByRole("region", { name: "Saved style direction" }));
+  await userEvent.click(panel.getByRole("button", { name: "Change direction" }));
+  await panel.findByRole("button", { name: "New direction", exact: true });
+}
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -55,7 +60,7 @@ it("does not restore an outfit or copied direction content after the server repo
   mockApi(() => response({ error: "Suggestion unavailable" }, 404));
 
   render(<Dashboard />);
-  await screen.findByRole("button", { name: "New direction" });
+  await openSavedDirection();
   await waitFor(() => expect(screen.queryByText("Erased-source green shirt")).not.toBeInTheDocument());
   expect(screen.queryByText("Erased campus direction")).not.toBeInTheDocument();
   expect(sessionStorage.getItem(dashboardKey)).toBeNull();
@@ -101,7 +106,7 @@ it.each([200, 404])("does not let delayed restore verification (%s) replace a ne
     flags: { notEnoughItems: false, insufficientAfterGeneration: false, spreadCollapsed: false, reasonHint: null }, bindable: true,
   }) });
   render(<Dashboard />);
-  await screen.findByRole("button", { name: "New direction" });
+  await openSavedDirection();
   await waitFor(() => expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url).startsWith("/api/experiences/suggestion?"))).toBe(true));
   expect(screen.queryByText("Erased-source green shirt")).not.toBeInTheDocument();
   await userEvent.type(screen.getByPlaceholderText(/outdoor brunch with friends/i), "coffee with friends");
@@ -141,6 +146,7 @@ it.each(["erase cached direction", "archive cached direction", "erase unrelated 
     return readApi(url, init);
   }) as typeof fetch;
   render(<Dashboard />);
+  await openSavedDirection();
   await screen.findByRole("button", { name: "Manage saved choices" });
   await waitFor(() => expect(validationStarted).toBe(true));
   expect(screen.queryByText("Erased-source green shirt")).not.toBeInTheDocument();
@@ -189,6 +195,7 @@ it("removes displayed outfits and copied context after their direction is erased
 
   render(<Dashboard />);
   await screen.findByText("Erased-source green shirt");
+  await openSavedDirection();
   await userEvent.click(screen.getByRole("button", { name: "Manage saved choices" }));
   await userEvent.click(screen.getByRole("button", { name: "Erase: Current campus direction" }));
   await userEvent.click(screen.getByRole("button", { name: "Erase permanently" }));
@@ -217,6 +224,7 @@ it("clears a retained unverified cache when its direction is erased after a temp
   await screen.findByText(/couldn.t verify your saved outfits/i);
   expect(sessionStorage.getItem(dashboardKey)).toBe(original);
   expect(screen.queryByText("Erased-source green shirt")).not.toBeInTheDocument();
+  await openSavedDirection();
   await userEvent.click(screen.getByRole("button", { name: "Manage saved choices" }));
   await userEvent.click(screen.getByRole("button", { name: "Erase: Current campus direction" }));
   await userEvent.click(screen.getByRole("button", { name: "Erase permanently" }));
