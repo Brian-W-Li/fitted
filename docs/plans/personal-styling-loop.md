@@ -58,9 +58,10 @@ experimental feature banks and human answers are not production feature sources.
 
 ## 3. One user journey
 
-1. Home offers an optional saved style direction and saved situation, followed by
-   today's event/weather inputs. Returning users can reuse their visible selection.
-   Starting without either preserves the current cold-start path.
+1. Home presents today's event input early, with an optional saved style direction
+   and situation visible before submission and weather detail available on demand.
+   Returning users can reuse their selection; starting without either saved choice
+   preserves the current cold-start path.
 2. Outfit photos/cards and one StyleMove remain primary. Context is summarized
    compactly; detailed provenance is available on demand. All shown options retain
    their actual captured garment membership and exact controls.

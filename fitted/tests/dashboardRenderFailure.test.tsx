@@ -185,3 +185,14 @@ describe("dashboard — a dropped connection does not promise what it cannot kee
     expect(msg.textContent ?? "").not.toMatch(/you (didn|haven|failed)/i);
   });
 });
+
+
+it("offers no outfit navigation for an accepted empty render", async () => {
+  mockApi(() => ({ ok: true, status: 200, json: async () => ({ ...GOOD_RENDER, shown: [],
+    bindable: false, flags: { ...GOOD_RENDER.flags, notEnoughItems: true } }) } as Response));
+  render(<Dashboard />);
+  await generate();
+  await screen.findByRole("link", { name: "Go to your wardrobe" });
+  expect(screen.queryByRole("link", { name: /^View \d+ (shown|previous) outfits?$/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Back to request" })).not.toBeInTheDocument();
+});

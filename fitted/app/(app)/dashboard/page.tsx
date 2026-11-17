@@ -557,6 +557,8 @@ function DashboardInner() {
   const resultRef = useRef(result);
   resultRef.current = result;
   const [inFlight, setInFlight] = useState(false);
+  // A newer recommendation attempt leaves retained cards previous until a result is accepted.
+  const [hasNewerRequest, setHasNewerRequest] = useState(false);
   const [error, setError] = useState("");
 
   // Rescue: a forced item launched from the wardrobe (?rescue=<id>&name=<name>).
@@ -700,7 +702,7 @@ function DashboardInner() {
     reactionGenerationsRef.current.clear();
     setResult(null); setOccasion(""); setExpectedWeather(EMPTY_EXPECTED_WEATHER);
     setOneRequestExclusions(emptyExclusionInput()); setStyleMemoryState(null); setSelectedStyleContext(null); setExclusionManagementContext(null);
-    setError(""); setInFlight(false); setFeedbackModal(null); setRegenModal(null);
+    setError(""); setInFlight(false); setHasNewerRequest(false); setFeedbackModal(null); setRegenModal(null);
     activeLensRef.current = null; activeLocksRef.current = [];
     setRescueItemId(null); setRescueItemName("");
     if (!uid) return () => { cancelled = true; controller.abort(); };
@@ -841,6 +843,7 @@ function DashboardInner() {
       pendingStyleRestoreRef.current?.controller.abort();
       pendingStyleRestoreRef.current = null;
       ++restoreEpochRef.current; // A delayed cache read cannot replace a newer command.
+      setHasNewerRequest(true);
       const userUid = user.uid;
       const ownerEpoch = activeUserEpochRef.current;
       const isCurrentOwner = () => activeUserUidRef.current === userUid && activeUserEpochRef.current === ownerEpoch;
@@ -914,7 +917,10 @@ function DashboardInner() {
           return;
         }
         const accepted = onResult(rendered);
-        if (accepted !== false) persistResult(rendered, envelope.lensSummary.occasion);
+        if (accepted !== false) {
+          setHasNewerRequest(false);
+          persistResult(rendered, envelope.lensSummary.occasion);
+        }
         // Hydrated success (bindable render) or a completed degraded render — either way the render
         // is done, so the envelope is cleared (a degraded render wrote no snapshot to replay).
         removeKey(PENDING_KEY(userUid));
@@ -1195,6 +1201,7 @@ function DashboardInner() {
   }, [uid]);
 
   const shown = result?.shown ?? [];
+  const shownLabel = inFlight || hasNewerRequest ? "previous" : "shown";
 
   return (
     <div className="space-y-5">
@@ -1210,7 +1217,7 @@ function DashboardInner() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
-        <h2 className="text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
+        <h2 id="home-request" tabIndex={-1} className="scroll-mt-4 text-xl font-semibold tracking-tight">Get Outfit Recommendations</h2>
         <p className="mt-1 text-sm text-slate-600">
           The stylist uses your wardrobe, the occasion, and the weather to suggest outfits.
         </p>
@@ -1371,6 +1378,9 @@ function DashboardInner() {
           >
             {inFlight ? "Generating…" : "Get Recommendations"}
           </button>
+          {shown.length > 0 && <a href="#home-outfits" className="self-start text-sm font-medium text-blue-700 underline">
+            View {shown.length} {shownLabel} outfit{shown.length === 1 ? "" : "s"}
+          </a>}
         </div>
 
         {error && <div className="mt-4 p-4 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
@@ -1390,7 +1400,14 @@ function DashboardInner() {
 
         {/* Results — §6.5 cards, or the degraded/empty state (no feedback controls when !bindable). */}
         {result && shown.length > 0 && (
-          <div className="mt-6 space-y-4">
+          <div className="mt-6 space-y-4" role="region" aria-labelledby="home-outfits">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 id="home-outfits" tabIndex={-1} className="scroll-mt-4 text-lg font-semibold">
+                {shownLabel === "previous" ? "Previous outfits" : "Shown outfits"}
+              </h2>
+              <a href="#home-request" className="text-sm text-blue-700 underline">Back to request</a>
+            </div>
+            {activeLensRef.current?.occasion && <p className="break-words text-sm text-slate-600">Requested for: {activeLensRef.current.occasion}</p>}
             {result.styleContext && <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
               <p className="font-medium text-slate-800">{result.styleContext.boardLabel}{result.styleContext.routineLabel ? ` · ${result.styleContext.routineLabel}` : ""}</p>
               <p className="mt-1 text-xs text-slate-600">{preferenceDecisionMessage(result.preference, result.styleContext.learningEnabled)}</p>

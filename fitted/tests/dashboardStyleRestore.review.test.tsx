@@ -64,6 +64,8 @@ it("does not restore an outfit or copied direction content after the server repo
   await waitFor(() => expect(screen.queryByText("Erased-source green shirt")).not.toBeInTheDocument());
   expect(screen.queryByText("Erased campus direction")).not.toBeInTheDocument();
   expect(sessionStorage.getItem(dashboardKey)).toBeNull();
+  expect(screen.queryByRole("link", { name: /^View \d+ (shown|previous) outfits?$/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Back to request" })).not.toBeInTheDocument();
   expect((global.fetch as jest.Mock).mock.calls.some(([url, init]) => String(url) === "/api/recommend" || init?.method === "POST")).toBe(false);
 });
 
@@ -78,6 +80,8 @@ it.each(["active", "archived"])("restores a verified %s source with its captured
   expect(await screen.findByText("Erased-source green shirt")).toBeInTheDocument();
   expect(screen.getByText("Erased campus direction")).toBeInTheDocument();
   expect(sessionStorage.getItem(dashboardKey)).toBe(original);
+  expect(screen.getByRole("link", { name: "View 1 shown outfit" })).toBeInTheDocument();
+  expect(screen.getByText("Requested for: class")).toBeInTheDocument();
   const [url, init] = (global.fetch as jest.Mock).mock.calls.find(([url]) => String(url).startsWith("/api/experiences/suggestion?"))!;
   expect(String(url)).toContain(`snapshotId=${"d".repeat(24)}`);
   expect(init).toMatchObject({ headers: { Authorization: "Bearer owner-token" }, cache: "no-store" });
@@ -165,6 +169,8 @@ it.each(["erase cached direction", "archive cached direction", "erase unrelated 
     expect(screen.queryByText("Erased-source green shirt")).not.toBeInTheDocument();
     expect(screen.queryByText("Erased campus direction")).not.toBeInTheDocument();
     expect(sessionStorage.getItem(dashboardKey)).toBeNull();
+  expect(screen.queryByRole("link", { name: /^View \d+ (shown|previous) outfits?$/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Back to request" })).not.toBeInTheDocument();
   } else {
     expect(await screen.findByText("Erased-source green shirt")).toBeInTheDocument();
     expect(screen.getByText("Erased campus direction")).toBeInTheDocument();
@@ -204,6 +210,8 @@ it("removes displayed outfits and copied context after their direction is erased
   await waitFor(() => expect(screen.queryByText("Erased-source green shirt")).not.toBeInTheDocument());
   expect(screen.queryByText("Erased campus direction")).not.toBeInTheDocument();
   expect(sessionStorage.getItem(dashboardKey)).toBeNull();
+  expect(screen.queryByRole("link", { name: /^View \d+ (shown|previous) outfits?$/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Back to request" })).not.toBeInTheDocument();
   expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url) === "/api/recommend")).toBe(false);
 });
 
@@ -230,6 +238,8 @@ it("clears a retained unverified cache when its direction is erased after a temp
   await userEvent.click(screen.getByRole("button", { name: "Erase permanently" }));
   await screen.findByText("Saved changes.");
   expect(sessionStorage.getItem(dashboardKey)).toBeNull();
+  expect(screen.queryByRole("link", { name: /^View \d+ (shown|previous) outfits?$/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Back to request" })).not.toBeInTheDocument();
   expect(screen.queryByText("Erased campus direction")).not.toBeInTheDocument();
   expect((global.fetch as jest.Mock).mock.calls.some(([url]) => String(url) === "/api/recommend")).toBe(false);
 });

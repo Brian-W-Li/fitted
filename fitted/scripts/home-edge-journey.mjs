@@ -39,6 +39,26 @@ export async function checkHomeEdges({ page, origin, ids, outputDirectory }) {
     await page.reload(); await links().first().waitFor();
     assert.deepEqual(await bindings(), originalBindings, "reload retains exact admitted proposal identities");
     await captureHomeEdge(page, "restored-results", outputDirectory);
+    const eventInput = page.getByRole("textbox", { name: "Event description", exact: true });
+    const originalOccasion = await eventInput.inputValue();
+    const draftOccasion = "An unfinished different occasion";
+    await eventInput.fill(draftOccasion);
+    const jump = page.getByRole("link", { name: `View ${originalBindings.length} shown outfit${originalBindings.length === 1 ? "" : "s"}`, exact: true });
+    await jump.focus(); await jump.press("Enter");
+    await page.waitForFunction(() => document.activeElement?.id === "home-outfits");
+    const heading = await page.locator("#home-outfits").boundingBox();
+    assert.ok(heading && heading.y >= 0 && heading.y + heading.height <= 844, "explicit navigation brings the result heading into view");
+    if (outputDirectory) await page.screenshot({ path: path.join(outputDirectory, "edge-outfit-navigation.png") });
+    const resultRegion = page.getByRole("region", { name: "Shown outfits", exact: true });
+    assert.equal(await resultRegion.getByText(`Requested for: ${originalOccasion}`, { exact: true }).count(), 1);
+    assert.equal((await resultRegion.innerText()).includes(draftOccasion), false);
+    await page.getByRole("link", { name: "Back to request", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.activeElement?.id === "home-request");
+    assert.equal(await eventInput.inputValue(), draftOccasion, "round-trip navigation retains the unfinished request");
+    assert.deepEqual(await bindings(), originalBindings, "navigation never changes admitted outfit identities");
+    await eventInput.fill(originalOccasion);
+
     await openTimeAndWeather(page, { keyboard: true });
     await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("cold");
     await page.getByRole("combobox", { name: "Rain", exact: true }).selectOption("rain");

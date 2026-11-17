@@ -91,6 +91,8 @@ it("refreshes superseded saved meaning before an explicit new request while pres
   await waitFor(() => expect(screen.getByRole("button", { name: /get recommendations/i })).toBeEnabled());
   await userEvent.click(screen.getByRole("button", { name: /get recommendations/i }));
   await screen.findByText("Fresh expressive shirt");
+  expect(screen.getByRole("link", { name: "View 1 shown outfit" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Previous outfits" })).not.toBeInTheDocument();
   expect(commands).toHaveLength(2);
   expect(commands[1].requestId).not.toBe(commands[0].requestId);
   expect(commands[1].styleContext).toEqual({ boardId, profileId, profileVersion: 2, routineId, routineVersion: 2, learningEnabled: false });
@@ -159,4 +161,56 @@ it("defers an explicit memory refresh while a write is uncertain and retains its
   panel.rerender(<StyleDirectionPanel user={mockUser} onChange={onChange} onPendingChange={onPendingChange} refreshGeneration={1} />);
   await act(async () => { await Promise.resolve(); });
   expect(reads).toBe(2); // An already-consumed generation is not another refresh.
+});
+
+
+it("keeps captured outfits reachable while a different request draft is pending and fails", async () => {
+  installScenario();
+  const readApi = global.fetch;
+  let finish!: (response: Response) => void;
+  const pending = new Promise<Response>(resolve => { finish = resolve; });
+  global.fetch = jest.fn((url: RequestInfo | URL, init?: RequestInit) =>
+    String(url) === "/api/recommend" ? pending : readApi(url, init)) as typeof fetch;
+  render(<Dashboard />);
+  await screen.findByText("Previously shown green shirt");
+  const jump = screen.getByRole("link", { name: "View 1 shown outfit" });
+  expect(jump).toHaveAttribute("href", "#home-outfits");
+  expect(screen.getByRole("heading", { name: "Shown outfits" })).toHaveAttribute("tabindex", "-1");
+  expect(screen.getByRole("link", { name: "Back to request" })).toHaveAttribute("href", "#home-request");
+  expect(screen.getByRole("heading", { name: "Get Outfit Recommendations" })).toHaveAttribute("tabindex", "-1");
+  const input = screen.getByRole("textbox", { name: "Event description" });
+  await userEvent.clear(input); await userEvent.type(input, "Dinner draft");
+  expect(displayedResult().getByText("Requested for: class")).toBeInTheDocument();
+  expect(displayedResult().queryByText(/Dinner draft/)).not.toBeInTheDocument();
+  const generate = screen.getByRole("button", { name: /get recommendations/i });
+  await waitFor(() => expect(generate).toBeEnabled());
+  await userEvent.click(generate);
+  expect(await screen.findByRole("link", { name: "View 1 previous outfit" })).toHaveAttribute("href", "#home-outfits");
+  expect(screen.getByRole("heading", { name: "Previous outfits" })).toBeInTheDocument();
+  expect(displayedResult().getByText("Captured campus · Captured class")).toBeInTheDocument();
+  await act(async () => { finish(response({}, 503)); await pending; });
+  await screen.findByText(/went wrong on our side/i);
+  expect(screen.getByRole("link", { name: "View 1 previous outfit" })).toBeInTheDocument();
+  expect(displayedResult().getByText("Requested for: class")).toBeInTheDocument();
+  expect(input).toHaveValue("Dinner draft");
+  expect(JSON.parse(sessionStorage.getItem("fitted_pending_render:superseded-owner")!).lensSummary.occasion).toBe("Dinner draft");
+});
+
+
+it("does not label current outfits previous after failed feedback or invalid request text", async () => {
+  installScenario();
+  const readApi = global.fetch;
+  global.fetch = jest.fn((url: RequestInfo | URL, init?: RequestInit) =>
+    String(url) === "/api/interactions" && init?.method === "POST" ? Promise.resolve(response({}, 503)) : readApi(url, init)) as typeof fetch;
+  render(<Dashboard />);
+  await screen.findByText("Previously shown green shirt");
+  await userEvent.click(screen.getByRole("button", { name: "Like" }));
+  await screen.findByText(/couldn.t confirm your feedback/i);
+  expect(screen.getByRole("link", { name: "View 1 shown outfit" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Previous outfits" })).not.toBeInTheDocument();
+  await userEvent.clear(screen.getByRole("textbox", { name: "Event description" }));
+  await userEvent.click(screen.getByRole("button", { name: /get recommendations/i }));
+  await screen.findByText("Describe the event or context to get recommendations.");
+  expect(screen.getByRole("link", { name: "View 1 shown outfit" })).toBeInTheDocument();
+  expect((global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url) === "/api/recommend")).toHaveLength(0);
 });
