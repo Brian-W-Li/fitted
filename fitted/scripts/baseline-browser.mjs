@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { checkHomeEdges, captureHomeEdge } from "./home-edge-journey.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
@@ -782,6 +783,26 @@ async function run() {
   console.log("Compiled browser signed in; checking owned wardrobe and rescue");
   if (styleOnly) {
     await checkStyleDirectionJourney(db, page, owner, memoryHeaders);
+    if (process.env.FITTED_HOME_EDGE_CHECKS === "1") {
+      const callsBeforeEdges = generationCalls;
+      await checkHomeEdges({ page, origin, ids, outputDirectory: process.env.FITTED_HOME_LAYOUT_DIR });
+      const emptyContext = await boundedBrowserStep(browser.newContext({ viewport: { width: 390, height: 844 } }), "empty-closet Home context");
+      try {
+        emptyContext.setDefaultTimeout(30_000);
+        const emptyPage = await emptyContext.newPage();
+        await emptyPage.goto(`${origin}/signin`);
+        await emptyPage.waitForFunction(() => typeof window.__fittedBaselineSignIn === "function");
+        await boundedBrowserStep(emptyPage.evaluate(({ email, password }) => window.__fittedBaselineSignIn(email, password), other), "empty-closet emulator sign-in");
+        await emptyPage.goto(`${origin}/dashboard`);
+        await emptyPage.getByText("First: add a few clothes.", { exact: true }).waitFor();
+        await emptyPage.getByRole("button", { name: "Change direction", exact: true }).waitFor();
+        assert.equal(await emptyPage.getByRole("link", { name: "Add your clothes", exact: true }).getAttribute("href"), "/wardrobe");
+        assert.equal(await emptyPage.getByRole("link", { name: "Pick it from your wardrobe", exact: true }).count(), 0);
+        await captureHomeEdge(emptyPage, "empty-closet", process.env.FITTED_HOME_LAYOUT_DIR);
+      } finally { await emptyContext.close(); }
+      assert.equal(generationCalls, callsBeforeEdges, "Home edge checks must not generate extra outfits");
+      console.log("PASS compiled Home edge cases; synthetic accounts and no additional recommendation calls");
+    }
     await checkActivatedStyleJourney(db, page, owner, memoryHeaders, ids);
     await context.close();
     console.log("PASS focused compiled styling journey: collecting, captured context, correction/undo, activated relationship and support removal; authored synthetic evidence only");

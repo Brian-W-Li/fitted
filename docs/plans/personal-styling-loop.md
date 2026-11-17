@@ -128,6 +128,24 @@ errors, empty results, pending/retry requests and regeneration visible and actio
 Do not auto-scroll on every background state update or discard unfinished input.
 Specify the exact result-navigation interaction after inspecting the H1 browser result.
 
+The next reviewed H2 interaction is explicit in-page navigation. When admitted
+`shown` cards exist, offer a link near the request controls to their named heading,
+using the actual shown count. Keep a Back to request link at the results heading.
+Anchor targets are focusable headings (`tabIndex=-1`), not text inputs, so returning
+need not open a phone keyboard. No automatic scroll, focus transfer, form collapse,
+or copied result state is introduced. If a newer request is pending or fails while
+cards remain, identify them as previous outfits; never label them as the new result.
+Their visible direction, occasion and learning decision continue to come from their
+captured result, not the editable current draft. Zero shown cards have no results link.
+
+A polite readiness message may be emitted only when a newly accepted request yields
+nonempty shown cards. Restore, feedback edits, background refresh and unaccepted stale
+responses must not announce new outfits. Test user-initiated keyboard navigation and
+return, retained drafts/controls, pending and failed-new-request cases, restored cards,
+empty results and source erasure. Geometry and actual heading focus are browser checks;
+request identities and source-visibility admission remain the existing owners. Complete
+and review H1 edge evidence before implementing this H2 contract.
+
 **Evidence before calling Home complete.** Capture the existing layout and the changed
 layout in the compiled app at 390×844 and desktop widths, with the same synthetic
 account/wardrobe and direction state. Check first use, returning selected context,

@@ -42,15 +42,26 @@ The sequential full web regression passed1872 tests/10 existing skips; focused t
 cover close/reopen values, delayed acknowledgements, owner changes and recovery.
 An earlier accidentally parallel full run overlapped other checks and timed out; its
 failures are not counted as passes. A subsequent accessibility-description/copy cleanup
-has focused coverage. Final local types/lint and saved-source hosted CI are tracked at
-this checkpoint; no deployment is authorized. Detailed evidence lives alongside the
+has focused coverage. Local lint passed, but the first combined type/lint command
+masked two remaining test-helper type errors by returning lint's status. Hosted
+conformance43985128854 and browser43985128914 failed on saved source51101af6.
+The unsupported Testing Library options were removed in d7221c3d; an independent
+`tsc --noEmit` invocation and all14 affected tests pass. Fresh hosted runs43985575755
+and43985575845 are the repair checks: conformance43985575845 passed; browser43985575755 is still pending. No deployment is authorized. Detailed evidence lives alongside the
 before capture under `home-2026-11-16/after/`. Source changes remain limited to Home
 presentation, supporting tests and harness interactions.
 
-Next actions: (1) verify final saved-source checks and add narrow-screen evidence for
-long labels, rescue/empty closet, pending-write recovery and restored results; (2) review
-that H1 evidence; (3) specify then implement H2 result access. H1 ordinary-path geometry
-passes; full Home acceptance and the larger goal remain active and incomplete.
+H1 edge acceptance passed in the compiled app at390×844: long unbroken direction
+names, closed pending-save state after a real server commit, open/closed manual weather,
+restored exact proposal identities, rescue and empty closet. The edge cases introduce
+no recommendation calls. Independent harness review tightened receipt gating and writes
+failure geometry before assertions. All38 Node contracts and focused documentation
+guards pass. Private screenshots/metrics remain local; no personal-benefit claim follows.
+
+H2's explicit links, captured-context boundary and no-automatic-navigation contract
+are reviewed in §3.1. Next actions: (1) finish the saved-source hosted browser check;
+(2) implement and test the bounded H2 links; (3) review the complete Home checkpoint.
+H1 acceptance passes; full Home acceptance and the larger goal remain incomplete.
 
 
 ## Review and solidification — November 15, 2026
