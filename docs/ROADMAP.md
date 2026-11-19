@@ -1,5 +1,53 @@
 # Current direction and work
 
+## Feedback correction and removal — November 18, 2026
+
+Brian requested a bounded review of which outfits receive corrected feedback,
+its sign, and what survives reload. The public development branch is
+`codex/style-memory-baseline` in `/private/tmp/fitted-style-memory-baseline`.
+Reviewed source [25359170](https://github.com/Brian-W-Li/fitted/commit/25359170a37f8e084fcdd23b053d784a1f326c9b)
+builds on `0706d88e`. The coordinator checkout is
+`/Users/Brian/.codex/worktrees/s3-outfit-correction/fitted` on
+`codex/s3-outfit-learner`. Its unrelated changes and private ancestry stay there.
+
+Home now reconciles restored votes per card when a new vote overlaps the History
+read. History keeps an unconfirmed learning retry reachable across Refresh and
+reads the saved reaction after an incomplete flip acknowledgement. In regression
+tests, the next correction addressed the right reaction whether the flip had
+landed or not. Real database checks cover repeated outfits, vote age, removal of
+the whole reaction and its amendments, retained exposure and scope boundaries.
+Six deliberate faults were caught, including both skipping a neighbor's
+correction and overwriting a fresh vote. The [implementation contract](plans/personal-styling-loop.md)
+records the user-visible behavior. Independent review checked it against source.
+
+In the compiled synthetic walkthrough a Like for one outfit supported a different
+outfit with a slim top and relaxed bottom. Its learned score contribution was
++0.153 before correction, −0.047 after flipping to Dislike and +0.059 after
+removal. Likes/dislikes changed 6/6 → 5/7 → 5/6. The matching outfit stayed
+visible. A fully relaxed outfit replaced a fully slim outfit after the flip and
+the fully slim outfit returned after removal. The zero-learner selection from the
+same four candidates contained the same three outfits in all three requests.
+The independent private wardrobe replay exercised ordinary concern, clear,
+explicit inclusion and direction switching with six operator-authored reactions.
+Eligible votes followed 6 → 5 → 5 → 6 → 0 → 6. Private inputs and reports stay local.
+
+Local web regression passed 1,936 tests with ten existing skips. Type checking,
+all 38 browser fixture checks and the production browser builds passed. Lint
+reported zero errors and 35 existing warnings. Local evidence is under
+`.private/app-verification/feedback-correction-2026-11-18/` in the historical
+checkout. The review found three user-facing defects and fixed all three. The
+next product question is whether a person prefers the changed outfit in their
+chosen situation. A small, separately scoped comparison using their own
+judgments would answer a different question than another synthetic bug hunt.
+
+All 13 repository documentation and hygiene checks passed, including the suite
+counts, after supplying the checkout's existing local Python environments.
+GitHub passed [conformance](https://github.com/Brian-W-Li/fitted/actions/runs/44475048631)
+and the [whole-app browser](https://github.com/Brian-W-Li/fitted/actions/runs/44475048659)
+on the reviewed source. Source, tests, spec and this entry were mirrored to the
+coordinator. The public development checkout is clean at handoff. No known
+blocker remains in this slice. No paid generation, merge or deployment occurred.
+
 ## Home review complete — November 16, 2026
 
 Brian selected a bounded review of Home correctness, surrounding integration, tests
