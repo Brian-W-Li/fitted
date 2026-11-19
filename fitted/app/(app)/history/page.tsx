@@ -36,6 +36,7 @@ interface StyleMove {
 }
 
 interface HistoryCard {
+  proposalHref?: string;
   id: string;
   action: "accepted" | "rejected";
   occasion: string;
@@ -427,6 +428,10 @@ export default function HistoryPage() {
                   <p className="mt-2 text-xs text-slate-500 truncate">
                     {card.displayItems.map((i) => i.name ?? "Item").join(" · ")}
                   </p>
+
+                  {card.proposalHref && (
+                    <a href={card.proposalHref} className="mt-2 inline-block text-sm text-blue-700 underline">Open outfit</a>
+                  )}
 
                   <FeedbackNote reason={card.feedbackReason} items={card.displayItems} />
 

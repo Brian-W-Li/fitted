@@ -234,6 +234,7 @@ it("offers no delayed concern editor for an unbound legacy reaction", async () =
   render(<HistoryPage />);
   await screen.findByText("White Tee");
   expect(screen.queryByRole("button", { name: "Something’s off" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Open outfit" })).not.toBeInTheDocument();
 });
 
 

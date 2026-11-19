@@ -448,6 +448,15 @@ async function checkStyleDirectionJourney(db, page, owner) {
   await page.getByRole("button", { name: "Plan this outfit", exact: true }).waitFor();
   await page.getByRole("button", { name: "Report what I wore", exact: true }).waitFor();
   await page.goto(`${origin}/history`);
+  const originalOutfit = new URLSearchParams({ snapshotId: String(reaction.snapshotId), candidateId: reaction.candidateId });
+  const openFromHistory = page.getByRole("link", { name: "Open outfit", exact: true })
+    .and(page.locator(`a[href="/memory/proposal?${originalOutfit}"]`));
+  await openFromHistory.click();
+  assert.equal(new URL(page.url()).searchParams.get("candidateId"), reaction.candidateId);
+  await page.getByText(`Direction: ${capturedLabel}`, { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Plan this outfit", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Report what I wore", exact: true }).waitFor();
+  await page.goBack();
   const exclude = page.getByRole("button", { name: "Exclude from taste learning", exact: true });
   const [excluded] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"), exclude.click(),

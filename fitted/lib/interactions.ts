@@ -4,6 +4,7 @@ import { resolveFeedbackEvidence, voteEvidenceFilter, FEEDBACK_ACCOUNT_ROW_LIMIT
 import { amendLearningDisposition, bumpStyleMemoryRevision, capturedLearningEnabled, initialLearningDisposition, LearningMutationError } from "@/lib/styleLearningAmendments";
 import { ownerWriteFence, OwnerWriteUnavailable } from "@/lib/ownerWriteFence";
 import { snapshotVisible, visibleSnapshots } from "@/lib/snapshotVisibility";
+import { suggestionLink } from "@/lib/suggestionLink";
 import { validCapturedStyleContext } from "@/lib/styleContext";
 /**
  * M5 feedback boundary (C6, §I) — append-only interactions bound to `{snapshotId, candidateId}`.
@@ -321,6 +322,7 @@ export interface HistoryDisplayItem {
   imageUrl?: string;
 }
 export interface HistoryCard {
+  proposalHref?: string;
   id: string;
   action: string;
   occasion: string;
@@ -397,6 +399,9 @@ function projectHistoryCard(interaction: Any, snapshot: Any | undefined): Histor
       imageUrl: ev.imageUrl,
     };
   });
+  if (base.snapshotId && base.candidateId && base.displayItems.length && snapshot.shownCandidateIds?.includes(base.candidateId)) {
+    base.proposalHref = suggestionLink({ snapshotId: base.snapshotId, candidateId: base.candidateId });
+  }
   base.styleMove = candidate.styleMove ?? null;
   base.optionPath = candidate.optionPath;
   base.risk = candidate.risk;
@@ -454,7 +459,7 @@ export async function getInteractions(request: NextRequest, deps: InteractionDep
       // of real use.
       const snapshots = (await GenerationSnapshot.find({ _id: { $in: snapshotIds }, user: userObjectId })
         .select(
-          "styleContext variationSourceExperienceId variationSourceRevision redacted candidates.candidateId candidates.items candidates.styleMove candidates.optionPath " +
+          "styleContext variationSourceExperienceId variationSourceRevision redacted shownCandidateIds candidates.candidateId candidates.items candidates.styleMove candidates.optionPath " +
             "candidates.risk candidates.template itemSnapshots.itemId itemSnapshots.engineVisible",
         )
         .lean()

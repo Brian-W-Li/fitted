@@ -84,6 +84,11 @@ experimental feature banks and human answers are not production feature sources.
    decision is rebuilt from current resolved evidence. Plan and wear remain existing
    optional actions, without being converted to training evidence.
 
+From a liked or disliked History card, a person can reopen the exact outfit
+they were shown to plan it or report a wear. Opening the outfit is a read.
+If History retains a reaction after its source becomes unavailable, the card
+keeps its existing curation actions and omits the outfit link.
+
 Flipping a vote appends the opposite sign to the same shown outfit. Removing
 the reaction clears both signs and their amendments for that showing. The
 original rendered outfit remains in exposure history. A later rating of a

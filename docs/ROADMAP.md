@@ -1,5 +1,21 @@
 # Current direction and work
 
+## Current direction — keep developing the app
+
+Brian chose to continue building Fitted while the research question about taste
+learning remains open. Prioritize a concrete action someone can take with their
+wardrobe. The current change connects History to the existing outfit page so a
+person can find a rated outfit again and plan or report wearing it. The saved
+outfit and existing planning and wear flows own those actions.
+
+This change builds on development checkpoint `768d8959`. The compiled browser
+opened the exact original suggestion from History, reached the planning and wear
+controls, and navigated back. The focused History, interaction and link checks
+passed, including a retained reaction whose underlying outfit was redacted.
+Type checking and lint passed with the existing warnings. The development
+checkout and coordinator paths are recorded below. The next development choice
+can be made from the app itself without collecting more ratings.
+
 ## Feedback correction and removal — November 18, 2026
 
 Brian requested a bounded review of which outfits receive corrected feedback,
@@ -35,10 +51,8 @@ Local web regression passed 1,936 tests with ten existing skips. Type checking,
 all 38 browser fixture checks and the production browser builds passed. Lint
 reported zero errors and 35 existing warnings. Local evidence is under
 `.private/app-verification/feedback-correction-2026-11-18/` in the historical
-checkout. The review found three user-facing defects and fixed all three. The
-next product question is whether a person prefers the changed outfit in their
-chosen situation. A small, separately scoped comparison using their own
-judgments would answer a different question than another synthetic bug hunt.
+checkout. The review found three user-facing defects and fixed all three. Brian chose to continue development in the existing app. The evidence for taste
+learning remains open and can be evaluated in a separately chosen study.
 
 All 13 repository documentation and hygiene checks passed, including the suite
 counts, after supplying the checkout's existing local Python environments.

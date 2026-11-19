@@ -358,6 +358,7 @@ describe("GET /api/interactions — user-scoped snapshot join (§I)", () => {
     const card = json.interactions[0];
     expect(card.snapshotId).toBe(snapshotId);
     expect(card.candidateId).toBe(candidateId);
+    expect(card.proposalHref).toBe(`/memory/proposal?snapshotId=${snapshotId}&candidateId=${candidateId}`);
     expect(card.styleMove.moveType).toBe("anchor");
     expect(card.templateType).toBe("two_piece");
     expect(card.displayItems).toHaveLength(2);
@@ -366,6 +367,17 @@ describe("GET /api/interactions — user-scoped snapshot join (§I)", () => {
     expect(card.displayItems.map((d: Any) => d.name).sort()).toEqual(["Blue Jeans", "White Tee"]);
     expect(card.displayItems.map((d: Any) => d.clothingType).sort()).toEqual(["bottom", "top"]);
     expect(card.displayItems.map((d: Any) => d.imageUrl).sort()).toEqual(["mongo:img1", "mongo:img2"]);
+  });
+
+  it("keeps the reaction binding after ordinary source redaction and omits the outfit link", async () => {
+    const userId = oid();
+    const { snapshotId, candidateId } = await makeSnapshot(userId);
+    await postInteraction(postReq({ snapshotId, candidateId, action: "accepted" }), deps(userId));
+    await GenerationSnapshot.updateOne({ _id: snapshotId }, { $set: { redacted: true } });
+    const history = await (await getInteractions(getReq(), deps(userId))).json();
+    expect(history.interactions).toHaveLength(1);
+    expect(history.interactions[0]).toMatchObject({ snapshotId, candidateId, displayItems: [] });
+    expect(history.interactions[0]).not.toHaveProperty("proposalHref");
   });
 });
 
