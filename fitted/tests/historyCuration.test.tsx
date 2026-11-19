@@ -41,7 +41,8 @@ beforeEach(() => {
     const method = (opts?.method ?? "GET").toUpperCase();
     calls.push({ url: String(url), method, body: opts?.body });
     if (method === "GET") return { ok: true, status: 200, json: async () => ({ interactions: seedCards() }) } as Response;
-    if (method === "POST") return { ok: true, status: 200, json: async () => ({ success: true }) } as Response;
+    if (method === "POST") return { ok: true, status: 200, json: async () => ({ success: true,
+      interaction: { id: "650000000000000000000099", action: JSON.parse(String(opts.body)).action } }) } as Response;
     if (method === "DELETE") return { ok: true, status: 200, json: async () => ({ success: true, deleted: 2 }) } as Response;
     return { ok: false, status: 500, json: async () => ({}) } as Response;
   }) as unknown as typeof fetch;
@@ -253,3 +254,96 @@ it("disables the delayed concern editor while a learning correction is unconfirm
   expect(screen.getByRole("button", { name: "Something’s off" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Retry learning change" })).toBeInTheDocument();
 });
+
+it.each([false, true])("keeps the same learning retry available after Refresh reports committed=%s", async committed => {
+  const reactionId = "650000000000000000000061";
+  const amendmentId = "650000000000000000000062";
+  const original = { ...seedCards()[0], id: reactionId, learningAvailable: true };
+  const commands: string[] = [];
+  let saved = false, reads = 0;
+  const currentCard = () => ({ ...original, learningDisposition: saved ? "exception" : "normal", dispositionRevision: saved ? 1 : 0 });
+  Object.defineProperty(crypto, "randomUUID", { configurable: true, value: () => "11111111-1111-4111-8111-111111111161" });
+  global.fetch = jest.fn(async (_url, options) => {
+    if (options?.method !== "POST") {
+      reads++;
+      // Each read owns its snapshot; later writes cannot mutate a prior response.
+      const snapshot = JSON.parse(JSON.stringify(currentCard()));
+      return { ok: true, status: 200, json: async () => ({ interactions: [snapshot] }) } as Response;
+    }
+    commands.push(String(options.body));
+    if (commands.length === 1) {
+      saved = committed;
+      return { ok: false, status: 503, json: async () => ({}) } as Response;
+    }
+    saved = true;
+    return { ok: true, status: 200, json: async () => ({ success: true, amendment: {
+      id: amendmentId, reactionId, dispositionRevision: 1, learningDisposition: "exception",
+    } }) } as Response;
+  }) as typeof fetch;
+
+  render(<HistoryPage />);
+  await userEvent.click(await screen.findByRole("button", { name: "Exclude from taste learning" }));
+  await screen.findByRole("button", { name: "Retry learning change" });
+  await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(reads).toBe(2));
+  const effectiveControl = committed ? "Also reflects my taste here" : "Exclude from taste learning";
+  await waitFor(() => expect(screen.getByRole("button", { name: effectiveControl })).toBeDisabled());
+  expect(screen.getByRole("button", { name: "Something’s off" })).toBeDisabled();
+  expect(commands).toHaveLength(1);
+  const retry = screen.getByRole("button", { name: "Retry learning change" });
+  expect(retry).toBeEnabled();
+
+  await userEvent.click(retry);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Retry learning change" })).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Also reflects my taste here" })).toBeEnabled());
+  expect(screen.getByRole("button", { name: "Something’s off" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Change to dislike" })).toBeEnabled();
+  expect(commands).toHaveLength(2);
+  expect(commands[1]).toBe(commands[0]);
+  expect(JSON.parse(commands[1])).toEqual({ kind: "learning_disposition", reactionId,
+    operationId: "11111111-1111-4111-8111-111111111161", expectedDispositionRevision: 0, learningDisposition: "exception" });
+  expect(reads).toBe(3);
+});
+
+it.each([false, true].flatMap(committed => ["missing-id", "unreadable", "wrong-action"].map(receipt => ({ committed, receipt }))))(
+  "reconciles a malformed flip receipt ($receipt, committed=$committed) before a follow-up correction", async ({ committed, receipt }) => {
+    const oldReactionId = "650000000000000000000071", newReactionId = "650000000000000000000072";
+    const original = { ...seedCards()[0], id: oldReactionId, learningAvailable: true };
+    const commands: Record<string, unknown>[] = [];
+    let flipped = false, excluded = false, reads = 0;
+    const currentId = () => flipped ? newReactionId : oldReactionId;
+    global.fetch = jest.fn(async (_url, options) => {
+      if (options?.method !== "POST") {
+        reads++;
+        const snapshot = JSON.parse(JSON.stringify({ ...original, id: currentId(), action: flipped ? "rejected" : "accepted",
+          learningDisposition: excluded ? "exception" : "normal", dispositionRevision: excluded ? 1 : 0 }));
+        return { ok: true, status: 200, json: async () => ({ interactions: [snapshot] }) } as Response;
+      }
+      const command = JSON.parse(String(options.body)); commands.push(command);
+      if (command.kind === "learning_disposition") {
+        excluded = true;
+        return { ok: true, status: 200, json: async () => ({ success: true, amendment: {
+          id: "650000000000000000000073", reactionId: currentId(), dispositionRevision: 1, learningDisposition: "exception",
+        } }) } as Response;
+      }
+      flipped = committed;
+      return { ok: true, status: 200, json: async () => {
+        if (receipt === "unreadable") throw new SyntaxError("Incomplete acknowledgement");
+        return { success: true, interaction: receipt === "missing-id" ? { action: "rejected" } : { id: newReactionId, action: "accepted" } };
+      } } as Response;
+    }) as typeof fetch;
+
+    render(<HistoryPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Change to dislike" }));
+    await waitFor(() => expect(reads).toBe(2));
+    expect(commands).toEqual([{ snapshotId: original.snapshotId, candidateId: original.candidateId, action: "rejected" }]);
+    if (committed) await userEvent.click(screen.getByRole("button", { name: /^Disliked/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: committed ? "Change to like" : "Change to dislike" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Exclude from taste learning" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Also reflects my taste here" })).toBeEnabled());
+    expect(commands).toHaveLength(2); // The second write is deliberate correction, never an automatic flip retry.
+    expect(commands[1]).toMatchObject({ kind: "learning_disposition", reactionId: committed ? newReactionId : oldReactionId,
+      expectedDispositionRevision: 0, learningDisposition: "exception" });
+    expect(reads).toBe(3);
+  },
+);

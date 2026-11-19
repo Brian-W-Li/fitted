@@ -529,7 +529,7 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
       nSurfaced: 1, shownCandidateIds: [candidateId], shownFullSignatures: [signature(members)],
       candidates: [{ candidateId, template: "two_piece", baseKey: `${members[0]}:${members[1]}`, fullSignature: signature(members),
         items: members.map((itemId, index) => ({ itemId, role: ["base_top", "base_bottom", "shoes"][index] })),
-        styleMove: { oneSentence: "Authored synthetic fit contrast for mechanism verification." } }],
+        styleMove: { oneSentence: `Authored synthetic mechanism record ${candidateId}.` } }],
       itemSnapshots: members.map((itemId, index) => ({ itemId, engineVisible: { ...captured[index], name: `Authored historical ${index + 1}` } })),
     });
     const receipt = await json(`${origin}/api/interactions`, { method: "POST", headers: { ...memoryHeaders, "Content-Type": "application/json" },
@@ -564,7 +564,11 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
   await page.locator("textarea").fill("Authored synthetic fit-contrast class");
   await openTimeAndWeather(page);
   await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
-  async function request() {
+  async function request(expectedBoard = board) {
+    await page.locator("textarea").fill("Authored synthetic fit-contrast class");
+    await openTimeAndWeather(page);
+    await page.getByRole("combobox", { name: "Temperature", exact: true }).selectOption("mild");
+    await page.waitForFunction(element => !element.disabled, await page.getByRole("button", { name: "Get Recommendations", exact: true }).elementHandle());
     await paceRender();
     const [response] = await Promise.all([
       page.waitForResponse(response => response.url().endsWith("/api/recommend") && response.request().method() === "POST"),
@@ -580,7 +584,26 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
       body.shown[index].displayItems.map(item => item.name).sort(), "activated browser cards match actual final membership/order");
     assert.deepEqual(row.shownCandidateIds, body.shown.map(candidate => candidate.candidateId));
     assert.deepEqual(row.preference.shownFullSignatures, row.shownFullSignatures);
-    return { body, row };
+    assert.equal(row.styleContext.boardId, expectedBoard.id); assert.equal(row.styleContext.profileId, expectedBoard.profileId);
+    assert.equal(row.styleContext.profileVersion, expectedBoard.currentVersion); assert.equal(row.styleContext.routineId, routine.id);
+    assert.equal(row.styleContext.routineVersion, routine.currentVersion); assert.equal(row.styleContext.learningEnabled, true);
+    // Compare displayed complete compositions with the current snapshot's own same-pool
+    // comparator. Later exposure can change a baseline, so do not reuse an older request's set.
+    const baseline = row.preference.baselineShownFullSignatures.map(full => {
+      const candidate = row.candidates.find(candidate => candidate.fullSignature === full); assert.ok(candidate);
+      return candidate.items.map(item => item.itemId).sort().join("|");
+    }).sort();
+    const displayed = body.shown.map(outfit => outfit.displayItems.map(item => item.itemId).sort().join("|")).sort();
+    assert.deepEqual(displayed, row.shownCandidateIds.map(id => row.candidates.find(candidate => candidate.candidateId === id).items.map(item => item.itemId).sort().join("|")).sort());
+    if (row.preference.status === "abstained") {
+      assert.deepEqual(displayed, baseline, "abstention displays the current complete zero-learner baseline");
+      assert.ok(row.candidates.every(candidate => (candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) === 0));
+    }
+    for (let index = 0; index < body.shown.length; index++) assert.deepEqual(
+      await cards.nth(index).locator("img").evaluateAll(images => images.map(image => ({ photo: image.getAttribute("src"), alt: image.getAttribute("alt") })).sort((a,b) => a.photo.localeCompare(b.photo))),
+      body.shown[index].displayItems.map(item => ({ photo: item.imageUrl, alt: item.name })).sort((a,b) => a.photo.localeCompare(b.photo)), "displayed photos retain exact response identity");
+    await page.waitForFunction(() => { const images = [...document.querySelectorAll(".p-5.border.rounded-xl img")]; return images.length === 9 && images.every(image => image.complete && image.naturalWidth > 0); });
+    return { body, row, displayed, baseline };
   }
   let activated = await request();
   if (activated.row.preference.status === "abstained" && activated.row.preference.reason === "learner_timeout") {
@@ -599,16 +622,129 @@ async function checkActivatedStyleJourney(db, page, owner, memoryHeaders) {
   const activatedScreenshot = path.join(tmpdir(), "fitted-style-activated.png");
   const removedScreenshot = path.join(tmpdir(), "fitted-style-after-support-removal.png");
   await page.screenshot({ path: activatedScreenshot, fullPage: true });
+  // Correct and remove one exact authored binding through the real History surface.
+  // Its unique visible mechanism provenance identifies the card independently of list order.
+  const originals = await db.collection("outfitinteractions").find({ user, _id: { $in: receipts.map(id => new ObjectId(id)) } }).toArray();
+  const target = originals.find(vote => vote.action === "accepted"), witness = originals.find(vote => vote.action === "rejected"); assert.ok(target && witness);
+  const witnessSource = await db.collection("generationsnapshots").findOne({ user, _id: witness.snapshotId });
+  const witnessMarker = witnessSource.candidates.find(candidate => candidate.candidateId === witness.candidateId).styleMove.oneSentence;
+  const witnessCard = () => page.locator("div.relative.rounded-2xl").filter({ has: page.getByText(`“${witnessMarker}”`, { exact: true }) });
+  const targetSource = await db.collection("generationsnapshots").findOne({ user, _id: target.snapshotId });
+  const targetCandidate = targetSource.candidates.find(candidate => candidate.candidateId === target.candidateId);
+  const targetMarker = targetCandidate.styleMove.oneSentence;
+  const historicalFit = role => targetSource.itemSnapshots.find(item => item.itemId === targetCandidate.items.find(item => item.role === role).itemId).engineVisible.fit;
+  const targetQuery = queryGroups[fits.findIndex(pair => pair[0] === historicalFit("base_top") && pair[1] === historicalFit("base_bottom"))]; assert.ok(targetQuery);
+  const targetPreference = render => {
+    const candidate = render.row.candidates.find(candidate => candidate.items.map(item => item.itemId).sort().join("|") === [...targetQuery].sort().join("|")); assert.ok(candidate);
+    const term = candidate.scoreTrace?.scoreBreakdown?.preference; assert.ok(Number.isFinite(term)); return term;
+  };
+  const historyCard = () => page.locator("div.relative.rounded-2xl").filter({ has: page.getByText(`“${targetMarker}”`, { exact: true }) });
+  await page.goto(`${origin}/history`);
+  await historyCard().getByRole("button", { name: "Change to dislike", exact: true }).waitFor();
+  assert.equal(await historyCard().count(), 1);
+  const [flippedResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/interactions") && response.request().method() === "POST"),
+    historyCard().getByRole("button", { name: "Change to dislike", exact: true }).click(),
+  ]);
+  assert.equal(flippedResponse.status(), 200); const flipReceipt = await flippedResponse.json();
+  assert.deepEqual(flippedResponse.request().postDataJSON(), { snapshotId: String(target.snapshotId), candidateId: target.candidateId, action: "rejected" });
+  const flippedVote = await db.collection("outfitinteractions").findOne({ user, _id: new ObjectId(flipReceipt.interaction.id) });
+  assert.equal(flippedVote.action, "rejected"); assert.equal(String(flippedVote.snapshotId), String(target.snapshotId)); assert.equal(flippedVote.candidateId, target.candidateId);
+  await historyCard().waitFor({ state: "detached" }); // the app consumed its receipt and removed the old liked card
+  await page.reload(); await page.getByRole("button", { name: /^Disliked/ }).click();
+  await historyCard().getByRole("button", { name: "Change to like", exact: true }).waitFor();
+  assert.deepEqual(await db.collection("outfitinteractions").findOne({ user, _id: target._id }), target, "correction appends rather than rewriting the original authored vote");
+  await page.goto(`${origin}/dashboard`); const corrected = await request();
+  assert.equal(corrected.row.preference.support, 12); assert.equal(corrected.row.preference.likes, 5); assert.equal(corrected.row.preference.dislikes, 7);
+  assert.notEqual(corrected.row.preference.evidenceDigest, activated.row.preference.evidenceDigest, "next decision resolves the corrected sign");
+  assert.equal(corrected.row.preference.status, "fitted_experimental");
+  assert.ok(targetPreference(corrected) < targetPreference(activated) - 1e-8, "correcting Like to Dislike lowers the same disjoint fit-relationship outfit's signed contribution");
+  await page.goto(`${origin}/history`); await page.getByRole("button", { name: /^Disliked/ }).click();
+  await historyCard().getByRole("button", { name: "Remove", exact: true }).click();
+  await historyCard().getByText("Remove this reaction?", { exact: true }).waitFor();
+  const [removedResponse] = await Promise.all([
+    page.waitForResponse(response => response.url().includes("/api/interactions?") && response.request().method() === "DELETE"),
+    historyCard().getByRole("button", { name: "Remove", exact: true }).click(),
+  ]);
+  assert.equal(removedResponse.status(), 200);
+  const removeQuery = new URL(removedResponse.url()).searchParams;
+  assert.equal(removeQuery.get("snapshotId"), String(target.snapshotId)); assert.equal(removeQuery.get("candidateId"), target.candidateId);
+  await historyCard().waitFor({ state: "detached" }); await page.reload(); await page.getByRole("button", { name: /^Disliked/ }).click();
+  await witnessCard().getByRole("button", { name: "Change to like", exact: true }).waitFor();
+  assert.equal(await historyCard().count(), 0, "removed binding stays absent after reload and unaffected disliked History has loaded");
+  assert.equal(await db.collection("outfitinteractions").countDocuments({ user, snapshotId: target.snapshotId, candidateId: target.candidateId }), 0);
+  assert.deepEqual(await db.collection("generationsnapshots").findOne({ user, _id: target.snapshotId }), targetSource, "curation preserves immutable shown facts");
+  await page.goto(`${origin}/dashboard`); const afterRemoval = await request();
+  assert.equal(afterRemoval.row.preference.support, 11); assert.equal(afterRemoval.row.preference.likes, 5); assert.equal(afterRemoval.row.preference.dislikes, 6);
+  assert.notEqual(afterRemoval.row.preference.evidenceDigest, corrected.row.preference.evidenceDigest);
+  assert.equal(afterRemoval.row.preference.status, "fitted_experimental");
+  assert.ok(targetPreference(afterRemoval) > targetPreference(corrected) + 1e-8, "removing the corrected binding retracts its negative effect on the same fit-relationship outfit");
+  console.log("Authored History direction check:", JSON.stringify({ targetQuery, signedContribution: { before: targetPreference(activated), afterFlip: targetPreference(corrected), afterRemoval: targetPreference(afterRemoval) },
+    displayed: { before: activated.displayed, afterFlip: corrected.displayed, afterRemoval: afterRemoval.displayed },
+    samePoolBaseline: { before: activated.baseline, afterFlip: corrected.baseline, afterRemoval: afterRemoval.baseline } }));
+
+  // A separately created direction has the same declared traits, but none of this direction's
+  // personal evidence. Switching back restores scoped support without asserting identical
+  // outfits across intervening owner-wide exposure/rotation.
+  await openStyleDirection(page);
+  await panel.getByRole("button", { name: "New direction", exact: true }).click();
+  const newDirection = panel.getByRole("group", { name: "New direction", exact: true });
+  const secondLabel = "Synthetic isolated fit-contrast direction";
+  await newDirection.getByLabel("Saved choice name", { exact: true }).fill(secondLabel);
+  for (const phrase of profile.compiled.aestheticKeywords) {
+    await newDirection.getByLabel("Style word or phrase", { exact: true }).fill(phrase);
+    await newDirection.getByRole("button", { name: "Add style phrase", exact: true }).click();
+  }
+  await newDirection.getByRole("button", { name: "Review direction", exact: true }).click();
+  const [createdDirection] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/style-memory") && response.request().method() === "POST"),
+    newDirection.getByRole("button", { name: "Save direction", exact: true }).click(),
+  ]);
+  assert.equal(createdDirection.status(), 200); const secondState = (await createdDirection.json()).state;
+  const secondBoard = secondState.boards.find(row => row.label === secondLabel); assert.ok(secondBoard && secondBoard.id !== board.id && secondBoard.profileId !== board.profileId);
+  assert.deepEqual(secondBoard.versions[0].compiled, profile.compiled, "isolation changes identity, not authored style traits");
+  await newDirection.waitFor({ state: "detached" });
+  async function choose(label, value) {
+    const [selected] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith("/api/style-memory") && response.request().method() === "POST"),
+      panel.getByRole("combobox", { name: label, exact: true }).selectOption(value),
+    ]);
+    assert.equal(selected.status(), 200); const acknowledged = await selected.json(); assert.equal(selected.request().postDataJSON().kind, "select_context");
+    await page.waitForFunction(element => !element.disabled, await panel.getByRole("combobox", { name: "Style direction", exact: true }).elementHandle());
+    assert.equal(await panel.getByRole("combobox", { name: label, exact: true }).inputValue(), value); return acknowledged;
+  }
+  await choose("Style direction", secondBoard.id); await choose("Saved situation", routine.id);
+  const secondOptIn = panel.getByRole("checkbox", { name: `Use experimental taste learning for ${secondLabel} / ${routine.label}`, exact: true });
+  assert.equal(await secondOptIn.isChecked(), false);
+  const [secondEnabled] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/style-memory") && response.request().method() === "POST"), secondOptIn.click(),
+  ]);
+  assert.equal(secondEnabled.status(), 200); await secondEnabled.json();
+  await page.waitForFunction(element => element.checked && !element.disabled, await secondOptIn.elementHandle());
+  await closeStyleDirection(page); const isolated = await request(secondBoard);
+  assert.equal(isolated.row.preference.support, 0); assert.equal(isolated.row.preference.status, "abstained"); assert.equal(isolated.row.interactionCountAtRequest, 0);
+  assert.deepEqual(isolated.displayed, isolated.baseline, "new direction displays its current zero-learner comparator");
+  await page.reload(); await openStyleDirection(page);
+  assert.equal(await panel.getByRole("combobox", { name: "Style direction", exact: true }).inputValue(), secondBoard.id);
+  await choose("Style direction", board.id); await choose("Saved situation", routine.id);
+  assert.equal(await optIn.isChecked(), true, "returning retains the original direction's explicit opt-in");
+  await closeStyleDirection(page); const returned = await request();
+  assert.equal(returned.row.preference.support, 11); assert.equal(returned.row.preference.likes, 5); assert.equal(returned.row.preference.dislikes, 6);
+  assert.equal(returned.row.preference.evidenceDigest, afterRemoval.row.preference.evidenceDigest, "switching directions never relabels or loses original scoped support");
+  assert.equal(returned.row.preference.status, "fitted_experimental");
+  assert.ok(returned.row.candidates.some(candidate => Math.abs(candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) > 0));
+  for (const vote of originals.filter(vote => String(vote._id) !== String(target._id))) assert.deepEqual(await db.collection("outfitinteractions").findOne({ user, _id: vote._id }), vote);
+  const remainingReceipts = receipts.filter(id => id !== String(target._id));
   // Explicitly retract the authored support through actual authenticated commands;
   // whole-outfit reactions stay intact, and the next request must recompute its baseline.
-  for (const reactionId of receipts) await json(`${origin}/api/interactions`, { method: "POST", headers: { ...memoryHeaders, "Content-Type": "application/json" },
+  for (const reactionId of remainingReceipts) await json(`${origin}/api/interactions`, { method: "POST", headers: { ...memoryHeaders, "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "learning_disposition", operationId: randomUUID(), reactionId, expectedDispositionRevision: 0, learningDisposition: "exception" }) });
   const removed = await request();
   assert.equal(removed.row.preference.status, "abstained"); assert.equal(removed.row.preference.support, 0);
   assert.deepEqual(removed.row.preference.baselineShownFullSignatures, removed.row.shownFullSignatures, "removed support serves the current complete zero-learner baseline");
   assert.ok(removed.row.candidates.every(candidate => (candidate.scoreTrace?.scoreBreakdown?.preference ?? 0) === 0));
   await page.screenshot({ path: removedScreenshot, fullPage: true });
-  console.log(`PASS authored synthetic activated loop: 12 balanced XOR labels through real reaction API, disjoint query garments, four candidates/three cards, changed final membership versus captured comparator, explicit support removal and recomputed abstaining baseline. Screenshots: ${activatedScreenshot} and ${removedScreenshot}. No human-benefit evidence.`);
+  console.log(`PASS authored synthetic activated loop: 12 balanced XOR labels through real reaction API, disjoint query garments, four candidates/three cards, changed final membership versus captured comparator, History flip/removal+reload, isolated second direction and restored original support, explicit remaining-support removal and recomputed abstaining baseline. Screenshots: ${activatedScreenshot} and ${removedScreenshot}. No human-benefit evidence.`);
 }
 
 async function run() {

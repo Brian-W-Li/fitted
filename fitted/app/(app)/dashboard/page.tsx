@@ -835,11 +835,14 @@ function DashboardInner() {
         const actionByKey = buildActionByKey(data.interactions);
         const { shown, changed } = reconcileShownFeedback(baseResult.shown, actionByKey);
         if (!changed) return true;
-        const next = { ...baseResult, shown };
         setResult((prev) => {
-          if (prev !== baseResult) return prev; // user already interacted — never clobber a live mark
-          // Re-persist the reconciled chips, round-tripping the SAVED occasion verbatim (never the
-          // closure's stale "" — that would blank the echoed occasion on the next restore).
+          if (!prev) return prev;
+          // A vote on one card replaces its object. Apply this read only to the
+          // untouched cards from the original render, never a newer result.
+          const merged = prev.shown.map((card, index) =>
+            card === baseResult.shown[index] ? shown[index] : card);
+          if (merged.every((card, index) => card === prev.shown[index])) return prev;
+          const next = { ...prev, shown: merged };
           persistResult(next, savedOccasion);
           return next;
         });

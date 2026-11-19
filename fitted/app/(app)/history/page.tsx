@@ -219,11 +219,20 @@ export default function HistoryPage() {
       }
       const receipt = await res.json().catch(() => null);
       if (!current()) return;
+      if (!(receipt?.success === true && typeof receipt.interaction?.id === "string" &&
+        OBJECT_ID_RE.test(receipt.interaction.id) && receipt.interaction.id.toLowerCase() !== card.id.toLowerCase() &&
+        receipt.interaction.action === opposite)) {
+        // A 200 can have an unreadable/incomplete acknowledgement after the write landed.
+        // Resolve the current reaction with a read; never invent its identity or repeat the vote.
+        await fetchHistory(firebaseUser);
+        if (current()) setActionError("Couldn't confirm that update. Review the current reaction before trying again.");
+        return;
+      }
       historyRead.current++; setLoading(false); // A refresh started during the write may contain the old reaction.
       // Update the action in place — the card leaves THIS tab (shownCards filters by activeTab) and
       // its count moves to the other. We deliberately do NOT auto-switch tabs: a friend curating a
       // list shouldn't be yanked away mid-review; the other tab's badge shows where it went.
-      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, action: opposite, ...(typeof receipt?.interaction?.id === "string" ? { id: receipt.interaction.id } : {}),
+      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, action: opposite, id: receipt.interaction.id,
         feedbackReason: undefined, perItemFeedback: undefined, learningDisposition: c.learningAvailable ? "normal" : undefined, dispositionRevision: 0 } : c)));
     } catch {
       if (current()) setActionError("Couldn't update that reaction. Please try again.");
@@ -325,8 +334,9 @@ export default function HistoryPage() {
         })}
       </div>
 
-      {actionError && (
-        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{actionError}
+      {(actionError || pendingLearning) && (
+        <div role={actionError ? "alert" : "status"} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {actionError || "A learning change is awaiting confirmation."}
           {pendingLearning && <button disabled={!!busyId} onClick={() => void changeLearning(pendingLearning.card, pendingLearning.command)} className="ml-2 underline disabled:opacity-40">Retry learning change</button>}
         </div>
       )}

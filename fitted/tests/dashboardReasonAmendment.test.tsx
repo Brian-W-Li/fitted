@@ -169,3 +169,26 @@ it("fresh History restores scoped details for editing and cancellation leaves th
   expect(screen.getByText("Too formal for class")).toBeInTheDocument();
   expect(posts).toHaveLength(0);
 });
+
+it.each(["removed", "flipped"])("reconciles a %s reaction after reload while another shown outfit receives a new vote", async correction => {
+  const key = "fitted_dashboard_v2:reason-owner";
+  const first = renderResult.shown[0];
+  sessionStorage.setItem(key, JSON.stringify({ occasion: "Class", result: { ...renderResult,
+    shown: [{ ...first, feedback: "liked" }, { ...first, candidateId: "other", displayItems: [{ ...first.displayItems[0], name: "Blue shirt" }] }] } }));
+  let finish!: (value: Response) => void;
+  api(() => response({ interaction: { id: currentId, action: "accepted" } }), () => new Promise(resolve => { finish = resolve; }));
+  render(<Dashboard />);
+  await waitFor(() => expect(finish).toBeDefined());
+  await userEvent.click(screen.getByRole("button", { name: "Like" }));
+  await screen.findByRole("button", { name: "Something’s off" });
+  const rows = correction === "removed" ? [] : [{ snapshotId, candidateId: "c1", id: reactionId, action: "rejected" }];
+  await act(async () => { finish(response({ interactions: rows })); });
+  if (correction === "removed") expect(screen.getByRole("button", { name: "Like" })).toBeVisible();
+  else expect(screen.getByText("Disliked")).toBeVisible();
+  expect(screen.getAllByText("Liked")).toHaveLength(1);
+  const saved = JSON.parse(sessionStorage.getItem(key)!).result.shown;
+  expect(saved[0].feedback).toBe(correction === "removed" ? undefined : "disliked");
+  expect(saved[0].reactionId).toBe(correction === "removed" ? undefined : reactionId);
+  expect(saved[1]).toMatchObject({ candidateId: "other", feedback: "liked", reactionId: currentId });
+  expect(posts).toEqual([{ snapshotId, candidateId: "other", action: "accepted" }]);
+});

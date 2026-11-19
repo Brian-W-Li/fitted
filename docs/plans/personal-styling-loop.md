@@ -84,6 +84,18 @@ experimental feature banks and human answers are not production feature sources.
    decision is rebuilt from current resolved evidence. Plan and wear remain existing
    optional actions, without being converted to training evidence.
 
+Flipping a vote appends the opposite sign to the same shown outfit. Removing
+the reaction clears both signs and their amendments for that showing. The
+original rendered outfit remains in exposure history. A later rating of a
+repeated composition still takes precedence over an edit to an older vote's
+details. After reload, Home reconciles each restored card with History. A new
+vote on one card protects that card while its neighbors receive their updates.
+
+History needs a new reaction ID and the requested sign to acknowledge a flip.
+If a successful response cannot confirm them, read current History before
+offering another correction. When a learning inclusion or exclusion is awaiting
+confirmation, Refresh keeps the original command available for a safe retry.
+
 The product must distinguish a declared instruction from an inferred preference.
 An item-fit note does not itself ban an item. Offer an explicit action such as
 "Leave this piece out next time" with its scope visible; only accepting that action
@@ -550,6 +562,14 @@ Acceptance requires the complete local application, not a new preview website:
 5. Exercise daily/rescue, sticky keeps, same-situation Explore, adaptation, saved plans,
    changed wear, report correction, unavailable garments, source redaction and account
    deletion through existing contracts, including concurrent mutation/admission cases.
+
+For a controlled check of feedback direction, follow a Like through a flip,
+reload and removal on the same History card. Track the signed contribution for
+a different outfit with the same relevant garment relationship, and compare
+each request's displayed garments with its own zero-learner selection from
+the same candidates. Report score movement separately from changes to which
+outfits are shown. Verify that a second style direction with identical traits
+gets none of those votes and that returning restores the first direction's evidence.
 
 For garment correction/undo, apply the ordinary-edit preservation contract in
 canonical spec §18. Inspect actual UI command bodies and persisted rows; distinguish
